@@ -202,35 +202,31 @@ export class DatabaseManager {
     const currentDb = this.db;
     this.initPromise = null;
 
+    let initDb: Database | null = null;
+
     // Wait for any ongoing initialization to complete before closing
     if (currentInitPromise) {
       try {
-        const db = await currentInitPromise;
+        initDb = await currentInitPromise;
         // Always close the initialized connection during cleanup
-        await db.close();
+        await initDb.close();
       } catch {
         // Initialization failed or was cancelled, that's ok
       }
     }
 
     // Close the current database if it exists and wasn't already closed above
-    if (currentDb && currentDb !== this.db) {
-      const currentDbPath = this.dbPath;
-
+    if (currentDb && currentDb !== initDb) {
       try {
         await currentDb.close();
       } catch (err) {
         console.error('Error closing database:', err);
-      } finally {
-        // Clear fields
-        if (this.db === currentDb) {
-          this.db = null;
-        }
-        if (this.dbPath === currentDbPath) {
-          this.dbPath = null;
-        }
       }
     }
+
+    // Clear fields after cleanup
+    this.db = null;
+    this.dbPath = null;
 
     // Remove event listeners to prevent memory leaks
     if (this.abortController) {
