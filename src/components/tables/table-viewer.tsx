@@ -62,6 +62,10 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
       console.log("Schema rows:", schemaRows);
 
       // Check if table exists and has columns
+      // Note: This is different from sanitizeTableName() validation above:
+      // - sanitizeTableName() checks if the table name is in the VALID_TABLES whitelist
+      // - This check verifies the table actually exists in the database
+      // A table could be in the whitelist but not yet created in the DB
       if (!schemaRows || schemaRows.length === 0) {
         throw new Error(`Table "${safeTableName}" does not exist or has no columns`);
       }
