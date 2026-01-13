@@ -100,33 +100,37 @@ export class DatabaseManager {
 
     // If already initializing, wait for that promise
     if (this.initPromise) {
-      return this.initPromise;
+      try {
+        const db = await this.initPromise;
+        // Check again in case cleanup() started while we were waiting
+        if (this.isClosing) {
+          throw new Error('DatabaseManager is closing, cannot get database connection');
+        }
+        return db;
+      } finally {
+        // Clear initPromise after waiting completes
+        this.initPromise = null;
+      }
     }
 
     // Initialize database
     this.initPromise = (async () => {
-      try {
-        const appDataDirPath = await appDataDir();
-        const dbPath = await join(appDataDirPath, "paa_data.db");
-        const db = await Database.load(`sqlite:${dbPath}`);
+      const appDataDirPath = await appDataDir();
+      const dbPath = await join(appDataDirPath, "paa_data.db");
+      const db = await Database.load(`sqlite:${dbPath}`);
 
-        // Check again if we started closing while initializing
-        if (this.isClosing) {
-          // Close the newly created connection and throw
-          await db.close().catch(() => {});
-          throw new Error('DatabaseManager closed during initialization');
-        }
-
-        // Set instance variables only after successful initialization
-        this.dbPath = dbPath;
-        this.db = db;
-
-        return db;
-      } catch (error) {
-        // Clear initPromise on error so initialization can be retried
-        this.initPromise = null;
-        throw error;
+      // Check again if we started closing while initializing
+      if (this.isClosing) {
+        // Close the newly created connection and throw
+        await db.close().catch(() => {});
+        throw new Error('DatabaseManager closed during initialization');
       }
+
+      // Set instance variables only after successful initialization
+      this.dbPath = dbPath;
+      this.db = db;
+
+      return db;
     })();
 
     try {
@@ -136,9 +140,12 @@ export class DatabaseManager {
         throw new Error('DatabaseManager is closing, cannot get database connection');
       }
       return db;
+    } catch (error) {
+      // Clear initPromise on error so initialization can be retried
+      this.initPromise = null;
+      throw error;
     } finally {
-      // Only clear initPromise after db is set, preventing race condition
-      // The db is already set inside the async function above
+      // Clear initPromise after completion (success or failure)
       this.initPromise = null;
     }
   }
