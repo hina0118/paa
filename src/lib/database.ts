@@ -22,7 +22,7 @@ export function isValidTableName(name: string): name is ValidTableName {
 export function sanitizeTableName(tableName: string): string {
   if (!isValidTableName(tableName)) {
     throw new Error(
-      `Invalid table name "${tableName}". ` +
+      `Table "${tableName}" is not allowed. ` +
         `Allowed tables are: ${VALID_TABLES.join(", ")}. ` +
         `This may indicate a configuration issue or a bug in the calling code.`
     );
@@ -126,7 +126,9 @@ export class DatabaseManager {
       // Check again if we started closing while initializing
       if (this.isClosing) {
         // Close the newly created connection and throw
-        await db.close().catch(() => {});
+        await db.close().catch((err) => {
+          console.error("Failed to close database during initialization cleanup:", err);
+        });
         throw new Error(ERROR_CLOSED_DURING_INIT);
       }
 
@@ -231,8 +233,9 @@ export class DatabaseManager {
         initDb = await currentInitPromise;
         // Always close the initialized connection during cleanup
         await initDb.close();
-      } catch {
-        // Initialization failed or was cancelled, that's ok
+      } catch (err) {
+        // Initialization failed or was cancelled; log for troubleshooting
+        console.error('Error during database initialization cleanup:', err);
       }
     }
 
