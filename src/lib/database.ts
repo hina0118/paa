@@ -156,6 +156,9 @@ export class DatabaseManager {
    * Called automatically on pagehide and beforeunload events
    * Can also be called manually
    *
+   * IMPORTANT: After cleanup, the instance becomes permanently unusable.
+   * The isClosing flag is never reset, preventing future database operations.
+   *
    * Note: In event handler contexts (pagehide, beforeunload), we cannot await
    * async operations. However, we initiate the close() operation and it will
    * be processed by the browser/Tauri. For Tauri desktop apps, the process
@@ -168,6 +171,7 @@ export class DatabaseManager {
    * during page teardown when no further operations are expected.
    */
   cleanup(): void {
+    // Set isClosing to true permanently - this instance cannot be reused
     this.isClosing = true;
 
     // Cancel any in-flight initialization by setting initPromise to null
@@ -199,10 +203,14 @@ export class DatabaseManager {
    * Use this when you need to ensure the connection is fully closed
    * before proceeding (e.g., in tests or programmatic cleanup)
    *
-   * Note: After cleanup completes, the instance cannot be reused.
-   * Use resetAsync() instead if you need to reinitialize the connection.
+   * IMPORTANT: After cleanup completes, the instance becomes permanently unusable.
+   * The isClosing flag is never reset to false, preventing any future database operations.
+   * To reinitialize the connection, you must call DatabaseManager.resetAsync() to create
+   * a new instance, rather than reusing the cleaned-up instance.
    */
   async cleanupAsync(): Promise<void> {
+    // Set isClosing to true permanently - this instance cannot be reused
+    // Any subsequent calls to getDatabase() will throw an error
     this.isClosing = true;
 
     // Capture references to current state
