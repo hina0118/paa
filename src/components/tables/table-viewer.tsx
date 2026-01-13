@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { useCallback, useEffect, useState, useRef } from "react";
+import Database from "@tauri-apps/plugin-sql";
+import { path } from "@tauri-apps/api";
 import {
   Table,
   TableBody,
@@ -27,6 +28,19 @@ type SchemaColumn = {
   pk: number;
 };
 
+// Database instance cache
+let dbInstance: Database | null = null;
+let dbPath: string | null = null;
+
+async function getDatabase(): Promise<Database> {
+  if (!dbInstance || !dbPath) {
+    const appDataDir = await path.appDataDir();
+    dbPath = await path.join(appDataDir, "paa_data.db");
+    dbInstance = await Database.load(`sqlite:${dbPath}`);
+  }
+  return dbInstance;
+}
+
 export function TableViewer({ tableName, title }: TableViewerProps) {
   const [data, setData] = useState<TableData[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
@@ -41,24 +55,41 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
     try {
       console.log(`Loading table: ${tableName}`);
 
-      // Get table schema from Rust
-      const schemaRows = await invoke<SchemaColumn[]>("get_table_schema", {
-        tableName,
-      });
+      // Validate table name to prevent SQL injection
+      const validTables = [
+        "emails",
+        "orders",
+        "items",
+        "images",
+        "deliveries",
+        "htmls",
+        "order_emails",
+        "order_htmls",
+      ];
+      if (!validTables.includes(tableName)) {
+        throw new Error(`Invalid table name: ${tableName}`);
+      }
+
+      // Get database connection (reused)
+      const db = await getDatabase();
+
+      // Get table schema
+      const schemaRows = await db.select<SchemaColumn[]>(
+        `PRAGMA table_info(${tableName})`
+      );
       console.log("Schema rows:", schemaRows);
 
       const columnNames = schemaRows.map(row => row.name);
       setColumns(columnNames);
 
-      // Get table data with pagination from Rust
+      // Get table data with pagination
       const offset = page * pageSize;
       console.log(`Fetching data: LIMIT ${pageSize} OFFSET ${offset}`);
 
-      const rows = await invoke<TableData[]>("get_table_data", {
-        tableName,
-        limit: pageSize,
-        offset,
-      });
+      const rows = await db.select<TableData[]>(
+        `SELECT * FROM ${tableName} LIMIT ? OFFSET ?`,
+        [pageSize, offset]
+      );
       console.log(`Fetched ${rows.length} rows`);
 
       setData(rows);
