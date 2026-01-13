@@ -21,7 +21,11 @@ export function isValidTableName(name: string): name is ValidTableName {
 
 export function sanitizeTableName(tableName: string): string {
   if (!isValidTableName(tableName)) {
-    throw new Error(`Invalid table name: ${tableName}`);
+    throw new Error(
+      `Invalid table name "${tableName}". ` +
+        `Allowed tables are: ${VALID_TABLES.join(", ")}. ` +
+        `This may indicate a configuration issue or a bug in the calling code.`
+    );
   }
   // The whitelist check above is sufficient since VALID_TABLES is a const array
   // containing only safe, pre-validated table names
