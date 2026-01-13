@@ -205,10 +205,15 @@ export class DatabaseManager {
   async cleanupAsync(): Promise<void> {
     this.isClosing = true;
 
-    // Cancel any in-flight initialization
+    // Capture references to current state
     const currentInitPromise = this.initPromise;
     const currentDb = this.db;
+
+    // Immediately clear instance fields to prevent race conditions
+    // This ensures getDatabase() cannot access these after cleanup starts
     this.initPromise = null;
+    this.db = null;
+    this.dbPath = null;
 
     let initDb: Database | null = null;
 
@@ -231,10 +236,6 @@ export class DatabaseManager {
         console.error('Error closing database:', err);
       }
     }
-
-    // Clear fields after cleanup
-    this.db = null;
-    this.dbPath = null;
 
     // Remove event listeners to prevent memory leaks
     if (this.abortController) {
