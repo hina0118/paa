@@ -104,17 +104,13 @@ export class DatabaseManager {
 
     // If already initializing, wait for that promise
     if (this.initPromise) {
-      try {
-        const db = await this.initPromise;
-        // Check again in case cleanup() started while we were waiting
-        if (this.isClosing) {
-          throw new Error(ERROR_MANAGER_CLOSING);
-        }
-        return db;
-      } finally {
-        // Clear initPromise after waiting completes
-        this.initPromise = null;
+      const db = await this.initPromise;
+      // Check again in case cleanup() started while we were waiting
+      if (this.isClosing) {
+        throw new Error(ERROR_MANAGER_CLOSING);
       }
+      // Note: initPromise is cleared by the outer finally block below
+      return db;
     }
 
     // Initialize database
@@ -144,12 +140,9 @@ export class DatabaseManager {
         throw new Error(ERROR_MANAGER_CLOSING);
       }
       return db;
-    } catch (error) {
-      // Clear initPromise on error so initialization can be retried
-      this.initPromise = null;
-      throw error;
     } finally {
       // Clear initPromise after completion (success or failure)
+      // This allows initialization to be retried if there was an error
       this.initPromise = null;
     }
   }

@@ -89,7 +89,7 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
     } finally {
       setLoading(false);
     }
-  }, [tableName, page, pageSize, getDb]);
+  }, [tableName, page, getDb]);
 
   useEffect(() => {
     loadData();
