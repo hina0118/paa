@@ -8,3 +8,91 @@ export type Email = {
   starred: boolean;
   labels: string[];
 };
+
+export type DeliveryStatus =
+  | "not_shipped"
+  | "preparing"
+  | "shipped"
+  | "in_transit"
+  | "out_for_delivery"
+  | "delivered"
+  | "failed"
+  | "returned"
+  | "cancelled";
+
+export type Order = {
+  id: number;
+  shopDomain?: string;
+  orderNumber?: string;
+  orderDate?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type Item = {
+  id: number;
+  orderId: number;
+  itemName: string;
+  itemNameNormalized?: string;
+  price: number;
+  quantity: number;
+  category?: string;
+  brand?: string;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type ItemImage = {
+  id: number;
+  itemId: number;
+  imageData?: string;
+  createdAt: Date;
+};
+
+export type Delivery = {
+  id: number;
+  orderId: number;
+  trackingNumber?: string;
+  carrier?: string;
+  deliveryStatus: DeliveryStatus;
+  estimatedDelivery?: Date;
+  actualDelivery?: Date;
+  lastCheckedAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type OrderWithDetails = Order & {
+  items: (Item & { image?: ItemImage })[];
+  deliveries: Delivery[];
+};
+
+export type Html = {
+  id: number;
+  url: string;
+  htmlContent?: string;
+  analysisStatus: "pending" | "completed";
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type OrderEmail = {
+  id: number;
+  orderId: number;
+  emailId: number;
+  createdAt: Date;
+};
+
+export type OrderHtml = {
+  id: number;
+  orderId: number;
+  htmlId: number;
+  createdAt: Date;
+};
+
+export type OrderWithSources = Order & {
+  emails: Email[];
+  htmls: Html[];
+  items: (Item & { image?: ItemImage })[];
+  deliveries: Delivery[];
+};
