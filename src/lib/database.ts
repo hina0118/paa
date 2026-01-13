@@ -28,6 +28,10 @@ export function sanitizeTableName(tableName: string): string {
   return tableName;
 }
 
+// Error messages for DatabaseManager
+const ERROR_MANAGER_CLOSING = 'DatabaseManager is closing, cannot get database connection';
+const ERROR_CLOSED_DURING_INIT = 'DatabaseManager closed during initialization';
+
 /**
  * Singleton database manager for SQLite connections
  *
@@ -90,7 +94,7 @@ export class DatabaseManager {
   async getDatabase(): Promise<Database> {
     // Don't allow new connections if we're in the process of closing
     if (this.isClosing) {
-      throw new Error('DatabaseManager is closing, cannot get database connection');
+      throw new Error(ERROR_MANAGER_CLOSING);
     }
 
     // If already initialized, verify it's still valid and return
@@ -104,7 +108,7 @@ export class DatabaseManager {
         const db = await this.initPromise;
         // Check again in case cleanup() started while we were waiting
         if (this.isClosing) {
-          throw new Error('DatabaseManager is closing, cannot get database connection');
+          throw new Error(ERROR_MANAGER_CLOSING);
         }
         return db;
       } finally {
@@ -123,7 +127,7 @@ export class DatabaseManager {
       if (this.isClosing) {
         // Close the newly created connection and throw
         await db.close().catch(() => {});
-        throw new Error('DatabaseManager closed during initialization');
+        throw new Error(ERROR_CLOSED_DURING_INIT);
       }
 
       // Set instance variables only after successful initialization
@@ -137,7 +141,7 @@ export class DatabaseManager {
       const db = await this.initPromise;
       // Check again in case cleanup() started while we were waiting
       if (this.isClosing) {
-        throw new Error('DatabaseManager is closing, cannot get database connection');
+        throw new Error(ERROR_MANAGER_CLOSING);
       }
       return db;
     } catch (error) {
