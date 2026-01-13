@@ -14,6 +14,3 @@ CREATE INDEX idx_order_emails_order_id ON order_emails(order_id);
 
 -- Index for email_id lookup
 CREATE INDEX idx_order_emails_email_id ON order_emails(email_id);
-
--- Unique index for order_id and email_id combination
-CREATE UNIQUE INDEX idx_order_emails_unique ON order_emails(order_id, email_id);

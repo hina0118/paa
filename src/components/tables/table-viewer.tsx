@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Table,
@@ -35,7 +35,7 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
   const [page, setPage] = useState(0);
   const pageSize = 50;
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -68,11 +68,11 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [tableName, page, pageSize]);
 
   useEffect(() => {
     loadData();
-  }, [tableName, page]);
+  }, [loadData]);
 
   const formatValue = (value: unknown): string => {
     if (value === null || value === undefined) {
