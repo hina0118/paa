@@ -1,6 +1,18 @@
 import { createContext, useContext, useState, ReactNode } from "react";
 
-type Screen = "dashboard" | "orders" | "sync" | "settings";
+type Screen =
+  | "dashboard"
+  | "orders"
+  | "sync"
+  | "settings"
+  | "table-emails"
+  | "table-orders"
+  | "table-items"
+  | "table-images"
+  | "table-deliveries"
+  | "table-htmls"
+  | "table-order-emails"
+  | "table-order-htmls";
 
 type NavigationContextType = {
   currentScreen: Screen;
