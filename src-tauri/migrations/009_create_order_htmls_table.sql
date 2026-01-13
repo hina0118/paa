@@ -14,6 +14,3 @@ CREATE INDEX idx_order_htmls_order_id ON order_htmls(order_id);
 
 -- Index for html_id lookup
 CREATE INDEX idx_order_htmls_html_id ON order_htmls(html_id);
-
--- Unique index for order_id and html_id combination
-CREATE UNIQUE INDEX idx_order_htmls_unique ON order_htmls(order_id, html_id);
