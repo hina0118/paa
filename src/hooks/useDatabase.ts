@@ -34,7 +34,7 @@ import { DatabaseManager } from "@/lib/database";
  *   useEffect(() => {
  *     async function loadData() {
  *       const db = await getDb();
- *       const results = await db.select("SELECT * FROM users");
+ *       const results = await db.select("SELECT * FROM emails");
  *       // ... use results
  *     }
  *     loadData();
