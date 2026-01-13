@@ -13,7 +13,7 @@ export const VALID_TABLES = [
   "order_htmls",
 ] as const;
 
-export type ValidTableName = typeof VALID_TABLES[number];
+export type ValidTableName = (typeof VALID_TABLES)[number];
 
 export function isValidTableName(name: string): name is ValidTableName {
   return VALID_TABLES.includes(name as ValidTableName);
@@ -152,11 +152,18 @@ export class DatabaseManager {
    * async operations. However, we initiate the close() operation and it will
    * be processed by the browser/Tauri. For Tauri desktop apps, the process
    * cleanup will handle any remaining connections.
+   *
+   * Design decision: This method intentionally does not wait for initPromise
+   * to complete. During page unload, we want to immediately signal that the
+   * manager is closing to prevent new operations. Any in-flight initialization
+   * will be abandoned. This is acceptable because cleanup() is only called
+   * during page teardown when no further operations are expected.
    */
   cleanup(): void {
     this.isClosing = true;
 
     // Cancel any in-flight initialization by setting initPromise to null
+    // This is intentional - we don't wait for completion during page unload
     this.initPromise = null;
 
     if (this.db) {
@@ -183,6 +190,9 @@ export class DatabaseManager {
    * Async version of cleanup for contexts where we can await
    * Use this when you need to ensure the connection is fully closed
    * before proceeding (e.g., in tests or programmatic cleanup)
+   *
+   * Note: After cleanup completes, the instance cannot be reused.
+   * Use resetAsync() instead if you need to reinitialize the connection.
    */
   async cleanupAsync(): Promise<void> {
     this.isClosing = true;
@@ -196,17 +206,15 @@ export class DatabaseManager {
     if (currentInitPromise) {
       try {
         const db = await currentInitPromise;
-        // Close it immediately since we're cleaning up
-        // Only if it's not the same as this.db (which we'll close below)
-        if (db !== currentDb) {
-          await db.close();
-        }
+        // Always close the initialized connection during cleanup
+        await db.close();
       } catch {
         // Initialization failed or was cancelled, that's ok
       }
     }
 
-    if (currentDb) {
+    // Close the current database if it exists and wasn't already closed above
+    if (currentDb && currentDb !== this.db) {
       const currentDbPath = this.dbPath;
 
       try {
@@ -214,7 +222,7 @@ export class DatabaseManager {
       } catch (err) {
         console.error('Error closing database:', err);
       } finally {
-        // Only clear fields if they still refer to the connection we just closed
+        // Clear fields
         if (this.db === currentDb) {
           this.db = null;
         }
