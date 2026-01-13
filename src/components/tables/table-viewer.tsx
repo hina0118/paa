@@ -34,6 +34,8 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(0);
+  // Page size of 50 rows - adequate for most tables
+  // For tables with many columns or large text/blob fields, consider making this configurable
   const pageSize = 50;
   const { getDb } = useDatabase();
 
@@ -56,6 +58,11 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
         `PRAGMA table_info(${safeTableName})`
       );
       console.log("Schema rows:", schemaRows);
+
+      // Check if table exists and has columns
+      if (!schemaRows || schemaRows.length === 0) {
+        throw new Error(`テーブル「${safeTableName}」が存在しないか、カラムがありません`);
+      }
 
       const columnNames = schemaRows.map(row => row.name);
       setColumns(columnNames);
