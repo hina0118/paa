@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, useRef } from "react";
 import Database from "@tauri-apps/plugin-sql";
-import { path } from "@tauri-apps/api";
+import { appDataDir, join } from "@tauri-apps/api/path";
 import {
   Table,
   TableBody,
@@ -50,10 +50,8 @@ function sanitizeTableName(tableName: string): string {
   if (!isValidTableName(tableName)) {
     throw new Error(`Invalid table name: ${tableName}`);
   }
-  // Additional safeguard: ensure table name contains only alphanumeric and underscore
-  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) {
-    throw new Error(`Table name contains invalid characters: ${tableName}`);
-  }
+  // The whitelist check above is sufficient since VALID_TABLES is a const array
+  // containing only safe, pre-validated table names
   return tableName;
 }
 
@@ -65,10 +63,27 @@ class DatabaseManager {
   private initPromise: Promise<Database> | null = null;
 
   private constructor() {
-    // Register cleanup on beforeunload
+    // Register cleanup handlers
     if (typeof window !== 'undefined') {
+      // Use pagehide for more reliable cleanup (works on mobile Safari and modern browsers)
+      window.addEventListener('pagehide', () => {
+        this.cleanup();
+      });
+
+      // Also register beforeunload as fallback for older browsers
+      // Note: beforeunload cannot reliably complete async operations
+      // The database connection will be cleaned up by Tauri/browser when the process ends
       window.addEventListener('beforeunload', () => {
         this.cleanup();
+      });
+
+      // Handle visibility changes to potentially cleanup when tab is hidden
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') {
+          // Opportunistic cleanup when page becomes hidden
+          // This gives us a better chance to close the connection before the page unloads
+          this.cleanup();
+        }
       });
     }
   }
@@ -81,46 +96,88 @@ class DatabaseManager {
   }
 
   async getDatabase(): Promise<Database> {
+    // If already initialized, return the instance immediately
+    if (this.db && this.dbPath) {
+      return this.db;
+    }
+
     // If already initializing, wait for that promise
     if (this.initPromise) {
       return this.initPromise;
     }
 
-    // If already initialized, return the instance
-    if (this.db && this.dbPath) {
-      return this.db;
-    }
-
     // Initialize database
     this.initPromise = (async () => {
-      const appDataDir = await path.appDataDir();
-      this.dbPath = await path.join(appDataDir, "paa_data.db");
-      this.db = await Database.load(`sqlite:${this.dbPath}`);
-      return this.db;
+      try {
+        const appDataDirPath = await appDataDir();
+        const dbPath = await join(appDataDirPath, "paa_data.db");
+        const db = await Database.load(`sqlite:${dbPath}`);
+
+        // Set instance variables only after successful initialization
+        this.dbPath = dbPath;
+        this.db = db;
+
+        return db;
+      } catch (error) {
+        // Clear initPromise on error so initialization can be retried
+        this.initPromise = null;
+        throw error;
+      }
     })();
 
     try {
       const db = await this.initPromise;
       return db;
     } finally {
+      // Only clear initPromise after db is set, preventing race condition
+      // The db is already set inside the async function above
       this.initPromise = null;
     }
   }
 
   /**
    * Cleanup the database connection
-   * Called automatically on window beforeunload or can be called manually
+   * Called automatically on pagehide, beforeunload, or visibility change
+   * Can also be called manually
+   *
+   * Note: In event handler contexts (pagehide, beforeunload), we cannot await
+   * async operations. However, we initiate the close() operation and it will
+   * be processed by the browser/Tauri. For Tauri desktop apps, the process
+   * cleanup will handle any remaining connections.
    */
   cleanup(): void {
     if (this.db) {
-      // Close the database connection
-      // Note: close() is async but we can't await in beforeunload
-      // The connection will be cleaned up by the browser/Tauri
-      this.db.close().catch((err) => {
-        console.error('Error closing database:', err);
-      });
+      const dbToClose = this.db;
+      // Set to null immediately to prevent new operations
       this.db = null;
       this.dbPath = null;
+      this.initPromise = null;
+
+      // Close the database connection asynchronously
+      // Best effort - may not complete if called during page unload
+      dbToClose.close().catch((err) => {
+        console.error('Error closing database:', err);
+      });
+    }
+  }
+
+  /**
+   * Async version of cleanup for contexts where we can await
+   * Use this when you need to ensure the connection is fully closed
+   * before proceeding (e.g., in tests or programmatic cleanup)
+   */
+  async cleanupAsync(): Promise<void> {
+    if (this.db) {
+      const dbToClose = this.db;
+      this.db = null;
+      this.dbPath = null;
+      this.initPromise = null;
+
+      try {
+        await dbToClose.close();
+      } catch (err) {
+        console.error('Error closing database:', err);
+      }
     }
   }
 
@@ -130,6 +187,16 @@ class DatabaseManager {
   static reset(): void {
     if (DatabaseManager.instance) {
       DatabaseManager.instance.cleanup();
+      DatabaseManager.instance = null;
+    }
+  }
+
+  /**
+   * Async version of reset for contexts where we can await
+   */
+  static async resetAsync(): Promise<void> {
+    if (DatabaseManager.instance) {
+      await DatabaseManager.instance.cleanupAsync();
       DatabaseManager.instance = null;
     }
   }
