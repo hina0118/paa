@@ -36,7 +36,7 @@ export function sanitizeTableName(tableName: string): string {
  *
  * Key features:
  * - Singleton pattern ensures only one database connection exists
- * - Automatic cleanup on page unload/hide events
+ * - Automatic cleanup on pagehide and beforeunload events
  * - Race condition protection during initialization
  * - Support for both sync and async cleanup
  *
@@ -131,6 +131,10 @@ export class DatabaseManager {
 
     try {
       const db = await this.initPromise;
+      // Check again in case cleanup() started while we were waiting
+      if (this.isClosing) {
+        throw new Error('DatabaseManager is closing, cannot get database connection');
+      }
       return db;
     } finally {
       // Only clear initPromise after db is set, preventing race condition
