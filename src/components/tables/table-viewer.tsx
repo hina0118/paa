@@ -28,17 +28,121 @@ type SchemaColumn = {
   pk: number;
 };
 
-// Database instance cache
-let dbInstance: Database | null = null;
-let dbPath: string | null = null;
+// Valid table names - used to prevent SQL injection
+const VALID_TABLES = [
+  "emails",
+  "orders",
+  "items",
+  "images",
+  "deliveries",
+  "htmls",
+  "order_emails",
+  "order_htmls",
+] as const;
 
-async function getDatabase(): Promise<Database> {
-  if (!dbInstance || !dbPath) {
-    const appDataDir = await path.appDataDir();
-    dbPath = await path.join(appDataDir, "paa_data.db");
-    dbInstance = await Database.load(`sqlite:${dbPath}`);
+type ValidTableName = typeof VALID_TABLES[number];
+
+function isValidTableName(name: string): name is ValidTableName {
+  return VALID_TABLES.includes(name as ValidTableName);
+}
+
+function sanitizeTableName(tableName: string): string {
+  if (!isValidTableName(tableName)) {
+    throw new Error(`Invalid table name: ${tableName}`);
   }
-  return dbInstance;
+  // Additional safeguard: ensure table name contains only alphanumeric and underscore
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) {
+    throw new Error(`Table name contains invalid characters: ${tableName}`);
+  }
+  return tableName;
+}
+
+// Singleton database manager
+class DatabaseManager {
+  private static instance: DatabaseManager | null = null;
+  private db: Database | null = null;
+  private dbPath: string | null = null;
+  private initPromise: Promise<Database> | null = null;
+
+  private constructor() {
+    // Register cleanup on beforeunload
+    if (typeof window !== 'undefined') {
+      window.addEventListener('beforeunload', () => {
+        this.cleanup();
+      });
+    }
+  }
+
+  static getInstance(): DatabaseManager {
+    if (!DatabaseManager.instance) {
+      DatabaseManager.instance = new DatabaseManager();
+    }
+    return DatabaseManager.instance;
+  }
+
+  async getDatabase(): Promise<Database> {
+    // If already initializing, wait for that promise
+    if (this.initPromise) {
+      return this.initPromise;
+    }
+
+    // If already initialized, return the instance
+    if (this.db && this.dbPath) {
+      return this.db;
+    }
+
+    // Initialize database
+    this.initPromise = (async () => {
+      const appDataDir = await path.appDataDir();
+      this.dbPath = await path.join(appDataDir, "paa_data.db");
+      this.db = await Database.load(`sqlite:${this.dbPath}`);
+      return this.db;
+    })();
+
+    try {
+      const db = await this.initPromise;
+      return db;
+    } finally {
+      this.initPromise = null;
+    }
+  }
+
+  /**
+   * Cleanup the database connection
+   * Called automatically on window beforeunload or can be called manually
+   */
+  cleanup(): void {
+    if (this.db) {
+      // Close the database connection
+      // Note: close() is async but we can't await in beforeunload
+      // The connection will be cleaned up by the browser/Tauri
+      this.db.close().catch((err) => {
+        console.error('Error closing database:', err);
+      });
+      this.db = null;
+      this.dbPath = null;
+    }
+  }
+
+  /**
+   * Reset the singleton instance (useful for testing or cleanup)
+   */
+  static reset(): void {
+    if (DatabaseManager.instance) {
+      DatabaseManager.instance.cleanup();
+      DatabaseManager.instance = null;
+    }
+  }
+}
+
+function useDatabase() {
+  const managerRef = useRef<DatabaseManager>(DatabaseManager.getInstance());
+
+  const getDb = useCallback(async () => {
+    return managerRef.current.getDatabase();
+  }, []);
+
+  return { getDb };
 }
 
 export function TableViewer({ tableName, title }: TableViewerProps) {
@@ -48,6 +152,7 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const pageSize = 50;
+  const { getDb } = useDatabase();
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -55,27 +160,17 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
     try {
       console.log(`Loading table: ${tableName}`);
 
-      // Validate table name to prevent SQL injection
-      const validTables = [
-        "emails",
-        "orders",
-        "items",
-        "images",
-        "deliveries",
-        "htmls",
-        "order_emails",
-        "order_htmls",
-      ];
-      if (!validTables.includes(tableName)) {
-        throw new Error(`Invalid table name: ${tableName}`);
-      }
+      // Sanitize and validate table name to prevent SQL injection
+      const safeTableName = sanitizeTableName(tableName);
 
       // Get database connection (reused)
-      const db = await getDatabase();
+      const db = await getDb();
 
       // Get table schema
+      // Note: SQLite PRAGMA statements don't support parameterized table names
+      // We use sanitizeTableName above to ensure safety
       const schemaRows = await db.select<SchemaColumn[]>(
-        `PRAGMA table_info(${tableName})`
+        `PRAGMA table_info(${safeTableName})`
       );
       console.log("Schema rows:", schemaRows);
 
@@ -86,8 +181,11 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
       const offset = page * pageSize;
       console.log(`Fetching data: LIMIT ${pageSize} OFFSET ${offset}`);
 
+      // SECURITY NOTE: Table names cannot be parameterized in SQL
+      // We rely on sanitizeTableName() above for validation and sanitization
+      // The LIMIT and OFFSET values are properly parameterized
       const rows = await db.select<TableData[]>(
-        `SELECT * FROM ${tableName} LIMIT ? OFFSET ?`,
+        `SELECT * FROM ${safeTableName} LIMIT ? OFFSET ?`,
         [pageSize, offset]
       );
       console.log(`Fetched ${rows.length} rows`);
@@ -99,7 +197,7 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
     } finally {
       setLoading(false);
     }
-  }, [tableName, page, pageSize]);
+  }, [tableName, page, pageSize, getDb]);
 
   useEffect(() => {
     loadData();
