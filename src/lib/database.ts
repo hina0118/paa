@@ -44,7 +44,7 @@ export function sanitizeTableName(tableName: string): string {
  * ```typescript
  * const manager = DatabaseManager.getInstance();
  * const db = await manager.getDatabase();
- * const results = await db.select("SELECT * FROM users");
+ * const results = await db.select("SELECT * FROM emails");
  * ```
  */
 export class DatabaseManager {

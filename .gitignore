@@ -104,3 +104,4 @@ Cargo.lock
 .ionide
 
 # End of https://www.toptal.com/developers/gitignore/api/rust,react,visualstudiocode
+tmpclaude-*-cwd
