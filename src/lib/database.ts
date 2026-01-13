@@ -57,7 +57,7 @@ export class DatabaseManager {
 
   private constructor() {
     // Register cleanup handlers with AbortController for proper cleanup
-    if (typeof window !== 'undefined') {
+    if (typeof window !== "undefined") {
       this.abortController = new AbortController();
       const signal = this.abortController.signal;
 

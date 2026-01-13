@@ -61,7 +61,7 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
 
       // Check if table exists and has columns
       if (!schemaRows || schemaRows.length === 0) {
-        throw new Error(`テーブル「${safeTableName}」が存在しないか、カラムがありません`);
+        throw new Error(`Table "${safeTableName}" does not exist or has no columns`);
       }
 
       const columnNames = schemaRows.map(row => row.name);
