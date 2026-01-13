@@ -52,8 +52,10 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
       const db = await getDb();
 
       // Get table schema
-      // Note: SQLite PRAGMA statements don't support parameterized table names
-      // We use sanitizeTableName above to ensure safety
+      // SECURITY NOTE: SQLite PRAGMA statements do not support parameterized queries
+      // We rely on sanitizeTableName() whitelist validation for SQL injection protection
+      // This is a known limitation of PRAGMA - no alternative parameterization exists
+      // The whitelist approach provides strong security as only pre-defined tables are accessible
       const schemaRows = await db.select<SchemaColumn[]>(
         `PRAGMA table_info(${safeTableName})`
       );
