@@ -11,6 +11,20 @@ fn greet(name: &str) -> String {
 }
 
 #[tauri::command]
+async fn initialize_database(pool: tauri::State<'_, SqlitePool>) -> Result<(), String> {
+    log::info!("Initializing database...");
+
+    // 簡単なクエリを実行してDB接続とマイグレーションをトリガー
+    sqlx::query("SELECT 1")
+        .execute(pool.inner())
+        .await
+        .map_err(|e| format!("Failed to initialize database: {}", e))?;
+
+    log::info!("Database initialized successfully");
+    Ok(())
+}
+
+#[tauri::command]
 async fn fetch_gmail_emails(
     app_handle: tauri::AppHandle,
     pool: tauri::State<'_, SqlitePool>
@@ -148,7 +162,7 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![greet, fetch_gmail_emails])
+        .invoke_handler(tauri::generate_handler![greet, initialize_database, fetch_gmail_emails])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
