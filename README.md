@@ -56,6 +56,41 @@ This template should help get you started developing with Tauri, React and Types
 - **トレイメニュー**: 同期実行、画面スキャン、設定へのクイックアクセス。
 - **進捗表示**: 「メール同期済み」「解析済み」「配送中」などのフェーズを視覚化。
 
+## Gmail API セットアップ
+
+このアプリケーションはGmail APIを使用して注文メールを取得します。以下の手順でセットアップしてください。
+
+### 1. Google Cloud Consoleでプロジェクトを作成
+
+1. [Google Cloud Console](https://console.cloud.google.com/)にアクセス
+2. 新しいプロジェクトを作成
+3. 「APIとサービス」→「ライブラリ」から「Gmail API」を有効化
+
+### 2. OAuth 2.0 クライアント IDの作成
+
+1. 「APIとサービス」→「認証情報」
+2. 「認証情報を作成」→「OAuth クライアント ID」
+3. アプリケーションの種類: 「デスクトップアプリ」
+4. 名前: 任意（例: PAA Desktop Client）
+5. 作成後、JSONをダウンロード
+
+### 3. クライアントシークレットファイルの配置
+
+ダウンロードしたJSONファイルを以下の場所に `client_secret.json` として配置:
+
+```
+%APPDATA%\com.tauri.dev\client_secret.json
+```
+
+パスの例:
+```
+C:\Users\<ユーザー名>\AppData\Roaming\com.tauri.dev\client_secret.json
+```
+
+### 4. 初回認証
+
+アプリケーションで初めて「メール取得」機能を実行すると、ブラウザが開いてGoogleアカウントの認証画面が表示されます。認証を完了すると、トークンが自動的に保存され、次回以降は認証不要になります。
+
 ## 開発用コマンド
 
 npm run tauri dev
