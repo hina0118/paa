@@ -7,6 +7,37 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 use yup_oauth2 as oauth2;
 
+// カスタムInstalledFlowDelegateでブラウザを自動的に開く
+struct CustomFlowDelegate;
+
+impl oauth2::authenticator_delegate::InstalledFlowDelegate for CustomFlowDelegate {
+    fn present_user_url<'a>(
+        &'a self,
+        url: &'a str,
+        need_code: bool,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, String>> + Send + 'a>> {
+        Box::pin(async move {
+            eprintln!("Opening browser with URL: {}", url);
+
+            // ブラウザで認証URLを開く
+            if let Err(e) = webbrowser::open(url) {
+                eprintln!("Failed to open browser automatically: {}", e);
+                eprintln!("Please open this URL manually in your browser:");
+                eprintln!("{}", url);
+            } else {
+                eprintln!("Browser opened successfully. Please complete the authentication in your browser.");
+            }
+
+            if need_code {
+                eprintln!("Waiting for authentication code...");
+            }
+
+            // HTTPRedirectモードでは空文字列を返す（リダイレクトでコードを受け取る）
+            Ok(String::new())
+        })
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GmailMessage {
     pub message_id: String,
@@ -50,6 +81,19 @@ impl GmailClient {
 
         let auth = Self::authenticate(&client_secret_path, &token_path).await?;
 
+        // トークンを取得して認証を確実にする
+        // 必要な全てのスコープを一度に要求してブラウザが1回だけ開くようにする
+        eprintln!("Requesting OAuth token...");
+        let _token = auth
+            .token(&[
+                "https://www.googleapis.com/auth/gmail.readonly",
+                "https://www.googleapis.com/auth/gmail.addons.current.message.readonly"
+            ])
+            .await
+            .map_err(|e| format!("Failed to get OAuth token: {}", e))?;
+        eprintln!("OAuth token obtained successfully");
+
+        // Gmail Hub用のHTTPコネクタとクライアントを作成
         let https = hyper_rustls::HttpsConnectorBuilder::new()
             .with_native_roots()
             .map_err(|e| format!("Failed to create HTTPS connector: {}", e))?
@@ -74,22 +118,22 @@ impl GmailClient {
             .map_err(|e| format!("Failed to read client secret: {}", e))?;
 
         eprintln!("Starting OAuth authentication flow...");
-        eprintln!("A browser window will open for authentication.");
-        eprintln!("If it doesn't open automatically, please check the console for the URL.");
+        eprintln!("Opening browser for authentication...");
 
-        // HTTPRedirectモードでローカルサーバーを起動してリダイレクトを受け取る
-        // yup-oauth2はデフォルトでwebbrowserクレートを使ってブラウザを開く
+        // カスタムブラウザオープナーを使用してHTTPRedirectモードで認証
         let auth = oauth2::InstalledFlowAuthenticator::builder(
             secret,
             oauth2::InstalledFlowReturnMethod::HTTPRedirect,
         )
         .persist_tokens_to_disk(token_path)
+        .flow_delegate(Box::new(CustomFlowDelegate))
         .build()
         .await
         .map_err(|e| {
             format!(
                 "Failed to create authenticator: {}\n\n\
-                If you see an authentication URL in the console, please copy it and open it in your browser manually.",
+                If a browser window didn't open, please check the console for the authentication URL and open it manually.\n\
+                URL format: https://accounts.google.com/o/oauth2/auth?...",
                 e
             )
         })?;
@@ -132,7 +176,9 @@ impl GmailClient {
     }
 
     async fn get_message(&self, message_id: &str) -> Result<GmailMessage, String> {
-        let (_, message) = self
+        eprintln!("Fetching message: {}", message_id);
+
+        let (response, message) = self
             .hub
             .users()
             .messages_get("me", message_id)
@@ -140,6 +186,8 @@ impl GmailClient {
             .doit()
             .await
             .map_err(|e| format!("Failed to get message {}: {}", message_id, e))?;
+
+        eprintln!("Response status: {:?}", response.status());
 
         let snippet = message.snippet.unwrap_or_default();
         let internal_date = message.internal_date.unwrap_or(0);
