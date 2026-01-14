@@ -80,15 +80,17 @@ This template should help get you started developing with Tauri, React and Types
 
 **配置場所**:
 ```
-%APPDATA%\com.tauri.dev\client_secret.json
+%APPDATA%\jp.github.hina0118.paa\client_secret.json
 ```
 
 **パスの例**:
 ```
-C:\Users\<ユーザー名>\AppData\Roaming\com.tauri.dev\client_secret.json
+C:\Users\<ユーザー名>\AppData\Roaming\jp.github.hina0118.paa\client_secret.json
 ```
 
 **注意**: このディレクトリには `paa_data.db` (データベースファイル) も保存されます。すべてのアプリケーションデータが同じ場所に集約されます。
+
+**ヒント**: エクスプローラーのアドレスバーに `%APPDATA%\jp.github.hina0118.paa` と入力するとディレクトリに直接アクセスできます。
 
 ### 4. 初回認証
 
