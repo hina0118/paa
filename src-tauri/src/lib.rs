@@ -11,6 +11,10 @@ fn greet(name: &str) -> String {
 
 #[tauri::command]
 async fn fetch_gmail_emails(app_handle: tauri::AppHandle) -> Result<gmail::FetchResult, String> {
+    // 認証URLがコンソールに出力される場合、それをログに記録
+    eprintln!("Starting Gmail email fetch...");
+    eprintln!("If a browser window doesn't open automatically, please check the console for the authentication URL.");
+
     let client = gmail::GmailClient::new(&app_handle).await?;
 
     let query = r#"subject:(注文 OR 予約 OR ありがとうございます)"#;
