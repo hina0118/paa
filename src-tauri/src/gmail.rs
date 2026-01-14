@@ -73,7 +73,12 @@ impl GmailClient {
             .await
             .map_err(|e| format!("Failed to read client secret: {}", e))?;
 
-        // HTTPRedirectはブラウザを自動的に開く
+        eprintln!("Starting OAuth authentication flow...");
+        eprintln!("A browser window will open for authentication.");
+        eprintln!("If it doesn't open automatically, please check the console for the URL.");
+
+        // HTTPRedirectモードでローカルサーバーを起動してリダイレクトを受け取る
+        // yup-oauth2はデフォルトでwebbrowserクレートを使ってブラウザを開く
         let auth = oauth2::InstalledFlowAuthenticator::builder(
             secret,
             oauth2::InstalledFlowReturnMethod::HTTPRedirect,
