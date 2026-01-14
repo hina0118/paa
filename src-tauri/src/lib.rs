@@ -17,9 +17,19 @@ async fn fetch_gmail_emails(app_handle: tauri::AppHandle) -> Result<gmail::Fetch
 
     let client = gmail::GmailClient::new(&app_handle).await?;
 
-    let query = r#"subject:(注文 OR 予約 OR ありがとうございます)"#;
+    // 過去30日間のメールのみを取得
+    let today = chrono::Local::now();
+    let thirty_days_ago = today - chrono::Duration::days(30);
+    let after_date = thirty_days_ago.format("%Y/%m/%d");
 
-    let messages = client.fetch_messages(query).await?;
+    let query = format!(
+        r#"subject:(注文 OR 予約 OR ありがとうございます) after:{}"#,
+        after_date
+    );
+
+    eprintln!("Search query: {}", query);
+
+    let messages = client.fetch_messages(&query).await?;
 
     let result = gmail::save_messages_to_db(&app_handle, messages).await?;
 
