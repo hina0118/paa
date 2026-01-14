@@ -1,5 +1,6 @@
 use tauri::Manager;
 use tauri_plugin_sql::{Migration, MigrationKind};
+use sqlx::sqlite::SqlitePool;
 
 mod gmail;
 
@@ -10,7 +11,10 @@ fn greet(name: &str) -> String {
 }
 
 #[tauri::command]
-async fn fetch_gmail_emails(app_handle: tauri::AppHandle) -> Result<Vec<gmail::GmailMessage>, String> {
+async fn fetch_gmail_emails(
+    app_handle: tauri::AppHandle,
+    pool: tauri::State<'_, SqlitePool>
+) -> Result<gmail::FetchResult, String> {
     log::info!("Starting Gmail email fetch...");
     log::info!("If a browser window doesn't open automatically, please check the console for the authentication URL.");
 
@@ -31,7 +35,10 @@ async fn fetch_gmail_emails(app_handle: tauri::AppHandle) -> Result<Vec<gmail::G
     let messages = client.fetch_messages(&query).await?;
     log::info!("Fetched {} messages from Gmail", messages.len());
 
-    Ok(messages)
+    // バックエンドでDBに保存
+    let result = gmail::save_messages_to_db(&pool, messages).await?;
+
+    Ok(result)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -95,7 +102,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .setup(|app| {
+        .setup(move |app| {
             // ロガーの初期化
             env_logger::Builder::from_default_env()
                 .filter_level(log::LevelFilter::Info)
@@ -109,14 +116,35 @@ pub fn run() {
 
             log::info!("Database path: {}", db_path.display());
 
-            // tauri-plugin-sqlを登録（マイグレーションは最初のDB接続時に実行される）
+            // tauri-plugin-sqlを登録（フロントエンド用、マイグレーションも管理）
             app.handle().plugin(
                 tauri_plugin_sql::Builder::default()
                     .add_migrations(&db_url, migrations)
                     .build()
             )?;
 
-            log::info!("tauri-plugin-sql registered with {} migrations", migrations.len());
+            log::info!("tauri-plugin-sql registered with migrations");
+
+            // sqlxプールを作成してバックエンド用に管理
+            // DB自体はtauri-plugin-sqlのマイグレーションで初期化される想定
+            let pool = tauri::async_runtime::block_on(async {
+                use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+                use std::str::FromStr;
+
+                // DB接続オプション（create_if_missingを有効化）
+                let options = SqliteConnectOptions::from_str(&db_url)
+                    .expect("Failed to parse database URL")
+                    .create_if_missing(true);
+
+                // DB接続プール作成
+                SqlitePoolOptions::new()
+                    .connect_with(options)
+                    .await
+                    .expect("Failed to create sqlx pool")
+            });
+
+            app.manage(pool);
+            log::info!("sqlx pool created for backend use");
 
             Ok(())
         })

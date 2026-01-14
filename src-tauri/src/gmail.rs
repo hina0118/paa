@@ -3,6 +3,7 @@ use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::client::legacy::Client;
 use hyper_util::rt::TokioExecutor;
 use serde::{Deserialize, Serialize};
+use sqlx::sqlite::SqlitePool;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 use yup_oauth2 as oauth2;
@@ -45,6 +46,13 @@ pub struct GmailMessage {
     pub body_plain: Option<String>,
     pub body_html: Option<String>,
     pub internal_date: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FetchResult {
+    pub fetched_count: usize,
+    pub saved_count: usize,
+    pub skipped_count: usize,
 }
 
 pub struct GmailClient {
@@ -256,4 +264,58 @@ impl GmailClient {
             }
         }
     }
+}
+
+pub async fn save_messages_to_db(
+    pool: &SqlitePool,
+    messages: Vec<GmailMessage>,
+) -> Result<FetchResult, String> {
+    log::info!("Saving {} messages to database using sqlx", messages.len());
+
+    let mut saved_count = 0;
+    let mut skipped_count = 0;
+
+    // トランザクションを使用してバッチ処理
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| format!("Failed to begin transaction: {}", e))?;
+
+    for msg in &messages {
+        let result = sqlx::query(
+            r#"
+            INSERT INTO emails (message_id, body_plain, body_html)
+            VALUES (?1, ?2, ?3)
+            ON CONFLICT(message_id) DO NOTHING
+            "#,
+        )
+        .bind(&msg.message_id)
+        .bind(&msg.body_plain)
+        .bind(&msg.body_html)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("Failed to insert message {}: {}", msg.message_id, e))?;
+
+        if result.rows_affected() > 0 {
+            saved_count += 1;
+        } else {
+            skipped_count += 1;
+        }
+    }
+
+    tx.commit()
+        .await
+        .map_err(|e| format!("Failed to commit transaction: {}", e))?;
+
+    log::info!(
+        "Saved {} messages, skipped {} duplicates",
+        saved_count,
+        skipped_count
+    );
+
+    Ok(FetchResult {
+        fetched_count: messages.len(),
+        saved_count,
+        skipped_count,
+    })
 }
