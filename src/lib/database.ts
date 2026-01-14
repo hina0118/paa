@@ -67,14 +67,14 @@ export class DatabaseManager {
     const signal = this.abortController.signal;
 
     // Use pagehide for more reliable cleanup (works on mobile Safari and modern browsers)
-    window.addEventListener('pagehide', () => {
+    window.addEventListener("pagehide", () => {
       this.cleanup();
     }, { signal });
 
     // Also register beforeunload as fallback for older browsers
     // Note: beforeunload cannot reliably complete async operations
     // The database connection will be cleaned up by Tauri/browser when the process ends
-    window.addEventListener('beforeunload', () => {
+    window.addEventListener("beforeunload", () => {
       this.cleanup();
     }, { signal });
 
@@ -183,7 +183,7 @@ export class DatabaseManager {
       // Close the database connection asynchronously
       // Best effort - may not complete if called during page unload
       dbToClose.close().catch((err) => {
-        console.error('Error closing database:', err);
+        console.error("Error closing database:", err);
       });
     }
 
@@ -225,7 +225,7 @@ export class DatabaseManager {
         await initDb.close();
       } catch (err) {
         // Initialization failed or was cancelled; log for troubleshooting
-        console.error('Error during database initialization cleanup:', err);
+        console.error("Error during database initialization cleanup:", err);
       }
     }
 
@@ -236,7 +236,7 @@ export class DatabaseManager {
       try {
         await currentDb.close();
       } catch (err) {
-        console.error('Error closing database:', err);
+        console.error("Error closing database:", err);
       }
     }
 
