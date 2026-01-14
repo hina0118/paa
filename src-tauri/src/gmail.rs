@@ -37,12 +37,13 @@ impl GmailClient {
         std::fs::create_dir_all(&app_data_dir)
             .map_err(|e| format!("Failed to create app data dir: {}", e))?;
 
+        // DBファイルと同じディレクトリに配置
         let token_path = app_data_dir.join("gmail_token.json");
         let client_secret_path = app_data_dir.join("client_secret.json");
 
         if !client_secret_path.exists() {
             return Err(format!(
-                "Client secret file not found. Please place client_secret.json at: {}",
+                "Client secret file not found. Please place client_secret.json at: {}\n\nThis is the same directory where paa_data.db is stored.",
                 client_secret_path.display()
             ));
         }

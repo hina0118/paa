@@ -76,16 +76,19 @@ This template should help get you started developing with Tauri, React and Types
 
 ### 3. クライアントシークレットファイルの配置
 
-ダウンロードしたJSONファイルを以下の場所に `client_secret.json` として配置:
+ダウンロードしたJSONファイルを **DBファイルと同じディレクトリ** に `client_secret.json` として配置:
 
+**配置場所**:
 ```
 %APPDATA%\com.tauri.dev\client_secret.json
 ```
 
-パスの例:
+**パスの例**:
 ```
 C:\Users\<ユーザー名>\AppData\Roaming\com.tauri.dev\client_secret.json
 ```
+
+**注意**: このディレクトリには `paa_data.db` (データベースファイル) も保存されます。すべてのアプリケーションデータが同じ場所に集約されます。
 
 ### 4. 初回認証
 
