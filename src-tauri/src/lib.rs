@@ -1,10 +1,25 @@
 use tauri::Manager;
 use tauri_plugin_sql::{Migration, MigrationKind};
 
+mod gmail;
+
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
+}
+
+#[tauri::command]
+async fn fetch_gmail_emails(app_handle: tauri::AppHandle) -> Result<gmail::FetchResult, String> {
+    let client = gmail::GmailClient::new(&app_handle).await?;
+
+    let query = r#"subject:(注文 OR 予約 OR ありがとうございます)"#;
+
+    let messages = client.fetch_messages(query).await?;
+
+    let result = gmail::save_messages_to_db(&app_handle, messages).await?;
+
+    Ok(result)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -83,7 +98,7 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![greet])
+        .invoke_handler(tauri::generate_handler![greet, fetch_gmail_emails])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
