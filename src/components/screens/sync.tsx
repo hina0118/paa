@@ -1,15 +1,6 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Button } from "@/components/ui/button";
-import Database from "@tauri-apps/plugin-sql";
-
-interface GmailMessage {
-  message_id: string;
-  snippet: string;
-  body_plain: string | null;
-  body_html: string | null;
-  internal_date: number;
-}
 
 interface FetchResult {
   fetched_count: number;
@@ -28,33 +19,9 @@ export function Sync() {
     setResult(null);
 
     try {
-      // Gmailからメッセージを取得
-      const messages = await invoke<GmailMessage[]>("fetch_gmail_emails");
-
-      // データベースに保存
-      const db = await Database.load("sqlite:paa_data.db");
-
-      let savedCount = 0;
-      let skippedCount = 0;
-
-      for (const msg of messages) {
-        const result = await db.execute(
-          "INSERT INTO emails (message_id, body_plain, body_html) VALUES (?, ?, ?) ON CONFLICT(message_id) DO NOTHING",
-          [msg.message_id, msg.body_plain, msg.body_html]
-        );
-
-        if (result.rowsAffected > 0) {
-          savedCount++;
-        } else {
-          skippedCount++;
-        }
-      }
-
-      setResult({
-        fetched_count: messages.length,
-        saved_count: savedCount,
-        skipped_count: skippedCount,
-      });
+      // Gmailからメッセージを取得してバックエンドでDBに保存
+      const fetchResult = await invoke<FetchResult>("fetch_gmail_emails");
+      setResult(fetchResult);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
