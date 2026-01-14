@@ -73,6 +73,7 @@ impl GmailClient {
             .await
             .map_err(|e| format!("Failed to read client secret: {}", e))?;
 
+        // HTTPRedirectはブラウザを自動的に開く
         let auth = oauth2::InstalledFlowAuthenticator::builder(
             secret,
             oauth2::InstalledFlowReturnMethod::HTTPRedirect,
@@ -80,7 +81,13 @@ impl GmailClient {
         .persist_tokens_to_disk(token_path)
         .build()
         .await
-        .map_err(|e| format!("Failed to create authenticator: {}", e))?;
+        .map_err(|e| {
+            format!(
+                "Failed to create authenticator: {}\n\n\
+                If you see an authentication URL in the console, please copy it and open it in your browser manually.",
+                e
+            )
+        })?;
 
         Ok(auth)
     }

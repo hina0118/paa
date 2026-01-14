@@ -62,9 +62,19 @@ export function Sync() {
           <p className="text-sm mb-2">
             Gmail APIを使用するには、事前にGoogle Cloud Consoleでの設定が必要です。
           </p>
-          <p className="text-sm">
+          <p className="text-sm mb-2">
             詳細は README.md の「Gmail API セットアップ」セクションを参照してください。
           </p>
+          <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded">
+            <p className="text-xs font-semibold text-yellow-800 mb-1">
+              初回認証について
+            </p>
+            <p className="text-xs text-yellow-700">
+              初回実行時は、ブラウザで認証画面が自動的に開きます。
+              もし開かない場合は、コンソール（開発者ツール）に表示されるURLをコピーして、
+              手動でブラウザで開いてください。
+            </p>
+          </div>
         </div>
       </div>
     </div>
