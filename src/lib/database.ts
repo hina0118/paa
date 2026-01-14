@@ -58,34 +58,30 @@ const ERROR_CLOSED_DURING_INIT = 'DatabaseManager closed during initialization';
 export class DatabaseManager {
   private static instance: DatabaseManager | null = null;
   private db: Database | null = null;
-  private dbPath: string | null = null;
   private initPromise: Promise<Database> | null = null;
   private isClosing = false;
-  private abortController: AbortController | null = null;
+  private abortController = new AbortController();
 
   private constructor() {
     // Register cleanup handlers with AbortController for proper cleanup
-    if (typeof window !== "undefined") {
-      this.abortController = new AbortController();
-      const signal = this.abortController.signal;
+    const signal = this.abortController.signal;
 
-      // Use pagehide for more reliable cleanup (works on mobile Safari and modern browsers)
-      window.addEventListener('pagehide', () => {
-        this.cleanup();
-      }, { signal });
+    // Use pagehide for more reliable cleanup (works on mobile Safari and modern browsers)
+    window.addEventListener('pagehide', () => {
+      this.cleanup();
+    }, { signal });
 
-      // Also register beforeunload as fallback for older browsers
-      // Note: beforeunload cannot reliably complete async operations
-      // The database connection will be cleaned up by Tauri/browser when the process ends
-      window.addEventListener('beforeunload', () => {
-        this.cleanup();
-      }, { signal });
+    // Also register beforeunload as fallback for older browsers
+    // Note: beforeunload cannot reliably complete async operations
+    // The database connection will be cleaned up by Tauri/browser when the process ends
+    window.addEventListener('beforeunload', () => {
+      this.cleanup();
+    }, { signal });
 
-      // Note: visibilitychange listener removed as it causes issues:
-      // - Closes connection when user switches tabs, requiring reconnection
-      // - Can interrupt ongoing operations
-      // - Connection cleanup on page unload is sufficient for Tauri desktop apps
-    }
+    // Note: visibilitychange listener removed as it causes issues:
+    // - Closes connection when user switches tabs, requiring reconnection
+    // - Can interrupt ongoing operations
+    // - Connection cleanup on page unload is sufficient for Tauri desktop apps
   }
 
   static getInstance(): DatabaseManager {
@@ -102,7 +98,7 @@ export class DatabaseManager {
     }
 
     // If already initialized, verify it's still valid and return
-    if (this.db && this.dbPath && !this.isClosing) {
+    if (this.db && !this.isClosing) {
       return this.db;
     }
 
@@ -132,8 +128,7 @@ export class DatabaseManager {
         throw new Error(ERROR_CLOSED_DURING_INIT);
       }
 
-      // Set instance variables only after successful initialization
-      this.dbPath = dbPath;
+      // Set instance variable only after successful initialization
       this.db = db;
 
       return db;
@@ -184,7 +179,6 @@ export class DatabaseManager {
       const dbToClose = this.db;
       // Set to null immediately to prevent new operations
       this.db = null;
-      this.dbPath = null;
 
       // Close the database connection asynchronously
       // Best effort - may not complete if called during page unload
@@ -194,10 +188,7 @@ export class DatabaseManager {
     }
 
     // Remove event listeners to prevent memory leaks
-    if (this.abortController) {
-      this.abortController.abort();
-      this.abortController = null;
-    }
+    this.abortController.abort();
   }
 
   /**
@@ -223,7 +214,6 @@ export class DatabaseManager {
     // This ensures getDatabase() cannot access these after cleanup starts
     this.initPromise = null;
     this.db = null;
-    this.dbPath = null;
 
     let initDb: Database | null = null;
 
@@ -240,6 +230,8 @@ export class DatabaseManager {
     }
 
     // Close the current database if it exists and wasn't already closed above
+    // Note: currentDb === initDb can occur when initialization just completed and
+    // both fields point to the same Database instance. The !== check prevents double-closing.
     if (currentDb && currentDb !== initDb) {
       try {
         await currentDb.close();
@@ -249,10 +241,7 @@ export class DatabaseManager {
     }
 
     // Remove event listeners to prevent memory leaks
-    if (this.abortController) {
-      this.abortController.abort();
-      this.abortController = null;
-    }
+    this.abortController.abort();
   }
 
   /**

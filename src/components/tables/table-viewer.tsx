@@ -52,9 +52,9 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
       const db = await getDb();
 
       // Get table schema
-      // SECURITY NOTE: SQLite PRAGMA statements do not support parameterized queries
+      // SECURITY NOTE: Table names cannot be parameterized in SQL (including PRAGMA statements)
       // We rely on sanitizeTableName() whitelist validation for SQL injection protection
-      // This is a known limitation of PRAGMA - no alternative parameterization exists
+      // This is a known limitation - no alternative parameterization exists for table identifiers
       // The whitelist approach provides strong security as only pre-defined tables are accessible
       const schemaRows = await db.select<SchemaColumn[]>(
         `PRAGMA table_info(${safeTableName})`
@@ -77,9 +77,8 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
       const offset = page * pageSize;
       console.log(`Fetching data: LIMIT ${pageSize} OFFSET ${offset}`);
 
-      // SECURITY NOTE: Table names cannot be parameterized in SQL
-      // We rely on sanitizeTableName() above for validation and sanitization
-      // The LIMIT and OFFSET values are properly parameterized
+      // Table name validated by sanitizeTableName() above (see security note)
+      // LIMIT and OFFSET values are properly parameterized
       const rows = await db.select<TableData[]>(
         `SELECT * FROM ${safeTableName} LIMIT ? OFFSET ?`,
         [pageSize, offset]
