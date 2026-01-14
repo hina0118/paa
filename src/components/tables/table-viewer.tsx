@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import {
   Table,
   TableBody,
@@ -10,6 +9,8 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
+import { sanitizeTableName } from "@/lib/database";
+import { useDatabase } from "@/hooks/useDatabase";
 
 type TableViewerProps = {
   tableName: string;
@@ -33,7 +34,10 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(0);
+  // Page size of 50 rows - adequate for most tables
+  // For tables with many columns or large text/blob fields, consider making this configurable
   const pageSize = 50;
+  const { getDb } = useDatabase();
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -41,24 +45,44 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
     try {
       console.log(`Loading table: ${tableName}`);
 
-      // Get table schema from Rust
-      const schemaRows = await invoke<SchemaColumn[]>("get_table_schema", {
-        tableName,
-      });
+      // Sanitize and validate table name to prevent SQL injection
+      const safeTableName = sanitizeTableName(tableName);
+
+      // Get database connection (reused)
+      const db = await getDb();
+
+      // Get table schema
+      // SECURITY NOTE: Table names cannot be parameterized in SQL (including PRAGMA statements)
+      // We rely on sanitizeTableName() whitelist validation for SQL injection protection
+      // This is a known limitation - no alternative parameterization exists for table identifiers
+      // The whitelist approach provides strong security as only pre-defined tables are accessible
+      const schemaRows = await db.select<SchemaColumn[]>(
+        `PRAGMA table_info(${safeTableName})`
+      );
       console.log("Schema rows:", schemaRows);
+
+      // Check if table exists and has columns
+      // Note: This is different from sanitizeTableName() validation above:
+      // - sanitizeTableName() checks if the table name is in the VALID_TABLES whitelist
+      // - This check verifies the table actually exists in the database
+      // A table could be in the whitelist but not yet created in the DB
+      if (!schemaRows || schemaRows.length === 0) {
+        throw new Error(`Table "${safeTableName}" does not exist or has no columns`);
+      }
 
       const columnNames = schemaRows.map(row => row.name);
       setColumns(columnNames);
 
-      // Get table data with pagination from Rust
+      // Get table data with pagination
       const offset = page * pageSize;
       console.log(`Fetching data: LIMIT ${pageSize} OFFSET ${offset}`);
 
-      const rows = await invoke<TableData[]>("get_table_data", {
-        tableName,
-        limit: pageSize,
-        offset,
-      });
+      // Table name validated by sanitizeTableName() above (see security note)
+      // LIMIT and OFFSET values are properly parameterized
+      const rows = await db.select<TableData[]>(
+        `SELECT * FROM ${safeTableName} LIMIT ? OFFSET ?`,
+        [pageSize, offset]
+      );
       console.log(`Fetched ${rows.length} rows`);
 
       setData(rows);
@@ -68,7 +92,7 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
     } finally {
       setLoading(false);
     }
-  }, [tableName, page, pageSize]);
+  }, [tableName, page, pageSize, getDb]);
 
   useEffect(() => {
     loadData();
