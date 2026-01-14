@@ -10,10 +10,9 @@ fn greet(name: &str) -> String {
 }
 
 #[tauri::command]
-async fn fetch_gmail_emails(app_handle: tauri::AppHandle) -> Result<gmail::FetchResult, String> {
-    // 認証URLがコンソールに出力される場合、それをログに記録
-    eprintln!("Starting Gmail email fetch...");
-    eprintln!("If a browser window doesn't open automatically, please check the console for the authentication URL.");
+async fn fetch_gmail_emails(app_handle: tauri::AppHandle) -> Result<Vec<gmail::GmailMessage>, String> {
+    log::info!("Starting Gmail email fetch...");
+    log::info!("If a browser window doesn't open automatically, please check the console for the authentication URL.");
 
     let client = gmail::GmailClient::new(&app_handle).await?;
 
@@ -27,13 +26,12 @@ async fn fetch_gmail_emails(app_handle: tauri::AppHandle) -> Result<gmail::Fetch
         after_date
     );
 
-    eprintln!("Search query: {}", query);
+    log::info!("Search query: {}", query);
 
     let messages = client.fetch_messages(&query).await?;
+    log::info!("Fetched {} messages from Gmail", messages.len());
 
-    let result = gmail::save_messages_to_db(&app_handle, messages).await?;
-
-    Ok(result)
+    Ok(messages)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -98,17 +96,27 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            // ロガーの初期化
+            env_logger::Builder::from_default_env()
+                .filter_level(log::LevelFilter::Info)
+                .init();
+
             let app_data_dir = app.path().app_data_dir().expect("failed to get app data dir");
             std::fs::create_dir_all(&app_data_dir).expect("failed to create app data dir");
 
             let db_path = app_data_dir.join("paa_data.db");
             let db_url = format!("sqlite:{}", db_path.to_string_lossy());
 
+            log::info!("Database path: {}", db_path.display());
+
+            // tauri-plugin-sqlを登録（マイグレーションは最初のDB接続時に実行される）
             app.handle().plugin(
                 tauri_plugin_sql::Builder::default()
                     .add_migrations(&db_url, migrations)
                     .build()
             )?;
+
+            log::info!("tauri-plugin-sql registered with {} migrations", migrations.len());
 
             Ok(())
         })

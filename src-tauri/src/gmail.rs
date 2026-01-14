@@ -17,19 +17,19 @@ impl oauth2::authenticator_delegate::InstalledFlowDelegate for CustomFlowDelegat
         need_code: bool,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, String>> + Send + 'a>> {
         Box::pin(async move {
-            eprintln!("Opening browser with URL: {}", url);
+            log::info!("Opening browser with URL: {}", url);
 
             // ブラウザで認証URLを開く
             if let Err(e) = webbrowser::open(url) {
-                eprintln!("Failed to open browser automatically: {}", e);
-                eprintln!("Please open this URL manually in your browser:");
-                eprintln!("{}", url);
+                log::warn!("Failed to open browser automatically: {}", e);
+                log::warn!("Please open this URL manually in your browser:");
+                log::warn!("{}", url);
             } else {
-                eprintln!("Browser opened successfully. Please complete the authentication in your browser.");
+                log::info!("Browser opened successfully. Please complete the authentication in your browser.");
             }
 
             if need_code {
-                eprintln!("Waiting for authentication code...");
+                log::info!("Waiting for authentication code...");
             }
 
             // HTTPRedirectモードでは空文字列を返す（リダイレクトでコードを受け取る）
@@ -45,13 +45,6 @@ pub struct GmailMessage {
     pub body_plain: Option<String>,
     pub body_html: Option<String>,
     pub internal_date: i64,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct FetchResult {
-    pub fetched_count: usize,
-    pub saved_count: usize,
-    pub skipped_count: usize,
 }
 
 pub struct GmailClient {
@@ -82,16 +75,13 @@ impl GmailClient {
         let auth = Self::authenticate(&client_secret_path, &token_path).await?;
 
         // トークンを取得して認証を確実にする
-        // 必要な全てのスコープを一度に要求してブラウザが1回だけ開くようにする
-        eprintln!("Requesting OAuth token...");
+        // gmail.readonlyスコープのみを使用（デスクトップアプリケーションに必要な最小限の権限）
+        log::info!("Requesting OAuth token...");
         let _token = auth
-            .token(&[
-                "https://www.googleapis.com/auth/gmail.readonly",
-                "https://www.googleapis.com/auth/gmail.addons.current.message.readonly"
-            ])
+            .token(&["https://www.googleapis.com/auth/gmail.readonly"])
             .await
             .map_err(|e| format!("Failed to get OAuth token: {}", e))?;
-        eprintln!("OAuth token obtained successfully");
+        log::info!("OAuth token obtained successfully");
 
         // Gmail Hub用のHTTPコネクタとクライアントを作成
         let https = hyper_rustls::HttpsConnectorBuilder::new()
@@ -117,8 +107,8 @@ impl GmailClient {
             .await
             .map_err(|e| format!("Failed to read client secret: {}", e))?;
 
-        eprintln!("Starting OAuth authentication flow...");
-        eprintln!("Opening browser for authentication...");
+        log::info!("Starting OAuth authentication flow...");
+        log::info!("Opening browser for authentication...");
 
         // カスタムブラウザオープナーを使用してHTTPRedirectモードで認証
         let auth = oauth2::InstalledFlowAuthenticator::builder(
@@ -158,10 +148,21 @@ impl GmailClient {
                 .map_err(|e| format!("Failed to list messages: {}", e))?;
 
             if let Some(messages) = result.messages {
-                for msg in messages {
-                    if let Some(id) = &msg.id {
-                        let full_message = self.get_message(id).await?;
-                        all_messages.push(full_message);
+                // メッセージIDを収集
+                let message_ids: Vec<String> = messages
+                    .iter()
+                    .filter_map(|msg| msg.id.clone())
+                    .collect();
+
+                log::info!("Fetching {} messages in parallel batches", message_ids.len());
+
+                // 順次処理でメッセージを取得
+                // 注: 並列処理はライフタイムの問題とGmail API制限により複雑
+                // 将来的な改善: tokio::spawn + Arc<Mutex<Hub>>の使用を検討
+                for message_id in message_ids {
+                    match self.get_message(&message_id).await {
+                        Ok(msg) => all_messages.push(msg),
+                        Err(e) => log::warn!("Failed to fetch message {}: {}", message_id, e),
                     }
                 }
             }
@@ -176,7 +177,7 @@ impl GmailClient {
     }
 
     async fn get_message(&self, message_id: &str) -> Result<GmailMessage, String> {
-        eprintln!("Fetching message: {}", message_id);
+        log::debug!("Fetching message: {}", message_id);
 
         let (response, message) = self
             .hub
@@ -187,7 +188,7 @@ impl GmailClient {
             .await
             .map_err(|e| format!("Failed to get message {}: {}", message_id, e))?;
 
-        eprintln!("Response status: {:?}", response.status());
+        log::debug!("Response status: {:?}", response.status());
 
         let snippet = message.snippet.unwrap_or_default();
         let internal_date = message.internal_date.unwrap_or(0);
@@ -195,34 +196,9 @@ impl GmailClient {
         let mut body_plain: Option<String> = None;
         let mut body_html: Option<String> = None;
 
-        if let Some(payload) = message.payload {
-            if let Some(parts) = payload.parts {
-                for part in parts {
-                    if let Some(mime_type) = &part.mime_type {
-                        if let Some(body) = &part.body {
-                            if let Some(data) = &body.data {
-                                let decoded = Self::decode_base64(data);
-                                match mime_type.as_ref() {
-                                    "text/plain" => body_plain = Some(decoded),
-                                    "text/html" => body_html = Some(decoded),
-                                    _ => {}
-                                }
-                            }
-                        }
-                    }
-                }
-            } else if let Some(body) = payload.body {
-                if let Some(data) = &body.data {
-                    let decoded = Self::decode_base64(data);
-                    if let Some(mime_type) = &payload.mime_type {
-                        match mime_type.as_ref() {
-                            "text/plain" => body_plain = Some(decoded),
-                            "text/html" => body_html = Some(decoded),
-                            _ => {}
-                        }
-                    }
-                }
-            }
+        // 再帰的にMIMEパートを解析
+        if let Some(payload) = &message.payload {
+            Self::extract_body_from_part(payload, &mut body_plain, &mut body_html);
         }
 
         Ok(GmailMessage {
@@ -234,57 +210,50 @@ impl GmailClient {
         })
     }
 
-    fn decode_base64(data: &[u8]) -> String {
-        String::from_utf8_lossy(data).to_string()
-    }
-}
+    fn decode_base64(data: &str) -> String {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 
-pub async fn save_messages_to_db(
-    app_handle: &AppHandle,
-    messages: Vec<GmailMessage>,
-) -> Result<FetchResult, String> {
-    let app_data_dir = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
-
-    let db_path = app_data_dir.join("paa_data.db");
-    let db_url = format!("sqlite:{}", db_path.to_string_lossy());
-
-    let pool = sqlx::SqlitePool::connect(&db_url)
-        .await
-        .map_err(|e| format!("Failed to connect to database: {}", e))?;
-
-    let mut saved_count = 0;
-    let mut skipped_count = 0;
-
-    for msg in &messages {
-        let result = sqlx::query(
-            r#"
-            INSERT INTO emails (message_id, body_plain, body_html)
-            VALUES (?1, ?2, ?3)
-            ON CONFLICT(message_id) DO NOTHING
-            "#,
-        )
-        .bind(&msg.message_id)
-        .bind(&msg.body_plain)
-        .bind(&msg.body_html)
-        .execute(&pool)
-        .await
-        .map_err(|e| format!("Failed to insert message {}: {}", msg.message_id, e))?;
-
-        if result.rows_affected() > 0 {
-            saved_count += 1;
-        } else {
-            skipped_count += 1;
+        // Gmail APIはbase64url形式（パディングなし）でエンコードされた文字列を返す
+        match URL_SAFE_NO_PAD.decode(data) {
+            Ok(bytes) => String::from_utf8_lossy(&bytes).to_string(),
+            Err(_) => {
+                log::warn!("Failed to decode base64 data, returning empty string");
+                String::new()
+            }
         }
     }
 
-    pool.close().await;
+    // 再帰的にMIMEパートを解析する
+    fn extract_body_from_part(
+        part: &google_gmail1::api::MessagePart,
+        body_plain: &mut Option<String>,
+        body_html: &mut Option<String>,
+    ) {
+        // 現在のパートのbodyをチェック
+        if let Some(mime_type) = &part.mime_type {
+            if let Some(body) = &part.body {
+                if let Some(data) = &body.data {
+                    if let Ok(data_str) = std::str::from_utf8(data) {
+                        let decoded = Self::decode_base64(data_str);
+                        match mime_type.as_ref() {
+                            "text/plain" if body_plain.is_none() => {
+                                *body_plain = Some(decoded);
+                            }
+                            "text/html" if body_html.is_none() => {
+                                *body_html = Some(decoded);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
 
-    Ok(FetchResult {
-        fetched_count: messages.len(),
-        saved_count,
-        skipped_count,
-    })
+        // 子パートを再帰的に処理
+        if let Some(parts) = &part.parts {
+            for child_part in parts {
+                Self::extract_body_from_part(child_part, body_plain, body_html);
+            }
+        }
+    }
 }
