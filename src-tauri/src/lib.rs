@@ -1,4 +1,4 @@
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tauri_plugin_sql::{Migration, MigrationKind};
 use sqlx::sqlite::SqlitePool;
 
@@ -11,34 +11,114 @@ fn greet(name: &str) -> String {
 }
 
 #[tauri::command]
+async fn start_sync(
+    app_handle: tauri::AppHandle,
+    pool: tauri::State<'_, SqlitePool>,
+    sync_state: tauri::State<'_, gmail::SyncState>,
+) -> Result<(), String> {
+    log::info!("Starting incremental Gmail sync...");
+
+    // Spawn async task to avoid blocking
+    let pool_clone = pool.inner().clone();
+    let sync_state_clone = sync_state.inner().clone();
+    let app_clone = app_handle.clone();
+
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = gmail::sync_gmail_incremental(&app_clone, &pool_clone, &sync_state_clone, 50).await {
+            log::error!("Sync failed: {}", e);
+
+            // Emit error event
+            let error_event = gmail::SyncProgressEvent {
+                batch_number: 0,
+                batch_size: 0,
+                total_synced: 0,
+                newly_saved: 0,
+                status_message: format!("Sync error: {}", e),
+                is_complete: true,
+                error: Some(e.clone()),
+            };
+
+            let _ = app_clone.emit("sync-progress", error_event);
+
+            // Update database status to error
+            let _ = sqlx::query(
+                "UPDATE sync_metadata SET sync_status = 'error', last_error_message = ?1 WHERE id = 1"
+            )
+            .bind(&e)
+            .execute(&pool_clone)
+            .await;
+        }
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn cancel_sync(
+    sync_state: tauri::State<'_, gmail::SyncState>,
+) -> Result<(), String> {
+    log::info!("Cancelling sync...");
+    sync_state.request_cancel();
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_sync_status(
+    pool: tauri::State<'_, SqlitePool>,
+) -> Result<gmail::SyncMetadata, String> {
+    let row: (String, Option<String>, i64, i64, Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT sync_status, oldest_fetched_date, total_synced_count, batch_size, last_sync_started_at, last_sync_completed_at FROM sync_metadata WHERE id = 1"
+    )
+    .fetch_one(pool.inner())
+    .await
+    .map_err(|e| format!("Failed to fetch sync status: {}", e))?;
+
+    Ok(gmail::SyncMetadata {
+        sync_status: row.0,
+        oldest_fetched_date: row.1,
+        total_synced_count: row.2,
+        batch_size: row.3,
+        last_sync_started_at: row.4,
+        last_sync_completed_at: row.5,
+    })
+}
+
+#[tauri::command]
+async fn update_batch_size(
+    pool: tauri::State<'_, SqlitePool>,
+    batch_size: i64,
+) -> Result<(), String> {
+    log::info!("Updating batch size to: {}", batch_size);
+
+    sqlx::query(
+        "UPDATE sync_metadata SET batch_size = ?1 WHERE id = 1"
+    )
+    .bind(batch_size)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| format!("Failed to update batch size: {}", e))?;
+
+    Ok(())
+}
+
+#[tauri::command]
 async fn fetch_gmail_emails(
     app_handle: tauri::AppHandle,
-    pool: tauri::State<'_, SqlitePool>
+    pool: tauri::State<'_, SqlitePool>,
+    sync_state: tauri::State<'_, gmail::SyncState>,
 ) -> Result<gmail::FetchResult, String> {
-    log::info!("Starting Gmail email fetch...");
+    log::info!("Starting Gmail email fetch (via start_sync)...");
     log::info!("If a browser window doesn't open automatically, please check the console for the authentication URL.");
 
-    let client = gmail::GmailClient::new(&app_handle).await?;
+    // Use the new incremental sync internally
+    gmail::sync_gmail_incremental(&app_handle, pool.inner(), sync_state.inner(), 50).await?;
 
-    // 過去30日間のメールのみを取得
-    let today = chrono::Local::now();
-    let thirty_days_ago = today - chrono::Duration::days(30);
-    let after_date = thirty_days_ago.format("%Y/%m/%d");
-
-    let query = format!(
-        r#"subject:(注文 OR 予約 OR ありがとうございます) after:{}"#,
-        after_date
-    );
-
-    log::info!("Search query: {}", query);
-
-    let messages = client.fetch_messages(&query).await?;
-    log::info!("Fetched {} messages from Gmail", messages.len());
-
-    // バックエンドでDBに保存
-    let result = gmail::save_messages_to_db(&pool, messages).await?;
-
-    Ok(result)
+    // Return a simple result (actual progress is sent via events)
+    Ok(gmail::FetchResult {
+        fetched_count: 0,
+        saved_count: 0,
+        skipped_count: 0,
+    })
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -97,6 +177,18 @@ pub fn run() {
             description: "create order_htmls table",
             sql: include_str!("../migrations/009_create_order_htmls_table.sql"),
             kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 10,
+            description: "create sync_metadata table",
+            sql: include_str!("../migrations/010_create_sync_metadata_table.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 11,
+            description: "add internal_date to emails",
+            sql: include_str!("../migrations/011_add_internal_date_to_emails.sql"),
+            kind: MigrationKind::Up,
         }
     ];
 
@@ -146,9 +238,20 @@ pub fn run() {
             app.manage(pool);
             log::info!("sqlx pool created for backend use");
 
+            // Initialize sync state
+            app.manage(gmail::SyncState::new());
+            log::info!("Sync state initialized");
+
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![greet, fetch_gmail_emails])
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            fetch_gmail_emails,
+            start_sync,
+            cancel_sync,
+            get_sync_status,
+            update_batch_size
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
