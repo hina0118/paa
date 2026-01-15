@@ -148,6 +148,9 @@ impl SyncState {
                 true
             }
         } else {
+            // If either mutex is poisoned or cannot be acquired, log a warning so this
+            // failure mode is distinguishable from the normal "already running" case.
+            log::error!("Failed to acquire locks in try_start (mutex poisoned or unavailable)");
             false
         }
     }
@@ -167,7 +170,13 @@ impl<'a> SyncGuard<'a> {
 
 impl<'a> Drop for SyncGuard<'a> {
     fn drop(&mut self) {
-        self.sync_state.set_running(false);
+        // Attempt to clear the running flag. If the mutex is poisoned due to a panic,
+        // log an error since the sync state may be left in an inconsistent state.
+        if let Ok(mut is_running) = self.sync_state.is_running.lock() {
+            *is_running = false;
+        } else {
+            log::error!("Failed to clear running flag in SyncGuard::drop (mutex poisoned or unavailable)");
+        }
     }
 }
 
@@ -504,9 +513,11 @@ pub async fn sync_gmail_incremental(
     // TODO: Make these configurable via database or configuration struct.
     // Currently hardcoded as const for safety, but should be moved to a SyncConfig struct
     // to allow easier testing and customization per user.
-    // These limits apply regardless of the actual `batch_size` passed to this function.
-    // For example, with batch_size=50, MAX_ITERATIONS=1000 allows up to 50,000 emails,
-    // but with batch_size=100, it would allow 100,000 emails.
+    // These constants define the maximum number of iterations and the maximum sync duration,
+    // independent of the `batch_size` value itself. However, the total number of emails
+    // that can be processed in a single sync run is effectively `MAX_ITERATIONS * batch_size`.
+    // For example, with batch_size=50 and MAX_ITERATIONS=1000, up to 50,000 emails may be
+    // processed, but with batch_size=100, up to 100,000 emails may be processed.
     const MAX_ITERATIONS: usize = 1000; // Prevent infinite loops
     const SYNC_TIMEOUT_MINUTES: i64 = 30; // Maximum sync duration
 
@@ -520,6 +531,17 @@ pub async fn sync_gmail_incremental(
     // Create RAII guard to ensure running flag is cleared on function exit
     let _guard = SyncGuard::new(sync_state);
 
+    // Helper function to update sync status to 'error' on early exit
+    let update_error_status = || async {
+        let now = chrono::Utc::now().to_rfc3339();
+        let _ = sqlx::query(
+            "UPDATE sync_metadata SET sync_status = 'error', last_sync_completed_at = ?1 WHERE id = 1"
+        )
+        .bind(&now)
+        .execute(pool)
+        .await;
+    };
+
     // Update sync status to 'syncing'
     let now = chrono::Utc::now().to_rfc3339();
     if let Err(e) = sqlx::query(
@@ -529,6 +551,7 @@ pub async fn sync_gmail_incremental(
     .execute(pool)
     .await
     {
+        update_error_status().await;
         return Err(format!("Failed to update sync status: {}", e));
     }
 
@@ -541,6 +564,7 @@ pub async fn sync_gmail_incremental(
     {
         Ok(m) => m,
         Err(e) => {
+            update_error_status().await;
             return Err(format!("Failed to fetch sync metadata: {}", e));
         }
     };
@@ -552,6 +576,7 @@ pub async fn sync_gmail_incremental(
     let client = match GmailClient::new(app_handle).await {
         Ok(c) => c,
         Err(e) => {
+            update_error_status().await;
             return Err(e);
         }
     };
@@ -581,6 +606,7 @@ pub async fn sync_gmail_incremental(
         let messages = match fetch_batch(&client, &query, effective_batch_size).await {
             Ok(m) => m,
             Err(e) => {
+                update_error_status().await;
                 return Err(e);
             }
         };
@@ -600,12 +626,13 @@ pub async fn sync_gmail_incremental(
         let result = match save_messages_to_db(pool, messages.clone()).await {
             Ok(r) => r,
             Err(e) => {
+                update_error_status().await;
                 return Err(e);
             }
         };
         total_synced += result.saved_count as i64;
         // Update oldest fetched date
-        // Note: messages is guaranteed to be non-empty at this point (checked at lines 573-577)
+        // Note: messages is guaranteed to be non-empty at this point (checked at lines 587-591)
         // min_by_key returns Some because iterator is non-empty
         let new_oldest = messages.iter()
             .min_by_key(|m| m.internal_date)
@@ -620,6 +647,7 @@ pub async fn sync_gmail_incremental(
         .execute(pool)
         .await
         {
+            update_error_status().await;
             return Err(format!("Failed to update metadata: {}", e));
         }
 
@@ -648,6 +676,7 @@ pub async fn sync_gmail_incremental(
             error: None,
         };
         if let Err(e) = app_handle.emit("sync-progress", progress) {
+            update_error_status().await;
             return Err(format!("Failed to emit progress: {}", e));
         }
         // Check if we got fewer messages than requested (end of results)
