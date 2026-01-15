@@ -16,6 +16,7 @@ import {
   OrderHtmlsTable,
 } from "@/components/screens/tables";
 import { NavigationProvider, useNavigation } from "@/contexts/navigation-context";
+import { SyncProvider } from "@/contexts/sync-context";
 
 function AppContent() {
   const { currentScreen } = useNavigation();
@@ -83,7 +84,9 @@ function App() {
 
   return (
     <NavigationProvider>
-      <AppContent />
+      <SyncProvider>
+        <AppContent />
+      </SyncProvider>
     </NavigationProvider>
   );
 }
