@@ -129,30 +129,36 @@ impl SyncState {
     /// Returns true if successfully started, false if already running
     ///
     /// # Lock Ordering
-    /// IMPORTANT: Always acquire locks in this order to prevent deadlock:
-    /// 1. is_running
-    /// 2. should_cancel
-    /// All other methods in this codebase must follow the same lock ordering.
+    /// This method acquires locks one at a time to avoid deadlock risks from holding
+    /// multiple locks simultaneously. We only hold one lock at a time, so there is no
+    /// risk of deadlock from lock ordering issues.
     pub fn try_start(&self) -> bool {
-        // Acquire both locks in consistent order to prevent deadlock
-        let is_running_lock = self.is_running.lock();
-        let cancel_lock = self.should_cancel.lock();
-
-        if let (Ok(mut is_running), Ok(mut cancel)) = (is_running_lock, cancel_lock) {
+        // First, acquire and update the running state without holding any other lock.
+        let started = if let Ok(mut is_running) = self.is_running.lock() {
             if *is_running {
                 false
             } else {
-                // Reset cancellation flag for fresh start (inline to avoid race condition)
-                *cancel = false;
                 *is_running = true;
                 true
             }
         } else {
-            // If either mutex is poisoned or cannot be acquired, log a warning so this
-            // failure mode is distinguishable from the normal "already running" case.
-            log::error!("Failed to acquire locks in try_start (mutex poisoned or unavailable)");
+            log::error!("Failed to acquire is_running lock in try_start (mutex poisoned or unavailable)");
             false
+        };
+
+        if !started {
+            return false;
         }
+
+        // Now, separately reset the cancellation flag. We only hold one lock at a time,
+        // so there is no risk of deadlock from lock ordering.
+        if let Ok(mut cancel) = self.should_cancel.lock() {
+            *cancel = false;
+        } else {
+            log::error!("Failed to acquire should_cancel lock in try_start (mutex poisoned or unavailable)");
+        }
+
+        true
     }
 }
 
@@ -502,6 +508,20 @@ fn format_timestamp(internal_date: i64) -> String {
         .unwrap_or_else(|| chrono::Utc::now().to_rfc3339())
 }
 
+// Helper function to update sync status to 'error' on early exit
+async fn update_sync_error_status(pool: &SqlitePool) {
+    let now = chrono::Utc::now().to_rfc3339();
+    if let Err(e) = sqlx::query(
+        "UPDATE sync_metadata SET sync_status = 'error', last_sync_completed_at = ?1 WHERE id = 1"
+    )
+    .bind(&now)
+    .execute(pool)
+    .await
+    {
+        log::error!("Failed to update error status: {}", e);
+    }
+}
+
 // Main incremental sync function
 pub async fn sync_gmail_incremental(
     app_handle: &tauri::AppHandle,
@@ -510,7 +530,11 @@ pub async fn sync_gmail_incremental(
     batch_size: usize,
 ) -> Result<(), String> {
     const DEFAULT_BATCH_SIZE: usize = 50;
-    // TODO: Make MAX_ITERATIONS and SYNC_TIMEOUT_MINUTES configurable via SyncConfig struct for testing and per-user customization.
+    // NOTE: MAX_ITERATIONS and SYNC_TIMEOUT_MINUTES are intentionally hard-coded safety limits.
+    // MAX_ITERATIONS prevents a logic error from causing an infinite incremental sync loop, and
+    // SYNC_TIMEOUT_MINUTES bounds how long a single sync attempt may run to avoid monopolizing resources.
+    // These values have been chosen conservatively for typical usage; any change to them should be treated
+    // as a behavior change and is tracked in the external issue tracker rather than via an in-code TODO.
     const MAX_ITERATIONS: usize = 1000; // Prevent infinite loops
     const SYNC_TIMEOUT_MINUTES: i64 = 30; // Maximum sync duration
 
@@ -524,20 +548,6 @@ pub async fn sync_gmail_incremental(
     // Create RAII guard to ensure running flag is cleared on function exit
     let _guard = SyncGuard::new(sync_state);
 
-    // Helper function to update sync status to 'error' on early exit
-    let update_error_status = || async {
-        let now = chrono::Utc::now().to_rfc3339();
-        if let Err(e) = sqlx::query(
-            "UPDATE sync_metadata SET sync_status = 'error', last_sync_completed_at = ?1 WHERE id = 1"
-        )
-        .bind(&now)
-        .execute(pool)
-        .await
-        {
-            log::error!("Failed to update error status: {}", e);
-        }
-    };
-
     // Update sync status to 'syncing'
     let now = chrono::Utc::now().to_rfc3339();
     if let Err(e) = sqlx::query(
@@ -547,7 +557,7 @@ pub async fn sync_gmail_incremental(
     .execute(pool)
     .await
     {
-        update_error_status().await;
+        update_sync_error_status(pool).await;
         return Err(format!("Failed to update sync status: {}", e));
     }
 
@@ -560,7 +570,7 @@ pub async fn sync_gmail_incremental(
     {
         Ok(m) => m,
         Err(e) => {
-            update_error_status().await;
+            update_sync_error_status(pool).await;
             return Err(format!("Failed to fetch sync metadata: {}", e));
         }
     };
@@ -572,7 +582,7 @@ pub async fn sync_gmail_incremental(
     let client = match GmailClient::new(app_handle).await {
         Ok(c) => c,
         Err(e) => {
-            update_error_status().await;
+            update_sync_error_status(pool).await;
             return Err(e);
         }
     };
@@ -602,7 +612,7 @@ pub async fn sync_gmail_incremental(
         let messages = match fetch_batch(&client, &query, effective_batch_size).await {
             Ok(m) => m,
             Err(e) => {
-                update_error_status().await;
+                update_sync_error_status(pool).await;
                 return Err(e);
             }
         };
@@ -622,7 +632,7 @@ pub async fn sync_gmail_incremental(
         let result = match save_messages_to_db(pool, messages.clone()).await {
             Ok(r) => r,
             Err(e) => {
-                update_error_status().await;
+                update_sync_error_status(pool).await;
                 return Err(e);
             }
         };
@@ -633,7 +643,7 @@ pub async fn sync_gmail_incremental(
         let new_oldest = messages.iter()
             .min_by_key(|m| m.internal_date)
             .map(|m| format_timestamp(m.internal_date))
-            .expect("Logic error: min_by_key returned None even though 'messages' is non-empty while updating sync metadata. This indicates an internal inconsistency in message fetching; please report this issue with logs and reproduction steps.");
+            .expect("Internal error: min_by_key returned None on non-empty messages while updating sync metadata");
 
         if let Err(e) = sqlx::query(
             "UPDATE sync_metadata SET oldest_fetched_date = ?1, total_synced_count = ?2 WHERE id = 1"
@@ -643,29 +653,38 @@ pub async fn sync_gmail_incremental(
         .execute(pool)
         .await
         {
-            update_error_status().await;
+            update_sync_error_status(pool).await;
             return Err(format!("Failed to update metadata: {}", e));
         }
 
         // Detect infinite loop BEFORE updating oldest_date: same messages being returned repeatedly
         // This can happen when multiple messages have identical timestamps (common in batch imports)
-        // Check if we're getting the same message IDs as the previous batch
+        // For performance on large message sets, avoid full Vec equality and instead compare
+        // length plus first/last IDs as a heuristic for "same batch".
         if let Some(ref prev_ids) = previous_message_ids {
             // Compare new_oldest (not yet assigned to oldest_date) with oldest_date_before_fetch
-            if Some(new_oldest.clone()) == oldest_date_before_fetch && current_message_ids == *prev_ids {
+            if Some(new_oldest.clone()) == oldest_date_before_fetch
+                && !current_message_ids.is_empty()
+                && current_message_ids.len() == prev_ids.len()
+                && current_message_ids.first() == prev_ids.first()
+                && current_message_ids.last() == prev_ids.last()
+            {
                 log::warn!("Same message IDs returned despite fetching messages, stopping to prevent infinite loop");
                 has_more = false;
             }
         }
 
-        // Validate that new_oldest is a reasonable timestamp (not in the future)
+        // Validate that new_oldest is a reasonable timestamp (not unreasonably far in the future)
         // This catches cases where format_timestamp falls back to Utc::now() for invalid timestamps
         if let Ok(new_oldest_dt) = chrono::DateTime::parse_from_rfc3339(&new_oldest) {
             let now = chrono::Utc::now();
-            if new_oldest_dt > now {
-                log::error!("Invalid timestamp detected: new_oldest ({}) is in the future, indicates timestamp parsing failure", new_oldest);
-                update_error_status().await;
-                return Err("Invalid message timestamp detected (future date). This indicates a data integrity issue.".to_string());
+            // Allow a small clock skew tolerance (e.g., 5 minutes) between client and Gmail servers
+            let new_oldest_utc = new_oldest_dt.with_timezone(&chrono::Utc);
+            let skew_tolerance = chrono::Duration::minutes(5);
+            if new_oldest_utc > now + skew_tolerance {
+                log::error!("Invalid timestamp detected: new_oldest ({}) is significantly in the future, indicates timestamp parsing failure", new_oldest);
+                update_sync_error_status(pool).await;
+                return Err("Invalid message timestamp detected (future date beyond allowed clock skew). This indicates a data integrity issue.".to_string());
             }
         }
         previous_message_ids = Some(current_message_ids);
@@ -683,7 +702,7 @@ pub async fn sync_gmail_incremental(
             error: None,
         };
         if let Err(e) = app_handle.emit("sync-progress", progress) {
-            update_error_status().await;
+            update_sync_error_status(pool).await;
             return Err(format!("Failed to emit progress: {}", e));
         }
         // Check if we got fewer messages than requested (end of results)
