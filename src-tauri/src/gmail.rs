@@ -117,13 +117,15 @@ impl SyncState {
         }
     }
 
-    /// Atomically check if not running and set to running if so
-    /// Returns true if successfully set to running, false if already running
+    /// Atomically check if not running, reset cancellation flag, and set to running
+    /// Returns true if successfully started, false if already running
     pub fn try_start(&self) -> bool {
         if let Ok(mut is_running) = self.is_running.lock() {
             if *is_running {
                 false
             } else {
+                // Reset cancellation flag for fresh start
+                self.reset();
                 *is_running = true;
                 true
             }
@@ -481,18 +483,16 @@ pub async fn sync_gmail_incremental(
     batch_size: usize,
 ) -> Result<(), String> {
     const DEFAULT_BATCH_SIZE: usize = 50;
-    // TODO: Consider making these configurable via database or function parameters
-    // With batch_size=50, MAX_ITERATIONS=1000 allows up to 50,000 emails
-    // Users with larger mailboxes may need higher limits
+    // TODO: Consider making these configurable via database or function parameters.
+    // These limits apply regardless of the actual `batch_size` passed to this function.
+    // For example, with the default batch_size=50, MAX_ITERATIONS=1000 allows up to 50,000 emails,
+    // but with batch_size=100, it would allow 100,000 emails.
     const MAX_ITERATIONS: usize = 1000; // Prevent infinite loops
-    const SYNC_TIMEOUT_MINUTES: i64 = 30; // Maximum sync duration (30 min for ~50k emails)
+    const SYNC_TIMEOUT_MINUTES: i64 = 30; // Maximum sync duration
 
     let batch_size = if batch_size > 0 { batch_size } else { DEFAULT_BATCH_SIZE };
 
-    // Reset cancellation flag before starting sync
-    sync_state.reset();
-
-    // Atomically check and set running flag to prevent race conditions
+    // Atomically check and set running flag (also resets cancellation flag internally)
     if !sync_state.try_start() {
         return Err("Sync is already in progress".to_string());
     }
@@ -579,11 +579,12 @@ pub async fn sync_gmail_incremental(
         };
         total_synced += result.saved_count as i64;
         // Update oldest fetched date
-        // Note: messages is guaranteed to be non-empty at this point (checked above)
+        // Note: messages is guaranteed to be non-empty at this point (checked at line 557-560)
+        // min_by_key returns Some because iterator is non-empty
         let new_oldest = messages.iter()
             .min_by_key(|m| m.internal_date)
             .map(|m| format_timestamp(m.internal_date))
-            .expect("messages should not be empty");
+            .unwrap();
         // Debug-only check: validate date format (should always pass unless format_timestamp changes unexpectedly)
         debug_assert!(
             chrono::DateTime::parse_from_rfc3339(&new_oldest).is_ok(),
@@ -602,11 +603,12 @@ pub async fn sync_gmail_incremental(
         }
         // Update the oldest_date variable for the next iteration
         oldest_date = Some(new_oldest.clone());
-        // Detect if oldest_date hasn't changed AND no messages were fetched (potential infinite loop)
+        // Detect if oldest_date hasn't changed while we are still fetching messages (potential infinite loop)
         // Note: oldest_date can stay the same if multiple messages have identical timestamps
         // We check fetched_count (not saved_count) because duplicates shouldn't stop sync
-        if oldest_date == previous_oldest_date && fetched_count == 0 {
-            log::warn!("Oldest date not updated and no messages fetched, stopping to prevent infinite loop");
+        // If fetched_count is 0, the loop already exited at the check above (line 557-560)
+        if oldest_date == previous_oldest_date && fetched_count > 0 {
+            log::warn!("Oldest date not advancing despite fetching messages, stopping to prevent infinite loop");
             has_more = false;
         }
         // Emit progress event
