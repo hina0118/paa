@@ -116,6 +116,21 @@ impl SyncState {
             *is_running = running;
         }
     }
+
+    /// Atomically check if not running and set to running if so
+    /// Returns true if successfully set to running, false if already running
+    pub fn try_start(&self) -> bool {
+        if let Ok(mut is_running) = self.is_running.lock() {
+            if *is_running {
+                false
+            } else {
+                *is_running = true;
+                true
+            }
+        } else {
+            false
+        }
+    }
 }
 
 pub struct GmailClient {
@@ -448,18 +463,20 @@ pub async fn sync_gmail_incremental(
     batch_size: usize,
 ) -> Result<(), String> {
     const DEFAULT_BATCH_SIZE: usize = 50;
+    // TODO: Consider making these configurable via database or function parameters
+    // With batch_size=50, MAX_ITERATIONS=1000 allows up to 50,000 emails
+    // Users with larger mailboxes may need higher limits
     const MAX_ITERATIONS: usize = 1000; // Prevent infinite loops
-    const SYNC_TIMEOUT_MINUTES: i64 = 30; // Maximum sync duration
+    const SYNC_TIMEOUT_MINUTES: i64 = 30; // Maximum sync duration (30 min for ~50k emails)
 
     let batch_size = if batch_size > 0 { batch_size } else { DEFAULT_BATCH_SIZE };
 
-    // Check if sync is already running
-    if sync_state.is_running() {
+    // Atomically check and set running flag to prevent race conditions
+    if !sync_state.try_start() {
         return Err("Sync is already in progress".to_string());
     }
 
-    // Set running flag and reset cancellation flag
-    sync_state.set_running(true);
+    // Reset cancellation flag
     sync_state.reset();
 
     // Update sync status to 'syncing'
@@ -563,13 +580,12 @@ pub async fn sync_gmail_incremental(
             .map(|m| format_timestamp(m.internal_date))
             .expect("messages should not be empty");
 
-        // Defensive check: validate date format (should always pass unless chrono library has issues)
-        // This protects against potential future changes to format_timestamp
-        if chrono::DateTime::parse_from_rfc3339(&new_oldest).is_err() {
-            log::error!("Unexpected: Failed to parse date from format_timestamp: {}", new_oldest);
-            sync_state.set_running(false);
-            return Err(format!("Invalid date format generated: {}", new_oldest));
-        }
+        // Debug-only check: validate date format (should always pass unless format_timestamp changes unexpectedly)
+        debug_assert!(
+            chrono::DateTime::parse_from_rfc3339(&new_oldest).is_ok(),
+            "format_timestamp should always produce valid RFC3339: {}",
+            new_oldest
+        );
 
         if let Err(e) = sqlx::query(
             "UPDATE sync_metadata SET oldest_fetched_date = ?1, total_synced_count = ?2 WHERE id = 1"
