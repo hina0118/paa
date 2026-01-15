@@ -30,8 +30,8 @@ export function Sync() {
     }
   };
 
-  const progressPercentage = progress?.totalSynced && metadata?.totalSyncedCount
-    ? Math.min((progress.totalSynced / Math.max(metadata.totalSyncedCount, progress.totalSynced)) * 100, 100)
+  const progressPercentage = progress?.total_synced && metadata?.total_synced_count
+    ? Math.min((progress.total_synced / Math.max(metadata.total_synced_count, progress.total_synced)) * 100, 100)
     : 0;
 
   const getStatusBadgeClass = (status?: string) => {
@@ -83,7 +83,7 @@ export function Sync() {
               disabled={isSyncing}
               variant={isSyncing ? "secondary" : "default"}
             >
-              {isSyncing ? "同期中..." : metadata?.syncStatus === "paused" ? "同期を再開" : "同期を開始"}
+              {isSyncing ? "同期中..." : metadata?.sync_status === "paused" ? "同期を再開" : "同期を開始"}
             </Button>
 
             {isSyncing && (
@@ -99,8 +99,8 @@ export function Sync() {
           {/* Status Badge */}
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium">ステータス:</span>
-            <span className={`px-2 py-1 rounded text-xs font-semibold ${getStatusBadgeClass(metadata?.syncStatus)}`}>
-              {getStatusText(metadata?.syncStatus)}
+            <span className={`px-2 py-1 rounded text-xs font-semibold ${getStatusBadgeClass(metadata?.sync_status)}`}>
+              {getStatusText(metadata?.sync_status)}
             </span>
           </div>
         </CardContent>
@@ -117,17 +117,17 @@ export function Sync() {
               <>
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
-                    <span>バッチ {progress.batchNumber}</span>
-                    <span>{progress.totalSynced} 件取得済み</span>
+                    <span>バッチ {progress.batch_number}</span>
+                    <span>{progress.total_synced} 件取得済み</span>
                   </div>
                   <Progress value={progressPercentage} />
                 </div>
 
                 <div className="text-sm text-muted-foreground">
-                  {progress.statusMessage}
+                  {progress.status_message}
                 </div>
 
-                {progress.isComplete && !progress.error && (
+                {progress.is_complete && !progress.error && (
                   <div className="p-3 bg-green-50 border border-green-200 rounded text-sm text-green-800">
                     同期が完了しました
                   </div>
@@ -148,25 +148,25 @@ export function Sync() {
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <span className="text-muted-foreground">総取得件数:</span>
-                <div className="text-2xl font-bold">{metadata.totalSyncedCount}</div>
+                <div className="text-2xl font-bold">{metadata.total_synced_count}</div>
               </div>
               <div>
                 <span className="text-muted-foreground">バッチサイズ:</span>
-                <div className="text-2xl font-bold">{metadata.batchSize}件</div>
+                <div className="text-2xl font-bold">{metadata.batch_size}件</div>
               </div>
-              {metadata.oldestFetchedDate && (
+              {metadata.oldest_fetched_date && (
                 <div className="col-span-2">
                   <span className="text-muted-foreground">最古メール日付:</span>
                   <div className="text-sm font-mono">
-                    {new Date(metadata.oldestFetchedDate).toLocaleString("ja-JP")}
+                    {new Date(metadata.oldest_fetched_date).toLocaleString("ja-JP")}
                   </div>
                 </div>
               )}
-              {metadata.lastSyncCompletedAt && (
+              {metadata.last_sync_completed_at && (
                 <div className="col-span-2">
                   <span className="text-muted-foreground">最終同期:</span>
                   <div className="text-sm">
-                    {new Date(metadata.lastSyncCompletedAt).toLocaleString("ja-JP")}
+                    {new Date(metadata.last_sync_completed_at).toLocaleString("ja-JP")}
                   </div>
                 </div>
               )}

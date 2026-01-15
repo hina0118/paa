@@ -3,22 +3,22 @@ import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 
 export interface SyncProgress {
-  batchNumber: number;
-  batchSize: number;
-  totalSynced: number;
-  newlySaved: number;
-  statusMessage: string;
-  isComplete: boolean;
+  batch_number: number;
+  batch_size: number;
+  total_synced: number;
+  newly_saved: number;
+  status_message: string;
+  is_complete: boolean;
   error?: string;
 }
 
 export interface SyncMetadata {
-  syncStatus: "idle" | "syncing" | "paused" | "error";
-  oldestFetchedDate?: string;
-  totalSyncedCount: number;
-  batchSize: number;
-  lastSyncStartedAt?: string;
-  lastSyncCompletedAt?: string;
+  sync_status: "idle" | "syncing" | "paused" | "error";
+  oldest_fetched_date?: string;
+  total_synced_count: number;
+  batch_size: number;
+  last_sync_started_at?: string;
+  last_sync_completed_at?: string;
 }
 
 interface SyncContextType {
@@ -44,7 +44,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       const data = event.payload;
       setProgress(data);
 
-      if (data.isComplete) {
+      if (data.is_complete) {
         setIsSyncing(false);
         // Refresh metadata after completion
         refreshStatus();
@@ -65,7 +65,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     try {
       const status = await invoke<SyncMetadata>("get_sync_status");
       setMetadata(status);
-      setIsSyncing(status.syncStatus === "syncing");
+      setIsSyncing(status.sync_status === "syncing");
     } catch (error) {
       console.error("Failed to fetch sync status:", error);
     }
