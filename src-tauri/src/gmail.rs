@@ -80,12 +80,14 @@ pub struct SyncMetadata {
 #[derive(Clone)]
 pub struct SyncState {
     pub should_cancel: Arc<Mutex<bool>>,
+    pub is_running: Arc<Mutex<bool>>,
 }
 
 impl SyncState {
     pub fn new() -> Self {
         Self {
             should_cancel: Arc::new(Mutex::new(false)),
+            is_running: Arc::new(Mutex::new(false)),
         }
     }
 
@@ -102,6 +104,16 @@ impl SyncState {
     pub fn reset(&self) {
         if let Ok(mut cancel) = self.should_cancel.lock() {
             *cancel = false;
+        }
+    }
+
+    pub fn is_running(&self) -> bool {
+        self.is_running.lock().map(|r| *r).unwrap_or(false)
+    }
+
+    pub fn set_running(&self, running: bool) {
+        if let Ok(mut is_running) = self.is_running.lock() {
+            *is_running = running;
         }
     }
 }
@@ -378,9 +390,14 @@ fn build_sync_query(oldest_date: &Option<String>) -> String {
 
     if let Some(date) = oldest_date {
         // Parse and format for Gmail query (YYYY/MM/DD)
+        // This ensures the date is properly validated and formatted,
+        // preventing SQL injection or malformed queries
         if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(date) {
             let before_date = dt.format("%Y/%m/%d");
             return format!("{} before:{}", base_query, before_date);
+        } else {
+            // If parsing fails, log warning and use base query without date filter
+            log::warn!("Invalid date format in oldest_date, ignoring date constraint: {}", date);
         }
     }
 
@@ -431,40 +448,81 @@ pub async fn sync_gmail_incremental(
     batch_size: usize,
 ) -> Result<(), String> {
     const DEFAULT_BATCH_SIZE: usize = 50;
+    const MAX_ITERATIONS: usize = 1000; // Prevent infinite loops
+    const SYNC_TIMEOUT_MINUTES: i64 = 30; // Maximum sync duration
+
     let batch_size = if batch_size > 0 { batch_size } else { DEFAULT_BATCH_SIZE };
 
-    // Reset cancellation flag
+    // Check if sync is already running
+    if sync_state.is_running() {
+        return Err("Sync is already in progress".to_string());
+    }
+
+    // Set running flag and reset cancellation flag
+    sync_state.set_running(true);
     sync_state.reset();
 
     // Update sync status to 'syncing'
     let now = chrono::Utc::now().to_rfc3339();
-    sqlx::query(
+    if let Err(e) = sqlx::query(
         "UPDATE sync_metadata SET sync_status = 'syncing', last_sync_started_at = ?1 WHERE id = 1"
     )
     .bind(&now)
     .execute(pool)
     .await
-    .map_err(|e| format!("Failed to update sync status: {}", e))?;
+    {
+        sync_state.set_running(false);
+        return Err(format!("Failed to update sync status: {}", e));
+    }
 
     // Get oldest fetched date and batch size from metadata
-    let metadata: Option<(Option<String>, i64, i64)> = sqlx::query_as(
+    let metadata: Option<(Option<String>, i64, i64)> = match sqlx::query_as(
         "SELECT oldest_fetched_date, total_synced_count, batch_size FROM sync_metadata WHERE id = 1"
     )
     .fetch_optional(pool)
     .await
-    .map_err(|e| format!("Failed to fetch sync metadata: {}", e))?;
+    {
+        Ok(m) => m,
+        Err(e) => {
+            sync_state.set_running(false);
+            return Err(format!("Failed to fetch sync metadata: {}", e));
+        }
+    };
 
     let (mut oldest_date, mut total_synced, db_batch_size) = metadata.unwrap_or((None, 0, batch_size as i64));
     let effective_batch_size = if db_batch_size > 0 { db_batch_size as usize } else { batch_size };
 
     // Initialize Gmail client
-    let client = GmailClient::new(app_handle).await?;
+    let client = match GmailClient::new(app_handle).await {
+        Ok(c) => c,
+        Err(e) => {
+            sync_state.set_running(false);
+            return Err(e);
+        }
+    };
 
     let mut batch_number = 0;
     let mut has_more = true;
+    let sync_start_time = chrono::Utc::now();
 
     while has_more && !sync_state.should_stop() {
         batch_number += 1;
+
+        // Check iteration limit to prevent infinite loops
+        if batch_number > MAX_ITERATIONS {
+            log::warn!("Reached maximum iteration limit ({}), stopping sync", MAX_ITERATIONS);
+            break;
+        }
+
+        // Check timeout to prevent indefinite sync
+        let elapsed = chrono::Utc::now().signed_duration_since(sync_start_time);
+        if elapsed.num_minutes() > SYNC_TIMEOUT_MINUTES {
+            log::warn!("Sync timeout reached ({} minutes), stopping sync", SYNC_TIMEOUT_MINUTES);
+            break;
+        }
+
+        // Store previous oldest_date to detect infinite loop conditions
+        let previous_oldest_date = oldest_date.clone();
 
         // Build query with date constraint
         let query = build_sync_query(&oldest_date);
@@ -472,7 +530,13 @@ pub async fn sync_gmail_incremental(
         log::info!("Batch {}: Fetching up to {} messages with query: {}", batch_number, effective_batch_size, query);
 
         // Fetch batch of messages
-        let messages = fetch_batch(&client, &query, effective_batch_size).await?;
+        let messages = match fetch_batch(&client, &query, effective_batch_size).await {
+            Ok(m) => m,
+            Err(e) => {
+                sync_state.set_running(false);
+                return Err(e);
+            }
+        };
 
         if messages.is_empty() {
             has_more = false;
@@ -483,7 +547,13 @@ pub async fn sync_gmail_incremental(
         log::info!("Batch {}: Fetched {} messages", batch_number, messages.len());
 
         // Save to database
-        let result = save_messages_to_db(pool, messages.clone()).await?;
+        let result = match save_messages_to_db(pool, messages.clone()).await {
+            Ok(r) => r,
+            Err(e) => {
+                sync_state.set_running(false);
+                return Err(e);
+            }
+        };
         total_synced += result.saved_count as i64;
 
         // Update oldest fetched date
@@ -492,17 +562,37 @@ pub async fn sync_gmail_incremental(
             .map(|m| format_timestamp(m.internal_date));
 
         if let Some(new_oldest) = &new_oldest {
-            sqlx::query(
+            // Validate that the new_oldest date is parseable to prevent infinite loops
+            if chrono::DateTime::parse_from_rfc3339(new_oldest).is_err() {
+                log::error!("Failed to parse new oldest date: {}, stopping sync to prevent infinite loop", new_oldest);
+                sync_state.set_running(false);
+                return Err(format!("Invalid date format generated: {}", new_oldest));
+            }
+
+            if let Err(e) = sqlx::query(
                 "UPDATE sync_metadata SET oldest_fetched_date = ?1, total_synced_count = ?2 WHERE id = 1"
             )
             .bind(new_oldest)
             .bind(total_synced)
             .execute(pool)
             .await
-            .map_err(|e| format!("Failed to update metadata: {}", e))?;
+            {
+                sync_state.set_running(false);
+                return Err(format!("Failed to update metadata: {}", e));
+            }
 
             // Update the oldest_date variable for the next iteration
             oldest_date = Some(new_oldest.clone());
+        } else {
+            // If we couldn't determine a new oldest date, stop to prevent infinite loop
+            log::warn!("Could not determine oldest date from batch, stopping sync");
+            has_more = false;
+        }
+
+        // Detect if oldest_date hasn't changed (potential infinite loop)
+        if oldest_date == previous_oldest_date {
+            log::warn!("Oldest date not updated after processing batch, stopping to prevent infinite loop");
+            has_more = false;
         }
 
         // Emit progress event
@@ -516,8 +606,10 @@ pub async fn sync_gmail_incremental(
             error: None,
         };
 
-        app_handle.emit("sync-progress", progress)
-            .map_err(|e| format!("Failed to emit progress: {}", e))?;
+        if let Err(e) = app_handle.emit("sync-progress", progress) {
+            sync_state.set_running(false);
+            return Err(format!("Failed to emit progress: {}", e));
+        }
 
         // Check if we got fewer messages than requested (end of results)
         if messages.len() < effective_batch_size {
@@ -535,14 +627,17 @@ pub async fn sync_gmail_incremental(
 
     // Update sync metadata
     let now = chrono::Utc::now().to_rfc3339();
-    sqlx::query(
+    if let Err(e) = sqlx::query(
         "UPDATE sync_metadata SET sync_status = ?1, last_sync_completed_at = ?2 WHERE id = 1"
     )
     .bind(final_status)
     .bind(&now)
     .execute(pool)
     .await
-    .map_err(|e| format!("Failed to update final status: {}", e))?;
+    {
+        sync_state.set_running(false);
+        return Err(format!("Failed to update final status: {}", e));
+    }
 
     // Emit completion event
     let completion = SyncProgressEvent {
@@ -559,8 +654,13 @@ pub async fn sync_gmail_incremental(
         error: None,
     };
 
-    app_handle.emit("sync-progress", completion)
-        .map_err(|e| format!("Failed to emit completion: {}", e))?;
+    if let Err(e) = app_handle.emit("sync-progress", completion) {
+        sync_state.set_running(false);
+        return Err(format!("Failed to emit completion: {}", e));
+    }
+
+    // Clear running flag
+    sync_state.set_running(false);
 
     Ok(())
 }
