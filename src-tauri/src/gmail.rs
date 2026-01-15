@@ -81,8 +81,8 @@ pub struct SyncMetadata {
 ///
 /// # Lock Ordering
 /// To prevent deadlock, always acquire locks in this order:
-/// 1. is_running
-/// 2. should_cancel
+/// 1. should_cancel
+/// 2. is_running
 ///
 /// This ordering must be maintained consistently throughout the codebase.
 #[derive(Clone)]
@@ -186,11 +186,18 @@ impl<'a> SyncGuard<'a> {
 impl<'a> Drop for SyncGuard<'a> {
     fn drop(&mut self) {
         // Attempt to clear the running flag. If the mutex is poisoned due to a panic,
-        // log an error since the sync state may be left in an inconsistent state.
-        if let Ok(mut is_running) = self.sync_state.is_running.lock() {
-            *is_running = false;
-        } else {
-            log::error!("Failed to clear running flag in SyncGuard::drop (mutex poisoned or unavailable)");
+        // recover the inner value and clear the flag so future syncs are not blocked.
+        match self.sync_state.is_running.lock() {
+            Ok(mut is_running) => {
+                *is_running = false;
+            }
+            Err(poisoned) => {
+                log::warn!(
+                    "Mutex for running flag was poisoned in SyncGuard::drop; clearing flag anyway"
+                );
+                let mut is_running = poisoned.into_inner();
+                *is_running = false;
+            }
         }
     }
 }
@@ -408,7 +415,7 @@ impl GmailClient {
 
 pub async fn save_messages_to_db(
     pool: &SqlitePool,
-    messages: Vec<GmailMessage>,
+    messages: &[GmailMessage],
 ) -> Result<FetchResult, String> {
     log::info!("Saving {} messages to database using sqlx", messages.len());
 
@@ -421,7 +428,7 @@ pub async fn save_messages_to_db(
         .await
         .map_err(|e| format!("Failed to begin transaction: {}", e))?;
 
-    for msg in &messages {
+    for msg in messages {
         let result = sqlx::query(
             r#"
             INSERT INTO emails (message_id, body_plain, body_html, internal_date)
@@ -466,9 +473,9 @@ fn build_sync_query(oldest_date: &Option<String>) -> String {
     let base_query = r#"subject:(注文 OR 予約 OR ありがとうございます)"#;
 
     if let Some(date) = oldest_date {
-        // Parse and format for Gmail query (YYYY/MM/DD)
-        // This ensures the date is properly validated and formatted,
-        // preventing malformed Gmail search queries
+        // Parse and format for Gmail query (YYYY/MM/DD).
+        // This ensures the date is validated and formatted correctly; if parsing fails,
+        // the date filter is omitted and the base query is used without a date constraint.
         if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(date) {
             let before_date = dt.format("%Y/%m/%d");
             return format!("{} before:{}", base_query, before_date);
@@ -540,12 +547,23 @@ pub async fn sync_gmail_incremental(
 ) -> Result<(), String> {
     const DEFAULT_BATCH_SIZE: usize = 50;
     // NOTE: MAX_ITERATIONS and SYNC_TIMEOUT_MINUTES are intentionally hard-coded safety limits.
-    // MAX_ITERATIONS prevents a logic error from causing an infinite incremental sync loop, and
-    // SYNC_TIMEOUT_MINUTES bounds how long a single sync attempt may run to avoid monopolizing resources.
-    // These values have been chosen conservatively for typical usage; any change to them should be treated
-    // as a behavior change and is tracked in the external issue tracker rather than via an in-code TODO.
+    // - MAX_ITERATIONS prevents a logic error from causing an infinite incremental sync loop.
+    // - SYNC_TIMEOUT_MINUTES bounds how long a single sync attempt may run to avoid monopolizing resources.
+    //
+    // The effective upper bound on how many messages a single incremental sync invocation will process is:
+    //     MAX_ITERATIONS * batch_size
+    // With the current defaults (MAX_ITERATIONS = 1000 and DEFAULT_BATCH_SIZE = 50), a single run is
+    // therefore expected to handle up to approximately 50,000 messages.
+    //
+    // For deployments with significantly larger mailboxes, consider:
+    //   * Increasing `batch_size` via the existing configuration/caller of this function, and/or
+    //   * Relying on multiple incremental sync runs to cover the full mailbox.
+    //
+    // The constants below are intentionally conservative safety limits. Changing them affects behavior
+    // (e.g., by allowing longer or larger sync runs) and should be treated as a deliberate behavior change
+    // and tracked in the external issue tracker rather than via an in-code TODO.
     const MAX_ITERATIONS: usize = 1000; // Prevent infinite loops
-    const SYNC_TIMEOUT_MINUTES: i64 = 30; // Maximum sync duration
+    const SYNC_TIMEOUT_MINUTES: i64 = 30; // Maximum sync duration (in minutes) for a single sync attempt
 
     let batch_size = if batch_size > 0 { batch_size } else { DEFAULT_BATCH_SIZE };
 
@@ -638,14 +656,14 @@ pub async fn sync_gmail_incremental(
             .collect();
 
         // Save to database
-        let result = match save_messages_to_db(pool, messages.clone()).await {
+        let result = match save_messages_to_db(pool, &messages).await {
             Ok(r) => r,
             Err(e) => {
                 update_sync_error_status(pool).await;
                 return Err(e);
             }
         };
-        total_synced += result.saved_count as i64;
+        total_synced = total_synced.saturating_add(result.saved_count as i64);
         // Update oldest fetched date
         // Note: messages is guaranteed to be non-empty at this point (checked above with messages.is_empty())
         // min_by_key returns Some because iterator is non-empty
@@ -679,7 +697,7 @@ pub async fn sync_gmail_incremental(
         // NOTE: This heuristic may produce false positives if different batches have the same
         // boundary IDs, but combined with the timestamp check this is extremely unlikely in practice.
         if let Some(ref prev_ids) = previous_message_ids {
-            // Compare new_oldest (not yet assigned to oldest_date) with oldest_date_before_fetch
+            // Compare the new_oldest timestamp value with the timestamp from oldest_date_before_fetch
             let same_boundaries = !current_message_ids.is_empty()
                 && current_message_ids.len() == prev_ids.len()
                 && current_message_ids.first() == prev_ids.first()
