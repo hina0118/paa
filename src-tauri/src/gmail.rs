@@ -5,7 +5,8 @@ use hyper_util::rt::TokioExecutor;
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqlitePool;
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager};
+use std::sync::{Arc, Mutex};
+use tauri::{AppHandle, Emitter, Manager};
 use yup_oauth2 as oauth2;
 
 // カスタムInstalledFlowDelegateでブラウザを自動的に開く
@@ -39,7 +40,7 @@ impl oauth2::authenticator_delegate::InstalledFlowDelegate for CustomFlowDelegat
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GmailMessage {
     pub message_id: String,
     pub snippet: String,
@@ -53,6 +54,56 @@ pub struct FetchResult {
     pub fetched_count: usize,
     pub saved_count: usize,
     pub skipped_count: usize,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct SyncProgressEvent {
+    pub batch_number: usize,
+    pub batch_size: usize,
+    pub total_synced: usize,
+    pub newly_saved: usize,
+    pub status_message: String,
+    pub is_complete: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SyncMetadata {
+    pub sync_status: String,
+    pub oldest_fetched_date: Option<String>,
+    pub total_synced_count: i64,
+    pub batch_size: i64,
+    pub last_sync_started_at: Option<String>,
+    pub last_sync_completed_at: Option<String>,
+}
+
+#[derive(Clone)]
+pub struct SyncState {
+    pub should_cancel: Arc<Mutex<bool>>,
+}
+
+impl SyncState {
+    pub fn new() -> Self {
+        Self {
+            should_cancel: Arc::new(Mutex::new(false)),
+        }
+    }
+
+    pub fn request_cancel(&self) {
+        if let Ok(mut cancel) = self.should_cancel.lock() {
+            *cancel = true;
+        }
+    }
+
+    pub fn should_stop(&self) -> bool {
+        self.should_cancel.lock().map(|c| *c).unwrap_or(false)
+    }
+
+    pub fn reset(&self) {
+        if let Ok(mut cancel) = self.should_cancel.lock() {
+            *cancel = false;
+        }
+    }
 }
 
 pub struct GmailClient {
@@ -284,14 +335,15 @@ pub async fn save_messages_to_db(
     for msg in &messages {
         let result = sqlx::query(
             r#"
-            INSERT INTO emails (message_id, body_plain, body_html)
-            VALUES (?1, ?2, ?3)
+            INSERT INTO emails (message_id, body_plain, body_html, internal_date)
+            VALUES (?1, ?2, ?3, ?4)
             ON CONFLICT(message_id) DO NOTHING
             "#,
         )
         .bind(&msg.message_id)
         .bind(&msg.body_plain)
         .bind(&msg.body_html)
+        .bind(msg.internal_date)
         .execute(&mut *tx)
         .await
         .map_err(|e| format!("Failed to insert message {}: {}", msg.message_id, e))?;
@@ -318,4 +370,190 @@ pub async fn save_messages_to_db(
         saved_count,
         skipped_count,
     })
+}
+
+// Helper function to build Gmail query with date constraint
+fn build_sync_query(oldest_date: &Option<String>) -> String {
+    let base_query = r#"subject:(注文 OR 予約 OR ありがとうございます)"#;
+
+    if let Some(date) = oldest_date {
+        // Parse and format for Gmail query (YYYY/MM/DD)
+        if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(date) {
+            let before_date = dt.format("%Y/%m/%d");
+            return format!("{} before:{}", base_query, before_date);
+        }
+    }
+
+    base_query.to_string()
+}
+
+// Helper function to fetch a batch of messages
+async fn fetch_batch(
+    client: &GmailClient,
+    query: &str,
+    max_results: usize,
+) -> Result<Vec<GmailMessage>, String> {
+    let req = client.hub.users().messages_list("me")
+        .q(query)
+        .max_results(max_results as u32);
+
+    let (_, result) = req.doit().await
+        .map_err(|e| format!("Failed to list messages: {}", e))?;
+
+    let mut messages = Vec::new();
+
+    if let Some(msg_list) = result.messages {
+        for msg in msg_list {
+            if let Some(id) = msg.id {
+                match client.get_message(&id).await {
+                    Ok(full_msg) => messages.push(full_msg),
+                    Err(e) => log::warn!("Failed to fetch message {}: {}", id, e),
+                }
+            }
+        }
+    }
+
+    Ok(messages)
+}
+
+// Helper function to format timestamp as RFC3339
+fn format_timestamp(internal_date: i64) -> String {
+    chrono::DateTime::from_timestamp_millis(internal_date)
+        .map(|dt| dt.to_rfc3339())
+        .unwrap_or_else(|| chrono::Utc::now().to_rfc3339())
+}
+
+// Main incremental sync function
+pub async fn sync_gmail_incremental(
+    app_handle: &tauri::AppHandle,
+    pool: &SqlitePool,
+    sync_state: &SyncState,
+    batch_size: usize,
+) -> Result<(), String> {
+    const DEFAULT_BATCH_SIZE: usize = 50;
+    let batch_size = if batch_size > 0 { batch_size } else { DEFAULT_BATCH_SIZE };
+
+    // Reset cancellation flag
+    sync_state.reset();
+
+    // Update sync status to 'syncing'
+    sqlx::query(
+        "UPDATE sync_metadata SET sync_status = 'syncing', last_sync_started_at = datetime('now') WHERE id = 1"
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| format!("Failed to update sync status: {}", e))?;
+
+    // Get oldest fetched date and batch size from metadata
+    let metadata: Option<(Option<String>, i64, i64)> = sqlx::query_as(
+        "SELECT oldest_fetched_date, total_synced_count, batch_size FROM sync_metadata WHERE id = 1"
+    )
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("Failed to fetch sync metadata: {}", e))?;
+
+    let (oldest_date, mut total_synced, db_batch_size) = metadata.unwrap_or((None, 0, batch_size as i64));
+    let effective_batch_size = if db_batch_size > 0 { db_batch_size as usize } else { batch_size };
+
+    // Initialize Gmail client
+    let client = GmailClient::new(app_handle).await?;
+
+    let mut batch_number = 0;
+    let mut has_more = true;
+
+    while has_more && !sync_state.should_stop() {
+        batch_number += 1;
+
+        // Build query with date constraint
+        let query = build_sync_query(&oldest_date);
+
+        log::info!("Batch {}: Fetching up to {} messages with query: {}", batch_number, effective_batch_size, query);
+
+        // Fetch batch of messages
+        let messages = fetch_batch(&client, &query, effective_batch_size).await?;
+
+        if messages.is_empty() {
+            has_more = false;
+            log::info!("No more messages to fetch");
+            break;
+        }
+
+        log::info!("Batch {}: Fetched {} messages", batch_number, messages.len());
+
+        // Save to database
+        let result = save_messages_to_db(pool, messages.clone()).await?;
+        total_synced += result.saved_count as i64;
+
+        // Update oldest fetched date
+        let new_oldest = messages.iter()
+            .min_by_key(|m| m.internal_date)
+            .map(|m| format_timestamp(m.internal_date));
+
+        if let Some(new_oldest) = &new_oldest {
+            sqlx::query(
+                "UPDATE sync_metadata SET oldest_fetched_date = ?1, total_synced_count = ?2 WHERE id = 1"
+            )
+            .bind(new_oldest)
+            .bind(total_synced)
+            .execute(pool)
+            .await
+            .map_err(|e| format!("Failed to update metadata: {}", e))?;
+        }
+
+        // Emit progress event
+        let progress = SyncProgressEvent {
+            batch_number,
+            batch_size: messages.len(),
+            total_synced: total_synced as usize,
+            newly_saved: result.saved_count,
+            status_message: format!("Batch {} complete: {} new emails", batch_number, result.saved_count),
+            is_complete: false,
+            error: None,
+        };
+
+        app_handle.emit("sync-progress", progress)
+            .map_err(|e| format!("Failed to emit progress: {}", e))?;
+
+        // Check if we got fewer messages than requested (end of results)
+        if messages.len() < effective_batch_size {
+            has_more = false;
+            log::info!("Received fewer messages than batch size, sync complete");
+        }
+    }
+
+    // Determine final status
+    let final_status = if sync_state.should_stop() {
+        "paused"
+    } else {
+        "idle"
+    };
+
+    // Update sync metadata
+    sqlx::query(
+        "UPDATE sync_metadata SET sync_status = ?1, last_sync_completed_at = datetime('now') WHERE id = 1"
+    )
+    .bind(final_status)
+    .execute(pool)
+    .await
+    .map_err(|e| format!("Failed to update final status: {}", e))?;
+
+    // Emit completion event
+    let completion = SyncProgressEvent {
+        batch_number,
+        batch_size: 0,
+        total_synced: total_synced as usize,
+        newly_saved: 0,
+        status_message: if sync_state.should_stop() {
+            "Sync cancelled by user".to_string()
+        } else {
+            "Sync completed successfully".to_string()
+        },
+        is_complete: true,
+        error: None,
+    };
+
+    app_handle.emit("sync-progress", completion)
+        .map_err(|e| format!("Failed to emit completion: {}", e))?;
+
+    Ok(())
 }
