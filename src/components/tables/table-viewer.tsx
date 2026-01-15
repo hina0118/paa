@@ -34,6 +34,7 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
   // Page size of 50 rows - adequate for most tables
   // For tables with many columns or large text/blob fields, consider making this configurable
   const pageSize = 50;
@@ -72,6 +73,14 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
 
       const columnNames = schemaRows.map(row => row.name);
       setColumns(columnNames);
+
+      // Get total count for pagination
+      const countResult = await db.select<Array<{ count: number }>>(
+        `SELECT COUNT(*) as count FROM ${safeTableName}`
+      );
+      const total = countResult[0]?.count || 0;
+      setTotalCount(total);
+      console.log(`Total rows in table: ${total}`);
 
       // Get table data with pagination
       const offset = page * pageSize;
@@ -118,10 +127,14 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
   };
 
   const handleNextPage = () => {
-    if (data.length === pageSize) {
+    const nextPageStart = (page + 1) * pageSize;
+    if (nextPageStart < totalCount) {
       setPage(page + 1);
     }
   };
+
+  const totalPages = Math.ceil(totalCount / pageSize);
+  const hasNextPage = (page + 1) < totalPages;
 
   if (loading && data.length === 0) {
     return (
@@ -200,8 +213,8 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
 
       <div className="flex items-center justify-between mt-4">
         <div className="text-sm text-muted-foreground">
-          {data.length > 0
-            ? `${page * pageSize + 1}〜${page * pageSize + data.length}件を表示`
+          {totalCount > 0
+            ? `${page * pageSize + 1}〜${page * pageSize + data.length}件を表示 / 全${totalCount}件`
             : "0件"}
         </div>
         <div className="flex items-center space-x-2">
@@ -216,13 +229,13 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
             前へ
           </Button>
           <div className="text-sm text-muted-foreground px-2">
-            ページ {page + 1}
+            ページ {page + 1} / {totalPages}
           </div>
           <Button
             variant="outline"
             size="sm"
             onClick={handleNextPage}
-            disabled={data.length < pageSize || loading}
+            disabled={!hasNextPage || loading}
             className="gap-1"
           >
             次へ

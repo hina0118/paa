@@ -84,6 +84,22 @@ async fn get_sync_status(
 }
 
 #[tauri::command]
+async fn reset_sync_status(pool: tauri::State<'_, SqlitePool>) -> Result<(), String> {
+    log::info!("Resetting stuck sync status to 'idle'");
+
+    sqlx::query(
+        "UPDATE sync_metadata
+         SET sync_status = 'idle'
+         WHERE id = 1 AND sync_status = 'syncing'"
+    )
+    .execute(pool.inner())
+    .await
+    .map_err(|e| format!("Failed to reset sync status: {}", e))?;
+
+    Ok(())
+}
+
+#[tauri::command]
 async fn update_batch_size(
     pool: tauri::State<'_, SqlitePool>,
     batch_size: i64,
@@ -250,7 +266,8 @@ pub fn run() {
             start_sync,
             cancel_sync,
             get_sync_status,
-            update_batch_size
+            update_batch_size,
+            reset_sync_status
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
