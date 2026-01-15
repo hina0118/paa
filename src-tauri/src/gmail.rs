@@ -591,7 +591,7 @@ pub async fn sync_gmail_incremental(
         };
         total_synced += result.saved_count as i64;
         // Update oldest fetched date
-        // Note: messages is guaranteed to be non-empty at this point (checked at line 557-560)
+        // Note: messages is guaranteed to be non-empty at this point (checked at lines 573-577)
         // min_by_key returns Some because iterator is non-empty
         let new_oldest = messages.iter()
             .min_by_key(|m| m.internal_date)
@@ -608,19 +608,21 @@ pub async fn sync_gmail_incremental(
         {
             return Err(format!("Failed to update metadata: {}", e));
         }
-        // Update the oldest_date variable for the next iteration
-        oldest_date = Some(new_oldest.clone());
 
-        // Detect infinite loop: same messages being returned repeatedly
+        // Detect infinite loop BEFORE updating oldest_date: same messages being returned repeatedly
         // This can happen when multiple messages have identical timestamps (common in batch imports)
         // Check if we're getting the same message IDs as the previous batch
         if let Some(ref prev_ids) = previous_message_ids {
-            if oldest_date == previous_oldest_date && current_message_ids == *prev_ids {
+            // Compare new_oldest (not yet assigned to oldest_date) with previous_oldest_date
+            if Some(new_oldest.clone()) == previous_oldest_date && current_message_ids == *prev_ids {
                 log::warn!("Same message IDs returned despite fetching messages, stopping to prevent infinite loop");
                 has_more = false;
             }
         }
         previous_message_ids = Some(current_message_ids);
+
+        // Update the oldest_date variable for the next iteration
+        oldest_date = Some(new_oldest.clone());
         // Emit progress event
         let progress = SyncProgressEvent {
             batch_number,
