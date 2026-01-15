@@ -562,6 +562,10 @@ pub async fn sync_gmail_incremental(
     // The constants below are intentionally conservative safety limits. Changing them affects behavior
     // (e.g., by allowing longer or larger sync runs) and should be treated as a deliberate behavior change
     // and tracked in the external issue tracker rather than via an in-code TODO.
+    //
+    // FUTURE ENHANCEMENT: Consider making these configurable via the database `sync_metadata` table
+    // (similar to `batch_size`) or through application configuration, with these values as sensible
+    // defaults. This would allow operators to adjust limits for their deployment without code changes.
     const MAX_ITERATIONS: usize = 1000; // Prevent infinite loops
     const SYNC_TIMEOUT_MINUTES: i64 = 30; // Maximum sync duration (in minutes) for a single sync attempt
 
@@ -667,16 +671,20 @@ pub async fn sync_gmail_incremental(
         // Update oldest fetched date
         // Note: messages is guaranteed to be non-empty at this point (checked above with messages.is_empty())
         // min_by_key returns Some because iterator is non-empty
-        let new_oldest = messages.iter()
+        let new_oldest = match messages.iter()
             .min_by_key(|m| m.internal_date)
             .map(|m| format_timestamp(m.internal_date))
-            .unwrap_or_else(|| {
-                panic!(
+        {
+            Some(ts) => ts,
+            None => {
+                update_sync_error_status(pool).await;
+                return Err(format!(
                     "Logic error: min_by_key returned None on non-empty messages while updating sync metadata. batch_number={}, messages_len={}",
                     batch_number,
                     messages.len()
-                )
-            });
+                ));
+            }
+        };
 
         if let Err(e) = sqlx::query(
             "UPDATE sync_metadata SET oldest_fetched_date = ?1, total_synced_count = ?2 WHERE id = 1"
