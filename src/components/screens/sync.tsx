@@ -1,84 +1,210 @@
-import { useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { useEffect, useState } from "react";
+import { useSync } from "@/contexts/sync-context";
 import { Button } from "@/components/ui/button";
-
-interface FetchResult {
-  fetched_count: number;
-  saved_count: number;
-  skipped_count: number;
-}
+import { Progress } from "@/components/ui/progress";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 export function Sync() {
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<FetchResult | null>(null);
+  const { isSyncing, progress, metadata, startSync, cancelSync, refreshStatus } = useSync();
   const [error, setError] = useState<string | null>(null);
 
-  const handleFetchEmails = async () => {
-    setLoading(true);
-    setError(null);
-    setResult(null);
+  useEffect(() => {
+    // Refresh status when component mounts or returns to sync screen
+    refreshStatus();
+  }, [refreshStatus]);
 
+  const handleStartSync = async () => {
+    setError(null);
     try {
-      // Gmailからメッセージを取得してバックエンドでDBに保存
-      const fetchResult = await invoke<FetchResult>("fetch_gmail_emails");
-      setResult(fetchResult);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-    } finally {
-      setLoading(false);
+      await startSync();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleCancelSync = async () => {
+    try {
+      await cancelSync();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const progressPercentage = progress?.total_synced && metadata?.total_synced_count
+    ? Math.min((progress.total_synced / Math.max(metadata.total_synced_count, progress.total_synced)) * 100, 100)
+    : 0;
+
+  const getStatusBadgeClass = (status?: string) => {
+    switch (status) {
+      case "syncing":
+        return "bg-blue-100 text-blue-800";
+      case "idle":
+        return "bg-green-100 text-green-800";
+      case "paused":
+        return "bg-yellow-100 text-yellow-800";
+      case "error":
+        return "bg-red-100 text-red-800";
+      default:
+        return "bg-gray-100 text-gray-800";
+    }
+  };
+
+  const getStatusText = (status?: string) => {
+    switch (status) {
+      case "syncing":
+        return "同期中";
+      case "idle":
+        return "待機中";
+      case "paused":
+        return "一時停止";
+      case "error":
+        return "エラー";
+      default:
+        return "不明";
     }
   };
 
   return (
-    <div className="container mx-auto py-10">
-      <h1 className="text-3xl font-bold mb-6">Gmail同期</h1>
+    <div className="container mx-auto py-10 space-y-6">
+      <h1 className="text-3xl font-bold">Gmail同期</h1>
 
-      <div className="space-y-4">
-        <div>
-          <Button onClick={handleFetchEmails} disabled={loading}>
-            {loading ? "取得中..." : "Gmailメールを取得"}
-          </Button>
-        </div>
+      {/* Sync Controls */}
+      <Card>
+        <CardHeader>
+          <CardTitle>同期コントロール</CardTitle>
+          <CardDescription>
+            Gmail からメールを段階的に取得します
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex gap-4">
+            <Button
+              onClick={handleStartSync}
+              disabled={isSyncing}
+              variant={isSyncing ? "secondary" : "default"}
+            >
+              {isSyncing ? "同期中..." : metadata?.sync_status === "paused" ? "同期を再開" : "同期を開始"}
+            </Button>
 
-        {result && (
-          <div className="p-4 border rounded-lg bg-green-50">
-            <h2 className="font-semibold mb-2">取得完了</h2>
-            <ul className="space-y-1 text-sm">
-              <li>取得件数: {result.fetched_count}件</li>
-              <li>保存件数: {result.saved_count}件</li>
-              <li>スキップ件数: {result.skipped_count}件</li>
-            </ul>
+            {isSyncing && (
+              <Button
+                onClick={handleCancelSync}
+                variant="destructive"
+              >
+                中止
+              </Button>
+            )}
           </div>
-        )}
 
-        {error && (
-          <div className="p-4 border rounded-lg bg-red-50 text-red-800">
-            <h2 className="font-semibold mb-2">エラー</h2>
-            <p className="text-sm">{error}</p>
+          {/* Status Badge */}
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium">ステータス:</span>
+            <span className={`px-2 py-1 rounded text-xs font-semibold ${getStatusBadgeClass(metadata?.sync_status)}`}>
+              {getStatusText(metadata?.sync_status)}
+            </span>
           </div>
-        )}
+        </CardContent>
+      </Card>
 
-        <div className="p-4 border rounded-lg bg-blue-50">
-          <h2 className="font-semibold mb-2">初回セットアップ</h2>
-          <p className="text-sm mb-2">
-            Gmail APIを使用するには、事前にGoogle Cloud Consoleでの設定が必要です。
-          </p>
-          <p className="text-sm mb-2">
-            詳細は README.md の「Gmail API セットアップ」セクションを参照してください。
-          </p>
+      {/* Progress Display */}
+      {(isSyncing || progress) && (
+        <Card>
+          <CardHeader>
+            <CardTitle>同期進捗</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {progress && (
+              <>
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span>バッチ {progress.batch_number}</span>
+                    <span>{progress.total_synced} 件取得済み</span>
+                  </div>
+                  <Progress value={progressPercentage} />
+                </div>
+
+                <div className="text-sm text-muted-foreground">
+                  {progress.status_message}
+                </div>
+
+                {progress.is_complete && !progress.error && (
+                  <div className="p-3 bg-green-50 border border-green-200 rounded text-sm text-green-800">
+                    同期が完了しました
+                  </div>
+                )}
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Sync Statistics */}
+      {metadata && (
+        <Card>
+          <CardHeader>
+            <CardTitle>同期統計</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <span className="text-muted-foreground">総取得件数:</span>
+                <div className="text-2xl font-bold">{metadata.total_synced_count}</div>
+              </div>
+              <div>
+                <span className="text-muted-foreground">バッチサイズ:</span>
+                <div className="text-2xl font-bold">{metadata.batch_size}件</div>
+              </div>
+              {metadata.oldest_fetched_date && (
+                <div className="col-span-2">
+                  <span className="text-muted-foreground">最古メール日付:</span>
+                  <div className="text-sm font-mono">
+                    {new Date(metadata.oldest_fetched_date).toLocaleString("ja-JP")}
+                  </div>
+                </div>
+              )}
+              {metadata.last_sync_completed_at && (
+                <div className="col-span-2">
+                  <span className="text-muted-foreground">最終同期:</span>
+                  <div className="text-sm">
+                    {new Date(metadata.last_sync_completed_at).toLocaleString("ja-JP")}
+                  </div>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Error Display */}
+      {(error || progress?.error) && (
+        <Card className="border-red-200 bg-red-50">
+          <CardHeader>
+            <CardTitle className="text-red-800">エラー</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-red-700">{error || progress?.error}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Setup Instructions */}
+      <Card className="bg-blue-50 border-blue-200">
+        <CardHeader>
+          <CardTitle className="text-blue-900">初回セットアップ</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm text-blue-800">
+          <p>Gmail APIを使用するには、事前にGoogle Cloud Consoleでの設定が必要です。</p>
+          <p>詳細は README.md の「Gmail API セットアップ」セクションを参照してください。</p>
           <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded">
-            <p className="text-xs font-semibold text-yellow-800 mb-1">
-              初回認証について
-            </p>
+            <p className="font-semibold text-yellow-800 mb-1">初回認証について</p>
             <p className="text-xs text-yellow-700">
               初回実行時は、ブラウザで認証画面が自動的に開きます。
               もし開かない場合は、コンソール（開発者ツール）に表示されるURLをコピーして、
               手動でブラウザで開いてください。
             </p>
           </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
