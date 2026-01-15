@@ -452,7 +452,7 @@ pub async fn sync_gmail_incremental(
     .await
     .map_err(|e| format!("Failed to fetch sync metadata: {}", e))?;
 
-    let (oldest_date, mut total_synced, db_batch_size) = metadata.unwrap_or((None, 0, batch_size as i64));
+    let (mut oldest_date, mut total_synced, db_batch_size) = metadata.unwrap_or((None, 0, batch_size as i64));
     let effective_batch_size = if db_batch_size > 0 { db_batch_size as usize } else { batch_size };
 
     // Initialize Gmail client
@@ -498,6 +498,9 @@ pub async fn sync_gmail_incremental(
             .execute(pool)
             .await
             .map_err(|e| format!("Failed to update metadata: {}", e))?;
+
+            // Update the oldest_date variable for the next iteration
+            oldest_date = Some(new_oldest.clone());
         }
 
         // Emit progress event
