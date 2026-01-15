@@ -632,7 +632,7 @@ pub async fn sync_gmail_incremental(
         };
         total_synced += result.saved_count as i64;
         // Update oldest fetched date
-        // Note: messages is guaranteed to be non-empty at this point (checked at lines 587-591)
+        // Note: messages is guaranteed to be non-empty at this point (checked above with messages.is_empty())
         // min_by_key returns Some because iterator is non-empty
         let new_oldest = messages.iter()
             .min_by_key(|m| m.internal_date)
