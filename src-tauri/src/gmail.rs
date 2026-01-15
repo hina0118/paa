@@ -510,14 +510,7 @@ pub async fn sync_gmail_incremental(
     batch_size: usize,
 ) -> Result<(), String> {
     const DEFAULT_BATCH_SIZE: usize = 50;
-    // TODO: Make these configurable via database or configuration struct.
-    // Currently hardcoded as const for safety, but should be moved to a SyncConfig struct
-    // to allow easier testing and customization per user.
-    // These constants define the maximum number of iterations and the maximum sync duration,
-    // independent of the `batch_size` value itself. However, the total number of emails
-    // that can be processed in a single sync run is effectively `MAX_ITERATIONS * batch_size`.
-    // For example, with batch_size=50 and MAX_ITERATIONS=1000, up to 50,000 emails may be
-    // processed, but with batch_size=100, up to 100,000 emails may be processed.
+    // TODO: Make MAX_ITERATIONS and SYNC_TIMEOUT_MINUTES configurable via SyncConfig struct for testing and per-user customization.
     const MAX_ITERATIONS: usize = 1000; // Prevent infinite loops
     const SYNC_TIMEOUT_MINUTES: i64 = 30; // Maximum sync duration
 
@@ -534,12 +527,15 @@ pub async fn sync_gmail_incremental(
     // Helper function to update sync status to 'error' on early exit
     let update_error_status = || async {
         let now = chrono::Utc::now().to_rfc3339();
-        let _ = sqlx::query(
+        if let Err(e) = sqlx::query(
             "UPDATE sync_metadata SET sync_status = 'error', last_sync_completed_at = ?1 WHERE id = 1"
         )
         .bind(&now)
         .execute(pool)
-        .await;
+        .await
+        {
+            log::error!("Failed to update error status: {}", e);
+        }
     };
 
     // Update sync status to 'syncing'
@@ -637,7 +633,7 @@ pub async fn sync_gmail_incremental(
         let new_oldest = messages.iter()
             .min_by_key(|m| m.internal_date)
             .map(|m| format_timestamp(m.internal_date))
-            .expect("min_by_key returned None even though messages is non-empty");
+            .expect("Logic error: min_by_key returned None even though 'messages' is non-empty while updating sync metadata. This indicates an internal inconsistency in message fetching; please report this issue with logs and reproduction steps.");
 
         if let Err(e) = sqlx::query(
             "UPDATE sync_metadata SET oldest_fetched_date = ?1, total_synced_count = ?2 WHERE id = 1"
@@ -659,6 +655,17 @@ pub async fn sync_gmail_incremental(
             if Some(new_oldest.clone()) == oldest_date_before_fetch && current_message_ids == *prev_ids {
                 log::warn!("Same message IDs returned despite fetching messages, stopping to prevent infinite loop");
                 has_more = false;
+            }
+        }
+
+        // Validate that new_oldest is a reasonable timestamp (not in the future)
+        // This catches cases where format_timestamp falls back to Utc::now() for invalid timestamps
+        if let Ok(new_oldest_dt) = chrono::DateTime::parse_from_rfc3339(&new_oldest) {
+            let now = chrono::Utc::now();
+            if new_oldest_dt > now {
+                log::error!("Invalid timestamp detected: new_oldest ({}) is in the future, indicates timestamp parsing failure", new_oldest);
+                update_error_status().await;
+                return Err("Invalid message timestamp detected (future date). This indicates a data integrity issue.".to_string());
             }
         }
         previous_message_ids = Some(current_message_ids);
