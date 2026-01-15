@@ -1,3 +1,5 @@
+import { useEffect } from "react";
+import { DatabaseManager } from "@/lib/database";
 import { EmailList } from "@/components/emails/email-list";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Dashboard } from "@/components/screens/dashboard";
@@ -60,6 +62,25 @@ function AppContent() {
 }
 
 function App() {
+  useEffect(() => {
+    // アプリ起動時にDBを初期化してマイグレーションを実行
+    const initDb = async () => {
+      try {
+        // フロントエンド(tauri-plugin-sql)のDB接続を初期化してマイグレーション実行
+        const manager = DatabaseManager.getInstance();
+        const db = await manager.getDatabase();
+
+        // 簡単なクエリでマイグレーション実行を確実にする
+        await db.select("SELECT 1");
+        console.log("Database initialized with migrations");
+      } catch (error) {
+        console.error("Failed to initialize database:", error);
+      }
+    };
+
+    initDb();
+  }, []);
+
   return (
     <NavigationProvider>
       <AppContent />
