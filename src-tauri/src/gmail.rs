@@ -391,7 +391,7 @@ fn build_sync_query(oldest_date: &Option<String>) -> String {
     if let Some(date) = oldest_date {
         // Parse and format for Gmail query (YYYY/MM/DD)
         // This ensures the date is properly validated and formatted,
-        // preventing SQL injection or malformed queries
+        // preventing malformed Gmail search queries
         if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(date) {
             let before_date = dt.format("%Y/%m/%d");
             return format!("{} before:{}", base_query, before_date);
@@ -557,41 +557,39 @@ pub async fn sync_gmail_incremental(
         total_synced += result.saved_count as i64;
 
         // Update oldest fetched date
+        // Note: messages is guaranteed to be non-empty at this point (checked above)
         let new_oldest = messages.iter()
             .min_by_key(|m| m.internal_date)
-            .map(|m| format_timestamp(m.internal_date));
+            .map(|m| format_timestamp(m.internal_date))
+            .expect("messages should not be empty");
 
-        if let Some(new_oldest) = &new_oldest {
-            // Validate that the new_oldest date is parseable to prevent infinite loops
-            if chrono::DateTime::parse_from_rfc3339(new_oldest).is_err() {
-                log::error!("Failed to parse new oldest date: {}, stopping sync to prevent infinite loop", new_oldest);
-                sync_state.set_running(false);
-                return Err(format!("Invalid date format generated: {}", new_oldest));
-            }
-
-            if let Err(e) = sqlx::query(
-                "UPDATE sync_metadata SET oldest_fetched_date = ?1, total_synced_count = ?2 WHERE id = 1"
-            )
-            .bind(new_oldest)
-            .bind(total_synced)
-            .execute(pool)
-            .await
-            {
-                sync_state.set_running(false);
-                return Err(format!("Failed to update metadata: {}", e));
-            }
-
-            // Update the oldest_date variable for the next iteration
-            oldest_date = Some(new_oldest.clone());
-        } else {
-            // If we couldn't determine a new oldest date, stop to prevent infinite loop
-            log::warn!("Could not determine oldest date from batch, stopping sync");
-            has_more = false;
+        // Defensive check: validate date format (should always pass unless chrono library has issues)
+        // This protects against potential future changes to format_timestamp
+        if chrono::DateTime::parse_from_rfc3339(&new_oldest).is_err() {
+            log::error!("Unexpected: Failed to parse date from format_timestamp: {}", new_oldest);
+            sync_state.set_running(false);
+            return Err(format!("Invalid date format generated: {}", new_oldest));
         }
 
-        // Detect if oldest_date hasn't changed (potential infinite loop)
-        if oldest_date == previous_oldest_date {
-            log::warn!("Oldest date not updated after processing batch, stopping to prevent infinite loop");
+        if let Err(e) = sqlx::query(
+            "UPDATE sync_metadata SET oldest_fetched_date = ?1, total_synced_count = ?2 WHERE id = 1"
+        )
+        .bind(&new_oldest)
+        .bind(total_synced)
+        .execute(pool)
+        .await
+        {
+            sync_state.set_running(false);
+            return Err(format!("Failed to update metadata: {}", e));
+        }
+
+        // Update the oldest_date variable for the next iteration
+        oldest_date = Some(new_oldest.clone());
+
+        // Detect if oldest_date hasn't changed AND no new messages were saved (potential infinite loop)
+        // Note: oldest_date can stay the same if multiple messages have identical timestamps
+        if oldest_date == previous_oldest_date && result.saved_count == 0 {
+            log::warn!("Oldest date not updated and no new messages saved, stopping to prevent infinite loop");
             has_more = false;
         }
 
