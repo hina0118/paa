@@ -120,12 +120,16 @@ impl SyncState {
     /// Atomically check if not running, reset cancellation flag, and set to running
     /// Returns true if successfully started, false if already running
     pub fn try_start(&self) -> bool {
-        if let Ok(mut is_running) = self.is_running.lock() {
+        // Acquire both locks to ensure atomic state changes
+        let is_running_lock = self.is_running.lock();
+        let cancel_lock = self.should_cancel.lock();
+
+        if let (Ok(mut is_running), Ok(mut cancel)) = (is_running_lock, cancel_lock) {
             if *is_running {
                 false
             } else {
-                // Reset cancellation flag for fresh start
-                self.reset();
+                // Reset cancellation flag for fresh start (inline to avoid race condition)
+                *cancel = false;
                 *is_running = true;
                 true
             }
@@ -483,9 +487,11 @@ pub async fn sync_gmail_incremental(
     batch_size: usize,
 ) -> Result<(), String> {
     const DEFAULT_BATCH_SIZE: usize = 50;
-    // TODO: Consider making these configurable via database or function parameters.
+    // TODO: Make these configurable via database or configuration struct.
+    // Currently hardcoded as const for safety, but should be moved to a SyncConfig struct
+    // to allow easier testing and customization per user.
     // These limits apply regardless of the actual `batch_size` passed to this function.
-    // For example, with the default batch_size=50, MAX_ITERATIONS=1000 allows up to 50,000 emails,
+    // For example, with batch_size=50, MAX_ITERATIONS=1000 allows up to 50,000 emails,
     // but with batch_size=100, it would allow 100,000 emails.
     const MAX_ITERATIONS: usize = 1000; // Prevent infinite loops
     const SYNC_TIMEOUT_MINUTES: i64 = 30; // Maximum sync duration
@@ -538,6 +544,7 @@ pub async fn sync_gmail_incremental(
     let mut batch_number = 0;
     let mut has_more = true;
     let sync_start_time = chrono::Utc::now();
+    let mut previous_message_ids: Option<Vec<String>> = None;
     while has_more && !sync_state.should_stop() {
         batch_number += 1;
         // Check iteration limit to prevent infinite loops
@@ -569,7 +576,12 @@ pub async fn sync_gmail_incremental(
             break;
         }
         log::info!("Batch {}: Fetched {} messages", batch_number, messages.len());
-        let fetched_count = messages.len();
+
+        // Extract message IDs for infinite loop detection
+        let current_message_ids: Vec<String> = messages.iter()
+            .map(|m| m.message_id.clone())
+            .collect();
+
         // Save to database
         let result = match save_messages_to_db(pool, messages.clone()).await {
             Ok(r) => r,
@@ -585,12 +597,7 @@ pub async fn sync_gmail_incremental(
             .min_by_key(|m| m.internal_date)
             .map(|m| format_timestamp(m.internal_date))
             .unwrap();
-        // Debug-only check: validate date format (should always pass unless format_timestamp changes unexpectedly)
-        debug_assert!(
-            chrono::DateTime::parse_from_rfc3339(&new_oldest).is_ok(),
-            "format_timestamp should always produce valid RFC3339: {}",
-            new_oldest
-        );
+
         if let Err(e) = sqlx::query(
             "UPDATE sync_metadata SET oldest_fetched_date = ?1, total_synced_count = ?2 WHERE id = 1"
         )
@@ -603,14 +610,17 @@ pub async fn sync_gmail_incremental(
         }
         // Update the oldest_date variable for the next iteration
         oldest_date = Some(new_oldest.clone());
-        // Detect if oldest_date hasn't changed while we are still fetching messages (potential infinite loop)
-        // Note: oldest_date can stay the same if multiple messages have identical timestamps
-        // We check fetched_count (not saved_count) because duplicates shouldn't stop sync
-        // If fetched_count is 0, the loop already exited at the check above (line 557-560)
-        if oldest_date == previous_oldest_date && fetched_count > 0 {
-            log::warn!("Oldest date not advancing despite fetching messages, stopping to prevent infinite loop");
-            has_more = false;
+
+        // Detect infinite loop: same messages being returned repeatedly
+        // This can happen when multiple messages have identical timestamps (common in batch imports)
+        // Check if we're getting the same message IDs as the previous batch
+        if let Some(ref prev_ids) = previous_message_ids {
+            if oldest_date == previous_oldest_date && current_message_ids == *prev_ids {
+                log::warn!("Same message IDs returned despite fetching messages, stopping to prevent infinite loop");
+                has_more = false;
+            }
         }
+        previous_message_ids = Some(current_message_ids);
         // Emit progress event
         let progress = SyncProgressEvent {
             batch_number,
