@@ -125,38 +125,47 @@ impl SyncState {
         }
     }
 
-    /// Atomically check if not running, reset cancellation flag, and set to running
-    /// Returns true if successfully started, false if already running
+    /// Atomically check if not running, reset cancellation flag, and set to running.
+    /// Returns true if successfully started, false if already running.
     ///
-    /// # Lock Ordering
-    /// This method acquires locks one at a time to avoid deadlock risks from holding
-    /// multiple locks simultaneously. We only hold one lock at a time, so there is no
-    /// risk of deadlock from lock ordering issues.
+    /// # Locking behavior
+    /// This method acquires *both* `should_cancel` and `is_running` locks and updates
+    /// them while holding the locks to avoid races with `request_cancel`. The locks
+    /// are always taken in the same order (`should_cancel` then `is_running`) and no
+    /// other method holds both locks simultaneously, so this does not introduce
+    /// deadlock risk.
     pub fn try_start(&self) -> bool {
-        // First, acquire and update the running state without holding any other lock.
-        let started = if let Ok(mut is_running) = self.is_running.lock() {
-            if *is_running {
-                false
-            } else {
-                *is_running = true;
-                true
+        // First, acquire the cancellation flag lock.
+        let mut cancel = match self.should_cancel.lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                log::error!(
+                    "Failed to acquire should_cancel lock in try_start (mutex poisoned or unavailable)"
+                );
+                return false;
             }
-        } else {
-            log::error!("Failed to acquire is_running lock in try_start (mutex poisoned or unavailable)");
-            false
         };
 
-        if !started {
+        // Then, acquire the running state lock. Lock order is consistent to avoid deadlocks.
+        let mut is_running = match self.is_running.lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                log::error!(
+                    "Failed to acquire is_running lock in try_start (mutex poisoned or unavailable)"
+                );
+                return false;
+            }
+        };
+
+        // If we're already running, do not change any flags.
+        if *is_running {
             return false;
         }
 
-        // Now, separately reset the cancellation flag. We only hold one lock at a time,
-        // so there is no risk of deadlock from lock ordering.
-        if let Ok(mut cancel) = self.should_cancel.lock() {
-            *cancel = false;
-        } else {
-            log::error!("Failed to acquire should_cancel lock in try_start (mutex poisoned or unavailable)");
-        }
+        // Start running and clear any pending cancellation atomically with respect to
+        // request_cancel().
+        *is_running = true;
+        *cancel = false;
 
         true
     }
@@ -643,7 +652,13 @@ pub async fn sync_gmail_incremental(
         let new_oldest = messages.iter()
             .min_by_key(|m| m.internal_date)
             .map(|m| format_timestamp(m.internal_date))
-            .expect("Internal error: min_by_key returned None on non-empty messages while updating sync metadata");
+            .unwrap_or_else(|| {
+                panic!(
+                    "Logic error: min_by_key returned None on non-empty messages while updating sync metadata. batch_number={}, messages_len={}",
+                    batch_number,
+                    messages.len()
+                )
+            });
 
         if let Err(e) = sqlx::query(
             "UPDATE sync_metadata SET oldest_fetched_date = ?1, total_synced_count = ?2 WHERE id = 1"
@@ -660,14 +675,27 @@ pub async fn sync_gmail_incremental(
         // Detect infinite loop BEFORE updating oldest_date: same messages being returned repeatedly
         // This can happen when multiple messages have identical timestamps (common in batch imports)
         // For performance on large message sets, avoid full Vec equality and instead compare
-        // length plus first/last IDs as a heuristic for "same batch".
+        // length plus first/middle/last IDs as a heuristic for "same batch".
+        // NOTE: This heuristic may produce false positives if different batches have the same
+        // boundary IDs, but combined with the timestamp check this is extremely unlikely in practice.
         if let Some(ref prev_ids) = previous_message_ids {
             // Compare new_oldest (not yet assigned to oldest_date) with oldest_date_before_fetch
-            if Some(new_oldest.clone()) == oldest_date_before_fetch
-                && !current_message_ids.is_empty()
+            let same_boundaries = !current_message_ids.is_empty()
                 && current_message_ids.len() == prev_ids.len()
                 && current_message_ids.first() == prev_ids.first()
-                && current_message_ids.last() == prev_ids.last()
+                && current_message_ids.last() == prev_ids.last();
+
+            // Also check middle element to reduce false positives
+            let same_middle = if current_message_ids.len() > 2 {
+                let mid = current_message_ids.len() / 2;
+                current_message_ids.get(mid) == prev_ids.get(mid)
+            } else {
+                true // For small batches, boundary check is sufficient
+            };
+
+            if Some(&new_oldest) == oldest_date_before_fetch.as_ref()
+                && same_boundaries
+                && same_middle
             {
                 log::warn!("Same message IDs returned despite fetching messages, stopping to prevent infinite loop");
                 has_more = false;
@@ -676,15 +704,29 @@ pub async fn sync_gmail_incremental(
 
         // Validate that new_oldest is a reasonable timestamp (not unreasonably far in the future)
         // This catches cases where format_timestamp falls back to Utc::now() for invalid timestamps
-        if let Ok(new_oldest_dt) = chrono::DateTime::parse_from_rfc3339(&new_oldest) {
-            let now = chrono::Utc::now();
-            // Allow a small clock skew tolerance (e.g., 5 minutes) between client and Gmail servers
-            let new_oldest_utc = new_oldest_dt.with_timezone(&chrono::Utc);
-            let skew_tolerance = chrono::Duration::minutes(5);
-            if new_oldest_utc > now + skew_tolerance {
-                log::error!("Invalid timestamp detected: new_oldest ({}) is significantly in the future, indicates timestamp parsing failure", new_oldest);
-                update_sync_error_status(pool).await;
-                return Err("Invalid message timestamp detected (future date beyond allowed clock skew). This indicates a data integrity issue.".to_string());
+        match chrono::DateTime::parse_from_rfc3339(&new_oldest) {
+            Ok(new_oldest_dt) => {
+                let now = chrono::Utc::now();
+                // Allow a small clock skew tolerance (e.g., 5 minutes) between client and Gmail servers
+                let new_oldest_utc = new_oldest_dt.with_timezone(&chrono::Utc);
+                let skew_tolerance = chrono::Duration::minutes(5);
+                if new_oldest_utc > now + skew_tolerance {
+                    log::error!(
+                        "Invalid timestamp detected: new_oldest ({}) is significantly in the future, indicates timestamp parsing failure",
+                        new_oldest
+                    );
+                    update_sync_error_status(pool).await;
+                    return Err("Invalid message timestamp detected (future date beyond allowed clock skew). This indicates a data integrity issue.".to_string());
+                }
+            }
+            Err(e) => {
+                // Parsing failure here indicates a potential issue in timestamp formatting logic.
+                // We continue as before but log a warning for observability.
+                log::warn!(
+                    "Failed to parse new_oldest timestamp as RFC3339 (value: '{}'): {}",
+                    new_oldest,
+                    e
+                );
             }
         }
         previous_message_ids = Some(current_message_ids);
