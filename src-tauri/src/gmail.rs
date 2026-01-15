@@ -437,9 +437,11 @@ pub async fn sync_gmail_incremental(
     sync_state.reset();
 
     // Update sync status to 'syncing'
+    let now = chrono::Utc::now().to_rfc3339();
     sqlx::query(
-        "UPDATE sync_metadata SET sync_status = 'syncing', last_sync_started_at = datetime('now') WHERE id = 1"
+        "UPDATE sync_metadata SET sync_status = 'syncing', last_sync_started_at = ?1 WHERE id = 1"
     )
+    .bind(&now)
     .execute(pool)
     .await
     .map_err(|e| format!("Failed to update sync status: {}", e))?;
@@ -532,10 +534,12 @@ pub async fn sync_gmail_incremental(
     };
 
     // Update sync metadata
+    let now = chrono::Utc::now().to_rfc3339();
     sqlx::query(
-        "UPDATE sync_metadata SET sync_status = ?1, last_sync_completed_at = datetime('now') WHERE id = 1"
+        "UPDATE sync_metadata SET sync_status = ?1, last_sync_completed_at = ?2 WHERE id = 1"
     )
     .bind(final_status)
+    .bind(&now)
     .execute(pool)
     .await
     .map_err(|e| format!("Failed to update final status: {}", e))?;

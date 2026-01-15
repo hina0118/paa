@@ -56,9 +56,33 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // Load initial sync status
+  // Load initial sync status and reset stuck "syncing" state
   useEffect(() => {
-    refreshStatus();
+    const initializeSync = async () => {
+      try {
+        // まず現在の状態を取得
+        const status = await invoke<SyncMetadata>("get_sync_status");
+
+        // "syncing"状態で固まっている場合はリセット
+        if (status.sync_status === "syncing") {
+          console.warn("Detected stuck 'syncing' state on app startup, resetting to 'idle'");
+
+          try {
+            await invoke("reset_sync_status");
+            console.info("Successfully reset sync status to 'idle'");
+          } catch (resetError) {
+            console.error("Failed to reset sync status:", resetError);
+          }
+        }
+
+        // 最新の状態を取得して表示
+        await refreshStatus();
+      } catch (error) {
+        console.error("Failed to initialize sync state:", error);
+      }
+    };
+
+    initializeSync();
   }, []);
 
   const refreshStatus = async () => {
