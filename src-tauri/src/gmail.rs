@@ -77,6 +77,14 @@ pub struct SyncMetadata {
     pub last_sync_completed_at: Option<String>,
 }
 
+/// Synchronization state for Gmail sync operations
+///
+/// # Lock Ordering
+/// To prevent deadlock, always acquire locks in this order:
+/// 1. is_running
+/// 2. should_cancel
+///
+/// This ordering must be maintained consistently throughout the codebase.
 #[derive(Clone)]
 pub struct SyncState {
     pub should_cancel: Arc<Mutex<bool>>,
@@ -119,8 +127,14 @@ impl SyncState {
 
     /// Atomically check if not running, reset cancellation flag, and set to running
     /// Returns true if successfully started, false if already running
+    ///
+    /// # Lock Ordering
+    /// IMPORTANT: Always acquire locks in this order to prevent deadlock:
+    /// 1. is_running
+    /// 2. should_cancel
+    /// All other methods in this codebase must follow the same lock ordering.
     pub fn try_start(&self) -> bool {
-        // Acquire both locks to ensure atomic state changes
+        // Acquire both locks in consistent order to prevent deadlock
         let is_running_lock = self.is_running.lock();
         let cancel_lock = self.should_cancel.lock();
 
@@ -558,8 +572,8 @@ pub async fn sync_gmail_incremental(
             log::warn!("Sync timeout reached ({} minutes), stopping sync", SYNC_TIMEOUT_MINUTES);
             break;
         }
-        // Store previous oldest_date to detect infinite loop conditions
-        let previous_oldest_date = oldest_date.clone();
+        // Store the oldest_date before this fetch to detect infinite loop conditions
+        let oldest_date_before_fetch = oldest_date.clone();
         // Build query with date constraint
         let query = build_sync_query(&oldest_date);
         log::info!("Batch {}: Fetching up to {} messages with query: {}", batch_number, effective_batch_size, query);
@@ -596,7 +610,7 @@ pub async fn sync_gmail_incremental(
         let new_oldest = messages.iter()
             .min_by_key(|m| m.internal_date)
             .map(|m| format_timestamp(m.internal_date))
-            .unwrap();
+            .expect("min_by_key returned None even though messages is non-empty");
 
         if let Err(e) = sqlx::query(
             "UPDATE sync_metadata SET oldest_fetched_date = ?1, total_synced_count = ?2 WHERE id = 1"
@@ -613,8 +627,8 @@ pub async fn sync_gmail_incremental(
         // This can happen when multiple messages have identical timestamps (common in batch imports)
         // Check if we're getting the same message IDs as the previous batch
         if let Some(ref prev_ids) = previous_message_ids {
-            // Compare new_oldest (not yet assigned to oldest_date) with previous_oldest_date
-            if Some(new_oldest.clone()) == previous_oldest_date && current_message_ids == *prev_ids {
+            // Compare new_oldest (not yet assigned to oldest_date) with oldest_date_before_fetch
+            if Some(new_oldest.clone()) == oldest_date_before_fetch && current_message_ids == *prev_ids {
                 log::warn!("Same message IDs returned despite fetching messages, stopping to prevent infinite loop");
                 has_more = false;
             }
