@@ -518,10 +518,17 @@ async fn fetch_batch(
 }
 
 // Helper function to format timestamp as RFC3339
+// Returns empty string if timestamp is invalid, which will cause the query to omit the date filter
 fn format_timestamp(internal_date: i64) -> String {
     chrono::DateTime::from_timestamp_millis(internal_date)
         .map(|dt| dt.to_rfc3339())
-        .unwrap_or_else(|| chrono::Utc::now().to_rfc3339())
+        .unwrap_or_else(|| {
+            log::warn!(
+                "Invalid internal_date '{}' encountered when formatting timestamp; returning empty string",
+                internal_date
+            );
+            String::new()
+        })
 }
 
 // Helper function to update sync status to 'error' on early exit
@@ -686,19 +693,36 @@ pub async fn sync_gmail_incremental(
             }
         };
 
-        if let Err(e) = sqlx::query(
-            "UPDATE sync_metadata SET oldest_fetched_date = ?1, total_synced_count = ?2 WHERE id = 1"
-        )
-        .bind(&new_oldest)
-        .bind(total_synced)
-        .execute(pool)
-        .await
-        {
-            update_sync_error_status(pool).await;
-            return Err(format!("Failed to update metadata: {}", e));
+        // Validate timestamp BEFORE updating database to avoid persisting invalid data
+        // Validate that new_oldest is a reasonable timestamp (not unreasonably far in the future)
+        match chrono::DateTime::parse_from_rfc3339(&new_oldest) {
+            Ok(new_oldest_dt) => {
+                let now = chrono::Utc::now();
+                // Allow a small clock skew tolerance (e.g., 5 minutes) between client and Gmail servers
+                let new_oldest_utc = new_oldest_dt.with_timezone(&chrono::Utc);
+                let skew_tolerance = chrono::Duration::minutes(5);
+                if new_oldest_utc > now + skew_tolerance {
+                    log::error!(
+                        "Invalid timestamp detected: new_oldest ({}) is significantly in the future, indicates timestamp parsing failure",
+                        new_oldest
+                    );
+                    update_sync_error_status(pool).await;
+                    return Err("Invalid message timestamp detected (future date beyond allowed clock skew). This indicates a data integrity issue.".to_string());
+                }
+            }
+            Err(e) => {
+                // Parsing failure indicates a data integrity or formatting issue - treat as error
+                log::error!(
+                    "Failed to parse new_oldest timestamp as RFC3339 (value: '{}'): {}",
+                    new_oldest,
+                    e
+                );
+                update_sync_error_status(pool).await;
+                return Err("Failed to parse message timestamp (RFC3339). This indicates a data integrity or formatting issue.".to_string());
+            }
         }
 
-        // Detect infinite loop BEFORE updating oldest_date: same messages being returned repeatedly
+        // Detect infinite loop BEFORE updating database: same messages being returned repeatedly
         // This can happen when multiple messages have identical timestamps (common in batch imports)
         // For performance on large message sets, avoid full Vec equality and instead compare
         // length plus first/middle/last IDs as a heuristic for "same batch".
@@ -727,35 +751,20 @@ pub async fn sync_gmail_incremental(
                 has_more = false;
             }
         }
-
-        // Validate that new_oldest is a reasonable timestamp (not unreasonably far in the future)
-        // This catches cases where format_timestamp falls back to Utc::now() for invalid timestamps
-        match chrono::DateTime::parse_from_rfc3339(&new_oldest) {
-            Ok(new_oldest_dt) => {
-                let now = chrono::Utc::now();
-                // Allow a small clock skew tolerance (e.g., 5 minutes) between client and Gmail servers
-                let new_oldest_utc = new_oldest_dt.with_timezone(&chrono::Utc);
-                let skew_tolerance = chrono::Duration::minutes(5);
-                if new_oldest_utc > now + skew_tolerance {
-                    log::error!(
-                        "Invalid timestamp detected: new_oldest ({}) is significantly in the future, indicates timestamp parsing failure",
-                        new_oldest
-                    );
-                    update_sync_error_status(pool).await;
-                    return Err("Invalid message timestamp detected (future date beyond allowed clock skew). This indicates a data integrity issue.".to_string());
-                }
-            }
-            Err(e) => {
-                // Parsing failure here indicates a potential issue in timestamp formatting logic.
-                // We continue as before but log a warning for observability.
-                log::warn!(
-                    "Failed to parse new_oldest timestamp as RFC3339 (value: '{}'): {}",
-                    new_oldest,
-                    e
-                );
-            }
-        }
         previous_message_ids = Some(current_message_ids);
+
+        // All validations passed - now safe to update database
+        if let Err(e) = sqlx::query(
+            "UPDATE sync_metadata SET oldest_fetched_date = ?1, total_synced_count = ?2 WHERE id = 1"
+        )
+        .bind(&new_oldest)
+        .bind(total_synced)
+        .execute(pool)
+        .await
+        {
+            update_sync_error_status(pool).await;
+            return Err(format!("Failed to update metadata: {}", e));
+        }
 
         // Update the oldest_date variable for the next iteration
         oldest_date = Some(new_oldest.clone());
