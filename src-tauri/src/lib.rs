@@ -28,6 +28,7 @@ async fn start_sync(
             log::error!("Sync failed: {}", e);
 
             // Emit error event
+            let error_msg = e.clone();
             let error_event = gmail::SyncProgressEvent {
                 batch_number: 0,
                 batch_size: 0,
@@ -35,7 +36,7 @@ async fn start_sync(
                 newly_saved: 0,
                 status_message: format!("Sync error: {}", e),
                 is_complete: true,
-                error: Some(e.clone()),
+                error: Some(error_msg),
             };
 
             let _ = app_clone.emit("sync-progress", error_event);
@@ -271,4 +272,27 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_greet() {
+        let result = greet("World");
+        assert_eq!(result, "Hello, World! You've been greeted from Rust!");
+    }
+
+    #[test]
+    fn test_greet_empty() {
+        let result = greet("");
+        assert_eq!(result, "Hello, ! You've been greeted from Rust!");
+    }
+
+    #[test]
+    fn test_greet_special_characters() {
+        let result = greet("世界");
+        assert_eq!(result, "Hello, 世界! You've been greeted from Rust!");
+    }
 }

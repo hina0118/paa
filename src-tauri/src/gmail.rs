@@ -825,3 +825,976 @@ pub async fn sync_gmail_incremental(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+    use std::str::FromStr;
+
+    // Helper function to create an in-memory test database
+    async fn create_test_db() -> sqlx::SqlitePool {
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .create_if_missing(true);
+
+        let pool = SqlitePoolOptions::new()
+            .connect_with(options)
+            .await
+            .expect("Failed to create test database");
+
+        // Create emails table
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS emails (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                message_id TEXT UNIQUE NOT NULL,
+                body_plain TEXT,
+                body_html TEXT,
+                internal_date INTEGER NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("Failed to create emails table");
+
+        // Create sync_metadata table
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS sync_metadata (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                sync_status TEXT NOT NULL DEFAULT 'idle',
+                oldest_fetched_date TEXT,
+                total_synced_count INTEGER NOT NULL DEFAULT 0,
+                batch_size INTEGER NOT NULL DEFAULT 50,
+                last_sync_started_at TEXT,
+                last_sync_completed_at TEXT,
+                last_error_message TEXT
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("Failed to create sync_metadata table");
+
+        // Insert initial sync metadata
+        sqlx::query(
+            "INSERT INTO sync_metadata (id, sync_status, total_synced_count, batch_size) VALUES (1, 'idle', 0, 50)"
+        )
+        .execute(&pool)
+        .await
+        .expect("Failed to insert initial sync metadata");
+
+        pool
+    }
+
+    #[test]
+    fn test_gmail_message_structure() {
+        let message = GmailMessage {
+            message_id: "test123".to_string(),
+            snippet: "Test snippet".to_string(),
+            body_plain: Some("Plain text body".to_string()),
+            body_html: Some("<html>HTML body</html>".to_string()),
+            internal_date: 1234567890000,
+        };
+
+        assert_eq!(message.message_id, "test123");
+        assert_eq!(message.snippet, "Test snippet");
+        assert!(message.body_plain.is_some());
+        assert!(message.body_html.is_some());
+        assert_eq!(message.internal_date, 1234567890000);
+    }
+
+    #[test]
+    fn test_fetch_result_structure() {
+        let result = FetchResult {
+            fetched_count: 10,
+            saved_count: 8,
+            skipped_count: 2,
+        };
+
+        assert_eq!(result.fetched_count, 10);
+        assert_eq!(result.saved_count, 8);
+        assert_eq!(result.skipped_count, 2);
+    }
+
+    #[test]
+    fn test_sync_state_initialization() {
+        let sync_state = SyncState::new();
+
+        assert!(!sync_state.should_stop());
+        assert!(!sync_state.is_running());
+    }
+
+    #[test]
+    fn test_sync_state_cancel() {
+        let sync_state = SyncState::new();
+
+        assert!(!sync_state.should_stop());
+
+        sync_state.request_cancel();
+
+        assert!(sync_state.should_stop());
+    }
+
+    #[test]
+    fn test_sync_state_try_start() {
+        let sync_state = SyncState::new();
+
+        // First start should succeed
+        assert!(sync_state.try_start());
+        assert!(sync_state.is_running());
+
+        // Second start should fail (already running)
+        assert!(!sync_state.try_start());
+        assert!(sync_state.is_running());
+    }
+
+    #[test]
+    fn test_sync_state_try_start_resets_cancel() {
+        let sync_state = SyncState::new();
+
+        // Set cancel flag
+        sync_state.request_cancel();
+        assert!(sync_state.should_stop());
+
+        // try_start should reset the cancel flag
+        assert!(sync_state.try_start());
+        assert!(!sync_state.should_stop());
+        assert!(sync_state.is_running());
+    }
+
+    #[test]
+    fn test_sync_state_reset() {
+        let sync_state = SyncState::new();
+
+        sync_state.request_cancel();
+        assert!(sync_state.should_stop());
+
+        sync_state.reset();
+        assert!(!sync_state.should_stop());
+    }
+
+    #[tokio::test]
+    async fn test_save_messages_to_db_empty() {
+        let pool = create_test_db().await;
+        let messages: Vec<GmailMessage> = vec![];
+
+        let result = save_messages_to_db(&pool, &messages)
+            .await
+            .expect("Failed to save empty messages");
+
+        assert_eq!(result.fetched_count, 0);
+        assert_eq!(result.saved_count, 0);
+        assert_eq!(result.skipped_count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_save_messages_to_db_single() {
+        let pool = create_test_db().await;
+
+        let message = GmailMessage {
+            message_id: "msg001".to_string(),
+            snippet: "Test message".to_string(),
+            body_plain: Some("Plain text".to_string()),
+            body_html: Some("<html>HTML</html>".to_string()),
+            internal_date: 1609459200000, // 2021-01-01
+        };
+
+        let result = save_messages_to_db(&pool, &[message])
+            .await
+            .expect("Failed to save message");
+
+        assert_eq!(result.fetched_count, 1);
+        assert_eq!(result.saved_count, 1);
+        assert_eq!(result.skipped_count, 0);
+
+        // Verify the message was saved
+        let row: (String, i64) = sqlx::query_as("SELECT message_id, internal_date FROM emails WHERE message_id = 'msg001'")
+            .fetch_one(&pool)
+            .await
+            .expect("Failed to fetch saved message");
+
+        assert_eq!(row.0, "msg001");
+        assert_eq!(row.1, 1609459200000);
+    }
+
+    #[tokio::test]
+    async fn test_save_messages_to_db_duplicate() {
+        let pool = create_test_db().await;
+
+        let message = GmailMessage {
+            message_id: "msg002".to_string(),
+            snippet: "Test message".to_string(),
+            body_plain: Some("Plain text".to_string()),
+            body_html: Some("<html>HTML</html>".to_string()),
+            internal_date: 1609459200000,
+        };
+
+        // Save first time
+        let result1 = save_messages_to_db(&pool, &[message.clone()])
+            .await
+            .expect("Failed to save message first time");
+
+        assert_eq!(result1.saved_count, 1);
+        assert_eq!(result1.skipped_count, 0);
+
+        // Save second time (should skip duplicate)
+        let result2 = save_messages_to_db(&pool, &[message])
+            .await
+            .expect("Failed to save message second time");
+
+        assert_eq!(result2.saved_count, 0);
+        assert_eq!(result2.skipped_count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_save_messages_to_db_batch() {
+        let pool = create_test_db().await;
+
+        let messages = vec![
+            GmailMessage {
+                message_id: "msg003".to_string(),
+                snippet: "Message 1".to_string(),
+                body_plain: Some("Body 1".to_string()),
+                body_html: None,
+                internal_date: 1609459200000,
+            },
+            GmailMessage {
+                message_id: "msg004".to_string(),
+                snippet: "Message 2".to_string(),
+                body_plain: None,
+                body_html: Some("<html>Body 2</html>".to_string()),
+                internal_date: 1609545600000,
+            },
+            GmailMessage {
+                message_id: "msg005".to_string(),
+                snippet: "Message 3".to_string(),
+                body_plain: Some("Body 3".to_string()),
+                body_html: Some("<html>Body 3</html>".to_string()),
+                internal_date: 1609632000000,
+            },
+        ];
+
+        let result = save_messages_to_db(&pool, &messages)
+            .await
+            .expect("Failed to save batch");
+
+        assert_eq!(result.fetched_count, 3);
+        assert_eq!(result.saved_count, 3);
+        assert_eq!(result.skipped_count, 0);
+
+        // Verify count in database
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM emails")
+            .fetch_one(&pool)
+            .await
+            .expect("Failed to count emails");
+
+        assert_eq!(count.0, 3);
+    }
+
+    #[tokio::test]
+    async fn test_save_messages_to_db_partial_duplicate() {
+        let pool = create_test_db().await;
+
+        // First batch
+        let messages1 = vec![
+            GmailMessage {
+                message_id: "msg006".to_string(),
+                snippet: "Message 1".to_string(),
+                body_plain: Some("Body 1".to_string()),
+                body_html: None,
+                internal_date: 1609459200000,
+            },
+            GmailMessage {
+                message_id: "msg007".to_string(),
+                snippet: "Message 2".to_string(),
+                body_plain: Some("Body 2".to_string()),
+                body_html: None,
+                internal_date: 1609545600000,
+            },
+        ];
+
+        save_messages_to_db(&pool, &messages1)
+            .await
+            .expect("Failed to save first batch");
+
+        // Second batch with one duplicate
+        let messages2 = vec![
+            GmailMessage {
+                message_id: "msg007".to_string(), // Duplicate
+                snippet: "Message 2".to_string(),
+                body_plain: Some("Body 2".to_string()),
+                body_html: None,
+                internal_date: 1609545600000,
+            },
+            GmailMessage {
+                message_id: "msg008".to_string(), // New
+                snippet: "Message 3".to_string(),
+                body_plain: Some("Body 3".to_string()),
+                body_html: None,
+                internal_date: 1609632000000,
+            },
+        ];
+
+        let result = save_messages_to_db(&pool, &messages2)
+            .await
+            .expect("Failed to save second batch");
+
+        assert_eq!(result.fetched_count, 2);
+        assert_eq!(result.saved_count, 1);
+        assert_eq!(result.skipped_count, 1);
+    }
+
+    #[test]
+    fn test_sync_progress_event_structure() {
+        let event = SyncProgressEvent {
+            batch_number: 5,
+            batch_size: 50,
+            total_synced: 250,
+            newly_saved: 45,
+            status_message: "Batch 5 complete".to_string(),
+            is_complete: false,
+            error: None,
+        };
+
+        assert_eq!(event.batch_number, 5);
+        assert_eq!(event.batch_size, 50);
+        assert_eq!(event.total_synced, 250);
+        assert_eq!(event.newly_saved, 45);
+        assert!(!event.is_complete);
+        assert!(event.error.is_none());
+    }
+
+    #[test]
+    fn test_sync_metadata_structure() {
+        let metadata = SyncMetadata {
+            sync_status: "idle".to_string(),
+            oldest_fetched_date: Some("2024-01-01T00:00:00Z".to_string()),
+            total_synced_count: 1000,
+            batch_size: 50,
+            last_sync_started_at: Some("2024-01-15T10:00:00Z".to_string()),
+            last_sync_completed_at: Some("2024-01-15T10:30:00Z".to_string()),
+        };
+
+        assert_eq!(metadata.sync_status, "idle");
+        assert!(metadata.oldest_fetched_date.is_some());
+        assert_eq!(metadata.total_synced_count, 1000);
+        assert_eq!(metadata.batch_size, 50);
+    }
+
+    // エラーハンドリングテスト
+
+    #[tokio::test]
+    async fn test_save_messages_db_constraint_violation() {
+        let pool = create_test_db().await;
+
+        // 正常にメッセージを保存
+        let message = GmailMessage {
+            message_id: "msg_unique".to_string(),
+            snippet: "Test message".to_string(),
+            body_plain: Some("Plain text".to_string()),
+            body_html: Some("<html>HTML</html>".to_string()),
+            internal_date: 1609459200000,
+        };
+
+        let result1 = save_messages_to_db(&pool, &[message.clone()])
+            .await
+            .expect("Failed to save first message");
+
+        assert_eq!(result1.saved_count, 1);
+
+        // 同じmessage_idで再度保存しようとする（UNIQUE制約違反）
+        let result2 = save_messages_to_db(&pool, &[message])
+            .await
+            .expect("Should handle duplicate gracefully");
+
+        // 重複はスキップされる
+        assert_eq!(result2.skipped_count, 1);
+        assert_eq!(result2.saved_count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_save_messages_invalid_internal_date() {
+        let pool = create_test_db().await;
+
+        // internal_dateが負の値（無効なタイムスタンプ）
+        let message = GmailMessage {
+            message_id: "msg_invalid_date".to_string(),
+            snippet: "Test message".to_string(),
+            body_plain: Some("Plain text".to_string()),
+            body_html: Some("<html>HTML</html>".to_string()),
+            internal_date: -1, // 無効な値
+        };
+
+        // データベース制約によっては保存される可能性があるが、
+        // アプリケーションロジックでバリデーションを行う場合はエラーになる
+        let result = save_messages_to_db(&pool, &[message])
+            .await;
+
+        // この場合、SQLiteは負の値も許容するため成功する
+        assert!(result.is_ok());
+        if let Ok(res) = result {
+            assert_eq!(res.saved_count, 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_update_sync_metadata_invalid_timestamp() {
+        let pool = create_test_db().await;
+
+        // 無効なRFC3339タイムスタンプ
+        let invalid_timestamp = "invalid-timestamp";
+
+        // sync_metadataの更新を試みる
+        let result = sqlx::query(
+            "UPDATE sync_metadata SET oldest_fetched_date = ?1 WHERE id = 1"
+        )
+        .bind(invalid_timestamp)
+        .execute(&pool)
+        .await;
+
+        // SQLiteは文字列を受け入れるため、更新自体は成功する
+        assert!(result.is_ok());
+
+        // しかし、この値をパースしようとするとエラーになる
+        let row: (Option<String>,) = sqlx::query_as(
+            "SELECT oldest_fetched_date FROM sync_metadata WHERE id = 1"
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("Failed to fetch");
+
+        if let Some(timestamp) = row.0 {
+            // RFC3339パースを試みる
+            let parse_result = chrono::DateTime::parse_from_rfc3339(&timestamp);
+            assert!(parse_result.is_err());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_sync_metadata_update_nonexistent_record() {
+        let pool = create_test_db().await;
+
+        // id=999のレコードは存在しない
+        let result = sqlx::query(
+            "UPDATE sync_metadata SET sync_status = 'syncing' WHERE id = 999"
+        )
+        .execute(&pool)
+        .await
+        .expect("Query should succeed");
+
+        // 更新された行数は0
+        assert_eq!(result.rows_affected(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_save_messages_empty_message_id() {
+        let pool = create_test_db().await;
+
+        // message_idが空文字列
+        let message = GmailMessage {
+            message_id: "".to_string(),
+            snippet: "Test message".to_string(),
+            body_plain: Some("Plain text".to_string()),
+            body_html: Some("<html>HTML</html>".to_string()),
+            internal_date: 1609459200000,
+        };
+
+        let result = save_messages_to_db(&pool, &[message])
+            .await;
+
+        // SQLiteはNOT NULL制約でも空文字列を許容する
+        assert!(result.is_ok());
+        if let Ok(res) = result {
+            assert_eq!(res.saved_count, 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_save_messages_very_large_body() {
+        let pool = create_test_db().await;
+
+        // 非常に大きなボディ（1MB）
+        let large_body = "x".repeat(1024 * 1024);
+
+        let message = GmailMessage {
+            message_id: "msg_large_body".to_string(),
+            snippet: "Test message".to_string(),
+            body_plain: Some(large_body.clone()),
+            body_html: Some(large_body),
+            internal_date: 1609459200000,
+        };
+
+        let result = save_messages_to_db(&pool, &[message])
+            .await;
+
+        // 大きなデータも保存できる
+        assert!(result.is_ok());
+        if let Ok(res) = result {
+            assert_eq!(res.saved_count, 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_save_messages_unicode_content() {
+        let pool = create_test_db().await;
+
+        // Unicode文字を含むメッセージ
+        let message = GmailMessage {
+            message_id: "msg_unicode".to_string(),
+            snippet: "テストメッセージ 🎉".to_string(),
+            body_plain: Some("こんにちは、世界！\n你好世界！\n안녕하세요！".to_string()),
+            body_html: Some("<html>🌍 Unicode HTML 🌏</html>".to_string()),
+            internal_date: 1609459200000,
+        };
+
+        let result = save_messages_to_db(&pool, &[message.clone()])
+            .await
+            .expect("Failed to save unicode message");
+
+        assert_eq!(result.saved_count, 1);
+
+        // データベースから取得して検証
+        let row: (String, Option<String>) = sqlx::query_as(
+            "SELECT message_id, body_plain FROM emails WHERE message_id = 'msg_unicode'"
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("Failed to fetch");
+
+        assert_eq!(row.0, "msg_unicode");
+        assert!(row.1.is_some());
+        assert!(row.1.unwrap().contains("こんにちは"));
+    }
+
+    #[tokio::test]
+    async fn test_sync_metadata_concurrent_updates() {
+        let pool = create_test_db().await;
+
+        // 並行してsync_statusを更新
+        let pool1 = pool.clone();
+        let pool2 = pool.clone();
+
+        let handle1 = tokio::spawn(async move {
+            sqlx::query("UPDATE sync_metadata SET sync_status = 'syncing' WHERE id = 1")
+                .execute(&pool1)
+                .await
+        });
+
+        let handle2 = tokio::spawn(async move {
+            sqlx::query("UPDATE sync_metadata SET sync_status = 'idle' WHERE id = 1")
+                .execute(&pool2)
+                .await
+        });
+
+        let result1 = handle1.await.expect("Task 1 panicked");
+        let result2 = handle2.await.expect("Task 2 panicked");
+
+        // 両方の更新が成功する（最後の更新が勝つ）
+        assert!(result1.is_ok());
+        assert!(result2.is_ok());
+
+        // 最終的な状態を確認
+        let status: (String,) = sqlx::query_as(
+            "SELECT sync_status FROM sync_metadata WHERE id = 1"
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("Failed to fetch final status");
+
+        // 最後に実行された更新の値になっている
+        assert!(status.0 == "syncing" || status.0 == "idle");
+    }
+
+    #[tokio::test]
+    async fn test_save_messages_special_characters() {
+        let pool = create_test_db().await;
+
+        // 特殊文字を含むメッセージ（SQL injection対策テスト）
+        let message = GmailMessage {
+            message_id: "msg'; DROP TABLE emails; --".to_string(),
+            snippet: "Test <script>alert('xss')</script>".to_string(),
+            body_plain: Some("Plain text with 'quotes' and \"double quotes\"".to_string()),
+            body_html: Some("<html><body onload='alert(1)'>HTML</body></html>".to_string()),
+            internal_date: 1609459200000,
+        };
+
+        let result = save_messages_to_db(&pool, &[message.clone()])
+            .await
+            .expect("Failed to save message with special characters");
+
+        assert_eq!(result.saved_count, 1);
+
+        // テーブルが削除されていないことを確認
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM emails")
+            .fetch_one(&pool)
+            .await
+            .expect("Table should still exist");
+
+        assert_eq!(count.0, 1);
+
+        // データが正しく保存されていることを確認
+        let row: (String,) = sqlx::query_as(
+            "SELECT message_id FROM emails WHERE message_id = ?"
+        )
+        .bind("msg'; DROP TABLE emails; --")
+        .fetch_one(&pool)
+        .await
+        .expect("Failed to fetch");
+
+        assert_eq!(row.0, "msg'; DROP TABLE emails; --");
+    }
+
+    // ヘルパー関数のテスト
+
+    #[test]
+    fn test_build_sync_query_without_date() {
+        let query = build_sync_query(&None);
+        assert_eq!(query, r#"subject:(注文 OR 予約 OR ありがとうございます)"#);
+    }
+
+    #[test]
+    fn test_build_sync_query_with_valid_date() {
+        let date = Some("2024-01-15T10:30:00Z".to_string());
+        let query = build_sync_query(&date);
+        assert!(query.contains(r#"subject:(注文 OR 予約 OR ありがとうございます)"#));
+        assert!(query.contains("before:2024/01/15"));
+    }
+
+    #[test]
+    fn test_build_sync_query_with_invalid_date() {
+        let date = Some("invalid-date".to_string());
+        let query = build_sync_query(&date);
+        // 無効な日付の場合、基本クエリのみが返される
+        assert_eq!(query, r#"subject:(注文 OR 予約 OR ありがとうございます)"#);
+    }
+
+    #[test]
+    fn test_build_sync_query_with_different_dates() {
+        let test_cases = vec![
+            ("2024-01-01T00:00:00Z", "before:2024/01/01"),
+            ("2023-12-31T23:59:59Z", "before:2023/12/31"),
+            ("2024-06-15T12:00:00Z", "before:2024/06/15"),
+        ];
+
+        for (date_str, expected_before) in test_cases {
+            let query = build_sync_query(&Some(date_str.to_string()));
+            assert!(query.contains(expected_before), "Query: {}, Expected: {}", query, expected_before);
+        }
+    }
+
+    #[test]
+    fn test_format_timestamp_valid() {
+        // 2024-01-15 10:30:00 UTC in milliseconds
+        let timestamp = 1705318200000i64;
+        let formatted = format_timestamp(timestamp);
+
+        assert!(!formatted.is_empty());
+        // RFC3339形式であることを確認
+        assert!(chrono::DateTime::parse_from_rfc3339(&formatted).is_ok());
+    }
+
+    #[test]
+    fn test_format_timestamp_zero() {
+        // タイムスタンプ0（1970-01-01 00:00:00 UTC）
+        let formatted = format_timestamp(0);
+        assert!(!formatted.is_empty());
+        assert!(formatted.contains("1970-01-01"));
+    }
+
+    #[test]
+    fn test_format_timestamp_negative() {
+        // 負のタイムスタンプ（1970年より前）
+        let formatted = format_timestamp(-1000);
+        // 負の値は空文字列を返す（無効として扱われる）
+        assert!(formatted.is_empty() || chrono::DateTime::parse_from_rfc3339(&formatted).is_ok());
+    }
+
+    #[test]
+    fn test_format_timestamp_max_valid() {
+        // 非常に大きな値（遠い未来）
+        let timestamp = 9999999999999i64;
+        let formatted = format_timestamp(timestamp);
+
+        if !formatted.is_empty() {
+            assert!(chrono::DateTime::parse_from_rfc3339(&formatted).is_ok());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_update_sync_error_status() {
+        let pool = create_test_db().await;
+
+        // 初期状態を確認
+        let before: (String,) = sqlx::query_as(
+            "SELECT sync_status FROM sync_metadata WHERE id = 1"
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("Failed to fetch initial status");
+
+        assert_eq!(before.0, "idle");
+
+        // エラー状態に更新
+        update_sync_error_status(&pool).await;
+
+        // エラー状態になったことを確認
+        let after: (String, Option<String>) = sqlx::query_as(
+            "SELECT sync_status, last_sync_completed_at FROM sync_metadata WHERE id = 1"
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("Failed to fetch updated status");
+
+        assert_eq!(after.0, "error");
+        assert!(after.1.is_some()); // last_sync_completed_atが設定されている
+    }
+
+    #[test]
+    fn test_fetch_result_calculation() {
+        // FetchResultの計算ロジックをテスト
+        let fetched = 100;
+        let saved = 85;
+        let skipped = fetched - saved;
+
+        let result = FetchResult {
+            fetched_count: fetched,
+            saved_count: saved,
+            skipped_count: skipped,
+        };
+
+        assert_eq!(result.fetched_count, 100);
+        assert_eq!(result.saved_count, 85);
+        assert_eq!(result.skipped_count, 15);
+        assert_eq!(result.saved_count + result.skipped_count, result.fetched_count);
+    }
+
+    #[test]
+    fn test_gmail_message_with_none_values() {
+        // body_plainとbody_htmlがNoneの場合
+        let message = GmailMessage {
+            message_id: "msg_none".to_string(),
+            snippet: "Only snippet".to_string(),
+            body_plain: None,
+            body_html: None,
+            internal_date: 1609459200000,
+        };
+
+        assert!(message.body_plain.is_none());
+        assert!(message.body_html.is_none());
+        assert!(!message.snippet.is_empty());
+    }
+
+    #[test]
+    fn test_sync_progress_event_with_error() {
+        let event = SyncProgressEvent {
+            batch_number: 3,
+            batch_size: 50,
+            total_synced: 100,
+            newly_saved: 0,
+            status_message: "Error occurred".to_string(),
+            is_complete: true,
+            error: Some("Network timeout".to_string()),
+        };
+
+        assert!(event.is_complete);
+        assert!(event.error.is_some());
+        assert_eq!(event.error.unwrap(), "Network timeout");
+    }
+
+    #[test]
+    fn test_sync_metadata_default_values() {
+        let metadata = SyncMetadata {
+            sync_status: "idle".to_string(),
+            oldest_fetched_date: None,
+            total_synced_count: 0,
+            batch_size: 50,
+            last_sync_started_at: None,
+            last_sync_completed_at: None,
+        };
+
+        assert_eq!(metadata.sync_status, "idle");
+        assert_eq!(metadata.total_synced_count, 0);
+        assert_eq!(metadata.batch_size, 50);
+        assert!(metadata.oldest_fetched_date.is_none());
+    }
+
+    #[test]
+    fn test_sync_state_is_running() {
+        let state = SyncState::new();
+        assert!(!state.is_running());
+
+        state.set_running(true);
+        assert!(state.is_running());
+
+        state.set_running(false);
+        assert!(!state.is_running());
+    }
+
+    #[test]
+    fn test_sync_state_set_running() {
+        let state = SyncState::new();
+
+        // Initially not running
+        assert!(!state.is_running());
+
+        // Set to running
+        state.set_running(true);
+        assert!(state.is_running());
+
+        // Set back to not running
+        state.set_running(false);
+        assert!(!state.is_running());
+    }
+
+    #[test]
+    fn test_sync_state_reset_clears_cancel_flag() {
+        let state = SyncState::new();
+
+        // Request cancel
+        state.request_cancel();
+        assert!(state.should_stop());
+
+        // Reset should clear the cancel flag
+        state.reset();
+        assert!(!state.should_stop());
+    }
+
+    #[test]
+    fn test_sync_state_reset_when_not_cancelled() {
+        let state = SyncState::new();
+
+        // Reset when not cancelled should have no effect
+        state.reset();
+        assert!(!state.should_stop());
+    }
+
+    #[test]
+    fn test_sync_state_multiple_resets() {
+        let state = SyncState::new();
+
+        // Cancel, reset, cancel, reset
+        state.request_cancel();
+        assert!(state.should_stop());
+
+        state.reset();
+        assert!(!state.should_stop());
+
+        state.request_cancel();
+        assert!(state.should_stop());
+
+        state.reset();
+        assert!(!state.should_stop());
+    }
+
+    #[test]
+    fn test_sync_state_running_and_cancel_independent() {
+        let state = SyncState::new();
+
+        // Set running doesn't affect cancel state
+        state.set_running(true);
+        assert!(state.is_running());
+        assert!(!state.should_stop());
+
+        // Request cancel doesn't affect running state
+        state.request_cancel();
+        assert!(state.is_running());
+        assert!(state.should_stop());
+
+        // Reset cancel doesn't affect running state
+        state.reset();
+        assert!(state.is_running());
+        assert!(!state.should_stop());
+    }
+
+    #[test]
+    fn test_fetch_result_all_fields() {
+        let result = FetchResult {
+            fetched_count: 100,
+            saved_count: 95,
+            skipped_count: 5,
+        };
+
+        assert_eq!(result.fetched_count, 100);
+        assert_eq!(result.saved_count, 95);
+        assert_eq!(result.skipped_count, 5);
+    }
+
+    #[test]
+    fn test_fetch_result_zero_values() {
+        let result = FetchResult {
+            fetched_count: 0,
+            saved_count: 0,
+            skipped_count: 0,
+        };
+
+        assert_eq!(result.fetched_count, 0);
+        assert_eq!(result.saved_count, 0);
+        assert_eq!(result.skipped_count, 0);
+    }
+
+    #[test]
+    fn test_gmail_message_all_fields_present() {
+        let message = GmailMessage {
+            message_id: "msg_123".to_string(),
+            snippet: "Test snippet".to_string(),
+            body_plain: Some("Plain text body".to_string()),
+            body_html: Some("<p>HTML body</p>".to_string()),
+            internal_date: 1705329600,
+        };
+
+        assert_eq!(message.message_id, "msg_123");
+        assert_eq!(message.snippet, "Test snippet");
+        assert_eq!(message.body_plain.unwrap(), "Plain text body");
+        assert_eq!(message.body_html.unwrap(), "<p>HTML body</p>");
+        assert_eq!(message.internal_date, 1705329600);
+    }
+
+    #[test]
+    fn test_gmail_message_without_optional_fields() {
+        let message = GmailMessage {
+            message_id: "msg_456".to_string(),
+            snippet: "Another snippet".to_string(),
+            body_plain: None,
+            body_html: None,
+            internal_date: 1705329600,
+        };
+
+        assert_eq!(message.message_id, "msg_456");
+        assert_eq!(message.snippet, "Another snippet");
+        assert!(message.body_plain.is_none());
+        assert!(message.body_html.is_none());
+        assert_eq!(message.internal_date, 1705329600);
+    }
+
+    #[test]
+    fn test_build_sync_query_date_format() {
+        let date = Some("2024-01-15T10:30:00Z".to_string());
+        let query = build_sync_query(&date);
+
+        // Should extract just the date part (2024-01-15) and format as 2024/01/15
+        assert!(query.contains("before:2024/01/15"));
+    }
+
+    #[test]
+    fn test_format_timestamp_edge_cases() {
+        // Test with very small positive timestamp (1 millisecond after epoch)
+        let ts = format_timestamp(1);
+        assert!(ts.contains("1970"));
+
+        // Test with timestamp for 2024-01-15
+        let ts = format_timestamp(1705329600000); // 2024-01-15 in milliseconds
+        assert!(ts.contains("2024"));
+    }
+
+    #[test]
+    fn test_format_timestamp_milliseconds() {
+        // Test that it correctly handles milliseconds
+        let ts = format_timestamp(1000); // 1 second after epoch
+        assert!(!ts.is_empty());
+        assert!(ts.contains("1970"));
+    }
+}

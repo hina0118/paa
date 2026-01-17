@@ -1,0 +1,23 @@
+# cargo-llvm-cov設定ファイル
+
+[report]
+# カバレッジ閾値（85%目標）
+fail-under-lines = 85
+fail-under-functions = 80
+
+[html]
+# HTMLレポートのカスタマイズ
+show-instantiations = false
+
+[run]
+# テスト実行設定
+all-features = true
+workspace = true
+
+# 除外するファイル（テストファイルなど）
+exclude-files = [
+    "tests/",
+    "target/",
+    ".cargo/",
+    "build.rs"
+]

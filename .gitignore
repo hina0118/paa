@@ -107,3 +107,10 @@ Cargo.lock
 tmpclaude-*-cwd
 
 client_secret.json
+
+# Test coverage
+coverage/
+*.profraw
+*.profdata
+.nyc_output/
+src-tauri/target/llvm-cov/

@@ -1,0 +1,39 @@
+[tasks.test]
+description = "Run all tests"
+command = "cargo"
+args = ["test"]
+
+[tasks.test-coverage]
+description = "Run tests with coverage"
+script = '''
+set LLVM_PROFILE_FILE=coverage-%%p-%%m.profraw
+cargo test
+echo Coverage data generated. To create a report, run 'cargo make coverage-report'
+'''
+
+[tasks.coverage-report]
+description = "Generate coverage report (requires llvm-tools-preview)"
+dependencies = ["test-coverage"]
+script = '''
+rustup component add llvm-tools-preview
+llvm-profdata merge -sparse coverage-*.profraw -o coverage.profdata
+llvm-cov report target/debug/deps/paa_lib-*.exe --instr-profile=coverage.profdata --ignore-filename-regex="(\.cargo|target|tests)"
+'''
+
+[tasks.coverage-html]
+description = "Generate HTML coverage report"
+dependencies = ["test-coverage"]
+script = '''
+rustup component add llvm-tools-preview
+llvm-profdata merge -sparse coverage-*.profraw -o coverage.profdata
+llvm-cov show target/debug/deps/paa_lib-*.exe --instr-profile=coverage.profdata --format=html --output-dir=target/coverage --ignore-filename-regex="(\.cargo|target|tests)" --show-instantiations=false
+echo Coverage report generated at: target/coverage/index.html
+'''
+
+[tasks.clean-coverage]
+description = "Clean coverage data"
+script = '''
+rm -f coverage-*.profraw
+rm -f coverage.profdata
+rm -rf target/coverage
+'''
