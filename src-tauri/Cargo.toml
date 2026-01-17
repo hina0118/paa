@@ -38,3 +38,12 @@ env_logger = "0.11"
 futures = "0.3"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "sqlite", "tls-rustls-ring"] }
 
+[dev-dependencies]
+mockall = "0.13"
+tokio-test = "0.4"
+
+[profile.dev]
+# テスト時の最適化を有効化（カバレッジ計測の精度向上）
+opt-level = 0
+debug = true
+
