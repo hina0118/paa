@@ -825,3 +825,363 @@ pub async fn sync_gmail_incremental(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+    use std::str::FromStr;
+
+    // Helper function to create an in-memory test database
+    async fn create_test_db() -> sqlx::SqlitePool {
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .create_if_missing(true);
+
+        let pool = SqlitePoolOptions::new()
+            .connect_with(options)
+            .await
+            .expect("Failed to create test database");
+
+        // Create emails table
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS emails (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                message_id TEXT UNIQUE NOT NULL,
+                body_plain TEXT,
+                body_html TEXT,
+                internal_date INTEGER NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("Failed to create emails table");
+
+        // Create sync_metadata table
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS sync_metadata (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                sync_status TEXT NOT NULL DEFAULT 'idle',
+                oldest_fetched_date TEXT,
+                total_synced_count INTEGER NOT NULL DEFAULT 0,
+                batch_size INTEGER NOT NULL DEFAULT 50,
+                last_sync_started_at TEXT,
+                last_sync_completed_at TEXT,
+                last_error_message TEXT
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("Failed to create sync_metadata table");
+
+        // Insert initial sync metadata
+        sqlx::query(
+            "INSERT INTO sync_metadata (id, sync_status, total_synced_count, batch_size) VALUES (1, 'idle', 0, 50)"
+        )
+        .execute(&pool)
+        .await
+        .expect("Failed to insert initial sync metadata");
+
+        pool
+    }
+
+    #[test]
+    fn test_gmail_message_structure() {
+        let message = GmailMessage {
+            message_id: "test123".to_string(),
+            snippet: "Test snippet".to_string(),
+            body_plain: Some("Plain text body".to_string()),
+            body_html: Some("<html>HTML body</html>".to_string()),
+            internal_date: 1234567890000,
+        };
+
+        assert_eq!(message.message_id, "test123");
+        assert_eq!(message.snippet, "Test snippet");
+        assert!(message.body_plain.is_some());
+        assert!(message.body_html.is_some());
+        assert_eq!(message.internal_date, 1234567890000);
+    }
+
+    #[test]
+    fn test_fetch_result_structure() {
+        let result = FetchResult {
+            fetched_count: 10,
+            saved_count: 8,
+            skipped_count: 2,
+        };
+
+        assert_eq!(result.fetched_count, 10);
+        assert_eq!(result.saved_count, 8);
+        assert_eq!(result.skipped_count, 2);
+    }
+
+    #[test]
+    fn test_sync_state_initialization() {
+        let sync_state = SyncState::new();
+
+        assert!(!sync_state.should_stop());
+        assert!(!sync_state.is_running());
+    }
+
+    #[test]
+    fn test_sync_state_cancel() {
+        let sync_state = SyncState::new();
+
+        assert!(!sync_state.should_stop());
+
+        sync_state.request_cancel();
+
+        assert!(sync_state.should_stop());
+    }
+
+    #[test]
+    fn test_sync_state_try_start() {
+        let sync_state = SyncState::new();
+
+        // First start should succeed
+        assert!(sync_state.try_start());
+        assert!(sync_state.is_running());
+
+        // Second start should fail (already running)
+        assert!(!sync_state.try_start());
+        assert!(sync_state.is_running());
+    }
+
+    #[test]
+    fn test_sync_state_try_start_resets_cancel() {
+        let sync_state = SyncState::new();
+
+        // Set cancel flag
+        sync_state.request_cancel();
+        assert!(sync_state.should_stop());
+
+        // try_start should reset the cancel flag
+        assert!(sync_state.try_start());
+        assert!(!sync_state.should_stop());
+        assert!(sync_state.is_running());
+    }
+
+    #[test]
+    fn test_sync_state_reset() {
+        let sync_state = SyncState::new();
+
+        sync_state.request_cancel();
+        assert!(sync_state.should_stop());
+
+        sync_state.reset();
+        assert!(!sync_state.should_stop());
+    }
+
+    #[tokio::test]
+    async fn test_save_messages_to_db_empty() {
+        let pool = create_test_db().await;
+        let messages: Vec<GmailMessage> = vec![];
+
+        let result = save_messages_to_db(&pool, &messages)
+            .await
+            .expect("Failed to save empty messages");
+
+        assert_eq!(result.fetched_count, 0);
+        assert_eq!(result.saved_count, 0);
+        assert_eq!(result.skipped_count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_save_messages_to_db_single() {
+        let pool = create_test_db().await;
+
+        let message = GmailMessage {
+            message_id: "msg001".to_string(),
+            snippet: "Test message".to_string(),
+            body_plain: Some("Plain text".to_string()),
+            body_html: Some("<html>HTML</html>".to_string()),
+            internal_date: 1609459200000, // 2021-01-01
+        };
+
+        let result = save_messages_to_db(&pool, &[message])
+            .await
+            .expect("Failed to save message");
+
+        assert_eq!(result.fetched_count, 1);
+        assert_eq!(result.saved_count, 1);
+        assert_eq!(result.skipped_count, 0);
+
+        // Verify the message was saved
+        let row: (String, i64) = sqlx::query_as("SELECT message_id, internal_date FROM emails WHERE message_id = 'msg001'")
+            .fetch_one(&pool)
+            .await
+            .expect("Failed to fetch saved message");
+
+        assert_eq!(row.0, "msg001");
+        assert_eq!(row.1, 1609459200000);
+    }
+
+    #[tokio::test]
+    async fn test_save_messages_to_db_duplicate() {
+        let pool = create_test_db().await;
+
+        let message = GmailMessage {
+            message_id: "msg002".to_string(),
+            snippet: "Test message".to_string(),
+            body_plain: Some("Plain text".to_string()),
+            body_html: Some("<html>HTML</html>".to_string()),
+            internal_date: 1609459200000,
+        };
+
+        // Save first time
+        let result1 = save_messages_to_db(&pool, &[message.clone()])
+            .await
+            .expect("Failed to save message first time");
+
+        assert_eq!(result1.saved_count, 1);
+        assert_eq!(result1.skipped_count, 0);
+
+        // Save second time (should skip duplicate)
+        let result2 = save_messages_to_db(&pool, &[message])
+            .await
+            .expect("Failed to save message second time");
+
+        assert_eq!(result2.saved_count, 0);
+        assert_eq!(result2.skipped_count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_save_messages_to_db_batch() {
+        let pool = create_test_db().await;
+
+        let messages = vec![
+            GmailMessage {
+                message_id: "msg003".to_string(),
+                snippet: "Message 1".to_string(),
+                body_plain: Some("Body 1".to_string()),
+                body_html: None,
+                internal_date: 1609459200000,
+            },
+            GmailMessage {
+                message_id: "msg004".to_string(),
+                snippet: "Message 2".to_string(),
+                body_plain: None,
+                body_html: Some("<html>Body 2</html>".to_string()),
+                internal_date: 1609545600000,
+            },
+            GmailMessage {
+                message_id: "msg005".to_string(),
+                snippet: "Message 3".to_string(),
+                body_plain: Some("Body 3".to_string()),
+                body_html: Some("<html>Body 3</html>".to_string()),
+                internal_date: 1609632000000,
+            },
+        ];
+
+        let result = save_messages_to_db(&pool, &messages)
+            .await
+            .expect("Failed to save batch");
+
+        assert_eq!(result.fetched_count, 3);
+        assert_eq!(result.saved_count, 3);
+        assert_eq!(result.skipped_count, 0);
+
+        // Verify count in database
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM emails")
+            .fetch_one(&pool)
+            .await
+            .expect("Failed to count emails");
+
+        assert_eq!(count.0, 3);
+    }
+
+    #[tokio::test]
+    async fn test_save_messages_to_db_partial_duplicate() {
+        let pool = create_test_db().await;
+
+        // First batch
+        let messages1 = vec![
+            GmailMessage {
+                message_id: "msg006".to_string(),
+                snippet: "Message 1".to_string(),
+                body_plain: Some("Body 1".to_string()),
+                body_html: None,
+                internal_date: 1609459200000,
+            },
+            GmailMessage {
+                message_id: "msg007".to_string(),
+                snippet: "Message 2".to_string(),
+                body_plain: Some("Body 2".to_string()),
+                body_html: None,
+                internal_date: 1609545600000,
+            },
+        ];
+
+        save_messages_to_db(&pool, &messages1)
+            .await
+            .expect("Failed to save first batch");
+
+        // Second batch with one duplicate
+        let messages2 = vec![
+            GmailMessage {
+                message_id: "msg007".to_string(), // Duplicate
+                snippet: "Message 2".to_string(),
+                body_plain: Some("Body 2".to_string()),
+                body_html: None,
+                internal_date: 1609545600000,
+            },
+            GmailMessage {
+                message_id: "msg008".to_string(), // New
+                snippet: "Message 3".to_string(),
+                body_plain: Some("Body 3".to_string()),
+                body_html: None,
+                internal_date: 1609632000000,
+            },
+        ];
+
+        let result = save_messages_to_db(&pool, &messages2)
+            .await
+            .expect("Failed to save second batch");
+
+        assert_eq!(result.fetched_count, 2);
+        assert_eq!(result.saved_count, 1);
+        assert_eq!(result.skipped_count, 1);
+    }
+
+    #[test]
+    fn test_sync_progress_event_structure() {
+        let event = SyncProgressEvent {
+            batch_number: 5,
+            batch_size: 50,
+            total_synced: 250,
+            newly_saved: 45,
+            status_message: "Batch 5 complete".to_string(),
+            is_complete: false,
+            error: None,
+        };
+
+        assert_eq!(event.batch_number, 5);
+        assert_eq!(event.batch_size, 50);
+        assert_eq!(event.total_synced, 250);
+        assert_eq!(event.newly_saved, 45);
+        assert!(!event.is_complete);
+        assert!(event.error.is_none());
+    }
+
+    #[test]
+    fn test_sync_metadata_structure() {
+        let metadata = SyncMetadata {
+            sync_status: "idle".to_string(),
+            oldest_fetched_date: Some("2024-01-01T00:00:00Z".to_string()),
+            total_synced_count: 1000,
+            batch_size: 50,
+            last_sync_started_at: Some("2024-01-15T10:00:00Z".to_string()),
+            last_sync_completed_at: Some("2024-01-15T10:30:00Z".to_string()),
+        };
+
+        assert_eq!(metadata.sync_status, "idle");
+        assert!(metadata.oldest_fetched_date.is_some());
+        assert_eq!(metadata.total_synced_count, 1000);
+        assert_eq!(metadata.batch_size, 50);
+    }
+}
