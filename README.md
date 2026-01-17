@@ -116,4 +116,53 @@ C:\Users\<ユーザー名>\AppData\Roaming\jp.github.hina0118.paa\client_secret.
 
 ## 開発用コマンド
 
+### アプリケーションの起動
+```bash
 npm run tauri dev
+```
+
+### テスト
+
+**目標カバレッジ: 85%**
+
+#### バックエンド（Rust）テスト
+
+```bash
+npm run test
+# または
+cd src-tauri && cargo test
+```
+
+カバレッジ計測:
+```bash
+npm run test:coverage
+# または
+cd src-tauri && cargo llvm-cov --all-features --workspace --html
+```
+
+HTMLレポート: `src-tauri/target/llvm-cov/html/index.html`
+
+詳細: `src-tauri/TESTING.md`
+
+#### フロントエンド（React）テスト
+
+```bash
+npm run test:frontend
+# または
+npm run test:frontend:run  # 一度だけ実行
+```
+
+カバレッジ計測:
+```bash
+npm run test:frontend:coverage
+```
+
+HTMLレポート: `coverage/index.html`
+
+詳細: `TESTING_FRONTEND.md`
+
+#### 全てのテスト実行
+
+```bash
+npm run test:all
+```
