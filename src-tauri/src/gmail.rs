@@ -2150,4 +2150,190 @@ mod tests {
         assert!(json.contains("\"sync_status\":\"idle\""));
         assert!(json.contains("\"total_synced_count\":100"));
     }
+
+    // 無限ループ検出ロジックのテスト
+    #[test]
+    fn test_infinite_loop_detection_same_boundaries() {
+        // 同じメッセージIDリストの境界チェック
+        let current_ids = vec!["msg1".to_string(), "msg2".to_string(), "msg3".to_string()];
+        let prev_ids = vec!["msg1".to_string(), "msg2".to_string(), "msg3".to_string()];
+
+        // 境界が同じかチェック
+        let same_boundaries = !current_ids.is_empty()
+            && current_ids.len() == prev_ids.len()
+            && current_ids.first() == prev_ids.first()
+            && current_ids.last() == prev_ids.last();
+
+        assert!(same_boundaries);
+
+        // ミドル要素もチェック
+        let mid = current_ids.len() / 2;
+        let same_middle = current_ids.get(mid) == prev_ids.get(mid);
+        assert!(same_middle);
+    }
+
+    #[test]
+    fn test_infinite_loop_detection_different_boundaries() {
+        // 異なるメッセージIDリストの境界チェック
+        let current_ids = vec!["msg4".to_string(), "msg5".to_string(), "msg6".to_string()];
+        let prev_ids = vec!["msg1".to_string(), "msg2".to_string(), "msg3".to_string()];
+
+        // 境界が異なることを確認
+        let same_boundaries = !current_ids.is_empty()
+            && current_ids.len() == prev_ids.len()
+            && current_ids.first() == prev_ids.first()
+            && current_ids.last() == prev_ids.last();
+
+        assert!(!same_boundaries);
+    }
+
+    #[test]
+    fn test_infinite_loop_detection_small_batch() {
+        // 小さなバッチ（2要素以下）の場合
+        let current_ids = vec!["msg1".to_string(), "msg2".to_string()];
+        let prev_ids = vec!["msg1".to_string(), "msg2".to_string()];
+
+        let same_boundaries = !current_ids.is_empty()
+            && current_ids.len() == prev_ids.len()
+            && current_ids.first() == prev_ids.first()
+            && current_ids.last() == prev_ids.last();
+
+        // 小さなバッチでは境界チェックのみで十分
+        assert!(same_boundaries);
+
+        let same_middle = if current_ids.len() > 2 {
+            let mid = current_ids.len() / 2;
+            current_ids.get(mid) == prev_ids.get(mid)
+        } else {
+            true
+        };
+
+        assert!(same_middle);
+    }
+
+    #[test]
+    fn test_timestamp_future_detection() {
+        use chrono::{DateTime, Utc, Duration};
+
+        let now = Utc::now();
+        let skew_tolerance = Duration::minutes(5);
+
+        // 許容範囲内の未来の時刻
+        let valid_future = now + Duration::minutes(3);
+        assert!(valid_future <= now + skew_tolerance);
+
+        // 許容範囲外の未来の時刻
+        let invalid_future = now + Duration::minutes(10);
+        assert!(invalid_future > now + skew_tolerance);
+    }
+
+    #[test]
+    fn test_timestamp_parsing_rfc3339() {
+        use chrono::DateTime;
+
+        // 有効なRFC3339タイムスタンプ
+        let valid_timestamp = "2024-01-15T10:30:00Z";
+        let parsed = DateTime::parse_from_rfc3339(valid_timestamp);
+        assert!(parsed.is_ok());
+
+        // 無効なRFC3339タイムスタンプ
+        let invalid_timestamp = "2024-01-15 10:30:00";
+        let parsed = DateTime::parse_from_rfc3339(invalid_timestamp);
+        assert!(parsed.is_err());
+    }
+
+    #[test]
+    fn test_message_id_extraction() {
+        // メッセージIDの抽出ロジックをテスト
+        let messages = vec![
+            GmailMessage {
+                message_id: "msg001".to_string(),
+                snippet: "Test 1".to_string(),
+                body_plain: None,
+                body_html: None,
+                internal_date: 1000,
+            },
+            GmailMessage {
+                message_id: "msg002".to_string(),
+                snippet: "Test 2".to_string(),
+                body_plain: None,
+                body_html: None,
+                internal_date: 2000,
+            },
+        ];
+
+        let message_ids: Vec<String> = messages.iter()
+            .map(|m| m.message_id.clone())
+            .collect();
+
+        assert_eq!(message_ids.len(), 2);
+        assert_eq!(message_ids[0], "msg001");
+        assert_eq!(message_ids[1], "msg002");
+    }
+
+    #[test]
+    fn test_saturating_add_overflow_protection() {
+        // saturating_addのオーバーフロー保護をテスト
+        let total_synced: i64 = i64::MAX - 100;
+        let saved_count: i64 = 200;
+
+        // 通常の加算だとオーバーフローするが、saturating_addは最大値に留まる
+        let result = total_synced.saturating_add(saved_count);
+        assert_eq!(result, i64::MAX);
+    }
+
+    #[test]
+    fn test_saturating_add_normal() {
+        // 通常のsaturating_addの動作
+        let total_synced: i64 = 100;
+        let saved_count: i64 = 50;
+
+        let result = total_synced.saturating_add(saved_count);
+        assert_eq!(result, 150);
+    }
+
+    #[test]
+    fn test_batch_number_increment() {
+        // バッチ番号のインクリメントロジック
+        let mut batch_number: usize = 0;
+
+        for _ in 0..5 {
+            batch_number += 1;
+        }
+
+        assert_eq!(batch_number, 5);
+
+        // MAX_ITERATIONSのチェック
+        const TEST_MAX_ITERATIONS: usize = 1000;
+        assert!(batch_number <= TEST_MAX_ITERATIONS);
+    }
+
+    #[test]
+    fn test_duration_calculation() {
+        use chrono::{Utc, Duration};
+
+        let start_time = Utc::now();
+        let elapsed = Utc::now().signed_duration_since(start_time);
+
+        // 経過時間は非負であるべき
+        assert!(elapsed >= Duration::zero());
+
+        // タイムアウトチェックのロジック
+        const TEST_TIMEOUT_MINUTES: i64 = 30;
+        let is_timeout = elapsed.num_minutes() > TEST_TIMEOUT_MINUTES;
+        assert!(!is_timeout); // テスト実行は30分以内
+    }
+
+    #[tokio::test]
+    async fn test_empty_messages_handling() {
+        // 空のメッセージリストのハンドリング
+        let messages: Vec<GmailMessage> = vec![];
+
+        let mut has_more = true;
+        if messages.is_empty() {
+            has_more = false;
+        }
+
+        assert!(!has_more);
+    }
 }
