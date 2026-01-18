@@ -126,6 +126,10 @@ async fn update_max_iterations(
     pool: tauri::State<'_, SqlitePool>,
     max_iterations: i64,
 ) -> Result<(), String> {
+    if max_iterations <= 0 {
+        return Err("最大繰り返し回数は1以上である必要があります".to_string());
+    }
+
     log::info!("Updating max iterations to: {}", max_iterations);
 
     sqlx::query(
@@ -177,6 +181,17 @@ async fn save_window_settings(
     y: Option<i64>,
     maximized: bool,
 ) -> Result<(), String> {
+    // Validate window size (minimum 200, maximum 10000)
+    const MIN_SIZE: i64 = 200;
+    const MAX_SIZE: i64 = 10000;
+
+    if width < MIN_SIZE || width > MAX_SIZE {
+        return Err(format!("ウィンドウの幅は{}〜{}の範囲である必要があります", MIN_SIZE, MAX_SIZE));
+    }
+    if height < MIN_SIZE || height > MAX_SIZE {
+        return Err(format!("ウィンドウの高さは{}〜{}の範囲である必要があります", MIN_SIZE, MAX_SIZE));
+    }
+
     sqlx::query(
         "UPDATE window_settings SET width = ?1, height = ?2, x = ?3, y = ?4, maximized = ?5 WHERE id = 1"
     )
@@ -191,7 +206,6 @@ async fn save_window_settings(
 
     Ok(())
 }
-
 
 #[tauri::command]
 async fn fetch_gmail_emails(

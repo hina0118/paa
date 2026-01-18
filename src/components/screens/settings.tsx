@@ -35,7 +35,7 @@ export function Settings() {
       setSuccessMessage("バッチサイズを更新しました");
       setTimeout(() => setSuccessMessage(""), 3000);
     } catch (error) {
-      setErrorMessage(`更新に失敗しました: ${error}`);
+      setErrorMessage(`更新に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setIsSaving(false);
     }
@@ -57,7 +57,7 @@ export function Settings() {
       setSuccessMessage("最大繰り返し回数を更新しました");
       setTimeout(() => setSuccessMessage(""), 3000);
     } catch (error) {
-      setErrorMessage(`更新に失敗しました: ${error}`);
+      setErrorMessage(`更新に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setIsSaving(false);
     }
