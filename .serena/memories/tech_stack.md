@@ -26,6 +26,31 @@
 - **シリアライゼーション**: 
   - serde 1.x
   - serde_json 1.x
+- **データベース**:
+  - sqlx 0.8.x (非同期SQLライブラリ)
+  - SQLite (ローカルストレージ)
+- **Gmail API**:
+  - google-gmail1 6.0.x
+  - yup-oauth2 (OAuth 2.0認証)
+  - hyper / hyper-rustls (HTTPクライアント)
+- **ロギング**: log crate
+- **日時処理**: chrono 0.4.x
+
+## テスト環境
+### フロントエンド
+- **テストフレームワーク**: Vitest 4.0.17
+- **テスティングライブラリ**: 
+  - @testing-library/react 16.1.0
+  - @testing-library/user-event 14.5.2
+- **DOM環境**: jsdom 25.0.1
+- **カバレッジ**: @vitest/coverage-v8 4.0.17
+- **モック**: Vitest標準のvi.mock()
+
+### バックエンド
+- **テストフレームワーク**: Cargo test (標準)
+- **非同期テスト**: tokio (test-runtime)
+- **カバレッジ**: cargo-llvm-cov
+- **データベーステスト**: sqlx + sqlite::memory
 
 ## 開発環境
 - **パッケージマネージャ**: npm
