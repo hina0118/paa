@@ -67,8 +67,8 @@ async fn cancel_sync(
 async fn get_sync_status(
     pool: tauri::State<'_, SqlitePool>,
 ) -> Result<gmail::SyncMetadata, String> {
-    let row: (String, Option<String>, i64, i64, Option<String>, Option<String>) = sqlx::query_as(
-        "SELECT sync_status, oldest_fetched_date, total_synced_count, batch_size, last_sync_started_at, last_sync_completed_at FROM sync_metadata WHERE id = 1"
+    let row: (String, Option<String>, i64, i64, Option<String>, Option<String>, i64) = sqlx::query_as(
+        "SELECT sync_status, oldest_fetched_date, total_synced_count, batch_size, last_sync_started_at, last_sync_completed_at, max_iterations FROM sync_metadata WHERE id = 1"
     )
     .fetch_one(pool.inner())
     .await
@@ -81,6 +81,7 @@ async fn get_sync_status(
         batch_size: row.3,
         last_sync_started_at: row.4,
         last_sync_completed_at: row.5,
+        max_iterations: row.6,
     })
 }
 
@@ -114,6 +115,24 @@ async fn update_batch_size(
     .execute(pool.inner())
     .await
     .map_err(|e| format!("Failed to update batch size: {}", e))?;
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn update_max_iterations(
+    pool: tauri::State<'_, SqlitePool>,
+    max_iterations: i64,
+) -> Result<(), String> {
+    log::info!("Updating max iterations to: {}", max_iterations);
+
+    sqlx::query(
+        "UPDATE sync_metadata SET max_iterations = ?1 WHERE id = 1"
+    )
+    .bind(max_iterations)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| format!("Failed to update max iterations: {}", e))?;
 
     Ok(())
 }
@@ -206,6 +225,12 @@ pub fn run() {
             description: "add internal_date to emails",
             sql: include_str!("../migrations/011_add_internal_date_to_emails.sql"),
             kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 12,
+            description: "add max_iterations to sync_metadata",
+            sql: include_str!("../migrations/012_add_max_iterations_to_sync_metadata.sql"),
+            kind: MigrationKind::Up,
         }
     ];
 
@@ -268,6 +293,7 @@ pub fn run() {
             cancel_sync,
             get_sync_status,
             update_batch_size,
+            update_max_iterations,
             reset_sync_status
         ])
         .run(tauri::generate_context!())
