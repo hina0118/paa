@@ -8,7 +8,8 @@ export function Settings() {
   const { metadata, updateBatchSize, updateMaxIterations } = useSync();
   const [batchSize, setBatchSize] = useState<string>("");
   const [maxIterations, setMaxIterations] = useState<string>("");
-  const [isSaving, setIsSaving] = useState(false);
+  const [isSavingBatchSize, setIsSavingBatchSize] = useState(false);
+  const [isSavingMaxIterations, setIsSavingMaxIterations] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string>("");
   const [errorMessage, setErrorMessage] = useState<string>("");
 
@@ -25,11 +26,11 @@ export function Settings() {
       setErrorMessage("バッチサイズは1以上の整数を入力してください");
       return;
     }
-    
-    setIsSaving(true);
+
+    setIsSavingBatchSize(true);
     setErrorMessage("");
     setSuccessMessage("");
-    
+
     try {
       await updateBatchSize(value);
       setSuccessMessage("バッチサイズを更新しました");
@@ -37,7 +38,7 @@ export function Settings() {
     } catch (error) {
       setErrorMessage(`更新に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
-      setIsSaving(false);
+      setIsSavingBatchSize(false);
     }
   };
 
@@ -47,11 +48,11 @@ export function Settings() {
       setErrorMessage("最大繰り返し回数は1以上の整数を入力してください");
       return;
     }
-    
-    setIsSaving(true);
+
+    setIsSavingMaxIterations(true);
     setErrorMessage("");
     setSuccessMessage("");
-    
+
     try {
       await updateMaxIterations(value);
       setSuccessMessage("最大繰り返し回数を更新しました");
@@ -59,7 +60,7 @@ export function Settings() {
     } catch (error) {
       setErrorMessage(`更新に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
-      setIsSaving(false);
+      setIsSavingMaxIterations(false);
     }
   };
 
@@ -99,10 +100,10 @@ export function Settings() {
                 min="1"
                 value={batchSize}
                 onChange={(e) => setBatchSize(e.target.value)}
-                disabled={isSaving}
+                disabled={isSavingBatchSize}
                 className="max-w-xs"
               />
-              <Button onClick={handleSaveBatchSize} disabled={isSaving}>
+              <Button onClick={handleSaveBatchSize} disabled={isSavingBatchSize}>
                 保存
               </Button>
             </div>
@@ -124,10 +125,10 @@ export function Settings() {
                 min="1"
                 value={maxIterations}
                 onChange={(e) => setMaxIterations(e.target.value)}
-                disabled={isSaving}
+                disabled={isSavingMaxIterations}
                 className="max-w-xs"
               />
-              <Button onClick={handleSaveMaxIterations} disabled={isSaving}>
+              <Button onClick={handleSaveMaxIterations} disabled={isSavingMaxIterations}>
                 保存
               </Button>
             </div>

@@ -10,8 +10,8 @@ CREATE TABLE IF NOT EXISTS window_settings (
     updated_at TEXT DEFAULT (datetime('now'))
 );
 
--- Initialize with single row
-INSERT INTO window_settings (id, width, height) VALUES (1, 800, 600);
+-- Initialize with single row (idempotent: does nothing if row already exists)
+INSERT OR IGNORE INTO window_settings (id, width, height) VALUES (1, 800, 600);
 
 -- Trigger to update updated_at on changes
 CREATE TRIGGER update_window_settings_timestamp
