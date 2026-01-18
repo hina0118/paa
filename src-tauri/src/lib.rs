@@ -137,6 +137,59 @@ async fn update_max_iterations(
     Ok(())
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+struct WindowSettings {
+    width: i64,
+    height: i64,
+    x: Option<i64>,
+    y: Option<i64>,
+    maximized: bool,
+}
+
+#[tauri::command]
+async fn get_window_settings(
+    pool: tauri::State<'_, SqlitePool>,
+) -> Result<WindowSettings, String> {
+    let row: (i64, i64, Option<i64>, Option<i64>, i64) = sqlx::query_as(
+        "SELECT width, height, x, y, maximized FROM window_settings WHERE id = 1"
+    )
+    .fetch_one(pool.inner())
+    .await
+    .map_err(|e| format!("Failed to fetch window settings: {}", e))?;
+
+    Ok(WindowSettings {
+        width: row.0,
+        height: row.1,
+        x: row.2,
+        y: row.3,
+        maximized: row.4 != 0,
+    })
+}
+
+#[tauri::command]
+async fn save_window_settings(
+    pool: tauri::State<'_, SqlitePool>,
+    width: i64,
+    height: i64,
+    x: Option<i64>,
+    y: Option<i64>,
+    maximized: bool,
+) -> Result<(), String> {
+    sqlx::query(
+        "UPDATE window_settings SET width = ?1, height = ?2, x = ?3, y = ?4, maximized = ?5 WHERE id = 1"
+    )
+    .bind(width)
+    .bind(height)
+    .bind(x)
+    .bind(y)
+    .bind(if maximized { 1 } else { 0 })
+    .execute(pool.inner())
+    .await
+    .map_err(|e| format!("Failed to save window settings: {}", e))?;
+
+    Ok(())
+}
+
 #[tauri::command]
 async fn fetch_gmail_emails(
     app_handle: tauri::AppHandle,
@@ -231,6 +284,12 @@ pub fn run() {
             description: "add max_iterations to sync_metadata",
             sql: include_str!("../migrations/012_add_max_iterations_to_sync_metadata.sql"),
             kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 13,
+            description: "create window_settings table",
+            sql: include_str!("../migrations/013_create_window_settings_table.sql"),
+            kind: MigrationKind::Up,
         }
     ];
 
@@ -277,12 +336,47 @@ pub fn run() {
                     .expect("Failed to create sqlx pool")
             });
 
-            app.manage(pool);
+            app.manage(pool.clone());
             log::info!("sqlx pool created for backend use");
 
             // Initialize sync state
             app.manage(gmail::SyncState::new());
             log::info!("Sync state initialized");
+
+            // Restore window settings
+            let window = app.get_webview_window("main").expect("Failed to get main window");
+            let pool_for_window = pool.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Ok(settings) = sqlx::query_as::<_, (i64, i64, Option<i64>, Option<i64>, i64)>(
+                    "SELECT width, height, x, y, maximized FROM window_settings WHERE id = 1"
+                )
+                .fetch_one(&pool_for_window)
+                .await
+                {
+                    let (width, height, x, y, maximized) = settings;
+
+                    // Set window size
+                    let _ = window.set_size(tauri::LogicalSize {
+                        width: width as u32,
+                        height: height as u32,
+                    });
+
+                    // Set window position if available
+                    if let (Some(x_pos), Some(y_pos)) = (x, y) {
+                        let _ = window.set_position(tauri::LogicalPosition {
+                            x: x_pos as i32,
+                            y: y_pos as i32,
+                        });
+                    }
+
+                    // Set maximized state
+                    if maximized != 0 {
+                        let _ = window.maximize();
+                    }
+
+                    log::info!("Window settings restored: {}x{}", width, height);
+                }
+            });
 
             Ok(())
         })
@@ -294,7 +388,9 @@ pub fn run() {
             get_sync_status,
             update_batch_size,
             update_max_iterations,
-            reset_sync_status
+            reset_sync_status,
+            get_window_settings,
+            save_window_settings
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
