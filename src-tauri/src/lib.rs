@@ -1,4 +1,6 @@
 use tauri::{Emitter, Manager};
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
 use tauri_plugin_sql::{Migration, MigrationKind};
 use sqlx::sqlite::SqlitePool;
 
@@ -190,6 +192,7 @@ async fn save_window_settings(
     Ok(())
 }
 
+
 #[tauri::command]
 async fn fetch_gmail_emails(
     app_handle: tauri::AppHandle,
@@ -343,8 +346,18 @@ pub fn run() {
             app.manage(gmail::SyncState::new());
             log::info!("Sync state initialized");
 
-            // Restore window settings
+            // Restore window settings and setup close handler
             let window = app.get_webview_window("main").expect("Failed to get main window");
+
+            // Handle window close request - hide instead of closing
+            let window_clone = window.clone();
+            window.on_window_event(move |event| {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window_clone.hide();
+                }
+            });
+
             let pool_for_window = pool.clone();
             tauri::async_runtime::spawn(async move {
                 if let Ok(settings) = sqlx::query_as::<_, (i64, i64, Option<i64>, Option<i64>, i64)>(
@@ -377,6 +390,48 @@ pub fn run() {
                     log::info!("Window settings restored: {}x{}", width, height);
                 }
             });
+
+            // Setup system tray
+            let show_item = MenuItem::with_id(app, "show", "表示", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "終了", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+
+            let _tray = TrayIconBuilder::new()
+                .icon(app.default_window_icon().unwrap().clone())
+                .menu(&menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app, event| {
+                    match event.id.as_ref() {
+                        "show" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                        "quit" => {
+                            app.exit(0);
+                        }
+                        _ => {}
+                    }
+                })
+                .on_tray_icon_event(|tray, event| {
+                    match event {
+                        TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            ..
+                        } => {
+                            let app = tray.app_handle();
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                        _ => {}
+                    }
+                })
+                .build(app)?;
+
+            log::info!("System tray initialized");
 
             Ok(())
         })

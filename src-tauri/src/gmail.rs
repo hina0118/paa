@@ -808,6 +808,7 @@ pub async fn sync_gmail_incremental(
     {
         return Err(format!("Failed to update final status: {}", e));
     }
+
     // Emit completion event
     let completion = SyncProgressEvent {
         batch_number,
