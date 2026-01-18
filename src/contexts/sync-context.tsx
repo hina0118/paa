@@ -19,6 +19,7 @@ export interface SyncMetadata {
   batch_size: number;
   last_sync_started_at?: string;
   last_sync_completed_at?: string;
+  max_iterations: number;
 }
 
 interface SyncContextType {
@@ -29,6 +30,7 @@ interface SyncContextType {
   cancelSync: () => Promise<void>;
   refreshStatus: () => Promise<void>;
   updateBatchSize: (size: number) => Promise<void>;
+  updateMaxIterations: (maxIterations: number) => Promise<void>;
 }
 
 const SyncContext = createContext<SyncContextType | undefined>(undefined);
@@ -126,9 +128,19 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const updateMaxIterations = async (maxIterations: number) => {
+    try {
+      await invoke("update_max_iterations", { maxIterations });
+      await refreshStatus();
+    } catch (error) {
+      console.error("Failed to update max iterations:", error);
+      throw error;
+    }
+  };
+
   return (
     <SyncContext.Provider
-      value={{ isSyncing, progress, metadata, startSync, cancelSync, refreshStatus, updateBatchSize }}
+      value={{ isSyncing, progress, metadata, startSync, cancelSync, refreshStatus, updateBatchSize, updateMaxIterations }}
     >
       {children}
     </SyncContext.Provider>
