@@ -27,6 +27,8 @@ paa/
 │   │   ├── data.ts               # データ定義
 │   │   ├── types.ts              # 型定義 (Email型など)
 │   │   └── utils.ts              # ユーティリティ関数
+│   ├── test/                     # テスト設定
+│   │   └── setup.ts              # テスト環境設定・モック
 │   ├── assets/                   # 静的アセット
 │   ├── App.tsx                   # メインアプリケーション
 │   ├── main.tsx                  # エントリーポイント
@@ -34,8 +36,16 @@ paa/
 │   └── vite-env.d.ts             # Vite型定義
 ├── src-tauri/                    # Tauriバックエンド (Rust)
 │   ├── src/                      # Rustソースコード
+│   │   ├── gmail.rs              # Gmail API統合 (テストモジュール含む)
+│   │   ├── lib.rs                # Tauriコマンド定義
+│   │   └── main.rs               # エントリーポイント
+│   ├── tests/                    # 統合テスト
+│   │   └── command_tests.rs      # コマンドテスト
 │   ├── Cargo.toml                # Rustプロジェクト設定
+│   ├── TESTING.md                # テストガイド
 │   └── gen/schemas/              # 生成されたスキーマ
+├── coverage/                     # カバレッジレポート (gitignore)
+│   └── index.html                # フロントエンドカバレッジHTML
 ├── public/                       # 公開静的ファイル
 ├── .vscode/                      # VS Code設定
 ├── components.json               # shadcn/ui設定
