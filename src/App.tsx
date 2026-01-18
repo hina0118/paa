@@ -17,6 +17,8 @@ import {
 } from "@/components/screens/tables";
 import { NavigationProvider, useNavigation } from "@/contexts/navigation-context";
 import { SyncProvider } from "@/contexts/sync-context";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { invoke } from "@tauri-apps/api/core";
 
 function AppContent() {
   const { currentScreen } = useNavigation();
@@ -80,6 +82,55 @@ function App() {
     };
 
     initDb();
+
+    // ウィンドウサイズ・位置変更時に設定を保存
+    const saveWindowSettings = async () => {
+      try {
+        const window = getCurrentWindow();
+        const size = await window.innerSize();
+        const position = await window.outerPosition();
+        const maximized = await window.isMaximized();
+
+        await invoke("save_window_settings", {
+          width: size.width,
+          height: size.height,
+          x: position.x,
+          y: position.y,
+          maximized,
+        });
+      } catch (error) {
+        console.error("Failed to save window settings:", error);
+      }
+    };
+
+    // デバウンス処理（頻繁な保存を避ける）
+    let saveTimeout: NodeJS.Timeout;
+    const debouncedSave = () => {
+      clearTimeout(saveTimeout);
+      saveTimeout = setTimeout(saveWindowSettings, 500);
+    };
+
+    // ウィンドウイベントリスナーを設定
+    const setupWindowListeners = async () => {
+      const window = getCurrentWindow();
+      const unlistenResize = await window.onResized(debouncedSave);
+      const unlistenMove = await window.onMoved(debouncedSave);
+
+      return () => {
+        unlistenResize();
+        unlistenMove();
+      };
+    };
+
+    let cleanup: (() => void) | undefined;
+    setupWindowListeners().then((fn) => {
+      cleanup = fn;
+    });
+
+    return () => {
+      if (cleanup) cleanup();
+      clearTimeout(saveTimeout);
+    };
   }, []);
 
   return (
