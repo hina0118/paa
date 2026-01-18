@@ -31,6 +31,55 @@ npm run preview
 ```
 ビルドされたアプリをプレビューします。
 
+## テストコマンド
+
+### フロントエンドテスト (全体)
+```bash
+# ウォッチモード (開発時推奨)
+npm run test:frontend
+
+# 1回実行 (CI/CD用)
+npm run test:frontend:run
+
+# カバレッジ測定
+npm run test:frontend:coverage
+
+# UIモード (ビジュアルテストランナー)
+npm run test:frontend:ui
+```
+
+### バックエンドテスト (Rust)
+```bash
+# テスト実行
+cd src-tauri
+cargo test
+
+# カバレッジ測定 (コンソール出力)
+cd src-tauri
+cargo llvm-cov --all-features --workspace
+
+# カバレッジHTMLレポート生成
+cd src-tauri
+cargo llvm-cov --all-features --workspace --html
+# レポート: src-tauri/target/llvm-cov/html/index.html
+```
+
+### 全テスト実行
+```bash
+npm run test:all
+```
+フロントエンドとバックエンドの両方のテストを実行します。
+
+### 特定のテストファイルのみ実行
+```bash
+# フロントエンド
+npm run test:frontend -- src/components/ui/button.test.tsx
+
+# バックエンド
+cd src-tauri
+cargo test gmail::tests::test_save_messages_to_db
+```
+
 ## パッケージ管理
 
 ### 依存関係のインストール
