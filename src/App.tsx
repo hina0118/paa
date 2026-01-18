@@ -104,9 +104,11 @@ function App() {
     };
 
     // デバウンス処理（頻繁な保存を避ける）
-    let saveTimeout: NodeJS.Timeout;
+    let saveTimeout: NodeJS.Timeout | undefined;
     const debouncedSave = () => {
-      clearTimeout(saveTimeout);
+      if (saveTimeout) {
+        clearTimeout(saveTimeout);
+      }
       saveTimeout = setTimeout(saveWindowSettings, 500);
     };
 
@@ -129,7 +131,9 @@ function App() {
 
     return () => {
       if (cleanup) cleanup();
-      clearTimeout(saveTimeout);
+      if (saveTimeout) {
+        clearTimeout(saveTimeout);
+      }
     };
   }, []);
 
