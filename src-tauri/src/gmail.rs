@@ -75,6 +75,7 @@ pub struct SyncMetadata {
     pub batch_size: i64,
     pub last_sync_started_at: Option<String>,
     pub last_sync_completed_at: Option<String>,
+    pub max_iterations: i64,
 }
 
 /// Synchronization state for Gmail sync operations
@@ -599,9 +600,9 @@ pub async fn sync_gmail_incremental(
         return Err(format!("Failed to update sync status: {}", e));
     }
 
-    // Get oldest fetched date and batch size from metadata
-    let metadata: Option<(Option<String>, i64, i64)> = match sqlx::query_as(
-        "SELECT oldest_fetched_date, total_synced_count, batch_size FROM sync_metadata WHERE id = 1"
+    // Get oldest fetched date, batch size, and max iterations from metadata
+    let metadata: Option<(Option<String>, i64, i64, i64)> = match sqlx::query_as(
+        "SELECT oldest_fetched_date, total_synced_count, batch_size, max_iterations FROM sync_metadata WHERE id = 1"
     )
     .fetch_optional(pool)
     .await
@@ -613,8 +614,9 @@ pub async fn sync_gmail_incremental(
         }
     };
 
-    let (mut oldest_date, mut total_synced, db_batch_size) = metadata.unwrap_or((None, 0, batch_size as i64));
+    let (mut oldest_date, mut total_synced, db_batch_size, db_max_iterations) = metadata.unwrap_or((None, 0, batch_size as i64, MAX_ITERATIONS as i64));
     let effective_batch_size = if db_batch_size > 0 { db_batch_size as usize } else { batch_size };
+    let effective_max_iterations = if db_max_iterations > 0 { db_max_iterations as usize } else { MAX_ITERATIONS };
 
     // Initialize Gmail client
     let client = match GmailClient::new(app_handle).await {
@@ -631,8 +633,8 @@ pub async fn sync_gmail_incremental(
     while has_more && !sync_state.should_stop() {
         batch_number += 1;
         // Check iteration limit to prevent infinite loops
-        if batch_number > MAX_ITERATIONS {
-            log::warn!("Reached maximum iteration limit ({}), stopping sync", MAX_ITERATIONS);
+        if batch_number > effective_max_iterations {
+            log::warn!("Reached maximum iteration limit ({}), stopping sync", effective_max_iterations);
             break;
         }
         // Check timeout to prevent indefinite sync
