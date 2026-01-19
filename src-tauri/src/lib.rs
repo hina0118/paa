@@ -313,6 +313,15 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // 二重起動が検知された場合、既存のウィンドウを最前面に表示
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+                log::info!("Second instance detected - bringing existing window to front");
+            }
+        }))
         .setup(move |app| {
             // ロガーの初期化
             env_logger::Builder::from_default_env()
