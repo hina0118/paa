@@ -137,9 +137,13 @@ function App() {
       const window = getCurrentWindow();
       await window.show();
       await window.setFocus();
-    }).then((unlisten) => {
-      unlistenNotification = unlisten;
-    });
+    })
+      .then((unlisten) => {
+        unlistenNotification = unlisten;
+      })
+      .catch((error) => {
+        console.error("Failed to set up notification action listener:", error);
+      });
 
     return () => {
       if (cleanup) cleanup();
