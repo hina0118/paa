@@ -7,6 +7,7 @@ use sqlx::sqlite::SqlitePool;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_notification::NotificationExt;
 use yup_oauth2 as oauth2;
 
 // カスタムInstalledFlowDelegateでブラウザを自動的に開く
@@ -826,6 +827,19 @@ pub async fn sync_gmail_incremental(
     if let Err(e) = app_handle.emit("sync-progress", completion) {
         return Err(format!("Failed to emit completion: {}", e));
     }
+
+    // Send desktop notification on completion (only if not cancelled)
+    if !sync_state.should_stop() {
+        let notification_body = format!("同期完了：新たに{}件の注文情報を取り込みました", total_synced);
+        if let Err(e) = app_handle.notification()
+            .builder()
+            .title("Gmail同期完了")
+            .body(&notification_body)
+            .show() {
+            log::warn!("Failed to send notification: {}", e);
+        }
+    }
+
     Ok(())
 }
 
