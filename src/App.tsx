@@ -19,6 +19,7 @@ import { NavigationProvider, useNavigation } from "@/contexts/navigation-context
 import { SyncProvider } from "@/contexts/sync-context";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 function AppContent() {
   const { currentScreen } = useNavigation();
@@ -104,7 +105,7 @@ function App() {
     };
 
     // デバウンス処理（頻繁な保存を避ける）
-    let saveTimeout: NodeJS.Timeout | undefined;
+    let saveTimeout: ReturnType<typeof setTimeout> | undefined;
     const debouncedSave = () => {
       if (saveTimeout) {
         clearTimeout(saveTimeout);
@@ -129,8 +130,24 @@ function App() {
       cleanup = fn;
     });
 
+    // 通知アクションイベントリスナーを設定
+    let unlistenNotification: (() => void) | undefined;
+    listen("notification-action", async () => {
+      console.log("Notification clicked - showing window");
+      const window = getCurrentWindow();
+      await window.show();
+      await window.setFocus();
+    })
+      .then((unlisten) => {
+        unlistenNotification = unlisten;
+      })
+      .catch((error) => {
+        console.error("Failed to set up notification action listener:", error);
+      });
+
     return () => {
       if (cleanup) cleanup();
+      if (unlistenNotification) unlistenNotification();
       if (saveTimeout) {
         clearTimeout(saveTimeout);
       }

@@ -1,4 +1,4 @@
-use tauri::{Emitter, Manager};
+use tauri::{Emitter, Listener, Manager};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
 use tauri_plugin_sql::{Migration, MigrationKind};
@@ -312,6 +312,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             // 二重起動が検知された場合、既存のウィンドウを最前面に表示
             if let Some(window) = app.get_webview_window("main") {
@@ -462,6 +463,17 @@ pub fn run() {
                 .build(app)?;
 
             log::info!("System tray initialized");
+
+            // Set up notification action listener
+            let app_handle = app.handle().clone();
+            app.listen("notification-action", move |event| {
+                log::info!("Notification action event: {:?}", event);
+                // Show main window when notification is clicked
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            });
 
             Ok(())
         })
