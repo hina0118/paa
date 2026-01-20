@@ -17,7 +17,7 @@
 | 4 | グローバルMutex使用 | 中 | 中 | ✅ 完了 | [SECURITY-FIX-04-07.md](./SECURITY-FIX-04-07.md) |
 | 5 | ログパフォーマンス | 中 | 中 | ✅ 完了 | [SECURITY-FIX-04-07.md](./SECURITY-FIX-04-07.md) |
 | 6 | SQLクエリ非効率性 | 中 | 中 | ✅ 完了 | [SECURITY-FIX-04-07.md](./SECURITY-FIX-04-07.md) |
-| 7 | エラー型アサーション | 中 | 中 | ✅ 確認済 | [SECURITY-FIX-04-07.md](./SECURITY-FIX-04-07.md) |
+| 7 | エラー型アサーション | 中 | 中 | ✅ 完了 | [SECURITY-FIX-04-07.md](./SECURITY-FIX-04-07.md) |
 
 ---
 

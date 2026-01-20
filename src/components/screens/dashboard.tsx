@@ -24,7 +24,7 @@ export function Dashboard() {
       const result = await invoke<EmailStats>('get_email_stats');
       setStats(result);
     } catch (err) {
-      setError(err as string);
+      setError(err instanceof Error ? err.message : String(err));
       console.error('Failed to load email stats:', err);
     } finally {
       setLoading(false);
