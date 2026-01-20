@@ -240,42 +240,42 @@ pub struct EmailStats {
     pub avg_html_length: f64,
 }
 
+/// メール統計情報を取得
+///
+/// CTEを使用してLENGTH計算を一度だけ実行し、パフォーマンスを最適化
 #[tauri::command]
 async fn get_email_stats(pool: tauri::State<'_, SqlitePool>) -> Result<EmailStats, String> {
-    let stats: (i64, i64, i64, i64) = sqlx::query_as(
+    let stats: (i64, i64, i64, i64, Option<f64>, Option<f64>) = sqlx::query_as(
         r#"
+        WITH email_lengths AS (
+            SELECT
+                body_plain,
+                body_html,
+                CASE WHEN body_plain IS NOT NULL THEN LENGTH(body_plain) ELSE 0 END AS plain_length,
+                CASE WHEN body_html IS NOT NULL THEN LENGTH(body_html) ELSE 0 END AS html_length
+            FROM emails
+        )
         SELECT
-            COUNT(*) as total,
-            COUNT(CASE WHEN body_plain IS NOT NULL AND LENGTH(body_plain) > 0 THEN 1 END) as with_plain,
-            COUNT(CASE WHEN body_html IS NOT NULL AND LENGTH(body_html) > 0 THEN 1 END) as with_html,
-            COUNT(CASE WHEN (body_plain IS NULL OR LENGTH(body_plain) = 0) AND (body_html IS NULL OR LENGTH(body_html) = 0) THEN 1 END) as without_body
-        FROM emails
+            COUNT(*) AS total,
+            COUNT(CASE WHEN body_plain IS NOT NULL AND plain_length > 0 THEN 1 END) AS with_plain,
+            COUNT(CASE WHEN body_html IS NOT NULL AND html_length > 0 THEN 1 END) AS with_html,
+            COUNT(CASE WHEN (body_plain IS NULL OR plain_length = 0) AND (body_html IS NULL OR html_length = 0) THEN 1 END) AS without_body,
+            AVG(CASE WHEN body_plain IS NOT NULL AND plain_length > 0 THEN plain_length END) AS avg_plain,
+            AVG(CASE WHEN body_html IS NOT NULL AND html_length > 0 THEN html_length END) AS avg_html
+        FROM email_lengths
         "#
     )
     .fetch_one(pool.inner())
     .await
     .map_err(|e| format!("Failed to fetch email stats: {}", e))?;
 
-    let avg_lengths: (Option<f64>, Option<f64>) = sqlx::query_as(
-        r#"
-        SELECT
-            AVG(CASE WHEN body_plain IS NOT NULL THEN LENGTH(body_plain) ELSE 0 END) as avg_plain,
-            AVG(CASE WHEN body_html IS NOT NULL THEN LENGTH(body_html) ELSE 0 END) as avg_html
-        FROM emails
-        WHERE body_plain IS NOT NULL OR body_html IS NOT NULL
-        "#
-    )
-    .fetch_one(pool.inner())
-    .await
-    .map_err(|e| format!("Failed to fetch average lengths: {}", e))?;
-
     Ok(EmailStats {
         total_emails: stats.0,
         with_body_plain: stats.1,
         with_body_html: stats.2,
         without_body: stats.3,
-        avg_plain_length: avg_lengths.0.unwrap_or(0.0),
-        avg_html_length: avg_lengths.1.unwrap_or(0.0),
+        avg_plain_length: stats.4.unwrap_or(0.0),
+        avg_html_length: stats.5.unwrap_or(0.0),
     })
 }
 
@@ -286,9 +286,23 @@ pub struct LogEntry {
     pub message: String,
 }
 
+// ログバッファ用グローバルMutex
+//
+// 注意: グローバルMutexの使用はロック競合のリスクがあります。
+// 現在の実装では適切なエラーハンドリングにより安全性を確保していますが、
+// 将来的にはTauriのステート管理機能への移行を検討してください。
+//
+// パフォーマンスに関する考慮事項:
+// - ログ記録の度にMutexロックを取得しますが、ロック保持時間は短く抑えられています
+// - MAX_LOG_ENTRIESを超えた古いログは自動的に削除され、メモリ使用量を制限しています
+// - 通常のアプリケーション使用では十分なパフォーマンスを提供します
 static LOG_BUFFER: Mutex<Option<VecDeque<LogEntry>>> = Mutex::new(None);
 const MAX_LOG_ENTRIES: usize = 1000;
 
+/// ログバッファを初期化
+///
+/// アプリケーション起動時に一度だけ呼び出してください。
+/// 複数回呼び出しても安全ですが、既存のログは破棄されます。
 pub fn init_log_buffer() {
     match LOG_BUFFER.lock() {
         Ok(mut buffer) => {
@@ -302,6 +316,16 @@ pub fn init_log_buffer() {
     }
 }
 
+/// ログエントリを追加
+///
+/// # パラメータ
+/// - `level`: ログレベル（例: "INFO", "ERROR", "DEBUG"）
+/// - `message`: ログメッセージ
+///
+/// # パフォーマンス
+/// この関数はログ記録の度にMutexロックを取得しますが、
+/// ロック保持時間は最小限（数マイクロ秒）に抑えられています。
+/// 通常のログ記録頻度では問題になりません。
 pub fn add_log_entry(level: &str, message: &str) {
     match LOG_BUFFER.lock() {
         Ok(mut buffer) => {
@@ -329,6 +353,18 @@ pub fn add_log_entry(level: &str, message: &str) {
     }
 }
 
+/// ログエントリを取得
+///
+/// # パラメータ
+/// - `level_filter`: ログレベルでフィルタリング（例: "ERROR", "INFO"）。Noneの場合は全てのレベルを返す
+/// - `limit`: 返却する最大件数。フィルタリング後のログに対して適用される
+///
+/// # 戻り値
+/// 新しい順（最新が先頭）でログエントリのリストを返す
+///
+/// # 注意
+/// limitパラメータはフィルタリング後のログに適用されます。
+/// 例：limit=100, level_filter="ERROR"の場合、ERRORログから最大100件を返します。
 #[tauri::command]
 fn get_logs(level_filter: Option<String>, limit: Option<usize>) -> Result<Vec<LogEntry>, String> {
     let buffer = LOG_BUFFER.lock().map_err(|e| format!("Failed to lock log buffer: {}", e))?;
