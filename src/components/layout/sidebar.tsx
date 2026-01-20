@@ -1,4 +1,4 @@
-import { LayoutDashboard, ShoppingCart, RefreshCw, Settings, Database } from "lucide-react";
+import { LayoutDashboard, ShoppingCart, RefreshCw, Settings, Database, ScrollText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavigation } from "@/contexts/navigation-context";
 import { useState } from "react";
@@ -6,7 +6,7 @@ import { useState } from "react";
 type NavigationItem = {
   name: string;
   icon: React.ComponentType<{ className?: string }>;
-  id: "dashboard" | "orders" | "sync" | "settings";
+  id: "dashboard" | "orders" | "sync" | "settings" | "logs";
 };
 
 type TableItem = {
@@ -18,6 +18,7 @@ const navigationItems: NavigationItem[] = [
   { name: "Dashboard", icon: LayoutDashboard, id: "dashboard" },
   { name: "Orders", icon: ShoppingCart, id: "orders" },
   { name: "Sync", icon: RefreshCw, id: "sync" },
+  { name: "Logs", icon: ScrollText, id: "logs" },
   { name: "Settings", icon: Settings, id: "settings" },
 ];
 

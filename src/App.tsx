@@ -4,6 +4,7 @@ import { EmailList } from "@/components/emails/email-list";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Dashboard } from "@/components/screens/dashboard";
 import { Sync } from "@/components/screens/sync";
+import { Logs } from "@/components/screens/logs";
 import { Settings } from "@/components/screens/settings";
 import {
   EmailsTable,
@@ -32,6 +33,8 @@ function AppContent() {
         return <EmailList />;
       case "sync":
         return <Sync />;
+      case "logs":
+        return <Logs />;
       case "settings":
         return <Settings />;
       case "table-emails":

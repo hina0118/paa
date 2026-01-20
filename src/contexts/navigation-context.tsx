@@ -4,6 +4,7 @@ type Screen =
   | "dashboard"
   | "orders"
   | "sync"
+  | "logs"
   | "settings"
   | "table-emails"
   | "table-orders"
