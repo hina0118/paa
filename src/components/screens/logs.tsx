@@ -42,7 +42,7 @@ export function Logs() {
         setTimeout(scrollToBottom, 100);
       }
     } catch (err) {
-      setError(err as string);
+      setError(err instanceof Error ? err.message : String(err));
       console.error('Failed to load logs:', err);
     } finally {
       setLoading(false);

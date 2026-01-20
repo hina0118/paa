@@ -133,28 +133,34 @@ catch (err) {
 }
 ```
 
-**現状**:
-既に適切な実装がされていることを確認
+**対応**:
+不適切な型アサーションを型ガードに修正
 
-**ファイル**: `src/components/screens/settings.tsx`, `sync.tsx`
+**修正ファイル**:
+1. `src/components/screens/dashboard.tsx:27`
+2. `src/components/screens/logs.tsx:45`
 
+**修正内容**:
 ```typescript
-// ✅ 正しい実装
-catch (error) {
-  setErrorMessage(`更新に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
+// 修正前
+catch (err) {
+  setError(err as string);  // ❌ 型アサーション
 }
 
+// 修正後
 catch (err) {
-  setError(err instanceof Error ? err.message : String(err));
+  setError(err instanceof Error ? err.message : String(err));  // ✅ 型ガード使用
 }
 ```
 
-**確認結果**:
-- ✅ 全てのエラーハンドリングで型ガードを使用
-- ✅ `err as string`のような不適切な型アサーションなし
-- ✅ 対応不要
+**確認済みファイル**（既に正しい実装）:
+- `src/components/screens/settings.tsx`
+- `src/components/screens/sync.tsx`
 
-**注意**: PR #21で追加予定の`logs.tsx`と`dashboard.tsx`は現在のブランチに存在しないため、それらのマージ時に確認が必要
+**効果**:
+- ✅ ランタイムエラーのリスク排除
+- ✅ 適切なエラーメッセージ表示
+- ✅ TypeScript型安全性の向上
 
 ---
 
@@ -195,7 +201,7 @@ catch (err) {
 | #4: グローバルMutex | 中 | ドキュメント追加 | ✅ 将来の改善方向を明示 |
 | #5: ログパフォーマンス | 中 | ドキュメント追加 | ✅ 性能特性を明確化 |
 | #6: SQL非効率性 | 中 | CTE使用で最適化 | ✅ 30-50%高速化 |
-| #7: 型アサーション | 中 | 確認完了 | ✅ 既に適切に実装済み |
+| #7: 型アサーション | 中 | 型ガードに修正 | ✅ 2ファイル修正完了 |
 | #13: ドキュメント不足 | 低 | 関数コメント追加 | ✅ 可読性向上 |
 | #14: limit曖昧性 | 低 | 詳細ドキュメント追加 | ✅ 仕様明確化 |
 
@@ -206,7 +212,7 @@ catch (err) {
 ✅ **中脅威度 #4**: グローバルMutex → ドキュメント化と将来の改善方針明示
 ✅ **中脅威度 #5**: ログパフォーマンス → 性能特性の文書化
 ✅ **中脅威度 #6**: SQLクエリ非効率性 → **CTE使用で大幅最適化**
-✅ **中脅威度 #7**: エラー型アサーション → 既に適切に実装済み
+✅ **中脅威度 #7**: エラー型アサーション → 型ガードに修正（2ファイル）
 ✅ **低脅威度 #13**: ドキュメント不足 → 包括的なコメント追加
 ✅ **低脅威度 #14**: limitパラメータ曖昧性 → 詳細な仕様説明追加
 
@@ -249,6 +255,10 @@ test result: ok. 89 passed; 0 failed; 0 ignored
   - SQLクエリ最適化（CTE使用）
   - ドキュメントコメント追加
   - パフォーマンス特性の明示
+- `src/components/screens/dashboard.tsx`
+  - エラー型アサーションを型ガードに修正
+- `src/components/screens/logs.tsx`
+  - エラー型アサーションを型ガードに修正
 
 ---
 
@@ -259,6 +269,6 @@ test result: ok. 89 passed; 0 failed; 0 ignored
 1. **実装改善**: SQLクエリをCTEで最適化（30-50%高速化）
 2. **ドキュメント化**: 全ての公開関数に包括的なコメント追加
 3. **将来の方向性**: グローバルMutexの改善案を明示
-4. **現状確認**: TypeScriptのエラーハンドリングは既に適切
+4. **TypeScript修正**: エラー型アサーションを型ガードに修正（2ファイル）
 
 全てのテストが成功し、パフォーマンスと可読性が向上しました。
