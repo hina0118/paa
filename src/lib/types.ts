@@ -10,15 +10,15 @@ export type Email = {
 };
 
 export type DeliveryStatus =
-  | "not_shipped"
-  | "preparing"
-  | "shipped"
-  | "in_transit"
-  | "out_for_delivery"
-  | "delivered"
-  | "failed"
-  | "returned"
-  | "cancelled";
+  | 'not_shipped'
+  | 'preparing'
+  | 'shipped'
+  | 'in_transit'
+  | 'out_for_delivery'
+  | 'delivered'
+  | 'failed'
+  | 'returned'
+  | 'cancelled';
 
 export type Order = {
   id: number;
@@ -71,7 +71,7 @@ export type Html = {
   id: number;
   url: string;
   htmlContent?: string;
-  analysisStatus: "pending" | "completed";
+  analysisStatus: 'pending' | 'completed';
   createdAt: Date;
   updatedAt: Date;
 };

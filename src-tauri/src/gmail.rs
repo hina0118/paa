@@ -28,15 +28,16 @@ impl oauth2::authenticator_delegate::InstalledFlowDelegate for CustomFlowDelegat
         &'a self,
         url: &'a str,
         need_code: bool,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, String>> + Send + 'a>> {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, String>> + Send + 'a>>
+    {
         Box::pin(async move {
-            log::info!("Opening browser with URL: {}", url);
+            log::info!("Opening browser with URL: {url}");
 
             // ブラウザで認証URLを開く
             if let Err(e) = webbrowser::open(url) {
-                log::warn!("Failed to open browser automatically: {}", e);
+                log::warn!("Failed to open browser automatically: {e}");
                 log::warn!("Please open this URL manually in your browser:");
-                log::warn!("{}", url);
+                log::warn!("{url}");
             } else {
                 log::info!("Browser opened successfully. Please complete the authentication in your browser.");
             }
@@ -61,6 +62,7 @@ pub struct GmailMessage {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(clippy::struct_field_names)]
 pub struct FetchResult {
     pub fetched_count: usize,
     pub saved_count: usize,
@@ -93,8 +95,8 @@ pub struct SyncMetadata {
 ///
 /// # Lock Ordering
 /// To prevent deadlock, always acquire locks in this order:
-/// 1. should_cancel
-/// 2. is_running
+/// 1. `should_cancel`
+/// 2. `is_running`
 ///
 /// This ordering must be maintained consistently throughout the codebase.
 #[derive(Clone)]
@@ -121,16 +123,19 @@ impl SyncState {
         self.should_cancel.lock().map(|c| *c).unwrap_or(false)
     }
 
+    #[allow(dead_code)]
     pub fn reset(&self) {
         if let Ok(mut cancel) = self.should_cancel.lock() {
             *cancel = false;
         }
     }
 
+    #[allow(dead_code)]
     pub fn is_running(&self) -> bool {
         self.is_running.lock().map(|r| *r).unwrap_or(false)
     }
 
+    #[allow(dead_code)]
     pub fn set_running(&self, running: bool) {
         if let Ok(mut is_running) = self.is_running.lock() {
             *is_running = running;
@@ -148,25 +153,23 @@ impl SyncState {
     /// deadlock risk.
     pub fn try_start(&self) -> bool {
         // First, acquire the cancellation flag lock.
-        let mut cancel = match self.should_cancel.lock() {
-            Ok(guard) => guard,
-            Err(_) => {
-                log::error!(
-                    "Failed to acquire should_cancel lock in try_start (mutex poisoned or unavailable)"
-                );
-                return false;
-            }
+        let mut cancel = if let Ok(guard) = self.should_cancel.lock() {
+            guard
+        } else {
+            log::error!(
+                "Failed to acquire should_cancel lock in try_start (mutex poisoned or unavailable)"
+            );
+            return false;
         };
 
         // Then, acquire the running state lock. Lock order is consistent to avoid deadlocks.
-        let mut is_running = match self.is_running.lock() {
-            Ok(guard) => guard,
-            Err(_) => {
-                log::error!(
-                    "Failed to acquire is_running lock in try_start (mutex poisoned or unavailable)"
-                );
-                return false;
-            }
+        let mut is_running = if let Ok(guard) = self.is_running.lock() {
+            guard
+        } else {
+            log::error!(
+                "Failed to acquire is_running lock in try_start (mutex poisoned or unavailable)"
+            );
+            return false;
         };
 
         // If we're already running, do not change any flags.
@@ -190,12 +193,12 @@ struct SyncGuard<'a> {
 }
 
 impl<'a> SyncGuard<'a> {
-    fn new(sync_state: &'a SyncState) -> Self {
+    const fn new(sync_state: &'a SyncState) -> Self {
         Self { sync_state }
     }
 }
 
-impl<'a> Drop for SyncGuard<'a> {
+impl Drop for SyncGuard<'_> {
     fn drop(&mut self) {
         // Attempt to clear the running flag. If the mutex is poisoned due to a panic,
         // recover the inner value and clear the flag so future syncs are not blocked.
@@ -223,10 +226,10 @@ impl GmailClient {
         let app_data_dir = app_handle
             .path()
             .app_data_dir()
-            .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+            .map_err(|e| format!("Failed to get app data dir: {e}"))?;
 
         std::fs::create_dir_all(&app_data_dir)
-            .map_err(|e| format!("Failed to create app data dir: {}", e))?;
+            .map_err(|e| format!("Failed to create app data dir: {e}"))?;
 
         // DBファイルと同じディレクトリに配置
         let token_path = app_data_dir.join("gmail_token.json");
@@ -247,13 +250,13 @@ impl GmailClient {
         let _token = auth
             .token(&["https://www.googleapis.com/auth/gmail.readonly"])
             .await
-            .map_err(|e| format!("Failed to get OAuth token: {}", e))?;
+            .map_err(|e| format!("Failed to get OAuth token: {e}"))?;
         log::info!("OAuth token obtained successfully");
 
         // Gmail Hub用のHTTPコネクタとクライアントを作成
         let https = hyper_rustls::HttpsConnectorBuilder::new()
             .with_native_roots()
-            .map_err(|e| format!("Failed to create HTTPS connector: {}", e))?
+            .map_err(|e| format!("Failed to create HTTPS connector: {e}"))?
             .https_or_http()
             .enable_http1()
             .build();
@@ -268,11 +271,13 @@ impl GmailClient {
     async fn authenticate(
         client_secret_path: &PathBuf,
         token_path: &PathBuf,
-    ) -> Result<oauth2::authenticator::Authenticator<hyper_rustls::HttpsConnector<HttpConnector>>, String>
-    {
+    ) -> Result<
+        oauth2::authenticator::Authenticator<hyper_rustls::HttpsConnector<HttpConnector>>,
+        String,
+    > {
         let secret = oauth2::read_application_secret(client_secret_path)
             .await
-            .map_err(|e| format!("Failed to read client secret: {}", e))?;
+            .map_err(|e| format!("Failed to read client secret: {e}"))?;
 
         log::info!("Starting OAuth authentication flow...");
         log::info!("Opening browser for authentication...");
@@ -288,16 +293,16 @@ impl GmailClient {
         .await
         .map_err(|e| {
             format!(
-                "Failed to create authenticator: {}\n\n\
+                "Failed to create authenticator: {e}\n\n\
                 If a browser window didn't open, please check the console for the authentication URL and open it manually.\n\
-                URL format: https://accounts.google.com/o/oauth2/auth?...",
-                e
+                URL format: https://accounts.google.com/o/oauth2/auth?..."
             )
         })?;
 
         Ok(auth)
     }
 
+    #[allow(dead_code)]
     pub async fn fetch_messages(&self, query: &str) -> Result<Vec<GmailMessage>, String> {
         let mut all_messages = Vec::new();
         let mut page_token: Option<String> = None;
@@ -312,16 +317,17 @@ impl GmailClient {
             let (_, result) = req
                 .doit()
                 .await
-                .map_err(|e| format!("Failed to list messages: {}", e))?;
+                .map_err(|e| format!("Failed to list messages: {e}"))?;
 
             if let Some(messages) = result.messages {
                 // メッセージIDを収集
-                let message_ids: Vec<String> = messages
-                    .iter()
-                    .filter_map(|msg| msg.id.clone())
-                    .collect();
+                let message_ids: Vec<String> =
+                    messages.iter().filter_map(|msg| msg.id.clone()).collect();
 
-                log::info!("Fetching {} messages in parallel batches", message_ids.len());
+                log::info!(
+                    "Fetching {} messages in parallel batches",
+                    message_ids.len()
+                );
 
                 // 順次処理でメッセージを取得
                 // 注: 並列処理はライフタイムの問題とGmail API制限により複雑
@@ -329,7 +335,7 @@ impl GmailClient {
                 for message_id in message_ids {
                     match self.get_message(&message_id).await {
                         Ok(msg) => all_messages.push(msg),
-                        Err(e) => log::warn!("Failed to fetch message {}: {}", message_id, e),
+                        Err(e) => log::warn!("Failed to fetch message {message_id}: {e}"),
                     }
                 }
             }
@@ -344,7 +350,7 @@ impl GmailClient {
     }
 
     async fn get_message(&self, message_id: &str) -> Result<GmailMessage, String> {
-        log::debug!("Fetching message: {}", message_id);
+        log::debug!("Fetching message: {message_id}");
 
         let (response, message) = self
             .hub
@@ -353,7 +359,7 @@ impl GmailClient {
             .format("full")
             .doit()
             .await
-            .map_err(|e| format!("Failed to get message {}: {}", message_id, e))?;
+            .map_err(|e| format!("Failed to get message {message_id}: {e}"))?;
 
         log::debug!("Response status: {:?}", response.status());
 
@@ -365,21 +371,23 @@ impl GmailClient {
 
         // 再帰的にMIMEパートを解析
         if let Some(payload) = &message.payload {
-            log::debug!("Message {} payload: mime_type={:?}, has_body={}, has_parts={}",
+            log::debug!(
+                "Message {} payload: mime_type={:?}, has_body={}, has_parts={}",
                 message_id,
                 payload.mime_type,
                 payload.body.is_some(),
-                payload.parts.as_ref().map(|p| p.len()).unwrap_or(0)
+                payload.parts.as_ref().map_or(0, std::vec::Vec::len)
             );
             Self::extract_body_from_part(payload, &mut body_plain, &mut body_html);
         } else {
-            log::warn!("Message {} has no payload", message_id);
+            log::warn!("Message {message_id} has no payload");
         }
 
-        log::debug!("Message {} extracted: plain={} bytes, html={} bytes",
+        log::debug!(
+            "Message {} extracted: plain={} bytes, html={} bytes",
             message_id,
-            body_plain.as_ref().map(|s| s.len()).unwrap_or(0),
-            body_html.as_ref().map(|s| s.len()).unwrap_or(0)
+            body_plain.as_ref().map_or(0, std::string::String::len),
+            body_html.as_ref().map_or(0, std::string::String::len)
         );
 
         Ok(GmailMessage {
@@ -391,7 +399,7 @@ impl GmailClient {
         })
     }
 
-    /// Base64URL形式の文字列かどうかを検証する
+    /// `Base64URL形式の文字列かどうかを検証する`
     ///
     /// Base64URLで使用される文字セット（A-Z, a-z, 0-9, -, _）のみで構成されているかチェック
     /// 長さが4の倍数に近い場合はBase64の可能性が高い
@@ -402,9 +410,9 @@ impl GmailClient {
 
         // Base64URL文字セット: A-Z, a-z, 0-9, -, _
         // パディングなしの形式なので = はチェックしない
-        let is_base64_chars = data.chars().all(|c| {
-            c.is_ascii_alphanumeric() || c == '-' || c == '_'
-        });
+        let is_base64_chars = data
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
 
         if !is_base64_chars {
             return false;
@@ -416,10 +424,10 @@ impl GmailClient {
         data.len() >= 8
     }
 
-    /// Base64URLデコードを試みる
+    /// `Base64URLデコードを試みる`
     ///
-    /// データがBase64形式でない場合はNoneを返す
-    /// デコードに成功した場合はSome(decoded_string)を返す
+    /// `データがBase64形式でない場合はNoneを返す`
+    /// `デコードに成功した場合はSome(decoded_string)を返す`
     fn try_decode_base64(data: &str) -> Option<String> {
         use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 
@@ -434,11 +442,19 @@ impl GmailClient {
         match URL_SAFE_NO_PAD.decode(data) {
             Ok(bytes) => {
                 let result = String::from_utf8_lossy(&bytes).to_string();
-                log::debug!("Successfully decoded {} bytes -> {} chars", bytes.len(), result.len());
+                log::debug!(
+                    "Successfully decoded {} bytes -> {} chars",
+                    bytes.len(),
+                    result.len()
+                );
                 Some(result)
             }
             Err(e) => {
-                log::warn!("Base64 decode failed despite format check: {:?}, input length: {}", e, data.len());
+                log::warn!(
+                    "Base64 decode failed despite format check: {:?}, input length: {}",
+                    e,
+                    data.len()
+                );
                 None
             }
         }
@@ -452,7 +468,7 @@ impl GmailClient {
     ) {
         // 現在のパートのbodyをチェック
         if let Some(mime_type) = &part.mime_type {
-            log::debug!("Processing part with mime_type: {}", mime_type);
+            log::debug!("Processing part with mime_type: {mime_type}");
             if let Some(body) = &part.body {
                 log::debug!("  Body present, size: {:?}", body.size);
                 if let Some(data) = &body.data {
@@ -464,17 +480,17 @@ impl GmailClient {
                         log::debug!("  Data as UTF-8 string length: {} chars", data_str.len());
 
                         // Base64形式かどうかを検証してからデコードを試みる
-                        let content = match Self::try_decode_base64(data_str) {
-                            Some(decoded) => {
-                                log::debug!("  Successfully decoded from base64: {} chars", decoded.len());
-                                decoded
-                            }
-                            None => {
-                                // Base64形式でない、またはデコード失敗
-                                // 元のデータをそのまま使用（Gmail APIが既にデコード済みの可能性）
-                                log::debug!("  Using raw data as-is: {} chars", data_str.len());
-                                data_str.to_string()
-                            }
+                        let content = if let Some(decoded) = Self::try_decode_base64(data_str) {
+                            log::debug!(
+                                "  Successfully decoded from base64: {} chars",
+                                decoded.len()
+                            );
+                            decoded
+                        } else {
+                            // Base64形式でない、またはデコード失敗
+                            // 元のデータをそのまま使用（Gmail APIが既にデコード済みの可能性）
+                            log::debug!("  Using raw data as-is: {} chars", data_str.len());
+                            data_str.to_string()
                         };
 
                         log::debug!("  Final content length: {} chars", content.len());
@@ -488,7 +504,7 @@ impl GmailClient {
                                 *body_html = Some(content);
                             }
                             _ => {
-                                log::debug!("  Skipping mime_type: {}", mime_type);
+                                log::debug!("  Skipping mime_type: {mime_type}");
                             }
                         }
                     } else {
@@ -525,15 +541,15 @@ pub async fn save_messages_to_db(
     let mut tx = pool
         .begin()
         .await
-        .map_err(|e| format!("Failed to begin transaction: {}", e))?;
+        .map_err(|e| format!("Failed to begin transaction: {e}"))?;
 
     for msg in messages {
         let result = sqlx::query(
-            r#"
+            r"
             INSERT INTO emails (message_id, body_plain, body_html, internal_date)
             VALUES (?1, ?2, ?3, ?4)
             ON CONFLICT(message_id) DO NOTHING
-            "#,
+            ",
         )
         .bind(&msg.message_id)
         .bind(&msg.body_plain)
@@ -552,13 +568,9 @@ pub async fn save_messages_to_db(
 
     tx.commit()
         .await
-        .map_err(|e| format!("Failed to commit transaction: {}", e))?;
+        .map_err(|e| format!("Failed to commit transaction: {e}"))?;
 
-    log::info!(
-        "Saved {} messages, skipped {} duplicates",
-        saved_count,
-        skipped_count
-    );
+    log::info!("Saved {saved_count} messages, skipped {skipped_count} duplicates");
 
     Ok(FetchResult {
         fetched_count: messages.len(),
@@ -569,7 +581,7 @@ pub async fn save_messages_to_db(
 
 // Helper function to build Gmail query with date constraint
 fn build_sync_query(oldest_date: &Option<String>) -> String {
-    let base_query = r#"subject:(注文 OR 予約 OR ありがとうございます)"#;
+    let base_query = r"subject:(注文 OR 予約 OR ありがとうございます)";
 
     if let Some(date) = oldest_date {
         // Parse and format for Gmail query (YYYY/MM/DD).
@@ -577,11 +589,10 @@ fn build_sync_query(oldest_date: &Option<String>) -> String {
         // the date filter is omitted and the base query is used without a date constraint.
         if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(date) {
             let before_date = dt.format("%Y/%m/%d");
-            return format!("{} before:{}", base_query, before_date);
-        } else {
-            // If parsing fails, log warning and use base query without date filter
-            log::warn!("Invalid date format in oldest_date, ignoring date constraint: {}", date);
+            return format!("{base_query} before:{before_date}");
         }
+        // If parsing fails, log warning and use base query without date filter
+        log::warn!("Invalid date format in oldest_date, ignoring date constraint: {date}");
     }
 
     base_query.to_string()
@@ -593,12 +604,17 @@ async fn fetch_batch(
     query: &str,
     max_results: usize,
 ) -> Result<Vec<GmailMessage>, String> {
-    let req = client.hub.users().messages_list("me")
+    let req = client
+        .hub
+        .users()
+        .messages_list("me")
         .q(query)
         .max_results(max_results as u32);
 
-    let (_, result) = req.doit().await
-        .map_err(|e| format!("Failed to list messages: {}", e))?;
+    let (_, result) = req
+        .doit()
+        .await
+        .map_err(|e| format!("Failed to list messages: {e}"))?;
 
     let mut messages = Vec::new();
 
@@ -607,7 +623,7 @@ async fn fetch_batch(
             if let Some(id) = msg.id {
                 match client.get_message(&id).await {
                     Ok(full_msg) => messages.push(full_msg),
-                    Err(e) => log::warn!("Failed to fetch message {}: {}", id, e),
+                    Err(e) => log::warn!("Failed to fetch message {id}: {e}"),
                 }
             }
         }
@@ -623,8 +639,7 @@ fn format_timestamp(internal_date: i64) -> String {
         .map(|dt| dt.to_rfc3339())
         .unwrap_or_else(|| {
             log::warn!(
-                "Invalid internal_date '{}' encountered when formatting timestamp; returning empty string",
-                internal_date
+                "Invalid internal_date '{internal_date}' encountered when formatting timestamp; returning empty string"
             );
             String::new()
         })
@@ -634,13 +649,13 @@ fn format_timestamp(internal_date: i64) -> String {
 async fn update_sync_error_status(pool: &SqlitePool) {
     let now = chrono::Utc::now().to_rfc3339();
     if let Err(e) = sqlx::query(
-        "UPDATE sync_metadata SET sync_status = 'error', last_sync_completed_at = ?1 WHERE id = 1"
+        "UPDATE sync_metadata SET sync_status = 'error', last_sync_completed_at = ?1 WHERE id = 1",
     )
     .bind(&now)
     .execute(pool)
     .await
     {
-        log::error!("Failed to update error status: {}", e);
+        log::error!("Failed to update error status: {e}");
     }
 }
 
@@ -675,7 +690,11 @@ pub async fn sync_gmail_incremental(
     const MAX_ITERATIONS: usize = 1000; // Prevent infinite loops
     const SYNC_TIMEOUT_MINUTES: i64 = 30; // Maximum sync duration (in minutes) for a single sync attempt
 
-    let batch_size = if batch_size > 0 { batch_size } else { DEFAULT_BATCH_SIZE };
+    let batch_size = if batch_size > 0 {
+        batch_size
+    } else {
+        DEFAULT_BATCH_SIZE
+    };
 
     // Atomically check and set running flag (also resets cancellation flag internally)
     if !sync_state.try_start() {
@@ -688,14 +707,14 @@ pub async fn sync_gmail_incremental(
     // Update sync status to 'syncing'
     let now = chrono::Utc::now().to_rfc3339();
     if let Err(e) = sqlx::query(
-        "UPDATE sync_metadata SET sync_status = 'syncing', last_sync_started_at = ?1 WHERE id = 1"
+        "UPDATE sync_metadata SET sync_status = 'syncing', last_sync_started_at = ?1 WHERE id = 1",
     )
     .bind(&now)
     .execute(pool)
     .await
     {
         update_sync_error_status(pool).await;
-        return Err(format!("Failed to update sync status: {}", e));
+        return Err(format!("Failed to update sync status: {e}"));
     }
 
     // Get oldest fetched date, batch size, and max iterations from metadata
@@ -708,13 +727,22 @@ pub async fn sync_gmail_incremental(
         Ok(m) => m,
         Err(e) => {
             update_sync_error_status(pool).await;
-            return Err(format!("Failed to fetch sync metadata: {}", e));
+            return Err(format!("Failed to fetch sync metadata: {e}"));
         }
     };
 
-    let (mut oldest_date, mut total_synced, db_batch_size, db_max_iterations) = metadata.unwrap_or((None, 0, batch_size as i64, MAX_ITERATIONS as i64));
-    let effective_batch_size = if db_batch_size > 0 { db_batch_size as usize } else { batch_size };
-    let effective_max_iterations = if db_max_iterations > 0 { db_max_iterations as usize } else { MAX_ITERATIONS };
+    let (mut oldest_date, mut total_synced, db_batch_size, db_max_iterations) =
+        metadata.unwrap_or((None, 0, batch_size as i64, MAX_ITERATIONS as i64));
+    let effective_batch_size = if db_batch_size > 0 {
+        db_batch_size as usize
+    } else {
+        batch_size
+    };
+    let effective_max_iterations = if db_max_iterations > 0 {
+        db_max_iterations as usize
+    } else {
+        MAX_ITERATIONS
+    };
 
     // Initialize Gmail client
     let client = match GmailClient::new(app_handle).await {
@@ -725,6 +753,7 @@ pub async fn sync_gmail_incremental(
         }
     };
     let mut batch_number = 0;
+    #[allow(unused_assignments)]
     let mut has_more = true;
     let sync_start_time = chrono::Utc::now();
     let mut previous_message_ids: Option<Vec<String>> = None;
@@ -732,20 +761,22 @@ pub async fn sync_gmail_incremental(
         batch_number += 1;
         // Check iteration limit to prevent infinite loops
         if batch_number > effective_max_iterations {
-            log::warn!("Reached maximum iteration limit ({}), stopping sync", effective_max_iterations);
+            log::warn!(
+                "Reached maximum iteration limit ({effective_max_iterations}), stopping sync"
+            );
             break;
         }
         // Check timeout to prevent indefinite sync
         let elapsed = chrono::Utc::now().signed_duration_since(sync_start_time);
         if elapsed.num_minutes() > SYNC_TIMEOUT_MINUTES {
-            log::warn!("Sync timeout reached ({} minutes), stopping sync", SYNC_TIMEOUT_MINUTES);
+            log::warn!("Sync timeout reached ({SYNC_TIMEOUT_MINUTES} minutes), stopping sync");
             break;
         }
         // Store the oldest_date before this fetch to detect infinite loop conditions
         let oldest_date_before_fetch = oldest_date.clone();
         // Build query with date constraint
         let query = build_sync_query(&oldest_date);
-        log::info!("Batch {}: Fetching up to {} messages with query: {}", batch_number, effective_batch_size, query);
+        log::info!("Batch {batch_number}: Fetching up to {effective_batch_size} messages with query: {query}");
         // Fetch batch of messages
         let messages = match fetch_batch(&client, &query, effective_batch_size).await {
             Ok(m) => m,
@@ -759,12 +790,15 @@ pub async fn sync_gmail_incremental(
             log::info!("No more messages to fetch");
             break;
         }
-        log::info!("Batch {}: Fetched {} messages", batch_number, messages.len());
+        log::info!(
+            "Batch {}: Fetched {} messages",
+            batch_number,
+            messages.len()
+        );
 
         // Extract message IDs for infinite loop detection
-        let current_message_ids: Vec<String> = messages.iter()
-            .map(|m| m.message_id.clone())
-            .collect();
+        let current_message_ids: Vec<String> =
+            messages.iter().map(|m| m.message_id.clone()).collect();
 
         // Save to database
         let result = match save_messages_to_db(pool, &messages).await {
@@ -778,19 +812,19 @@ pub async fn sync_gmail_incremental(
         // Update oldest fetched date
         // Note: messages is guaranteed to be non-empty at this point (checked above with messages.is_empty())
         // min_by_key returns Some because iterator is non-empty
-        let new_oldest = match messages.iter()
+        let new_oldest = if let Some(ts) = messages
+            .iter()
             .min_by_key(|m| m.internal_date)
             .map(|m| format_timestamp(m.internal_date))
         {
-            Some(ts) => ts,
-            None => {
-                update_sync_error_status(pool).await;
-                return Err(format!(
-                    "Logic error: min_by_key returned None on non-empty messages while updating sync metadata. batch_number={}, messages_len={}",
-                    batch_number,
-                    messages.len()
-                ));
-            }
+            ts
+        } else {
+            update_sync_error_status(pool).await;
+            return Err(format!(
+                "Logic error: min_by_key returned None on non-empty messages while updating sync metadata. batch_number={}, messages_len={}",
+                batch_number,
+                messages.len()
+            ));
         };
 
         // Validate timestamp BEFORE updating database to avoid persisting invalid data
@@ -803,8 +837,7 @@ pub async fn sync_gmail_incremental(
                 let skew_tolerance = chrono::Duration::minutes(5);
                 if new_oldest_utc > now + skew_tolerance {
                     log::error!(
-                        "Invalid timestamp detected: new_oldest ({}) is significantly in the future, indicates timestamp parsing failure",
-                        new_oldest
+                        "Invalid timestamp detected: new_oldest ({new_oldest}) is significantly in the future, indicates timestamp parsing failure"
                     );
                     update_sync_error_status(pool).await;
                     return Err("Invalid message timestamp detected (future date beyond allowed clock skew). This indicates a data integrity issue.".to_string());
@@ -813,9 +846,7 @@ pub async fn sync_gmail_incremental(
             Err(e) => {
                 // Parsing failure indicates a data integrity or formatting issue - treat as error
                 log::error!(
-                    "Failed to parse new_oldest timestamp as RFC3339 (value: '{}'): {}",
-                    new_oldest,
-                    e
+                    "Failed to parse new_oldest timestamp as RFC3339 (value: '{new_oldest}'): {e}"
                 );
                 update_sync_error_status(pool).await;
                 return Err("Failed to parse message timestamp (RFC3339). This indicates a data integrity or formatting issue.".to_string());
@@ -863,7 +894,7 @@ pub async fn sync_gmail_incremental(
         .await
         {
             update_sync_error_status(pool).await;
-            return Err(format!("Failed to update metadata: {}", e));
+            return Err(format!("Failed to update metadata: {e}"));
         }
 
         // Update the oldest_date variable for the next iteration
@@ -874,13 +905,16 @@ pub async fn sync_gmail_incremental(
             batch_size: messages.len(),
             total_synced: total_synced as usize,
             newly_saved: result.saved_count,
-            status_message: format!("Batch {} complete: {} new emails", batch_number, result.saved_count),
+            status_message: format!(
+                "Batch {} complete: {} new emails",
+                batch_number, result.saved_count
+            ),
             is_complete: false,
             error: None,
         };
         if let Err(e) = app_handle.emit("sync-progress", progress) {
             update_sync_error_status(pool).await;
-            return Err(format!("Failed to emit progress: {}", e));
+            return Err(format!("Failed to emit progress: {e}"));
         }
         // Check if we got fewer messages than requested (end of results)
         if messages.len() < effective_batch_size {
@@ -897,14 +931,14 @@ pub async fn sync_gmail_incremental(
     // Update sync metadata
     let now = chrono::Utc::now().to_rfc3339();
     if let Err(e) = sqlx::query(
-        "UPDATE sync_metadata SET sync_status = ?1, last_sync_completed_at = ?2 WHERE id = 1"
+        "UPDATE sync_metadata SET sync_status = ?1, last_sync_completed_at = ?2 WHERE id = 1",
     )
     .bind(final_status)
     .bind(&now)
     .execute(pool)
     .await
     {
-        return Err(format!("Failed to update final status: {}", e));
+        return Err(format!("Failed to update final status: {e}"));
     }
 
     // Emit completion event
@@ -922,18 +956,21 @@ pub async fn sync_gmail_incremental(
         error: None,
     };
     if let Err(e) = app_handle.emit("sync-progress", completion) {
-        return Err(format!("Failed to emit completion: {}", e));
+        return Err(format!("Failed to emit completion: {e}"));
     }
 
     // Send desktop notification on completion (only if not cancelled)
     if !sync_state.should_stop() {
-        let notification_body = format!("同期完了：新たに{}件の注文情報を取り込みました", total_synced);
-        if let Err(e) = app_handle.notification()
+        let notification_body =
+            format!("同期完了：新たに{total_synced}件の注文情報を取り込みました");
+        if let Err(e) = app_handle
+            .notification()
             .builder()
             .title("Gmail同期完了")
             .body(&notification_body)
-            .show() {
-            log::warn!("Failed to send notification: {}", e);
+            .show()
+        {
+            log::warn!("Failed to send notification: {e}");
         }
     }
 
@@ -959,7 +996,7 @@ mod tests {
 
         // Create emails table
         sqlx::query(
-            r#"
+            r"
             CREATE TABLE IF NOT EXISTS emails (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 message_id TEXT UNIQUE NOT NULL,
@@ -968,7 +1005,7 @@ mod tests {
                 internal_date INTEGER NOT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
-            "#,
+            ",
         )
         .execute(&pool)
         .await
@@ -976,7 +1013,7 @@ mod tests {
 
         // Create sync_metadata table
         sqlx::query(
-            r#"
+            r"
             CREATE TABLE IF NOT EXISTS sync_metadata (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 sync_status TEXT NOT NULL DEFAULT 'idle',
@@ -987,7 +1024,7 @@ mod tests {
                 last_sync_completed_at TEXT,
                 last_error_message TEXT
             )
-            "#,
+            ",
         )
         .execute(&pool)
         .await
@@ -1126,10 +1163,12 @@ mod tests {
         assert_eq!(result.skipped_count, 0);
 
         // Verify the message was saved
-        let row: (String, i64) = sqlx::query_as("SELECT message_id, internal_date FROM emails WHERE message_id = 'msg001'")
-            .fetch_one(&pool)
-            .await
-            .expect("Failed to fetch saved message");
+        let row: (String, i64) = sqlx::query_as(
+            "SELECT message_id, internal_date FROM emails WHERE message_id = 'msg001'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("Failed to fetch saved message");
 
         assert_eq!(row.0, "msg001");
         assert_eq!(row.1, 1609459200000);
@@ -1346,8 +1385,7 @@ mod tests {
 
         // データベース制約によっては保存される可能性があるが、
         // アプリケーションロジックでバリデーションを行う場合はエラーになる
-        let result = save_messages_to_db(&pool, &[message])
-            .await;
+        let result = save_messages_to_db(&pool, &[message]).await;
 
         // この場合、SQLiteは負の値も許容するため成功する
         assert!(result.is_ok());
@@ -1364,23 +1402,20 @@ mod tests {
         let invalid_timestamp = "invalid-timestamp";
 
         // sync_metadataの更新を試みる
-        let result = sqlx::query(
-            "UPDATE sync_metadata SET oldest_fetched_date = ?1 WHERE id = 1"
-        )
-        .bind(invalid_timestamp)
-        .execute(&pool)
-        .await;
+        let result = sqlx::query("UPDATE sync_metadata SET oldest_fetched_date = ?1 WHERE id = 1")
+            .bind(invalid_timestamp)
+            .execute(&pool)
+            .await;
 
         // SQLiteは文字列を受け入れるため、更新自体は成功する
         assert!(result.is_ok());
 
         // しかし、この値をパースしようとするとエラーになる
-        let row: (Option<String>,) = sqlx::query_as(
-            "SELECT oldest_fetched_date FROM sync_metadata WHERE id = 1"
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("Failed to fetch");
+        let row: (Option<String>,) =
+            sqlx::query_as("SELECT oldest_fetched_date FROM sync_metadata WHERE id = 1")
+                .fetch_one(&pool)
+                .await
+                .expect("Failed to fetch");
 
         if let Some(timestamp) = row.0 {
             // RFC3339パースを試みる
@@ -1394,12 +1429,10 @@ mod tests {
         let pool = create_test_db().await;
 
         // id=999のレコードは存在しない
-        let result = sqlx::query(
-            "UPDATE sync_metadata SET sync_status = 'syncing' WHERE id = 999"
-        )
-        .execute(&pool)
-        .await
-        .expect("Query should succeed");
+        let result = sqlx::query("UPDATE sync_metadata SET sync_status = 'syncing' WHERE id = 999")
+            .execute(&pool)
+            .await
+            .expect("Query should succeed");
 
         // 更新された行数は0
         assert_eq!(result.rows_affected(), 0);
@@ -1411,15 +1444,14 @@ mod tests {
 
         // message_idが空文字列
         let message = GmailMessage {
-            message_id: "".to_string(),
+            message_id: String::new(),
             snippet: "Test message".to_string(),
             body_plain: Some("Plain text".to_string()),
             body_html: Some("<html>HTML</html>".to_string()),
             internal_date: 1609459200000,
         };
 
-        let result = save_messages_to_db(&pool, &[message])
-            .await;
+        let result = save_messages_to_db(&pool, &[message]).await;
 
         // SQLiteはNOT NULL制約でも空文字列を許容する
         assert!(result.is_ok());
@@ -1443,8 +1475,7 @@ mod tests {
             internal_date: 1609459200000,
         };
 
-        let result = save_messages_to_db(&pool, &[message])
-            .await;
+        let result = save_messages_to_db(&pool, &[message]).await;
 
         // 大きなデータも保存できる
         assert!(result.is_ok());
@@ -1474,7 +1505,7 @@ mod tests {
 
         // データベースから取得して検証
         let row: (String, Option<String>) = sqlx::query_as(
-            "SELECT message_id, body_plain FROM emails WHERE message_id = 'msg_unicode'"
+            "SELECT message_id, body_plain FROM emails WHERE message_id = 'msg_unicode'",
         )
         .fetch_one(&pool)
         .await
@@ -1513,12 +1544,11 @@ mod tests {
         assert!(result2.is_ok());
 
         // 最終的な状態を確認
-        let status: (String,) = sqlx::query_as(
-            "SELECT sync_status FROM sync_metadata WHERE id = 1"
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("Failed to fetch final status");
+        let status: (String,) =
+            sqlx::query_as("SELECT sync_status FROM sync_metadata WHERE id = 1")
+                .fetch_one(&pool)
+                .await
+                .expect("Failed to fetch final status");
 
         // 最後に実行された更新の値になっている
         assert!(status.0 == "syncing" || status.0 == "idle");
@@ -1552,13 +1582,11 @@ mod tests {
         assert_eq!(count.0, 1);
 
         // データが正しく保存されていることを確認
-        let row: (String,) = sqlx::query_as(
-            "SELECT message_id FROM emails WHERE message_id = ?"
-        )
-        .bind("msg'; DROP TABLE emails; --")
-        .fetch_one(&pool)
-        .await
-        .expect("Failed to fetch");
+        let row: (String,) = sqlx::query_as("SELECT message_id FROM emails WHERE message_id = ?")
+            .bind("msg'; DROP TABLE emails; --")
+            .fetch_one(&pool)
+            .await
+            .expect("Failed to fetch");
 
         assert_eq!(row.0, "msg'; DROP TABLE emails; --");
     }
@@ -1568,14 +1596,14 @@ mod tests {
     #[test]
     fn test_build_sync_query_without_date() {
         let query = build_sync_query(&None);
-        assert_eq!(query, r#"subject:(注文 OR 予約 OR ありがとうございます)"#);
+        assert_eq!(query, r"subject:(注文 OR 予約 OR ありがとうございます)");
     }
 
     #[test]
     fn test_build_sync_query_with_valid_date() {
         let date = Some("2024-01-15T10:30:00Z".to_string());
         let query = build_sync_query(&date);
-        assert!(query.contains(r#"subject:(注文 OR 予約 OR ありがとうございます)"#));
+        assert!(query.contains(r"subject:(注文 OR 予約 OR ありがとうございます)"));
         assert!(query.contains("before:2024/01/15"));
     }
 
@@ -1584,7 +1612,7 @@ mod tests {
         let date = Some("invalid-date".to_string());
         let query = build_sync_query(&date);
         // 無効な日付の場合、基本クエリのみが返される
-        assert_eq!(query, r#"subject:(注文 OR 予約 OR ありがとうございます)"#);
+        assert_eq!(query, r"subject:(注文 OR 予約 OR ありがとうございます)");
     }
 
     #[test]
@@ -1597,7 +1625,10 @@ mod tests {
 
         for (date_str, expected_before) in test_cases {
             let query = build_sync_query(&Some(date_str.to_string()));
-            assert!(query.contains(expected_before), "Query: {}, Expected: {}", query, expected_before);
+            assert!(
+                query.contains(expected_before),
+                "Query: {query}, Expected: {expected_before}"
+            );
         }
     }
 
@@ -1644,12 +1675,11 @@ mod tests {
         let pool = create_test_db().await;
 
         // 初期状態を確認
-        let before: (String,) = sqlx::query_as(
-            "SELECT sync_status FROM sync_metadata WHERE id = 1"
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("Failed to fetch initial status");
+        let before: (String,) =
+            sqlx::query_as("SELECT sync_status FROM sync_metadata WHERE id = 1")
+                .fetch_one(&pool)
+                .await
+                .expect("Failed to fetch initial status");
 
         assert_eq!(before.0, "idle");
 
@@ -1658,7 +1688,7 @@ mod tests {
 
         // エラー状態になったことを確認
         let after: (String, Option<String>) = sqlx::query_as(
-            "SELECT sync_status, last_sync_completed_at FROM sync_metadata WHERE id = 1"
+            "SELECT sync_status, last_sync_completed_at FROM sync_metadata WHERE id = 1",
         )
         .fetch_one(&pool)
         .await
@@ -1684,7 +1714,10 @@ mod tests {
         assert_eq!(result.fetched_count, 100);
         assert_eq!(result.saved_count, 85);
         assert_eq!(result.skipped_count, 15);
-        assert_eq!(result.saved_count + result.skipped_count, result.fetched_count);
+        assert_eq!(
+            result.saved_count + result.skipped_count,
+            result.fetched_count
+        );
     }
 
     #[test]
@@ -1950,8 +1983,8 @@ mod tests {
     // extract_body_from_partのテスト
     #[test]
     fn test_extract_body_from_part_plain_text() {
-        use google_gmail1::api::{MessagePart, MessagePartBody};
         use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+        use google_gmail1::api::{MessagePart, MessagePartBody};
 
         let plain_text = "This is plain text";
         let encoded = URL_SAFE_NO_PAD.encode(plain_text.as_bytes());
@@ -1976,8 +2009,8 @@ mod tests {
 
     #[test]
     fn test_extract_body_from_part_html() {
-        use google_gmail1::api::{MessagePart, MessagePartBody};
         use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+        use google_gmail1::api::{MessagePart, MessagePartBody};
 
         let html_text = "<html><body>HTML content</body></html>";
         let encoded = URL_SAFE_NO_PAD.encode(html_text.as_bytes());
@@ -2002,8 +2035,8 @@ mod tests {
 
     #[test]
     fn test_extract_body_from_part_multipart() {
-        use google_gmail1::api::{MessagePart, MessagePartBody};
         use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+        use google_gmail1::api::{MessagePart, MessagePartBody};
 
         let plain_text = "Plain version";
         let html_text = "<html>HTML version</html>";
@@ -2065,8 +2098,8 @@ mod tests {
 
     #[test]
     fn test_extract_body_from_part_priority_first() {
-        use google_gmail1::api::{MessagePart, MessagePartBody};
         use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+        use google_gmail1::api::{MessagePart, MessagePartBody};
 
         let first_text = "First text";
         let second_text = "Second text";
@@ -2134,7 +2167,7 @@ mod tests {
             let _guard = SyncGuard::new(state);
 
             // Early return
-            return Err("Test error".to_string());
+            Err("Test error".to_string())
 
             // This should never be reached, but if it was, the guard would still clean up
         }
@@ -2202,10 +2235,10 @@ mod tests {
         state.try_start();
         assert!(state.is_running());
 
-        let result = handle.join().unwrap();
+        let _result = handle.join().unwrap();
         // The cancel flag should have been set by the spawned thread
         // (though try_start clears it, the thread set it before try_start)
-        assert!(result || !result); // Just verify thread completed without panic
+        // Test passes if thread completed without panic
     }
 
     #[test]
@@ -2273,8 +2306,8 @@ mod tests {
     #[test]
     fn test_infinite_loop_detection_same_boundaries() {
         // 同じメッセージIDリストの境界チェック
-        let current_ids = vec!["msg1".to_string(), "msg2".to_string(), "msg3".to_string()];
-        let prev_ids = vec!["msg1".to_string(), "msg2".to_string(), "msg3".to_string()];
+        let current_ids = ["msg1".to_string(), "msg2".to_string(), "msg3".to_string()];
+        let prev_ids = ["msg1".to_string(), "msg2".to_string(), "msg3".to_string()];
 
         // 境界が同じかチェック
         let same_boundaries = !current_ids.is_empty()
@@ -2293,8 +2326,8 @@ mod tests {
     #[test]
     fn test_infinite_loop_detection_different_boundaries() {
         // 異なるメッセージIDリストの境界チェック
-        let current_ids = vec!["msg4".to_string(), "msg5".to_string(), "msg6".to_string()];
-        let prev_ids = vec!["msg1".to_string(), "msg2".to_string(), "msg3".to_string()];
+        let current_ids = ["msg4".to_string(), "msg5".to_string(), "msg6".to_string()];
+        let prev_ids = ["msg1".to_string(), "msg2".to_string(), "msg3".to_string()];
 
         // 境界が異なることを確認
         let same_boundaries = !current_ids.is_empty()
@@ -2308,8 +2341,8 @@ mod tests {
     #[test]
     fn test_infinite_loop_detection_small_batch() {
         // 小さなバッチ（2要素以下）の場合
-        let current_ids = vec!["msg1".to_string(), "msg2".to_string()];
-        let prev_ids = vec!["msg1".to_string(), "msg2".to_string()];
+        let current_ids = ["msg1".to_string(), "msg2".to_string()];
+        let prev_ids = ["msg1".to_string(), "msg2".to_string()];
 
         let same_boundaries = !current_ids.is_empty()
             && current_ids.len() == prev_ids.len()
@@ -2331,7 +2364,7 @@ mod tests {
 
     #[test]
     fn test_timestamp_future_detection() {
-        use chrono::{DateTime, Utc, Duration};
+        use chrono::{Duration, Utc};
 
         let now = Utc::now();
         let skew_tolerance = Duration::minutes(5);
@@ -2363,7 +2396,7 @@ mod tests {
     #[test]
     fn test_message_id_extraction() {
         // メッセージIDの抽出ロジックをテスト
-        let messages = vec![
+        let messages = [
             GmailMessage {
                 message_id: "msg001".to_string(),
                 snippet: "Test 1".to_string(),
@@ -2380,9 +2413,7 @@ mod tests {
             },
         ];
 
-        let message_ids: Vec<String> = messages.iter()
-            .map(|m| m.message_id.clone())
-            .collect();
+        let message_ids: Vec<String> = messages.iter().map(|m| m.message_id.clone()).collect();
 
         assert_eq!(message_ids.len(), 2);
         assert_eq!(message_ids[0], "msg001");
@@ -2428,7 +2459,7 @@ mod tests {
 
     #[test]
     fn test_duration_calculation() {
-        use chrono::{Utc, Duration};
+        use chrono::{Duration, Utc};
 
         let start_time = Utc::now();
         let elapsed = Utc::now().signed_duration_since(start_time);
@@ -2437,8 +2468,8 @@ mod tests {
         assert!(elapsed >= Duration::zero());
 
         // タイムアウトチェックのロジック
-        const TEST_TIMEOUT_MINUTES: i64 = 30;
-        let is_timeout = elapsed.num_minutes() > TEST_TIMEOUT_MINUTES;
+        let test_timeout_minutes: i64 = 30;
+        let is_timeout = elapsed.num_minutes() > test_timeout_minutes;
         assert!(!is_timeout); // テスト実行は30分以内
     }
 
@@ -2460,10 +2491,14 @@ mod tests {
         // 有効なBase64URL形式
         assert!(GmailClient::is_base64_format("SGVsbG8gV29ybGQ")); // "Hello World"
         assert!(GmailClient::is_base64_format("VGhpcyBpcyBhIHRlc3Q")); // "This is a test"
-        assert!(GmailClient::is_base64_format("QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVphYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5ejAxMjM0NTY3ODk"));
+        assert!(GmailClient::is_base64_format(
+            "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVphYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5ejAxMjM0NTY3ODk"
+        ));
 
         // Base64URLの特殊文字を含む
-        assert!(GmailClient::is_base64_format("YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXotXw"));
+        assert!(GmailClient::is_base64_format(
+            "YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXotXw"
+        ));
 
         // 無効なケース: 空文字列
         assert!(!GmailClient::is_base64_format(""));

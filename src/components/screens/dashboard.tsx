@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '../ui/card';
 import { Button } from '../ui/button';
 
 interface EmailStats {
@@ -97,7 +103,9 @@ export function Dashboard() {
                 </svg>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{formatNumber(stats.total_emails)}</div>
+                <div className="text-2xl font-bold">
+                  {formatNumber(stats.total_emails)}
+                </div>
                 <p className="text-xs text-muted-foreground">
                   取り込み済みメール
                 </p>
@@ -125,9 +133,15 @@ export function Dashboard() {
                 </svg>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{formatNumber(stats.with_body_plain)}</div>
+                <div className="text-2xl font-bold">
+                  {formatNumber(stats.with_body_plain)}
+                </div>
                 <p className="text-xs text-muted-foreground">
-                  {calculatePercentage(stats.with_body_plain, stats.total_emails)}% のメール
+                  {calculatePercentage(
+                    stats.with_body_plain,
+                    stats.total_emails
+                  )}
+                  % のメール
                 </p>
               </CardContent>
             </Card>
@@ -152,18 +166,22 @@ export function Dashboard() {
                 </svg>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{formatNumber(stats.with_body_html)}</div>
+                <div className="text-2xl font-bold">
+                  {formatNumber(stats.with_body_html)}
+                </div>
                 <p className="text-xs text-muted-foreground">
-                  {calculatePercentage(stats.with_body_html, stats.total_emails)}% のメール
+                  {calculatePercentage(
+                    stats.with_body_html,
+                    stats.total_emails
+                  )}
+                  % のメール
                 </p>
               </CardContent>
             </Card>
 
-            <Card className={stats.without_body > 0 ? "border-amber-500" : ""}>
+            <Card className={stats.without_body > 0 ? 'border-amber-500' : ''}>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">
-                  本文なし
-                </CardTitle>
+                <CardTitle className="text-sm font-medium">本文なし</CardTitle>
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   viewBox="0 0 24 24"
@@ -180,7 +198,9 @@ export function Dashboard() {
                 </svg>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{formatNumber(stats.without_body)}</div>
+                <div className="text-2xl font-bold">
+                  {formatNumber(stats.without_body)}
+                </div>
                 <p className="text-xs text-muted-foreground">
                   {stats.without_body > 0 ? '要確認' : '問題なし'}
                 </p>
@@ -192,9 +212,7 @@ export function Dashboard() {
             <Card>
               <CardHeader>
                 <CardTitle>平均本文長</CardTitle>
-                <CardDescription>
-                  メール本文の平均文字数
-                </CardDescription>
+                <CardDescription>メール本文の平均文字数</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div>
@@ -208,7 +226,7 @@ export function Dashboard() {
                     <div
                       className="h-full bg-blue-500 transition-all"
                       style={{
-                        width: `${Math.min(100, (stats.avg_plain_length / PROGRESS_MAX_PLAIN) * 100)}%`
+                        width: `${Math.min(100, (stats.avg_plain_length / PROGRESS_MAX_PLAIN) * 100)}%`,
                       }}
                     />
                   </div>
@@ -224,7 +242,7 @@ export function Dashboard() {
                     <div
                       className="h-full bg-green-500 transition-all"
                       style={{
-                        width: `${Math.min(100, (stats.avg_html_length / PROGRESS_MAX_HTML) * 100)}%`
+                        width: `${Math.min(100, (stats.avg_html_length / PROGRESS_MAX_HTML) * 100)}%`,
                       }}
                     />
                   </div>
@@ -247,27 +265,31 @@ export function Dashboard() {
                       {calculatePercentage(
                         stats.total_emails - stats.without_body,
                         stats.total_emails
-                      )}%
+                      )}
+                      %
                     </span>
                   </div>
                   <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
                     <div
                       className={`h-full transition-all ${
-                        stats.without_body === 0 ? 'bg-green-500' :
-                        stats.without_body < stats.total_emails * 0.1 ? 'bg-amber-500' :
-                        'bg-red-500'
+                        stats.without_body === 0
+                          ? 'bg-green-500'
+                          : stats.without_body < stats.total_emails * 0.1
+                            ? 'bg-amber-500'
+                            : 'bg-red-500'
                       }`}
                       style={{
                         width: `${calculatePercentage(
                           stats.total_emails - stats.without_body,
                           stats.total_emails
-                        )}%`
+                        )}%`,
                       }}
                     />
                   </div>
                   {stats.without_body > 0 && (
                     <p className="text-xs text-amber-600 dark:text-amber-400">
-                      {formatNumber(stats.without_body)} 件のメールに本文データがありません。
+                      {formatNumber(stats.without_body)}{' '}
+                      件のメールに本文データがありません。
                       再同期をお勧めします。
                     </p>
                   )}

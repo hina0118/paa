@@ -1,0 +1,11 @@
+# Clippy configuration for the project
+
+# Deny certain lints to enforce best practices
+avoid-breaking-exported-api = false
+msrv = "1.70"
+
+# Cognitive complexity threshold
+cognitive-complexity-threshold = 15
+
+# Documentation style
+doc-valid-idents = ["Tauri", "OAuth", "Gmail", "API", "JSON", "SQL", "SQLite"]

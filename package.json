@@ -12,7 +12,16 @@
     "test:frontend:ui": "vitest --ui",
     "test:frontend:coverage": "vitest --coverage",
     "test:frontend:run": "vitest run",
-    "test:all": "npm run test:frontend:run && npm run test"
+    "test:all": "npm run test:frontend:run && npm run test",
+    "lint:rust": "cd src-tauri && cargo clippy --all-targets --all-features -- -D warnings",
+    "lint:rust:fix": "cd src-tauri && cargo clippy --fix --all-targets --all-features --allow-dirty --allow-staged",
+    "lint:ui": "eslint . --max-warnings 3",
+    "lint:ui:fix": "eslint . --fix",
+    "format": "prettier --write \"src/**/*.{js,jsx,ts,tsx,json,css,md}\"",
+    "format:check": "prettier --check \"src/**/*.{js,jsx,ts,tsx,json,css,md}\"",
+    "lint": "npm run lint:rust && npm run lint:ui && npm run format:check",
+    "lint:fix": "npm run lint:rust:fix && npm run lint:ui:fix && npm run format",
+    "prepare": "husky"
   },
   "dependencies": {
     "@radix-ui/react-checkbox": "^1.3.3",
@@ -31,21 +40,43 @@
     "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.2",
     "@tauri-apps/cli": "^2",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.1",
     "@testing-library/user-event": "^14.6.1",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
+    "@typescript-eslint/eslint-plugin": "^8.53.1",
+    "@typescript-eslint/parser": "^8.53.1",
     "@vitejs/plugin-react": "^4.6.0",
     "@vitest/coverage-v8": "^4.0.17",
     "@vitest/ui": "^4.0.17",
     "autoprefixer": "^10.4.23",
+    "eslint": "^9.39.2",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.5",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.4.26",
+    "husky": "^9.1.7",
     "jsdom": "^27.4.0",
+    "lint-staged": "^16.2.7",
     "postcss": "^8.5.6",
+    "prettier": "^3.8.0",
     "tailwindcss": "^3.4.19",
     "typescript": "~5.8.3",
+    "typescript-eslint": "^8.53.1",
     "vite": "^7.0.4",
     "vitest": "^4.0.17"
+  },
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,css,md}": [
+      "prettier --write"
+    ]
   }
 }

@@ -1,11 +1,24 @@
-import { useEffect, useState } from "react";
-import { useSync } from "@/contexts/sync-context";
-import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useEffect, useState } from 'react';
+import { useSync } from '@/contexts/sync-context';
+import { Button } from '@/components/ui/button';
+import { Progress } from '@/components/ui/progress';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 
 export function Sync() {
-  const { isSyncing, progress, metadata, startSync, cancelSync, refreshStatus } = useSync();
+  const {
+    isSyncing,
+    progress,
+    metadata,
+    startSync,
+    cancelSync,
+    refreshStatus,
+  } = useSync();
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -30,37 +43,43 @@ export function Sync() {
     }
   };
 
-  const progressPercentage = progress?.total_synced && metadata?.total_synced_count
-    ? Math.min((progress.total_synced / Math.max(metadata.total_synced_count, progress.total_synced)) * 100, 100)
-    : 0;
+  const progressPercentage =
+    progress?.total_synced && metadata?.total_synced_count
+      ? Math.min(
+          (progress.total_synced /
+            Math.max(metadata.total_synced_count, progress.total_synced)) *
+            100,
+          100
+        )
+      : 0;
 
   const getStatusBadgeClass = (status?: string) => {
     switch (status) {
-      case "syncing":
-        return "bg-blue-100 text-blue-800";
-      case "idle":
-        return "bg-green-100 text-green-800";
-      case "paused":
-        return "bg-yellow-100 text-yellow-800";
-      case "error":
-        return "bg-red-100 text-red-800";
+      case 'syncing':
+        return 'bg-blue-100 text-blue-800';
+      case 'idle':
+        return 'bg-green-100 text-green-800';
+      case 'paused':
+        return 'bg-yellow-100 text-yellow-800';
+      case 'error':
+        return 'bg-red-100 text-red-800';
       default:
-        return "bg-gray-100 text-gray-800";
+        return 'bg-gray-100 text-gray-800';
     }
   };
 
   const getStatusText = (status?: string) => {
     switch (status) {
-      case "syncing":
-        return "同期中";
-      case "idle":
-        return "待機中";
-      case "paused":
-        return "一時停止";
-      case "error":
-        return "エラー";
+      case 'syncing':
+        return '同期中';
+      case 'idle':
+        return '待機中';
+      case 'paused':
+        return '一時停止';
+      case 'error':
+        return 'エラー';
       default:
-        return "不明";
+        return '不明';
     }
   };
 
@@ -81,16 +100,17 @@ export function Sync() {
             <Button
               onClick={handleStartSync}
               disabled={isSyncing}
-              variant={isSyncing ? "secondary" : "default"}
+              variant={isSyncing ? 'secondary' : 'default'}
             >
-              {isSyncing ? "同期中..." : metadata?.sync_status === "paused" ? "同期を再開" : "同期を開始"}
+              {isSyncing
+                ? '同期中...'
+                : metadata?.sync_status === 'paused'
+                  ? '同期を再開'
+                  : '同期を開始'}
             </Button>
 
             {isSyncing && (
-              <Button
-                onClick={handleCancelSync}
-                variant="destructive"
-              >
+              <Button onClick={handleCancelSync} variant="destructive">
                 中止
               </Button>
             )}
@@ -99,7 +119,9 @@ export function Sync() {
           {/* Status Badge */}
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium">ステータス:</span>
-            <span className={`px-2 py-1 rounded text-xs font-semibold ${getStatusBadgeClass(metadata?.sync_status)}`}>
+            <span
+              className={`px-2 py-1 rounded text-xs font-semibold ${getStatusBadgeClass(metadata?.sync_status)}`}
+            >
               {getStatusText(metadata?.sync_status)}
             </span>
           </div>
@@ -148,17 +170,23 @@ export function Sync() {
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <span className="text-muted-foreground">総取得件数:</span>
-                <div className="text-2xl font-bold">{metadata.total_synced_count}</div>
+                <div className="text-2xl font-bold">
+                  {metadata.total_synced_count}
+                </div>
               </div>
               <div>
                 <span className="text-muted-foreground">バッチサイズ:</span>
-                <div className="text-2xl font-bold">{metadata.batch_size}件</div>
+                <div className="text-2xl font-bold">
+                  {metadata.batch_size}件
+                </div>
               </div>
               {metadata.oldest_fetched_date && (
                 <div className="col-span-2">
                   <span className="text-muted-foreground">最古メール日付:</span>
                   <div className="text-sm font-mono">
-                    {new Date(metadata.oldest_fetched_date).toLocaleString("ja-JP")}
+                    {new Date(metadata.oldest_fetched_date).toLocaleString(
+                      'ja-JP'
+                    )}
                   </div>
                 </div>
               )}
@@ -166,7 +194,9 @@ export function Sync() {
                 <div className="col-span-2">
                   <span className="text-muted-foreground">最終同期:</span>
                   <div className="text-sm">
-                    {new Date(metadata.last_sync_completed_at).toLocaleString("ja-JP")}
+                    {new Date(metadata.last_sync_completed_at).toLocaleString(
+                      'ja-JP'
+                    )}
                   </div>
                 </div>
               )}
@@ -193,10 +223,18 @@ export function Sync() {
           <CardTitle className="text-blue-900">初回セットアップ</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm text-blue-800">
-          <p>Gmail APIを使用するには、事前にGoogle Cloud Consoleでの設定が必要です。</p>
-          <p>詳細は README.md の「Gmail API セットアップ」セクションを参照してください。</p>
+          <p>
+            Gmail APIを使用するには、事前にGoogle Cloud
+            Consoleでの設定が必要です。
+          </p>
+          <p>
+            詳細は README.md の「Gmail API
+            セットアップ」セクションを参照してください。
+          </p>
           <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded">
-            <p className="font-semibold text-yellow-800 mb-1">初回認証について</p>
+            <p className="font-semibold text-yellow-800 mb-1">
+              初回認証について
+            </p>
             <p className="text-xs text-yellow-700">
               初回実行時は、ブラウザで認証画面が自動的に開きます。
               もし開かない場合は、コンソール（開発者ツール）に表示されるURLをコピーして、
