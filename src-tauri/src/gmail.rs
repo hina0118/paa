@@ -355,8 +355,22 @@ impl GmailClient {
 
         // 再帰的にMIMEパートを解析
         if let Some(payload) = &message.payload {
+            log::debug!("Message {} payload: mime_type={:?}, has_body={}, has_parts={}",
+                message_id,
+                payload.mime_type,
+                payload.body.is_some(),
+                payload.parts.as_ref().map(|p| p.len()).unwrap_or(0)
+            );
             Self::extract_body_from_part(payload, &mut body_plain, &mut body_html);
+        } else {
+            log::warn!("Message {} has no payload", message_id);
         }
+
+        log::debug!("Message {} extracted: plain={} bytes, html={} bytes",
+            message_id,
+            body_plain.as_ref().map(|s| s.len()).unwrap_or(0),
+            body_html.as_ref().map(|s| s.len()).unwrap_or(0)
+        );
 
         Ok(GmailMessage {
             message_id: message_id.to_string(),
@@ -371,10 +385,19 @@ impl GmailClient {
         use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 
         // Gmail APIはbase64url形式（パディングなし）でエンコードされた文字列を返す
+        log::debug!("Attempting to decode base64, input length: {}, first 50 chars: {:?}",
+            data.len(),
+            &data.chars().take(50).collect::<String>()
+        );
+
         match URL_SAFE_NO_PAD.decode(data) {
-            Ok(bytes) => String::from_utf8_lossy(&bytes).to_string(),
-            Err(_) => {
-                log::warn!("Failed to decode base64 data, returning empty string");
+            Ok(bytes) => {
+                let result = String::from_utf8_lossy(&bytes).to_string();
+                log::debug!("Successfully decoded {} bytes -> {} chars", bytes.len(), result.len());
+                result
+            }
+            Err(e) => {
+                log::warn!("Failed to decode base64 data: {:?}, input length: {}, returning empty string", e, data.len());
                 String::new()
             }
         }
@@ -388,26 +411,55 @@ impl GmailClient {
     ) {
         // 現在のパートのbodyをチェック
         if let Some(mime_type) = &part.mime_type {
+            log::debug!("Processing part with mime_type: {}", mime_type);
             if let Some(body) = &part.body {
+                log::debug!("  Body present, size: {:?}", body.size);
                 if let Some(data) = &body.data {
+                    log::debug!("  Data present, length: {} bytes", data.len());
+
+                    // dataは既にデコード済みのバイト列として返されることがある
+                    // まずUTF-8として解釈を試みる
                     if let Ok(data_str) = std::str::from_utf8(data) {
+                        log::debug!("  Data as UTF-8 string length: {} chars", data_str.len());
+                        // base64デコードを試みる
                         let decoded = Self::decode_base64(data_str);
+                        let content = if decoded.is_empty() && !data_str.is_empty() {
+                            // base64デコード失敗、元のデータをそのまま使用
+                            log::debug!("  Base64 decode failed, using raw data");
+                            data_str.to_string()
+                        } else {
+                            log::debug!("  Successfully decoded from base64: {} chars", decoded.len());
+                            decoded
+                        };
+
+                        log::debug!("  Final content length: {} chars", content.len());
                         match mime_type.as_ref() {
                             "text/plain" if body_plain.is_none() => {
-                                *body_plain = Some(decoded);
+                                log::info!("Found text/plain body: {} chars", content.len());
+                                *body_plain = Some(content);
                             }
                             "text/html" if body_html.is_none() => {
-                                *body_html = Some(decoded);
+                                log::info!("Found text/html body: {} chars", content.len());
+                                *body_html = Some(content);
                             }
-                            _ => {}
+                            _ => {
+                                log::debug!("  Skipping mime_type: {}", mime_type);
+                            }
                         }
+                    } else {
+                        log::warn!("  Failed to convert data to UTF-8");
                     }
+                } else {
+                    log::debug!("  No data in body");
                 }
+            } else {
+                log::debug!("  No body in part");
             }
         }
 
         // 子パートを再帰的に処理
         if let Some(parts) = &part.parts {
+            log::debug!("Processing {} child parts", parts.len());
             for child_part in parts {
                 Self::extract_body_from_part(child_part, body_plain, body_html);
             }

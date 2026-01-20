@@ -3,6 +3,9 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
 use tauri_plugin_sql::{Migration, MigrationKind};
 use sqlx::sqlite::SqlitePool;
+use serde::{Serialize, Deserialize};
+use std::sync::Mutex;
+use std::collections::VecDeque;
 
 mod gmail;
 
@@ -227,6 +230,117 @@ async fn fetch_gmail_emails(
     })
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EmailStats {
+    pub total_emails: i64,
+    pub with_body_plain: i64,
+    pub with_body_html: i64,
+    pub without_body: i64,
+    pub avg_plain_length: f64,
+    pub avg_html_length: f64,
+}
+
+#[tauri::command]
+async fn get_email_stats(pool: tauri::State<'_, SqlitePool>) -> Result<EmailStats, String> {
+    let stats: (i64, i64, i64, i64) = sqlx::query_as(
+        r#"
+        SELECT
+            COUNT(*) as total,
+            COUNT(CASE WHEN body_plain IS NOT NULL AND LENGTH(body_plain) > 0 THEN 1 END) as with_plain,
+            COUNT(CASE WHEN body_html IS NOT NULL AND LENGTH(body_html) > 0 THEN 1 END) as with_html,
+            COUNT(CASE WHEN (body_plain IS NULL OR LENGTH(body_plain) = 0) AND (body_html IS NULL OR LENGTH(body_html) = 0) THEN 1 END) as without_body
+        FROM emails
+        "#
+    )
+    .fetch_one(pool.inner())
+    .await
+    .map_err(|e| format!("Failed to fetch email stats: {}", e))?;
+
+    let avg_lengths: (Option<f64>, Option<f64>) = sqlx::query_as(
+        r#"
+        SELECT
+            AVG(CASE WHEN body_plain IS NOT NULL THEN LENGTH(body_plain) ELSE 0 END) as avg_plain,
+            AVG(CASE WHEN body_html IS NOT NULL THEN LENGTH(body_html) ELSE 0 END) as avg_html
+        FROM emails
+        WHERE body_plain IS NOT NULL OR body_html IS NOT NULL
+        "#
+    )
+    .fetch_one(pool.inner())
+    .await
+    .map_err(|e| format!("Failed to fetch average lengths: {}", e))?;
+
+    Ok(EmailStats {
+        total_emails: stats.0,
+        with_body_plain: stats.1,
+        with_body_html: stats.2,
+        without_body: stats.3,
+        avg_plain_length: avg_lengths.0.unwrap_or(0.0),
+        avg_html_length: avg_lengths.1.unwrap_or(0.0),
+    })
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogEntry {
+    pub timestamp: String,
+    pub level: String,
+    pub message: String,
+}
+
+static LOG_BUFFER: Mutex<Option<VecDeque<LogEntry>>> = Mutex::new(None);
+const MAX_LOG_ENTRIES: usize = 1000;
+
+pub fn init_log_buffer() {
+    let mut buffer = LOG_BUFFER.lock().unwrap();
+    *buffer = Some(VecDeque::with_capacity(MAX_LOG_ENTRIES));
+}
+
+pub fn add_log_entry(level: &str, message: &str) {
+    if let Ok(mut buffer) = LOG_BUFFER.lock() {
+        if let Some(ref mut logs) = *buffer {
+            let entry = LogEntry {
+                timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
+                level: level.to_string(),
+                message: message.to_string(),
+            };
+
+            logs.push_back(entry);
+
+            if logs.len() > MAX_LOG_ENTRIES {
+                logs.pop_front();
+            }
+        }
+    }
+}
+
+#[tauri::command]
+fn get_logs(level_filter: Option<String>, limit: Option<usize>) -> Result<Vec<LogEntry>, String> {
+    let buffer = LOG_BUFFER.lock().map_err(|e| format!("Failed to lock log buffer: {}", e))?;
+
+    if let Some(ref logs) = *buffer {
+        let mut filtered_logs: Vec<LogEntry> = logs
+            .iter()
+            .filter(|entry| {
+                if let Some(ref filter) = level_filter {
+                    &entry.level == filter
+                } else {
+                    true
+                }
+            })
+            .cloned()
+            .collect();
+
+        filtered_logs.reverse();
+
+        if let Some(limit) = limit {
+            filtered_logs.truncate(limit);
+        }
+
+        Ok(filtered_logs)
+    } else {
+        Ok(Vec::new())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let migrations = vec![
@@ -323,9 +437,28 @@ pub fn run() {
             }
         }))
         .setup(move |app| {
-            // ロガーの初期化
+            // ログバッファの初期化
+            init_log_buffer();
+
+            // マルチロガーの初期化（コンソールとメモリの両方に出力）
+            use std::io::Write;
+
             env_logger::Builder::from_default_env()
                 .filter_level(log::LevelFilter::Info)
+                .format(|buf, record| {
+                    // メモリにログを保存
+                    add_log_entry(&record.level().to_string(), &format!("{}", record.args()));
+
+                    // コンソールにも出力
+                    writeln!(
+                        buf,
+                        "[{} {:5} {}] {}",
+                        chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+                        record.level(),
+                        record.target(),
+                        record.args()
+                    )
+                })
                 .init();
 
             let app_data_dir = app.path().app_data_dir().expect("failed to get app data dir");
@@ -487,7 +620,9 @@ pub fn run() {
             update_max_iterations,
             reset_sync_status,
             get_window_settings,
-            save_window_settings
+            save_window_settings,
+            get_email_stats,
+            get_logs
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
