@@ -1,19 +1,19 @@
-import { createContext, useContext, useState, ReactNode } from "react";
+import { createContext, useContext, useState, ReactNode } from 'react';
 
 type Screen =
-  | "dashboard"
-  | "orders"
-  | "sync"
-  | "logs"
-  | "settings"
-  | "table-emails"
-  | "table-orders"
-  | "table-items"
-  | "table-images"
-  | "table-deliveries"
-  | "table-htmls"
-  | "table-order-emails"
-  | "table-order-htmls";
+  | 'dashboard'
+  | 'orders'
+  | 'sync'
+  | 'logs'
+  | 'settings'
+  | 'table-emails'
+  | 'table-orders'
+  | 'table-items'
+  | 'table-images'
+  | 'table-deliveries'
+  | 'table-htmls'
+  | 'table-order-emails'
+  | 'table-order-htmls';
 
 type NavigationContextType = {
   currentScreen: Screen;
@@ -25,7 +25,7 @@ const NavigationContext = createContext<NavigationContextType | undefined>(
 );
 
 export function NavigationProvider({ children }: { children: ReactNode }) {
-  const [currentScreen, setCurrentScreen] = useState<Screen>("orders");
+  const [currentScreen, setCurrentScreen] = useState<Screen>('orders');
 
   return (
     <NavigationContext.Provider value={{ currentScreen, setCurrentScreen }}>
@@ -37,7 +37,7 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
 export function useNavigation() {
   const context = useContext(NavigationContext);
   if (context === undefined) {
-    throw new Error("useNavigation must be used within a NavigationProvider");
+    throw new Error('useNavigation must be used within a NavigationProvider');
   }
   return context;
 }

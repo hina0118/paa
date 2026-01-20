@@ -1,16 +1,16 @@
-import Database from "@tauri-apps/plugin-sql";
-import { appDataDir, join } from "@tauri-apps/api/path";
+import Database from '@tauri-apps/plugin-sql';
+import { appDataDir, join } from '@tauri-apps/api/path';
 
 // Valid table names - used to prevent SQL injection
 export const VALID_TABLES = [
-  "emails",
-  "orders",
-  "items",
-  "images",
-  "deliveries",
-  "htmls",
-  "order_emails",
-  "order_htmls",
+  'emails',
+  'orders',
+  'items',
+  'images',
+  'deliveries',
+  'htmls',
+  'order_emails',
+  'order_htmls',
 ] as const;
 
 export type ValidTableName = (typeof VALID_TABLES)[number];
@@ -23,7 +23,7 @@ export function sanitizeTableName(tableName: string): string {
   if (!isValidTableName(tableName)) {
     throw new Error(
       `Table "${tableName}" is not allowed. ` +
-        `Allowed tables are: ${VALID_TABLES.join(", ")}. ` +
+        `Allowed tables are: ${VALID_TABLES.join(', ')}. ` +
         `This may indicate a configuration issue or a bug in the calling code.`
     );
   }
@@ -33,7 +33,8 @@ export function sanitizeTableName(tableName: string): string {
 }
 
 // Error messages for DatabaseManager
-const ERROR_MANAGER_CLOSING = 'DatabaseManager is closing, cannot get database connection';
+const ERROR_MANAGER_CLOSING =
+  'DatabaseManager is closing, cannot get database connection';
 const ERROR_CLOSED_DURING_INIT = 'DatabaseManager closed during initialization';
 
 /**
@@ -67,16 +68,24 @@ export class DatabaseManager {
     const signal = this.abortController.signal;
 
     // Use pagehide for more reliable cleanup (works on mobile Safari and modern browsers)
-    window.addEventListener("pagehide", () => {
-      this.cleanup();
-    }, { signal });
+    window.addEventListener(
+      'pagehide',
+      () => {
+        this.cleanup();
+      },
+      { signal }
+    );
 
     // Also register beforeunload as fallback for older browsers
     // Note: beforeunload cannot reliably complete async operations
     // The database connection will be cleaned up by Tauri/browser when the process ends
-    window.addEventListener("beforeunload", () => {
-      this.cleanup();
-    }, { signal });
+    window.addEventListener(
+      'beforeunload',
+      () => {
+        this.cleanup();
+      },
+      { signal }
+    );
 
     // Note: visibilitychange listener removed as it causes issues:
     // - Closes connection when user switches tabs, requiring reconnection
@@ -116,14 +125,17 @@ export class DatabaseManager {
     // Initialize database
     this.initPromise = (async () => {
       const appDataDirPath = await appDataDir();
-      const dbPath = await join(appDataDirPath, "paa_data.db");
+      const dbPath = await join(appDataDirPath, 'paa_data.db');
       const db = await Database.load(`sqlite:${dbPath}`);
 
       // Check again if we started closing while initializing
       if (this.isClosing) {
         // Close the newly created connection and throw
         await db.close().catch((err) => {
-          console.error("Failed to close database during initialization cleanup:", err);
+          console.error(
+            'Failed to close database during initialization cleanup:',
+            err
+          );
         });
         throw new Error(ERROR_CLOSED_DURING_INIT);
       }
@@ -183,7 +195,7 @@ export class DatabaseManager {
       // Close the database connection asynchronously
       // Best effort - may not complete if called during page unload
       dbToClose.close().catch((err) => {
-        console.error("Error closing database:", err);
+        console.error('Error closing database:', err);
       });
     }
 
@@ -225,7 +237,7 @@ export class DatabaseManager {
         await initDb.close();
       } catch (err) {
         // Initialization failed or was cancelled; log for troubleshooting
-        console.error("Error during database initialization cleanup:", err);
+        console.error('Error during database initialization cleanup:', err);
       }
     }
 
@@ -236,7 +248,7 @@ export class DatabaseManager {
       try {
         await currentDb.close();
       } catch (err) {
-        console.error("Error closing database:", err);
+        console.error('Error closing database:', err);
       }
     }
 

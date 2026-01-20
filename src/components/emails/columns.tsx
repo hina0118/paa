@@ -1,7 +1,7 @@
-import { ColumnDef } from "@tanstack/react-table";
-import { Email } from "@/lib/types";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Button } from "@/components/ui/button";
+import { ColumnDef } from '@tanstack/react-table';
+import { Email } from '@/lib/types';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -9,7 +9,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+} from '@/components/ui/dropdown-menu';
 import {
   MoreHorizontal,
   Star,
@@ -19,16 +19,16 @@ import {
   Copy,
   Tag,
   Clock,
-} from "lucide-react";
+} from 'lucide-react';
 
 export const columns: ColumnDef<Email>[] = [
   {
-    id: "select",
+    id: 'select',
     header: ({ table }) => (
       <Checkbox
         checked={
           table.getIsAllPageRowsSelected() ||
-          (table.getIsSomePageRowsSelected() && "indeterminate")
+          (table.getIsSomePageRowsSelected() && 'indeterminate')
         }
         onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
         aria-label="すべて選択"
@@ -45,10 +45,10 @@ export const columns: ColumnDef<Email>[] = [
     enableHiding: false,
   },
   {
-    accessorKey: "starred",
-    header: "",
+    accessorKey: 'starred',
+    header: '',
     cell: ({ row }) => {
-      const starred = row.getValue("starred") as boolean;
+      const starred = row.getValue('starred') as boolean;
       return (
         <Button
           variant="ghost"
@@ -56,14 +56,14 @@ export const columns: ColumnDef<Email>[] = [
           className="h-8 w-8 p-0 hover:bg-transparent"
           onClick={(e) => {
             e.stopPropagation();
-            console.log("Toggle star for:", row.original.id);
+            // TODO: Implement star toggle functionality
           }}
         >
           <Star
             className={`h-4 w-4 transition-colors ${
               starred
-                ? "fill-yellow-400 text-yellow-400"
-                : "text-muted-foreground hover:text-yellow-400"
+                ? 'fill-yellow-400 text-yellow-400'
+                : 'text-muted-foreground hover:text-yellow-400'
             }`}
           />
         </Button>
@@ -71,7 +71,7 @@ export const columns: ColumnDef<Email>[] = [
     },
   },
   {
-    accessorKey: "from",
+    accessorKey: 'from',
     header: () => (
       <div className="flex items-center gap-2">
         <Mail className="h-4 w-4" />
@@ -79,32 +79,32 @@ export const columns: ColumnDef<Email>[] = [
       </div>
     ),
     cell: ({ row }) => {
-      const from = row.getValue("from") as string;
+      const from = row.getValue('from') as string;
       const read = row.original.read;
       return (
         <div className="flex items-center gap-2">
           <div
             className={`h-2 w-2 rounded-full ${
-              !read ? "bg-blue-500" : "bg-transparent"
+              !read ? 'bg-blue-500' : 'bg-transparent'
             }`}
           />
-          <div className={`font-medium ${!read ? "font-bold" : ""}`}>
-            {from.split("<")[0].trim()}
+          <div className={`font-medium ${!read ? 'font-bold' : ''}`}>
+            {from.split('<')[0].trim()}
           </div>
         </div>
       );
     },
   },
   {
-    accessorKey: "subject",
-    header: "件名",
+    accessorKey: 'subject',
+    header: '件名',
     cell: ({ row }) => {
-      const subject = row.getValue("subject") as string;
+      const subject = row.getValue('subject') as string;
       const preview = row.original.preview;
       const read = row.original.read;
       return (
         <div className="max-w-[500px]">
-          <div className={`${!read ? "font-bold" : ""}`}>{subject}</div>
+          <div className={`${!read ? 'font-bold' : ''}`}>{subject}</div>
           <div className="text-sm text-muted-foreground truncate">
             {preview}
           </div>
@@ -113,7 +113,7 @@ export const columns: ColumnDef<Email>[] = [
     },
   },
   {
-    accessorKey: "labels",
+    accessorKey: 'labels',
     header: () => (
       <div className="flex items-center gap-2">
         <Tag className="h-4 w-4" />
@@ -121,7 +121,7 @@ export const columns: ColumnDef<Email>[] = [
       </div>
     ),
     cell: ({ row }) => {
-      const labels = row.getValue("labels") as string[];
+      const labels = row.getValue('labels') as string[];
       return (
         <div className="flex gap-1 flex-wrap">
           {labels.map((label) => (
@@ -138,7 +138,7 @@ export const columns: ColumnDef<Email>[] = [
     },
   },
   {
-    accessorKey: "date",
+    accessorKey: 'date',
     header: () => (
       <div className="flex items-center gap-2">
         <Clock className="h-4 w-4" />
@@ -146,22 +146,22 @@ export const columns: ColumnDef<Email>[] = [
       </div>
     ),
     cell: ({ row }) => {
-      const date = row.getValue("date") as Date;
+      const date = row.getValue('date') as Date;
       return (
         <div className="flex items-center gap-2 text-sm text-muted-foreground whitespace-nowrap">
           <Clock className="h-3.5 w-3.5" />
-          {date.toLocaleDateString("ja-JP", {
-            month: "short",
-            day: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
+          {date.toLocaleDateString('ja-JP', {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
           })}
         </div>
       );
     },
   },
   {
-    id: "actions",
+    id: 'actions',
     cell: ({ row }) => {
       const email = row.original;
 
