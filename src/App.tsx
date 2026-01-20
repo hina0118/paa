@@ -1,11 +1,11 @@
-import { useEffect } from "react";
-import { DatabaseManager } from "@/lib/database";
-import { EmailList } from "@/components/emails/email-list";
-import { Sidebar } from "@/components/layout/sidebar";
-import { Dashboard } from "@/components/screens/dashboard";
-import { Sync } from "@/components/screens/sync";
-import { Logs } from "@/components/screens/logs";
-import { Settings } from "@/components/screens/settings";
+import { useEffect } from 'react';
+import { DatabaseManager } from '@/lib/database';
+import { EmailList } from '@/components/emails/email-list';
+import { Sidebar } from '@/components/layout/sidebar';
+import { Dashboard } from '@/components/screens/dashboard';
+import { Sync } from '@/components/screens/sync';
+import { Logs } from '@/components/screens/logs';
+import { Settings } from '@/components/screens/settings';
 import {
   EmailsTable,
   OrdersTable,
@@ -15,43 +15,46 @@ import {
   HtmlsTable,
   OrderEmailsTable,
   OrderHtmlsTable,
-} from "@/components/screens/tables";
-import { NavigationProvider, useNavigation } from "@/contexts/navigation-context";
-import { SyncProvider } from "@/contexts/sync-context";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+} from '@/components/screens/tables';
+import {
+  NavigationProvider,
+  useNavigation,
+} from '@/contexts/navigation-context';
+import { SyncProvider } from '@/contexts/sync-context';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 
 function AppContent() {
   const { currentScreen } = useNavigation();
 
   const renderScreen = () => {
     switch (currentScreen) {
-      case "dashboard":
+      case 'dashboard':
         return <Dashboard />;
-      case "orders":
+      case 'orders':
         return <EmailList />;
-      case "sync":
+      case 'sync':
         return <Sync />;
-      case "logs":
+      case 'logs':
         return <Logs />;
-      case "settings":
+      case 'settings':
         return <Settings />;
-      case "table-emails":
+      case 'table-emails':
         return <EmailsTable />;
-      case "table-orders":
+      case 'table-orders':
         return <OrdersTable />;
-      case "table-items":
+      case 'table-items':
         return <ItemsTable />;
-      case "table-images":
+      case 'table-images':
         return <ImagesTable />;
-      case "table-deliveries":
+      case 'table-deliveries':
         return <DeliveriesTable />;
-      case "table-htmls":
+      case 'table-htmls':
         return <HtmlsTable />;
-      case "table-order-emails":
+      case 'table-order-emails':
         return <OrderEmailsTable />;
-      case "table-order-htmls":
+      case 'table-order-htmls':
         return <OrderHtmlsTable />;
       default:
         return <EmailList />;
@@ -61,9 +64,7 @@ function AppContent() {
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar />
-      <main className="flex-1 overflow-auto">
-        {renderScreen()}
-      </main>
+      <main className="flex-1 overflow-auto">{renderScreen()}</main>
     </div>
   );
 }
@@ -78,10 +79,9 @@ function App() {
         const db = await manager.getDatabase();
 
         // 簡単なクエリでマイグレーション実行を確実にする
-        await db.select("SELECT 1");
-        console.log("Database initialized with migrations");
+        await db.select('SELECT 1');
       } catch (error) {
-        console.error("Failed to initialize database:", error);
+        console.error('Failed to initialize database:', error);
       }
     };
 
@@ -95,7 +95,7 @@ function App() {
         const position = await window.outerPosition();
         const maximized = await window.isMaximized();
 
-        await invoke("save_window_settings", {
+        await invoke('save_window_settings', {
           width: size.width,
           height: size.height,
           x: position.x,
@@ -103,7 +103,7 @@ function App() {
           maximized,
         });
       } catch (error) {
-        console.error("Failed to save window settings:", error);
+        console.error('Failed to save window settings:', error);
       }
     };
 
@@ -135,8 +135,7 @@ function App() {
 
     // 通知アクションイベントリスナーを設定
     let unlistenNotification: (() => void) | undefined;
-    listen("notification-action", async () => {
-      console.log("Notification clicked - showing window");
+    listen('notification-action', async () => {
       const window = getCurrentWindow();
       await window.show();
       await window.setFocus();
@@ -145,7 +144,7 @@ function App() {
         unlistenNotification = unlisten;
       })
       .catch((error) => {
-        console.error("Failed to set up notification action listener:", error);
+        console.error('Failed to set up notification action listener:', error);
       });
 
     return () => {

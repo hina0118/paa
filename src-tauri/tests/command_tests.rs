@@ -14,7 +14,7 @@ async fn create_test_pool() -> sqlx::SqlitePool {
 
     // sync_metadataテーブルを作成
     sqlx::query(
-        r#"
+        r"
         CREATE TABLE IF NOT EXISTS sync_metadata (
             id INTEGER PRIMARY KEY,
             sync_status TEXT NOT NULL DEFAULT 'idle',
@@ -25,7 +25,7 @@ async fn create_test_pool() -> sqlx::SqlitePool {
             last_sync_completed_at TEXT,
             last_error_message TEXT
         )
-        "#,
+        ",
     )
     .execute(&pool)
     .await
@@ -33,11 +33,11 @@ async fn create_test_pool() -> sqlx::SqlitePool {
 
     // 初期データを挿入
     sqlx::query(
-        r#"
+        r"
         INSERT OR REPLACE INTO sync_metadata
         (id, sync_status, total_synced_count, batch_size)
         VALUES (1, 'idle', 0, 50)
-        "#,
+        ",
     )
     .execute(&pool)
     .await
@@ -76,14 +76,14 @@ mod command_tests {
 
         // データを更新
         sqlx::query(
-            r#"
+            r"
             UPDATE sync_metadata
             SET sync_status = 'syncing',
                 oldest_fetched_date = '2024-01-01',
                 total_synced_count = 100,
                 last_sync_started_at = '2024-01-15T10:00:00Z'
             WHERE id = 1
-            "#,
+            ",
         )
         .execute(&pool)
         .await

@@ -1,9 +1,13 @@
-import { clsx, type ClassValue } from "clsx"
-import { twMerge } from "tailwind-merge"
-import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification"
+import { clsx, type ClassValue } from 'clsx';
+import { twMerge } from 'tailwind-merge';
+import {
+  isPermissionGranted,
+  requestPermission,
+  sendNotification,
+} from '@tauri-apps/plugin-notification';
 
 export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs))
+  return twMerge(clsx(inputs));
 }
 
 /**
@@ -13,16 +17,16 @@ export function cn(...inputs: ClassValue[]) {
  * @returns Promise that resolves when notification is sent
  */
 export async function notify(title: string, body: string): Promise<void> {
-  let permissionGranted = await isPermissionGranted()
+  let permissionGranted = await isPermissionGranted();
 
   if (!permissionGranted) {
-    const permission = await requestPermission()
-    permissionGranted = permission === "granted"
+    const permission = await requestPermission();
+    permissionGranted = permission === 'granted';
   }
 
   if (permissionGranted) {
-    await sendNotification({ title, body })
+    await sendNotification({ title, body });
   } else {
-    console.warn("Notification permission not granted")
+    console.warn('Notification permission not granted');
   }
 }

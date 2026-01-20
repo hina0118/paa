@@ -1,0 +1,28 @@
+[target.x86_64-pc-windows-msvc]
+rustflags = []
+
+[target.x86_64-unknown-linux-gnu]
+rustflags = []
+
+[target.x86_64-apple-darwin]
+rustflags = []
+
+# Clippy lints configuration
+[target.'cfg(all())']
+rustflags = [
+    "-W", "clippy::all",
+    "-A", "clippy::module_name_repetitions",
+    "-A", "clippy::missing_errors_doc",
+    "-A", "clippy::missing_panics_doc",
+    "-A", "clippy::cast_possible_truncation",
+    "-A", "clippy::cast_possible_wrap",
+    "-A", "clippy::cast_sign_loss",
+    "-A", "clippy::too_many_lines",
+    "-A", "clippy::needless_pass_by_value",
+    "-A", "clippy::items_after_statements",
+    "-A", "clippy::cloned_ref_to_slice_refs",
+    "-A", "clippy::ref_option",
+    "-A", "clippy::map_unwrap_or",
+    "-A", "clippy::type_complexity",
+    "-A", "unused_assignments",
+]

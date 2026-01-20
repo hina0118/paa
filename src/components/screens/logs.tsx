@@ -1,6 +1,12 @@
 import { useEffect, useState, useRef, useLayoutEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 
@@ -23,7 +29,8 @@ export function Logs() {
 
   const scrollToBottom = () => {
     if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+      scrollContainerRef.current.scrollTop =
+        scrollContainerRef.current.scrollHeight;
     }
   };
 
@@ -89,10 +96,13 @@ export function Logs() {
     return true;
   });
 
-  const levelCounts = logs.reduce((acc, log) => {
-    acc[log.level] = (acc[log.level] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>);
+  const levelCounts = logs.reduce(
+    (acc, log) => {
+      acc[log.level] = (acc[log.level] || 0) + 1;
+      return acc;
+    },
+    {} as Record<string, number>
+  );
 
   return (
     <div className="flex flex-col h-screen">
@@ -101,7 +111,7 @@ export function Logs() {
           <h1 className="text-3xl font-bold">ログビューアー</h1>
           <div className="flex gap-2">
             <Button
-              variant={autoRefresh ? "default" : "outline"}
+              variant={autoRefresh ? 'default' : 'outline'}
               onClick={() => setAutoRefresh(!autoRefresh)}
               aria-label={autoRefresh ? '自動更新を停止' : '自動更新を開始'}
               aria-pressed={autoRefresh}
@@ -130,35 +140,42 @@ export function Logs() {
         )}
 
         <div className="grid gap-4 md:grid-cols-5">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">総ログ数</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{logs.length}</div>
-          </CardContent>
-        </Card>
-
-        {(['ERROR', 'WARN', 'INFO', 'DEBUG'] as const).map((level) => (
-          <Card key={level} className={filterLevel === level ? "border-2 border-primary" : ""}>
+          <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">{level}</CardTitle>
+              <CardTitle className="text-sm font-medium">総ログ数</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{levelCounts[level] || 0}</div>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="mt-2 w-full"
-                onClick={() => setFilterLevel(filterLevel === level ? null : level)}
-                aria-label={`${level}レベルのログ${filterLevel === level ? 'フィルタを解除' : 'でフィルタ'}`}
-                aria-pressed={filterLevel === level}
-              >
-                {filterLevel === level ? 'フィルタ解除' : 'フィルタ'}
-              </Button>
+              <div className="text-2xl font-bold">{logs.length}</div>
             </CardContent>
           </Card>
-        ))}
+
+          {(['ERROR', 'WARN', 'INFO', 'DEBUG'] as const).map((level) => (
+            <Card
+              key={level}
+              className={filterLevel === level ? 'border-2 border-primary' : ''}
+            >
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">{level}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  {levelCounts[level] || 0}
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="mt-2 w-full"
+                  onClick={() =>
+                    setFilterLevel(filterLevel === level ? null : level)
+                  }
+                  aria-label={`${level}レベルのログ${filterLevel === level ? 'フィルタを解除' : 'でフィルタ'}`}
+                  aria-pressed={filterLevel === level}
+                >
+                  {filterLevel === level ? 'フィルタ解除' : 'フィルタ'}
+                </Button>
+              </CardContent>
+            </Card>
+          ))}
         </div>
       </div>
 
@@ -167,7 +184,9 @@ export function Logs() {
           <CardHeader className="flex-shrink-0">
             <CardTitle>ログ一覧</CardTitle>
             <CardDescription>
-              {filterLevel ? `${filterLevel}レベルのログを表示中` : '全てのログを表示中'}
+              {filterLevel
+                ? `${filterLevel}レベルのログを表示中`
+                : '全てのログを表示中'}
               {searchQuery && ` - "${searchQuery}" で検索中`}
             </CardDescription>
             <div className="flex gap-2 mt-4">
@@ -195,36 +214,36 @@ export function Logs() {
               ref={scrollContainerRef}
               className="space-y-2 overflow-y-auto flex-1"
               role="log"
-              aria-live={autoRefresh ? "polite" : "off"}
+              aria-live={autoRefresh ? 'polite' : 'off'}
               aria-atomic="false"
               aria-label="アプリケーションログ一覧"
             >
-            {filteredLogs.length === 0 && !loading && (
-              <p className="text-center text-muted-foreground py-10">
-                ログがありません
-              </p>
-            )}
+              {filteredLogs.length === 0 && !loading && (
+                <p className="text-center text-muted-foreground py-10">
+                  ログがありません
+                </p>
+              )}
 
-            {filteredLogs.map((log, index) => (
-              <div
-                key={`${log.timestamp}-${log.level}-${index}`}
-                className="flex items-start gap-3 p-3 rounded-lg border hover:bg-muted/50 transition-colors"
-              >
-                <span className="text-xs text-muted-foreground font-mono whitespace-nowrap">
-                  {log.timestamp}
-                </span>
-                <span
-                  className={`text-xs font-bold px-2 py-1 rounded ${getLevelColor(
-                    log.level
-                  )}`}
+              {filteredLogs.map((log, index) => (
+                <div
+                  key={`${log.timestamp}-${log.level}-${index}`}
+                  className="flex items-start gap-3 p-3 rounded-lg border hover:bg-muted/50 transition-colors"
                 >
-                  {log.level}
-                </span>
-                <span className="text-sm flex-1 font-mono break-all">
-                  {log.message}
-                </span>
-              </div>
-            ))}
+                  <span className="text-xs text-muted-foreground font-mono whitespace-nowrap">
+                    {log.timestamp}
+                  </span>
+                  <span
+                    className={`text-xs font-bold px-2 py-1 rounded ${getLevelColor(
+                      log.level
+                    )}`}
+                  >
+                    {log.level}
+                  </span>
+                  <span className="text-sm flex-1 font-mono break-all">
+                    {log.message}
+                  </span>
+                </div>
+              ))}
             </div>
           </CardContent>
         </Card>

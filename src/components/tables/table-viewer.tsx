@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from 'react';
 import {
   Table,
   TableBody,
@@ -6,11 +6,11 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table";
-import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
-import { sanitizeTableName } from "@/lib/database";
-import { useDatabase } from "@/hooks/useDatabase";
+} from '@/components/ui/table';
+import { Button } from '@/components/ui/button';
+import { ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
+import { sanitizeTableName } from '@/lib/database';
+import { useDatabase } from '@/hooks/useDatabase';
 
 type TableViewerProps = {
   tableName: string;
@@ -44,8 +44,6 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
     setLoading(true);
     setError(null);
     try {
-      console.log(`Loading table: ${tableName}`);
-
       // Sanitize and validate table name to prevent SQL injection
       const safeTableName = sanitizeTableName(tableName);
 
@@ -60,7 +58,6 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
       const schemaRows = await db.select<SchemaColumn[]>(
         `PRAGMA table_info(${safeTableName})`
       );
-      console.log("Schema rows:", schemaRows);
 
       // Check if table exists and has columns
       // Note: This is different from sanitizeTableName() validation above:
@@ -68,10 +65,12 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
       // - This check verifies the table actually exists in the database
       // A table could be in the whitelist but not yet created in the DB
       if (!schemaRows || schemaRows.length === 0) {
-        throw new Error(`Table "${safeTableName}" does not exist or has no columns`);
+        throw new Error(
+          `Table "${safeTableName}" does not exist or has no columns`
+        );
       }
 
-      const columnNames = schemaRows.map(row => row.name);
+      const columnNames = schemaRows.map((row) => row.name);
       setColumns(columnNames);
 
       // Get total count for pagination
@@ -80,11 +79,9 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
       );
       const total = countResult[0]?.count || 0;
       setTotalCount(total);
-      console.log(`Total rows in table: ${total}`);
 
       // Get table data with pagination
       const offset = page * pageSize;
-      console.log(`Fetching data: LIMIT ${pageSize} OFFSET ${offset}`);
 
       // Table name validated by sanitizeTableName() above (see security note)
       // LIMIT and OFFSET values are properly parameterized
@@ -92,11 +89,10 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
         `SELECT * FROM ${safeTableName} LIMIT ? OFFSET ?`,
         [pageSize, offset]
       );
-      console.log(`Fetched ${rows.length} rows`);
 
       setData(rows);
     } catch (err) {
-      console.error("Error loading table data:", err);
+      console.error('Error loading table data:', err);
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
@@ -109,13 +105,13 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
 
   const formatValue = (value: unknown): string => {
     if (value === null || value === undefined) {
-      return "-";
+      return '-';
     }
-    if (typeof value === "object") {
+    if (typeof value === 'object') {
       return JSON.stringify(value);
     }
-    if (typeof value === "boolean") {
-      return value ? "true" : "false";
+    if (typeof value === 'boolean') {
+      return value ? 'true' : 'false';
     }
     return String(value);
   };
@@ -134,7 +130,7 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
   };
 
   const totalPages = Math.ceil(totalCount / pageSize);
-  const hasNextPage = (page + 1) < totalPages;
+  const hasNextPage = page + 1 < totalPages;
 
   if (loading && data.length === 0) {
     return (
@@ -168,7 +164,9 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
           onClick={loadData}
           disabled={loading}
         >
-          <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+          <RefreshCw
+            className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`}
+          />
           更新
         </Button>
       </div>
@@ -215,7 +213,7 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
         <div className="text-sm text-muted-foreground">
           {totalCount > 0
             ? `${page * pageSize + 1}〜${page * pageSize + data.length}件を表示 / 全${totalCount}件`
-            : "0件"}
+            : '0件'}
         </div>
         <div className="flex items-center space-x-2">
           <Button
