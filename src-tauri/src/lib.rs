@@ -1,12 +1,12 @@
-use tauri::{Emitter, Listener, Manager};
-use tauri::menu::{Menu, MenuItem};
-use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
-use tauri_plugin_sql::{Migration, MigrationKind};
+use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqlitePool;
-use serde::{Serialize, Deserialize};
-use std::sync::Mutex;
 use std::collections::VecDeque;
 use std::io::Write;
+use std::sync::Mutex;
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
+use tauri::{Emitter, Listener, Manager};
+use tauri_plugin_sql::{Migration, MigrationKind};
 
 mod gmail;
 
@@ -30,7 +30,9 @@ async fn start_sync(
     let app_clone = app_handle;
 
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = gmail::sync_gmail_incremental(&app_clone, &pool_clone, &sync_state_clone, 50).await {
+        if let Err(e) =
+            gmail::sync_gmail_incremental(&app_clone, &pool_clone, &sync_state_clone, 50).await
+        {
             log::error!("Sync failed: {e}");
 
             // Emit error event
@@ -61,9 +63,7 @@ async fn start_sync(
 }
 
 #[tauri::command]
-async fn cancel_sync(
-    sync_state: tauri::State<'_, gmail::SyncState>,
-) -> Result<(), String> {
+async fn cancel_sync(sync_state: tauri::State<'_, gmail::SyncState>) -> Result<(), String> {
     log::info!("Cancelling sync...");
     sync_state.request_cancel();
     Ok(())
@@ -98,7 +98,7 @@ async fn reset_sync_status(pool: tauri::State<'_, SqlitePool>) -> Result<(), Str
     sqlx::query(
         "UPDATE sync_metadata
          SET sync_status = 'idle'
-         WHERE id = 1 AND sync_status = 'syncing'"
+         WHERE id = 1 AND sync_status = 'syncing'",
     )
     .execute(pool.inner())
     .await
@@ -114,13 +114,11 @@ async fn update_batch_size(
 ) -> Result<(), String> {
     log::info!("Updating batch size to: {batch_size}");
 
-    sqlx::query(
-        "UPDATE sync_metadata SET batch_size = ?1 WHERE id = 1"
-    )
-    .bind(batch_size)
-    .execute(pool.inner())
-    .await
-    .map_err(|e| format!("Failed to update batch size: {e}"))?;
+    sqlx::query("UPDATE sync_metadata SET batch_size = ?1 WHERE id = 1")
+        .bind(batch_size)
+        .execute(pool.inner())
+        .await
+        .map_err(|e| format!("Failed to update batch size: {e}"))?;
 
     Ok(())
 }
@@ -136,13 +134,11 @@ async fn update_max_iterations(
 
     log::info!("Updating max iterations to: {max_iterations}");
 
-    sqlx::query(
-        "UPDATE sync_metadata SET max_iterations = ?1 WHERE id = 1"
-    )
-    .bind(max_iterations)
-    .execute(pool.inner())
-    .await
-    .map_err(|e| format!("Failed to update max iterations: {e}"))?;
+    sqlx::query("UPDATE sync_metadata SET max_iterations = ?1 WHERE id = 1")
+        .bind(max_iterations)
+        .execute(pool.inner())
+        .await
+        .map_err(|e| format!("Failed to update max iterations: {e}"))?;
 
     Ok(())
 }
@@ -157,15 +153,12 @@ struct WindowSettings {
 }
 
 #[tauri::command]
-async fn get_window_settings(
-    pool: tauri::State<'_, SqlitePool>,
-) -> Result<WindowSettings, String> {
-    let row: (i64, i64, Option<i64>, Option<i64>, i64) = sqlx::query_as(
-        "SELECT width, height, x, y, maximized FROM window_settings WHERE id = 1"
-    )
-    .fetch_one(pool.inner())
-    .await
-    .map_err(|e| format!("Failed to fetch window settings: {e}"))?;
+async fn get_window_settings(pool: tauri::State<'_, SqlitePool>) -> Result<WindowSettings, String> {
+    let row: (i64, i64, Option<i64>, Option<i64>, i64) =
+        sqlx::query_as("SELECT width, height, x, y, maximized FROM window_settings WHERE id = 1")
+            .fetch_one(pool.inner())
+            .await
+            .map_err(|e| format!("Failed to fetch window settings: {e}"))?;
 
     Ok(WindowSettings {
         width: row.0,
@@ -190,10 +183,14 @@ async fn save_window_settings(
     const MAX_SIZE: i64 = 10000;
 
     if !(MIN_SIZE..=MAX_SIZE).contains(&width) {
-        return Err(format!("ウィンドウの幅は{MIN_SIZE}〜{MAX_SIZE}の範囲である必要があります"));
+        return Err(format!(
+            "ウィンドウの幅は{MIN_SIZE}〜{MAX_SIZE}の範囲である必要があります"
+        ));
     }
     if !(MIN_SIZE..=MAX_SIZE).contains(&height) {
-        return Err(format!("ウィンドウの高さは{MIN_SIZE}〜{MAX_SIZE}の範囲である必要があります"));
+        return Err(format!(
+            "ウィンドウの高さは{MIN_SIZE}〜{MAX_SIZE}の範囲である必要があります"
+        ));
     }
 
     sqlx::query(
@@ -332,7 +329,9 @@ pub fn add_log_entry(level: &str, message: &str) {
         Ok(mut buffer) => {
             if let Some(ref mut logs) = *buffer {
                 let entry = LogEntry {
-                    timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
+                    timestamp: chrono::Local::now()
+                        .format("%Y-%m-%d %H:%M:%S%.3f")
+                        .to_string(),
                     level: level.to_string(),
                     message: message.to_string(),
                 };
@@ -368,7 +367,9 @@ pub fn add_log_entry(level: &str, message: &str) {
 /// 例：limit=100, `level_filter="ERROR"の場合、ERRORログから最大100件を返します`。
 #[tauri::command]
 fn get_logs(level_filter: Option<String>, limit: Option<usize>) -> Result<Vec<LogEntry>, String> {
-    let buffer = LOG_BUFFER.lock().map_err(|e| format!("Failed to lock log buffer: {e}"))?;
+    let buffer = LOG_BUFFER
+        .lock()
+        .map_err(|e| format!("Failed to lock log buffer: {e}"))?;
 
     if let Some(ref logs) = *buffer {
         let mut filtered_logs: Vec<LogEntry> = logs
@@ -475,7 +476,7 @@ pub fn run() {
             description: "create window_settings table",
             sql: include_str!("../migrations/013_create_window_settings_table.sql"),
             kind: MigrationKind::Up,
-        }
+        },
     ];
 
     tauri::Builder::default()
@@ -520,7 +521,10 @@ pub fn run() {
                 })
                 .init();
 
-            let app_data_dir = app.path().app_data_dir().expect("failed to get app data dir");
+            let app_data_dir = app
+                .path()
+                .app_data_dir()
+                .expect("failed to get app data dir");
             std::fs::create_dir_all(&app_data_dir).expect("failed to create app data dir");
 
             let db_path = app_data_dir.join("paa_data.db");
@@ -532,7 +536,7 @@ pub fn run() {
             app.handle().plugin(
                 tauri_plugin_sql::Builder::default()
                     .add_migrations(&db_url, migrations)
-                    .build()
+                    .build(),
             )?;
 
             log::info!("tauri-plugin-sql registered with migrations");
@@ -563,7 +567,9 @@ pub fn run() {
             log::info!("Sync state initialized");
 
             // Restore window settings and setup close handler
-            let window = app.get_webview_window("main").expect("Failed to get main window");
+            let window = app
+                .get_webview_window("main")
+                .expect("Failed to get main window");
 
             // Handle window close request - hide instead of closing
             let window_clone = window.clone();
@@ -576,11 +582,12 @@ pub fn run() {
 
             let pool_for_window = pool;
             tauri::async_runtime::spawn(async move {
-                if let Ok(settings) = sqlx::query_as::<_, (i64, i64, Option<i64>, Option<i64>, i64)>(
-                    "SELECT width, height, x, y, maximized FROM window_settings WHERE id = 1"
-                )
-                .fetch_one(&pool_for_window)
-                .await
+                if let Ok(settings) =
+                    sqlx::query_as::<_, (i64, i64, Option<i64>, Option<i64>, i64)>(
+                        "SELECT width, height, x, y, maximized FROM window_settings WHERE id = 1",
+                    )
+                    .fetch_one(&pool_for_window)
+                    .await
                 {
                     let (width, height, x, y, maximized) = settings;
 
@@ -618,31 +625,32 @@ pub fn run() {
             if let Some(icon) = app.default_window_icon() {
                 tray_builder = tray_builder.icon(icon.clone());
             } else {
-                log::warn!("No default window icon found; initializing system tray without a custom icon.");
+                log::warn!(
+                    "No default window icon found; initializing system tray without a custom icon."
+                );
             }
 
             let _tray = tray_builder
                 .menu(&menu)
                 .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| {
-                    match event.id.as_ref() {
-                        "show" => {
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                            }
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
                         }
-                        "quit" => {
-                            app.exit(0);
-                        }
-                        _ => {}
                     }
+                    "quit" => {
+                        app.exit(0);
+                    }
+                    _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
                     if let TrayIconEvent::Click {
-                            button: MouseButton::Left,
-                            ..
-                        } = event {
+                        button: MouseButton::Left,
+                        ..
+                    } = event
+                    {
                         let app = tray.app_handle();
                         if let Some(window) = app.get_webview_window("main") {
                             let _ = window.show();
