@@ -12,6 +12,12 @@ interface EmailStats {
   avg_html_length: number;
 }
 
+// プログレスバーの最大値（文字数）
+// テキスト形式: 一般的なメールの平均的な長さを基準に5000文字
+// HTML形式: HTMLタグを含むため、テキストの約4倍の20000文字
+const PROGRESS_MAX_PLAIN = 5000;
+const PROGRESS_MAX_HTML = 20000;
+
 export function Dashboard() {
   const [stats, setStats] = useState<EmailStats | null>(null);
   const [loading, setLoading] = useState(false);
@@ -202,7 +208,7 @@ export function Dashboard() {
                     <div
                       className="h-full bg-blue-500 transition-all"
                       style={{
-                        width: `${Math.min(100, (stats.avg_plain_length / 5000) * 100)}%`
+                        width: `${Math.min(100, (stats.avg_plain_length / PROGRESS_MAX_PLAIN) * 100)}%`
                       }}
                     />
                   </div>
@@ -218,7 +224,7 @@ export function Dashboard() {
                     <div
                       className="h-full bg-green-500 transition-all"
                       style={{
-                        width: `${Math.min(100, (stats.avg_html_length / 20000) * 100)}%`
+                        width: `${Math.min(100, (stats.avg_html_length / PROGRESS_MAX_HTML) * 100)}%`
                       }}
                     />
                   </div>
