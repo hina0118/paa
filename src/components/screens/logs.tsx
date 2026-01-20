@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useLayoutEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -36,11 +36,6 @@ export function Logs() {
         limit: 500,
       });
       setLogs(result);
-
-      // 自動更新時は最下部にスクロール
-      if (autoRefresh) {
-        setTimeout(scrollToBottom, 100);
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       console.error('Failed to load logs:', err);
@@ -50,10 +45,10 @@ export function Logs() {
   };
 
   useEffect(() => {
+    // 初回またはフィルタ変更時にログを読み込む
     loadLogs(filterLevel || undefined);
-  }, [filterLevel]);
 
-  useEffect(() => {
+    // 自動更新が有効な場合はインターバルを設定
     if (autoRefresh) {
       const interval = setInterval(() => {
         loadLogs(filterLevel || undefined);
@@ -62,6 +57,13 @@ export function Logs() {
       return () => clearInterval(interval);
     }
   }, [autoRefresh, filterLevel]);
+
+  // 自動更新時にログが更新されたらスクロール
+  useLayoutEffect(() => {
+    if (autoRefresh && logs.length > 0) {
+      scrollToBottom();
+    }
+  }, [logs, autoRefresh]);
 
   const getLevelColor = (level: string) => {
     switch (level) {
@@ -101,10 +103,16 @@ export function Logs() {
             <Button
               variant={autoRefresh ? "default" : "outline"}
               onClick={() => setAutoRefresh(!autoRefresh)}
+              aria-label={autoRefresh ? '自動更新を停止' : '自動更新を開始'}
+              aria-pressed={autoRefresh}
             >
               {autoRefresh ? '自動更新中' : '自動更新'}
             </Button>
-            <Button onClick={() => loadLogs(filterLevel || undefined)} disabled={loading}>
+            <Button
+              onClick={() => loadLogs(filterLevel || undefined)}
+              disabled={loading}
+              aria-label="ログを手動で更新"
+            >
               {loading ? '読み込み中...' : '更新'}
             </Button>
           </div>
@@ -143,6 +151,8 @@ export function Logs() {
                 size="sm"
                 className="mt-2 w-full"
                 onClick={() => setFilterLevel(filterLevel === level ? null : level)}
+                aria-label={`${level}レベルのログ${filterLevel === level ? 'フィルタを解除' : 'でフィルタ'}`}
+                aria-pressed={filterLevel === level}
               >
                 {filterLevel === level ? 'フィルタ解除' : 'フィルタ'}
               </Button>
@@ -181,7 +191,14 @@ export function Logs() {
             </div>
           </CardHeader>
           <CardContent className="flex-1 overflow-hidden flex flex-col">
-            <div ref={scrollContainerRef} className="space-y-2 overflow-y-auto flex-1">
+            <div
+              ref={scrollContainerRef}
+              className="space-y-2 overflow-y-auto flex-1"
+              role="log"
+              aria-live={autoRefresh ? "polite" : "off"}
+              aria-atomic="false"
+              aria-label="アプリケーションログ一覧"
+            >
             {filteredLogs.length === 0 && !loading && (
               <p className="text-center text-muted-foreground py-10">
                 ログがありません
@@ -190,7 +207,7 @@ export function Logs() {
 
             {filteredLogs.map((log, index) => (
               <div
-                key={index}
+                key={`${log.timestamp}-${log.level}-${index}`}
                 className="flex items-start gap-3 p-3 rounded-lg border hover:bg-muted/50 transition-colors"
               >
                 <span className="text-xs text-muted-foreground font-mono whitespace-nowrap">
