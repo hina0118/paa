@@ -3,6 +3,9 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
 use tauri_plugin_sql::{Migration, MigrationKind};
 use sqlx::sqlite::SqlitePool;
+use serde::{Serialize, Deserialize};
+use std::sync::Mutex;
+use std::collections::VecDeque;
 
 mod gmail;
 
@@ -227,6 +230,170 @@ async fn fetch_gmail_emails(
     })
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EmailStats {
+    pub total_emails: i64,
+    pub with_body_plain: i64,
+    pub with_body_html: i64,
+    pub without_body: i64,
+    pub avg_plain_length: f64,
+    pub avg_html_length: f64,
+}
+
+/// メール統計情報を取得
+///
+/// CTEを使用してLENGTH計算を一度だけ実行し、パフォーマンスを最適化
+#[tauri::command]
+async fn get_email_stats(pool: tauri::State<'_, SqlitePool>) -> Result<EmailStats, String> {
+    let stats: (i64, i64, i64, i64, Option<f64>, Option<f64>) = sqlx::query_as(
+        r#"
+        WITH email_lengths AS (
+            SELECT
+                body_plain,
+                body_html,
+                CASE WHEN body_plain IS NOT NULL THEN LENGTH(body_plain) ELSE 0 END AS plain_length,
+                CASE WHEN body_html IS NOT NULL THEN LENGTH(body_html) ELSE 0 END AS html_length
+            FROM emails
+        )
+        SELECT
+            COUNT(*) AS total,
+            COUNT(CASE WHEN body_plain IS NOT NULL AND plain_length > 0 THEN 1 END) AS with_plain,
+            COUNT(CASE WHEN body_html IS NOT NULL AND html_length > 0 THEN 1 END) AS with_html,
+            COUNT(CASE WHEN (body_plain IS NULL OR plain_length = 0) AND (body_html IS NULL OR html_length = 0) THEN 1 END) AS without_body,
+            AVG(CASE WHEN body_plain IS NOT NULL AND plain_length > 0 THEN plain_length END) AS avg_plain,
+            AVG(CASE WHEN body_html IS NOT NULL AND html_length > 0 THEN html_length END) AS avg_html
+        FROM email_lengths
+        "#
+    )
+    .fetch_one(pool.inner())
+    .await
+    .map_err(|e| format!("Failed to fetch email stats: {}", e))?;
+
+    Ok(EmailStats {
+        total_emails: stats.0,
+        with_body_plain: stats.1,
+        with_body_html: stats.2,
+        without_body: stats.3,
+        avg_plain_length: stats.4.unwrap_or(0.0),
+        avg_html_length: stats.5.unwrap_or(0.0),
+    })
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogEntry {
+    pub timestamp: String,
+    pub level: String,
+    pub message: String,
+}
+
+// ログバッファ用グローバルMutex
+//
+// 注意: グローバルMutexの使用はロック競合のリスクがあります。
+// 現在の実装では適切なエラーハンドリングにより安全性を確保していますが、
+// 将来的にはTauriのステート管理機能への移行を検討してください。
+//
+// パフォーマンスに関する考慮事項:
+// - ログ記録の度にMutexロックを取得しますが、ロック保持時間は短く抑えられています
+// - MAX_LOG_ENTRIESを超えた古いログは自動的に削除され、メモリ使用量を制限しています
+// - 通常のアプリケーション使用では十分なパフォーマンスを提供します
+static LOG_BUFFER: Mutex<Option<VecDeque<LogEntry>>> = Mutex::new(None);
+const MAX_LOG_ENTRIES: usize = 1000;
+
+/// ログバッファを初期化
+///
+/// アプリケーション起動時に一度だけ呼び出してください。
+/// 複数回呼び出しても安全ですが、既存のログは破棄されます。
+pub fn init_log_buffer() {
+    match LOG_BUFFER.lock() {
+        Ok(mut buffer) => {
+            *buffer = Some(VecDeque::with_capacity(MAX_LOG_ENTRIES));
+        }
+        Err(e) => {
+            eprintln!("Failed to initialize log buffer: {}", e);
+            // ログバッファの初期化に失敗してもアプリケーションは継続
+            // ログ機能は利用できないが、クラッシュは回避
+        }
+    }
+}
+
+/// ログエントリを追加
+///
+/// # パラメータ
+/// - `level`: ログレベル（例: "INFO", "ERROR", "DEBUG"）
+/// - `message`: ログメッセージ
+///
+/// # パフォーマンス
+/// この関数はログ記録の度にMutexロックを取得しますが、
+/// ロック保持時間は最小限（数マイクロ秒）に抑えられています。
+/// 通常のログ記録頻度では問題になりません。
+pub fn add_log_entry(level: &str, message: &str) {
+    match LOG_BUFFER.lock() {
+        Ok(mut buffer) => {
+            if let Some(ref mut logs) = *buffer {
+                let entry = LogEntry {
+                    timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
+                    level: level.to_string(),
+                    message: message.to_string(),
+                };
+
+                logs.push_back(entry);
+
+                if logs.len() > MAX_LOG_ENTRIES {
+                    logs.pop_front();
+                }
+            }
+            // ログバッファが未初期化の場合は静かに無視
+            // アプリケーション起動時の初期化前に呼ばれる可能性がある
+        }
+        Err(e) => {
+            // ロック取得失敗時は標準エラー出力に出力
+            // ログシステム自体が問題を抱えているため、通常のログ機能は使えない
+            eprintln!("Failed to lock log buffer for adding entry: {}", e);
+        }
+    }
+}
+
+/// ログエントリを取得
+///
+/// # パラメータ
+/// - `level_filter`: ログレベルでフィルタリング（例: "ERROR", "INFO"）。Noneの場合は全てのレベルを返す
+/// - `limit`: 返却する最大件数。フィルタリング後のログに対して適用される
+///
+/// # 戻り値
+/// 新しい順（最新が先頭）でログエントリのリストを返す
+///
+/// # 注意
+/// limitパラメータはフィルタリング後のログに適用されます。
+/// 例：limit=100, level_filter="ERROR"の場合、ERRORログから最大100件を返します。
+#[tauri::command]
+fn get_logs(level_filter: Option<String>, limit: Option<usize>) -> Result<Vec<LogEntry>, String> {
+    let buffer = LOG_BUFFER.lock().map_err(|e| format!("Failed to lock log buffer: {}", e))?;
+
+    if let Some(ref logs) = *buffer {
+        let mut filtered_logs: Vec<LogEntry> = logs
+            .iter()
+            .filter(|entry| {
+                if let Some(ref filter) = level_filter {
+                    &entry.level == filter
+                } else {
+                    true
+                }
+            })
+            .cloned()
+            .collect();
+
+        filtered_logs.reverse();
+
+        if let Some(limit) = limit {
+            filtered_logs.truncate(limit);
+        }
+
+        Ok(filtered_logs)
+    } else {
+        Ok(Vec::new())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let migrations = vec![
@@ -323,9 +490,35 @@ pub fn run() {
             }
         }))
         .setup(move |app| {
-            // ロガーの初期化
+            // ログバッファの初期化
+            init_log_buffer();
+
+            // マルチロガーの初期化（コンソールとメモリの両方に出力）
+            use std::io::Write;
+
+            // リリースビルドではWarnレベル以上、デバッグビルドではInfoレベル以上のログを出力
+            // これにより、本番環境で機密情報を含む可能性のあるデバッグログを防ぐ
+            #[cfg(debug_assertions)]
+            let default_level = log::LevelFilter::Info;
+            #[cfg(not(debug_assertions))]
+            let default_level = log::LevelFilter::Warn;
+
             env_logger::Builder::from_default_env()
-                .filter_level(log::LevelFilter::Info)
+                .filter_level(default_level)
+                .format(|buf, record| {
+                    // メモリにログを保存
+                    add_log_entry(&record.level().to_string(), &format!("{}", record.args()));
+
+                    // コンソールにも出力
+                    writeln!(
+                        buf,
+                        "[{} {:5} {}] {}",
+                        chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+                        record.level(),
+                        record.target(),
+                        record.args()
+                    )
+                })
                 .init();
 
             let app_data_dir = app.path().app_data_dir().expect("failed to get app data dir");
@@ -487,7 +680,9 @@ pub fn run() {
             update_max_iterations,
             reset_sync_status,
             get_window_settings,
-            save_window_settings
+            save_window_settings,
+            get_email_stats,
+            get_logs
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -513,5 +708,88 @@ mod tests {
     fn test_greet_special_characters() {
         let result = greet("世界");
         assert_eq!(result, "Hello, 世界! You've been greeted from Rust!");
+    }
+
+    #[test]
+    fn test_log_buffer_initialization() {
+        // ログバッファの初期化が成功することを確認
+        init_log_buffer();
+
+        // 初期化後にログエントリを追加できることを確認
+        add_log_entry("INFO", "Test message");
+
+        // ログを取得できることを確認
+        let logs = get_logs(None, None);
+        assert!(logs.is_ok());
+    }
+
+    #[test]
+    fn test_log_buffer_multiple_initialization() {
+        // 複数回初期化してもクラッシュしないことを確認
+        init_log_buffer();
+        init_log_buffer();
+        init_log_buffer();
+
+        add_log_entry("INFO", "Test after multiple init");
+        let logs = get_logs(None, None);
+        assert!(logs.is_ok());
+    }
+
+    #[test]
+    fn test_add_log_entry_safe() {
+        // ログバッファが初期化されていない状態でも
+        // add_log_entryがクラッシュしないことを確認
+        // （このテストの前に他のテストで初期化済みの可能性があるが、
+        // エラーハンドリングが機能することを確認）
+        add_log_entry("DEBUG", "Safe logging test");
+        add_log_entry("INFO", "Another safe log");
+        add_log_entry("ERROR", "Error log test");
+
+        // クラッシュせずにここに到達すればOK
+        assert!(true);
+    }
+
+    #[test]
+    fn test_log_buffer_max_entries() {
+        init_log_buffer();
+
+        // MAX_LOG_ENTRIES + 100 個のログを追加
+        for i in 0..(MAX_LOG_ENTRIES + 100) {
+            add_log_entry("INFO", &format!("Log entry {}", i));
+        }
+
+        // ログを取得
+        let logs = get_logs(None, None).unwrap();
+
+        // MAX_LOG_ENTRIESを超えないことを確認
+        assert!(logs.len() <= MAX_LOG_ENTRIES);
+    }
+
+    #[test]
+    fn test_get_logs_with_filter() {
+        init_log_buffer();
+
+        // 異なるレベルのログを追加
+        add_log_entry("INFO", "Info message");
+        add_log_entry("ERROR", "Error message");
+        add_log_entry("DEBUG", "Debug message");
+
+        // ERRORレベルのみを取得
+        let error_logs = get_logs(Some("ERROR".to_string()), None).unwrap();
+        assert!(error_logs.iter().all(|log| log.level == "ERROR"));
+    }
+
+    #[test]
+    fn test_get_logs_with_limit() {
+        init_log_buffer();
+
+        // 10個のログを追加
+        for i in 0..10 {
+            add_log_entry("INFO", &format!("Message {}", i));
+        }
+
+        // 最大5個だけ取得
+        let logs = get_logs(None, Some(5)).unwrap();
+        assert_eq!(logs.len(), 5);
     }
 }
