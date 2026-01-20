@@ -1,3 +1,13 @@
+//! Gmail API連携モジュール
+//!
+//! # セキュリティガイドライン
+//! このモジュールはユーザーのメールデータを扱うため、以下のセキュリティルールを厳守してください：
+//!
+//! - **機密情報のログ出力禁止**: メール本文、件名、送信者/受信者情報などをログに出力しないこと
+//! - **デバッグログの制限**: base64データの内容、メールペイロードの詳細を出力しないこと
+//! - **メトリクスのみ**: ログに出力できるのは文字数、件数、処理時間などの統計情報のみ
+//! - **本番環境**: リリースビルドではWarnレベル以上のログのみが出力されます
+
 use google_gmail1::{hyper_rustls, Gmail};
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::client::legacy::Client;
@@ -381,24 +391,55 @@ impl GmailClient {
         })
     }
 
-    fn decode_base64(data: &str) -> String {
+    /// Base64URL形式の文字列かどうかを検証する
+    ///
+    /// Base64URLで使用される文字セット（A-Z, a-z, 0-9, -, _）のみで構成されているかチェック
+    /// 長さが4の倍数に近い場合はBase64の可能性が高い
+    fn is_base64_format(data: &str) -> bool {
+        if data.is_empty() {
+            return false;
+        }
+
+        // Base64URL文字セット: A-Z, a-z, 0-9, -, _
+        // パディングなしの形式なので = はチェックしない
+        let is_base64_chars = data.chars().all(|c| {
+            c.is_ascii_alphanumeric() || c == '-' || c == '_'
+        });
+
+        if !is_base64_chars {
+            return false;
+        }
+
+        // Base64は通常4の倍数の長さだが、パディングなしの場合は異なる可能性がある
+        // 少なくとも妥当な長さ（8文字以上）であることを確認
+        // 短すぎる文字列は通常のテキストの可能性が高い
+        data.len() >= 8
+    }
+
+    /// Base64URLデコードを試みる
+    ///
+    /// データがBase64形式でない場合はNoneを返す
+    /// デコードに成功した場合はSome(decoded_string)を返す
+    fn try_decode_base64(data: &str) -> Option<String> {
         use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 
-        // Gmail APIはbase64url形式（パディングなし）でエンコードされた文字列を返す
-        log::debug!("Attempting to decode base64, input length: {}, first 50 chars: {:?}",
-            data.len(),
-            &data.chars().take(50).collect::<String>()
-        );
+        // Base64形式でない場合は早期リターン
+        if !Self::is_base64_format(data) {
+            log::debug!("Data is not in Base64 format, skipping decode");
+            return None;
+        }
+
+        log::debug!("Attempting to decode base64, input length: {}", data.len());
 
         match URL_SAFE_NO_PAD.decode(data) {
             Ok(bytes) => {
                 let result = String::from_utf8_lossy(&bytes).to_string();
                 log::debug!("Successfully decoded {} bytes -> {} chars", bytes.len(), result.len());
-                result
+                Some(result)
             }
             Err(e) => {
-                log::warn!("Failed to decode base64 data: {:?}, input length: {}, returning empty string", e, data.len());
-                String::new()
+                log::warn!("Base64 decode failed despite format check: {:?}, input length: {}", e, data.len());
+                None
             }
         }
     }
@@ -421,15 +462,19 @@ impl GmailClient {
                     // まずUTF-8として解釈を試みる
                     if let Ok(data_str) = std::str::from_utf8(data) {
                         log::debug!("  Data as UTF-8 string length: {} chars", data_str.len());
-                        // base64デコードを試みる
-                        let decoded = Self::decode_base64(data_str);
-                        let content = if decoded.is_empty() && !data_str.is_empty() {
-                            // base64デコード失敗、元のデータをそのまま使用
-                            log::debug!("  Base64 decode failed, using raw data");
-                            data_str.to_string()
-                        } else {
-                            log::debug!("  Successfully decoded from base64: {} chars", decoded.len());
-                            decoded
+
+                        // Base64形式かどうかを検証してからデコードを試みる
+                        let content = match Self::try_decode_base64(data_str) {
+                            Some(decoded) => {
+                                log::debug!("  Successfully decoded from base64: {} chars", decoded.len());
+                                decoded
+                            }
+                            None => {
+                                // Base64形式でない、またはデコード失敗
+                                // 元のデータをそのまま使用（Gmail APIが既にデコード済みの可能性）
+                                log::debug!("  Using raw data as-is: {} chars", data_str.len());
+                                data_str.to_string()
+                            }
                         };
 
                         log::debug!("  Final content length: {} chars", content.len());
@@ -1246,6 +1291,7 @@ mod tests {
             batch_size: 50,
             last_sync_started_at: Some("2024-01-15T10:00:00Z".to_string()),
             last_sync_completed_at: Some("2024-01-15T10:30:00Z".to_string()),
+            max_iterations: 100,
         };
 
         assert_eq!(metadata.sync_status, "idle");
@@ -1683,6 +1729,7 @@ mod tests {
             batch_size: 50,
             last_sync_started_at: None,
             last_sync_completed_at: None,
+            max_iterations: 100,
         };
 
         assert_eq!(metadata.sync_status, "idle");
@@ -1867,36 +1914,37 @@ mod tests {
         assert!(ts.contains("1970"));
     }
 
-    // decode_base64のテスト
+    // try_decode_base64のテスト（改良版）
     #[test]
-    fn test_decode_base64_valid() {
+    fn test_try_decode_base64_valid() {
         // "Hello, World!" をbase64url (パディングなし)でエンコード: SGVsbG8sIFdvcmxkIQ
         let encoded = "SGVsbG8sIFdvcmxkIQ";
-        let decoded = GmailClient::decode_base64(encoded);
-        assert_eq!(decoded, "Hello, World!");
+        let decoded = GmailClient::try_decode_base64(encoded);
+        assert_eq!(decoded, Some("Hello, World!".to_string()));
     }
 
     #[test]
-    fn test_decode_base64_empty() {
-        let decoded = GmailClient::decode_base64("");
-        assert_eq!(decoded, "");
+    fn test_try_decode_base64_empty() {
+        // 空文字列はBase64形式ではない
+        let decoded = GmailClient::try_decode_base64("");
+        assert_eq!(decoded, None);
     }
 
     #[test]
-    fn test_decode_base64_invalid() {
-        // 無効なbase64文字列
-        let decoded = GmailClient::decode_base64("!!invalid!!");
-        assert_eq!(decoded, ""); // エラー時は空文字列を返す
+    fn test_try_decode_base64_invalid() {
+        // 無効なbase64文字列（Base64文字セット以外を含む）
+        let decoded = GmailClient::try_decode_base64("!!invalid!!");
+        assert_eq!(decoded, None); // Base64形式でないのでNone
     }
 
     #[test]
-    fn test_decode_base64_japanese() {
+    fn test_try_decode_base64_japanese() {
         // "こんにちは" をbase64url (パディングなし)でエンコード
         use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
         let original = "こんにちは";
         let encoded = URL_SAFE_NO_PAD.encode(original.as_bytes());
-        let decoded = GmailClient::decode_base64(&encoded);
-        assert_eq!(decoded, original);
+        let decoded = GmailClient::try_decode_base64(&encoded);
+        assert_eq!(decoded, Some(original.to_string()));
     }
 
     // extract_body_from_partのテスト
@@ -2213,6 +2261,7 @@ mod tests {
             batch_size: 50,
             last_sync_started_at: Some("2024-01-15T10:00:00Z".to_string()),
             last_sync_completed_at: Some("2024-01-15T11:00:00Z".to_string()),
+            max_iterations: 100,
         };
 
         let json = serde_json::to_string(&metadata).unwrap();
@@ -2404,5 +2453,73 @@ mod tests {
         }
 
         assert!(!has_more);
+    }
+
+    #[test]
+    fn test_is_base64_format() {
+        // 有効なBase64URL形式
+        assert!(GmailClient::is_base64_format("SGVsbG8gV29ybGQ")); // "Hello World"
+        assert!(GmailClient::is_base64_format("VGhpcyBpcyBhIHRlc3Q")); // "This is a test"
+        assert!(GmailClient::is_base64_format("QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVphYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5ejAxMjM0NTY3ODk"));
+
+        // Base64URLの特殊文字を含む
+        assert!(GmailClient::is_base64_format("YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXotXw"));
+
+        // 無効なケース: 空文字列
+        assert!(!GmailClient::is_base64_format(""));
+
+        // 無効なケース: 短すぎる（8文字未満）
+        assert!(!GmailClient::is_base64_format("short"));
+        assert!(!GmailClient::is_base64_format("test"));
+
+        // 無効なケース: Base64以外の文字を含む
+        assert!(!GmailClient::is_base64_format("Hello World!")); // スペースと!
+        assert!(!GmailClient::is_base64_format("こんにちは")); // 非ASCII
+        assert!(!GmailClient::is_base64_format("test@example.com")); // @と.
+        assert!(!GmailClient::is_base64_format("path/to/file")); // /
+
+        // 無効なケース: 通常のテキスト（長さは十分だがBase64文字セット以外を含む）
+        assert!(!GmailClient::is_base64_format("This is plain text content"));
+    }
+
+    #[test]
+    fn test_try_decode_base64() {
+        // 有効なBase64URLのデコード
+        let decoded = GmailClient::try_decode_base64("SGVsbG8gV29ybGQ");
+        assert_eq!(decoded, Some("Hello World".to_string()));
+
+        let decoded = GmailClient::try_decode_base64("VGhpcyBpcyBhIHRlc3Q");
+        assert_eq!(decoded, Some("This is a test".to_string()));
+
+        // Base64形式でないデータ
+        assert_eq!(GmailClient::try_decode_base64("Hello World"), None);
+        assert_eq!(GmailClient::try_decode_base64("short"), None);
+        assert_eq!(GmailClient::try_decode_base64(""), None);
+        assert_eq!(GmailClient::try_decode_base64("test@example.com"), None);
+
+        // 通常のテキスト
+        assert_eq!(GmailClient::try_decode_base64("This is plain text"), None);
+    }
+
+    #[test]
+    fn test_base64_vs_plain_text_distinction() {
+        // この テストはBase64データと通常のテキストを正しく区別できることを確認
+
+        // 実際のBase64エンコードされたメール本文の例
+        let base64_email = "VGhpcyBpcyBhbiBlbWFpbCBib2R5IHdpdGggc29tZSBjb250ZW50";
+        assert!(GmailClient::is_base64_format(base64_email));
+        let decoded = GmailClient::try_decode_base64(base64_email);
+        assert!(decoded.is_some());
+
+        // 既にデコード済みのプレーンテキスト
+        let plain_text = "This is an email body with some content";
+        assert!(!GmailClient::is_base64_format(plain_text));
+        let result = GmailClient::try_decode_base64(plain_text);
+        assert_eq!(result, None);
+
+        // HTMLメール（既にデコード済み）
+        let html_content = "<html><body>Hello World</body></html>";
+        assert!(!GmailClient::is_base64_format(html_content));
+        assert_eq!(GmailClient::try_decode_base64(html_content), None);
     }
 }

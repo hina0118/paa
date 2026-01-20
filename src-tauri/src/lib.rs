@@ -290,24 +290,41 @@ static LOG_BUFFER: Mutex<Option<VecDeque<LogEntry>>> = Mutex::new(None);
 const MAX_LOG_ENTRIES: usize = 1000;
 
 pub fn init_log_buffer() {
-    let mut buffer = LOG_BUFFER.lock().unwrap();
-    *buffer = Some(VecDeque::with_capacity(MAX_LOG_ENTRIES));
+    match LOG_BUFFER.lock() {
+        Ok(mut buffer) => {
+            *buffer = Some(VecDeque::with_capacity(MAX_LOG_ENTRIES));
+        }
+        Err(e) => {
+            eprintln!("Failed to initialize log buffer: {}", e);
+            // ログバッファの初期化に失敗してもアプリケーションは継続
+            // ログ機能は利用できないが、クラッシュは回避
+        }
+    }
 }
 
 pub fn add_log_entry(level: &str, message: &str) {
-    if let Ok(mut buffer) = LOG_BUFFER.lock() {
-        if let Some(ref mut logs) = *buffer {
-            let entry = LogEntry {
-                timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
-                level: level.to_string(),
-                message: message.to_string(),
-            };
+    match LOG_BUFFER.lock() {
+        Ok(mut buffer) => {
+            if let Some(ref mut logs) = *buffer {
+                let entry = LogEntry {
+                    timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
+                    level: level.to_string(),
+                    message: message.to_string(),
+                };
 
-            logs.push_back(entry);
+                logs.push_back(entry);
 
-            if logs.len() > MAX_LOG_ENTRIES {
-                logs.pop_front();
+                if logs.len() > MAX_LOG_ENTRIES {
+                    logs.pop_front();
+                }
             }
+            // ログバッファが未初期化の場合は静かに無視
+            // アプリケーション起動時の初期化前に呼ばれる可能性がある
+        }
+        Err(e) => {
+            // ロック取得失敗時は標準エラー出力に出力
+            // ログシステム自体が問題を抱えているため、通常のログ機能は使えない
+            eprintln!("Failed to lock log buffer for adding entry: {}", e);
         }
     }
 }
@@ -443,8 +460,15 @@ pub fn run() {
             // マルチロガーの初期化（コンソールとメモリの両方に出力）
             use std::io::Write;
 
+            // リリースビルドではWarnレベル以上、デバッグビルドではInfoレベル以上のログを出力
+            // これにより、本番環境で機密情報を含む可能性のあるデバッグログを防ぐ
+            #[cfg(debug_assertions)]
+            let default_level = log::LevelFilter::Info;
+            #[cfg(not(debug_assertions))]
+            let default_level = log::LevelFilter::Warn;
+
             env_logger::Builder::from_default_env()
-                .filter_level(log::LevelFilter::Info)
+                .filter_level(default_level)
                 .format(|buf, record| {
                     // メモリにログを保存
                     add_log_entry(&record.level().to_string(), &format!("{}", record.args()));
@@ -648,5 +672,88 @@ mod tests {
     fn test_greet_special_characters() {
         let result = greet("世界");
         assert_eq!(result, "Hello, 世界! You've been greeted from Rust!");
+    }
+
+    #[test]
+    fn test_log_buffer_initialization() {
+        // ログバッファの初期化が成功することを確認
+        init_log_buffer();
+
+        // 初期化後にログエントリを追加できることを確認
+        add_log_entry("INFO", "Test message");
+
+        // ログを取得できることを確認
+        let logs = get_logs(None, None);
+        assert!(logs.is_ok());
+    }
+
+    #[test]
+    fn test_log_buffer_multiple_initialization() {
+        // 複数回初期化してもクラッシュしないことを確認
+        init_log_buffer();
+        init_log_buffer();
+        init_log_buffer();
+
+        add_log_entry("INFO", "Test after multiple init");
+        let logs = get_logs(None, None);
+        assert!(logs.is_ok());
+    }
+
+    #[test]
+    fn test_add_log_entry_safe() {
+        // ログバッファが初期化されていない状態でも
+        // add_log_entryがクラッシュしないことを確認
+        // （このテストの前に他のテストで初期化済みの可能性があるが、
+        // エラーハンドリングが機能することを確認）
+        add_log_entry("DEBUG", "Safe logging test");
+        add_log_entry("INFO", "Another safe log");
+        add_log_entry("ERROR", "Error log test");
+
+        // クラッシュせずにここに到達すればOK
+        assert!(true);
+    }
+
+    #[test]
+    fn test_log_buffer_max_entries() {
+        init_log_buffer();
+
+        // MAX_LOG_ENTRIES + 100 個のログを追加
+        for i in 0..(MAX_LOG_ENTRIES + 100) {
+            add_log_entry("INFO", &format!("Log entry {}", i));
+        }
+
+        // ログを取得
+        let logs = get_logs(None, None).unwrap();
+
+        // MAX_LOG_ENTRIESを超えないことを確認
+        assert!(logs.len() <= MAX_LOG_ENTRIES);
+    }
+
+    #[test]
+    fn test_get_logs_with_filter() {
+        init_log_buffer();
+
+        // 異なるレベルのログを追加
+        add_log_entry("INFO", "Info message");
+        add_log_entry("ERROR", "Error message");
+        add_log_entry("DEBUG", "Debug message");
+
+        // ERRORレベルのみを取得
+        let error_logs = get_logs(Some("ERROR".to_string()), None).unwrap();
+        assert!(error_logs.iter().all(|log| log.level == "ERROR"));
+    }
+
+    #[test]
+    fn test_get_logs_with_limit() {
+        init_log_buffer();
+
+        // 10個のログを追加
+        for i in 0..10 {
+            add_log_entry("INFO", &format!("Message {}", i));
+        }
+
+        // 最大5個だけ取得
+        let logs = get_logs(None, Some(5)).unwrap();
+        assert_eq!(logs.len(), 5);
     }
 }
