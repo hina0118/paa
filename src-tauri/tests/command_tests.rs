@@ -119,19 +119,18 @@ mod command_tests {
         sqlx::query(
             "UPDATE sync_metadata
              SET sync_status = 'idle'
-             WHERE id = 1 AND sync_status = 'syncing'"
+             WHERE id = 1 AND sync_status = 'syncing'",
         )
         .execute(&pool)
         .await
         .unwrap();
 
         // 検証
-        let status: (String,) = sqlx::query_as(
-            "SELECT sync_status FROM sync_metadata WHERE id = 1"
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let status: (String,) =
+            sqlx::query_as("SELECT sync_status FROM sync_metadata WHERE id = 1")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
 
         assert_eq!(status.0, "idle");
     }
@@ -141,19 +140,18 @@ mod command_tests {
         let pool = create_test_pool().await;
 
         // sync_statusは既に'idle'
-        let status_before: (String,) = sqlx::query_as(
-            "SELECT sync_status FROM sync_metadata WHERE id = 1"
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let status_before: (String,) =
+            sqlx::query_as("SELECT sync_status FROM sync_metadata WHERE id = 1")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert_eq!(status_before.0, "idle");
 
         // reset_sync_statusの処理を実行（条件に合わないので更新されない）
         let result = sqlx::query(
             "UPDATE sync_metadata
              SET sync_status = 'idle'
-             WHERE id = 1 AND sync_status = 'syncing'"
+             WHERE id = 1 AND sync_status = 'syncing'",
         )
         .execute(&pool)
         .await
@@ -163,12 +161,11 @@ mod command_tests {
         assert_eq!(result.rows_affected(), 0);
 
         // statusは変わらず'idle'
-        let status_after: (String,) = sqlx::query_as(
-            "SELECT sync_status FROM sync_metadata WHERE id = 1"
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let status_after: (String,) =
+            sqlx::query_as("SELECT sync_status FROM sync_metadata WHERE id = 1")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert_eq!(status_after.0, "idle");
     }
 
@@ -185,12 +182,11 @@ mod command_tests {
             .unwrap();
 
         // 検証
-        let batch_size: (i64,) = sqlx::query_as(
-            "SELECT batch_size FROM sync_metadata WHERE id = 1"
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let batch_size: (i64,) =
+            sqlx::query_as("SELECT batch_size FROM sync_metadata WHERE id = 1")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
 
         assert_eq!(batch_size.0, 100);
     }
@@ -208,12 +204,11 @@ mod command_tests {
             .unwrap();
 
         // 検証
-        let batch_size: (i64,) = sqlx::query_as(
-            "SELECT batch_size FROM sync_metadata WHERE id = 1"
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let batch_size: (i64,) =
+            sqlx::query_as("SELECT batch_size FROM sync_metadata WHERE id = 1")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
 
         assert_eq!(batch_size.0, 0);
     }
@@ -231,12 +226,11 @@ mod command_tests {
             .unwrap();
 
         // 検証
-        let batch_size: (i64,) = sqlx::query_as(
-            "SELECT batch_size FROM sync_metadata WHERE id = 1"
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let batch_size: (i64,) =
+            sqlx::query_as("SELECT batch_size FROM sync_metadata WHERE id = 1")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
 
         assert_eq!(batch_size.0, 1000);
     }
@@ -272,10 +266,11 @@ mod command_tests {
             .await
             .unwrap();
 
-        let status: (String,) = sqlx::query_as("SELECT sync_status FROM sync_metadata WHERE id = 1")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+        let status: (String,) =
+            sqlx::query_as("SELECT sync_status FROM sync_metadata WHERE id = 1")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert_eq!(status.0, "syncing");
 
         // syncing -> complete
@@ -284,10 +279,11 @@ mod command_tests {
             .await
             .unwrap();
 
-        let status: (String,) = sqlx::query_as("SELECT sync_status FROM sync_metadata WHERE id = 1")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+        let status: (String,) =
+            sqlx::query_as("SELECT sync_status FROM sync_metadata WHERE id = 1")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert_eq!(status.0, "complete");
 
         // complete -> idle (reset)
@@ -296,10 +292,11 @@ mod command_tests {
             .await
             .unwrap();
 
-        let status: (String,) = sqlx::query_as("SELECT sync_status FROM sync_metadata WHERE id = 1")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+        let status: (String,) =
+            sqlx::query_as("SELECT sync_status FROM sync_metadata WHERE id = 1")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert_eq!(status.0, "idle");
     }
 
@@ -310,7 +307,7 @@ mod command_tests {
         // エラー状態を設定
         let error_message = "Test error: API rate limit exceeded";
         sqlx::query(
-            "UPDATE sync_metadata SET sync_status = 'error', last_error_message = ?1 WHERE id = 1"
+            "UPDATE sync_metadata SET sync_status = 'error', last_error_message = ?1 WHERE id = 1",
         )
         .bind(error_message)
         .execute(&pool)
@@ -319,7 +316,7 @@ mod command_tests {
 
         // 検証
         let result: (String, Option<String>) = sqlx::query_as(
-            "SELECT sync_status, last_error_message FROM sync_metadata WHERE id = 1"
+            "SELECT sync_status, last_error_message FROM sync_metadata WHERE id = 1",
         )
         .fetch_one(&pool)
         .await
@@ -369,12 +366,11 @@ mod command_tests {
             .await
             .unwrap();
 
-        let result: (Option<String>,) = sqlx::query_as(
-            "SELECT oldest_fetched_date FROM sync_metadata WHERE id = 1"
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let result: (Option<String>,) =
+            sqlx::query_as("SELECT oldest_fetched_date FROM sync_metadata WHERE id = 1")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
 
         assert_eq!(result.0, Some(date.to_string()));
     }
@@ -384,40 +380,41 @@ mod command_tests {
         let pool = create_test_pool().await;
 
         // 初期値は0
-        let initial: (i64,) = sqlx::query_as(
-            "SELECT total_synced_count FROM sync_metadata WHERE id = 1"
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let initial: (i64,) =
+            sqlx::query_as("SELECT total_synced_count FROM sync_metadata WHERE id = 1")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert_eq!(initial.0, 0);
 
         // インクリメント
-        sqlx::query("UPDATE sync_metadata SET total_synced_count = total_synced_count + 50 WHERE id = 1")
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        let after_first: (i64,) = sqlx::query_as(
-            "SELECT total_synced_count FROM sync_metadata WHERE id = 1"
+        sqlx::query(
+            "UPDATE sync_metadata SET total_synced_count = total_synced_count + 50 WHERE id = 1",
         )
-        .fetch_one(&pool)
+        .execute(&pool)
         .await
         .unwrap();
+
+        let after_first: (i64,) =
+            sqlx::query_as("SELECT total_synced_count FROM sync_metadata WHERE id = 1")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert_eq!(after_first.0, 50);
 
         // さらにインクリメント
-        sqlx::query("UPDATE sync_metadata SET total_synced_count = total_synced_count + 100 WHERE id = 1")
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        let after_second: (i64,) = sqlx::query_as(
-            "SELECT total_synced_count FROM sync_metadata WHERE id = 1"
+        sqlx::query(
+            "UPDATE sync_metadata SET total_synced_count = total_synced_count + 100 WHERE id = 1",
         )
-        .fetch_one(&pool)
+        .execute(&pool)
         .await
         .unwrap();
+
+        let after_second: (i64,) =
+            sqlx::query_as("SELECT total_synced_count FROM sync_metadata WHERE id = 1")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert_eq!(after_second.0, 150);
     }
 
@@ -431,7 +428,7 @@ mod command_tests {
         sqlx::query(
             "UPDATE sync_metadata
              SET last_sync_started_at = ?1, last_sync_completed_at = ?2
-             WHERE id = 1"
+             WHERE id = 1",
         )
         .bind(started_at)
         .bind(completed_at)
@@ -440,7 +437,7 @@ mod command_tests {
         .unwrap();
 
         let result: (Option<String>, Option<String>) = sqlx::query_as(
-            "SELECT last_sync_started_at, last_sync_completed_at FROM sync_metadata WHERE id = 1"
+            "SELECT last_sync_started_at, last_sync_completed_at FROM sync_metadata WHERE id = 1",
         )
         .fetch_one(&pool)
         .await
@@ -467,10 +464,11 @@ mod command_tests {
         .await
         .unwrap();
 
-        let status: (String,) = sqlx::query_as("SELECT sync_status FROM sync_metadata WHERE id = 1")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+        let status: (String,) =
+            sqlx::query_as("SELECT sync_status FROM sync_metadata WHERE id = 1")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert_eq!(status.0, "idle");
 
         // 2回目: syncing -> idle
@@ -486,10 +484,11 @@ mod command_tests {
         .await
         .unwrap();
 
-        let status: (String,) = sqlx::query_as("SELECT sync_status FROM sync_metadata WHERE id = 1")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+        let status: (String,) =
+            sqlx::query_as("SELECT sync_status FROM sync_metadata WHERE id = 1")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert_eq!(status.0, "idle");
     }
 }
