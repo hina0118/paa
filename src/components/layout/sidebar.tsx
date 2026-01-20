@@ -1,36 +1,51 @@
-import { LayoutDashboard, ShoppingCart, RefreshCw, Settings, Database, ScrollText } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { useNavigation } from "@/contexts/navigation-context";
-import { useState } from "react";
+import {
+  LayoutDashboard,
+  ShoppingCart,
+  RefreshCw,
+  Settings,
+  Database,
+  ScrollText,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { useNavigation } from '@/contexts/navigation-context';
+import { useState } from 'react';
 
 type NavigationItem = {
   name: string;
   icon: React.ComponentType<{ className?: string }>;
-  id: "dashboard" | "orders" | "sync" | "settings" | "logs";
+  id: 'dashboard' | 'orders' | 'sync' | 'settings' | 'logs';
 };
 
 type TableItem = {
   name: string;
-  id: "table-emails" | "table-orders" | "table-items" | "table-images" | "table-deliveries" | "table-htmls" | "table-order-emails" | "table-order-htmls";
+  id:
+    | 'table-emails'
+    | 'table-orders'
+    | 'table-items'
+    | 'table-images'
+    | 'table-deliveries'
+    | 'table-htmls'
+    | 'table-order-emails'
+    | 'table-order-htmls';
 };
 
 const navigationItems: NavigationItem[] = [
-  { name: "Dashboard", icon: LayoutDashboard, id: "dashboard" },
-  { name: "Orders", icon: ShoppingCart, id: "orders" },
-  { name: "Sync", icon: RefreshCw, id: "sync" },
-  { name: "Logs", icon: ScrollText, id: "logs" },
-  { name: "Settings", icon: Settings, id: "settings" },
+  { name: 'Dashboard', icon: LayoutDashboard, id: 'dashboard' },
+  { name: 'Orders', icon: ShoppingCart, id: 'orders' },
+  { name: 'Sync', icon: RefreshCw, id: 'sync' },
+  { name: 'Logs', icon: ScrollText, id: 'logs' },
+  { name: 'Settings', icon: Settings, id: 'settings' },
 ];
 
 const tableItems: TableItem[] = [
-  { name: "Emails", id: "table-emails" },
-  { name: "Orders", id: "table-orders" },
-  { name: "Items", id: "table-items" },
-  { name: "Images", id: "table-images" },
-  { name: "Deliveries", id: "table-deliveries" },
-  { name: "HTMLs", id: "table-htmls" },
-  { name: "Order-Emails", id: "table-order-emails" },
-  { name: "Order-HTMLs", id: "table-order-htmls" },
+  { name: 'Emails', id: 'table-emails' },
+  { name: 'Orders', id: 'table-orders' },
+  { name: 'Items', id: 'table-items' },
+  { name: 'Images', id: 'table-images' },
+  { name: 'Deliveries', id: 'table-deliveries' },
+  { name: 'HTMLs', id: 'table-htmls' },
+  { name: 'Order-Emails', id: 'table-order-emails' },
+  { name: 'Order-HTMLs', id: 'table-order-htmls' },
 ];
 
 export function Sidebar() {
@@ -50,7 +65,7 @@ export function Sidebar() {
             return (
               <li key={item.id}>
                 <Button
-                  variant={isActive ? "secondary" : "ghost"}
+                  variant={isActive ? 'secondary' : 'ghost'}
                   className="w-full justify-start"
                   onClick={() => setCurrentScreen(item.id)}
                 >
@@ -70,7 +85,7 @@ export function Sidebar() {
           >
             <Database className="mr-2 h-4 w-4" />
             Tables
-            <span className="ml-auto">{isTableSectionOpen ? "▼" : "▶"}</span>
+            <span className="ml-auto">{isTableSectionOpen ? '▼' : '▶'}</span>
           </Button>
 
           {isTableSectionOpen && (
@@ -80,7 +95,7 @@ export function Sidebar() {
                 return (
                   <li key={item.id}>
                     <Button
-                      variant={isActive ? "secondary" : "ghost"}
+                      variant={isActive ? 'secondary' : 'ghost'}
                       className="w-full justify-start text-sm"
                       onClick={() => setCurrentScreen(item.id)}
                     >

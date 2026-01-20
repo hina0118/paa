@@ -1,18 +1,19 @@
-use tauri::{Emitter, Listener, Manager};
+use serde::{Deserialize, Serialize};
+use sqlx::sqlite::SqlitePool;
+use std::collections::VecDeque;
+use std::io::Write;
+use std::sync::Mutex;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
+use tauri::{Emitter, Listener, Manager};
 use tauri_plugin_sql::{Migration, MigrationKind};
-use sqlx::sqlite::SqlitePool;
-use serde::{Serialize, Deserialize};
-use std::sync::Mutex;
-use std::collections::VecDeque;
 
 mod gmail;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
+    format!("Hello, {name}! You've been greeted from Rust!")
 }
 
 #[tauri::command]
@@ -26,11 +27,13 @@ async fn start_sync(
     // Spawn async task to avoid blocking
     let pool_clone = pool.inner().clone();
     let sync_state_clone = sync_state.inner().clone();
-    let app_clone = app_handle.clone();
+    let app_clone = app_handle;
 
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = gmail::sync_gmail_incremental(&app_clone, &pool_clone, &sync_state_clone, 50).await {
-            log::error!("Sync failed: {}", e);
+        if let Err(e) =
+            gmail::sync_gmail_incremental(&app_clone, &pool_clone, &sync_state_clone, 50).await
+        {
+            log::error!("Sync failed: {e}");
 
             // Emit error event
             let error_msg = e.clone();
@@ -39,7 +42,7 @@ async fn start_sync(
                 batch_size: 0,
                 total_synced: 0,
                 newly_saved: 0,
-                status_message: format!("Sync error: {}", e),
+                status_message: format!("Sync error: {e}"),
                 is_complete: true,
                 error: Some(error_msg),
             };
@@ -60,9 +63,7 @@ async fn start_sync(
 }
 
 #[tauri::command]
-async fn cancel_sync(
-    sync_state: tauri::State<'_, gmail::SyncState>,
-) -> Result<(), String> {
+async fn cancel_sync(sync_state: tauri::State<'_, gmail::SyncState>) -> Result<(), String> {
     log::info!("Cancelling sync...");
     sync_state.request_cancel();
     Ok(())
@@ -77,7 +78,7 @@ async fn get_sync_status(
     )
     .fetch_one(pool.inner())
     .await
-    .map_err(|e| format!("Failed to fetch sync status: {}", e))?;
+    .map_err(|e| format!("Failed to fetch sync status: {e}"))?;
 
     Ok(gmail::SyncMetadata {
         sync_status: row.0,
@@ -97,11 +98,11 @@ async fn reset_sync_status(pool: tauri::State<'_, SqlitePool>) -> Result<(), Str
     sqlx::query(
         "UPDATE sync_metadata
          SET sync_status = 'idle'
-         WHERE id = 1 AND sync_status = 'syncing'"
+         WHERE id = 1 AND sync_status = 'syncing'",
     )
     .execute(pool.inner())
     .await
-    .map_err(|e| format!("Failed to reset sync status: {}", e))?;
+    .map_err(|e| format!("Failed to reset sync status: {e}"))?;
 
     Ok(())
 }
@@ -111,15 +112,13 @@ async fn update_batch_size(
     pool: tauri::State<'_, SqlitePool>,
     batch_size: i64,
 ) -> Result<(), String> {
-    log::info!("Updating batch size to: {}", batch_size);
+    log::info!("Updating batch size to: {batch_size}");
 
-    sqlx::query(
-        "UPDATE sync_metadata SET batch_size = ?1 WHERE id = 1"
-    )
-    .bind(batch_size)
-    .execute(pool.inner())
-    .await
-    .map_err(|e| format!("Failed to update batch size: {}", e))?;
+    sqlx::query("UPDATE sync_metadata SET batch_size = ?1 WHERE id = 1")
+        .bind(batch_size)
+        .execute(pool.inner())
+        .await
+        .map_err(|e| format!("Failed to update batch size: {e}"))?;
 
     Ok(())
 }
@@ -133,15 +132,13 @@ async fn update_max_iterations(
         return Err("最大繰り返し回数は1以上である必要があります".to_string());
     }
 
-    log::info!("Updating max iterations to: {}", max_iterations);
+    log::info!("Updating max iterations to: {max_iterations}");
 
-    sqlx::query(
-        "UPDATE sync_metadata SET max_iterations = ?1 WHERE id = 1"
-    )
-    .bind(max_iterations)
-    .execute(pool.inner())
-    .await
-    .map_err(|e| format!("Failed to update max iterations: {}", e))?;
+    sqlx::query("UPDATE sync_metadata SET max_iterations = ?1 WHERE id = 1")
+        .bind(max_iterations)
+        .execute(pool.inner())
+        .await
+        .map_err(|e| format!("Failed to update max iterations: {e}"))?;
 
     Ok(())
 }
@@ -156,15 +153,12 @@ struct WindowSettings {
 }
 
 #[tauri::command]
-async fn get_window_settings(
-    pool: tauri::State<'_, SqlitePool>,
-) -> Result<WindowSettings, String> {
-    let row: (i64, i64, Option<i64>, Option<i64>, i64) = sqlx::query_as(
-        "SELECT width, height, x, y, maximized FROM window_settings WHERE id = 1"
-    )
-    .fetch_one(pool.inner())
-    .await
-    .map_err(|e| format!("Failed to fetch window settings: {}", e))?;
+async fn get_window_settings(pool: tauri::State<'_, SqlitePool>) -> Result<WindowSettings, String> {
+    let row: (i64, i64, Option<i64>, Option<i64>, i64) =
+        sqlx::query_as("SELECT width, height, x, y, maximized FROM window_settings WHERE id = 1")
+            .fetch_one(pool.inner())
+            .await
+            .map_err(|e| format!("Failed to fetch window settings: {e}"))?;
 
     Ok(WindowSettings {
         width: row.0,
@@ -188,11 +182,15 @@ async fn save_window_settings(
     const MIN_SIZE: i64 = 200;
     const MAX_SIZE: i64 = 10000;
 
-    if width < MIN_SIZE || width > MAX_SIZE {
-        return Err(format!("ウィンドウの幅は{}〜{}の範囲である必要があります", MIN_SIZE, MAX_SIZE));
+    if !(MIN_SIZE..=MAX_SIZE).contains(&width) {
+        return Err(format!(
+            "ウィンドウの幅は{MIN_SIZE}〜{MAX_SIZE}の範囲である必要があります"
+        ));
     }
-    if height < MIN_SIZE || height > MAX_SIZE {
-        return Err(format!("ウィンドウの高さは{}〜{}の範囲である必要があります", MIN_SIZE, MAX_SIZE));
+    if !(MIN_SIZE..=MAX_SIZE).contains(&height) {
+        return Err(format!(
+            "ウィンドウの高さは{MIN_SIZE}〜{MAX_SIZE}の範囲である必要があります"
+        ));
     }
 
     sqlx::query(
@@ -202,10 +200,10 @@ async fn save_window_settings(
     .bind(height)
     .bind(x)
     .bind(y)
-    .bind(if maximized { 1 } else { 0 })
+    .bind(i32::from(maximized))
     .execute(pool.inner())
     .await
-    .map_err(|e| format!("Failed to save window settings: {}", e))?;
+    .map_err(|e| format!("Failed to save window settings: {e}"))?;
 
     Ok(())
 }
@@ -246,7 +244,7 @@ pub struct EmailStats {
 #[tauri::command]
 async fn get_email_stats(pool: tauri::State<'_, SqlitePool>) -> Result<EmailStats, String> {
     let stats: (i64, i64, i64, i64, Option<f64>, Option<f64>) = sqlx::query_as(
-        r#"
+        r"
         WITH email_lengths AS (
             SELECT
                 body_plain,
@@ -263,11 +261,11 @@ async fn get_email_stats(pool: tauri::State<'_, SqlitePool>) -> Result<EmailStat
             AVG(CASE WHEN body_plain IS NOT NULL AND plain_length > 0 THEN plain_length END) AS avg_plain,
             AVG(CASE WHEN body_html IS NOT NULL AND html_length > 0 THEN html_length END) AS avg_html
         FROM email_lengths
-        "#
+        "
     )
     .fetch_one(pool.inner())
     .await
-    .map_err(|e| format!("Failed to fetch email stats: {}", e))?;
+    .map_err(|e| format!("Failed to fetch email stats: {e}"))?;
 
     Ok(EmailStats {
         total_emails: stats.0,
@@ -309,7 +307,7 @@ pub fn init_log_buffer() {
             *buffer = Some(VecDeque::with_capacity(MAX_LOG_ENTRIES));
         }
         Err(e) => {
-            eprintln!("Failed to initialize log buffer: {}", e);
+            eprintln!("Failed to initialize log buffer: {e}");
             // ログバッファの初期化に失敗してもアプリケーションは継続
             // ログ機能は利用できないが、クラッシュは回避
         }
@@ -331,7 +329,9 @@ pub fn add_log_entry(level: &str, message: &str) {
         Ok(mut buffer) => {
             if let Some(ref mut logs) = *buffer {
                 let entry = LogEntry {
-                    timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
+                    timestamp: chrono::Local::now()
+                        .format("%Y-%m-%d %H:%M:%S%.3f")
+                        .to_string(),
                     level: level.to_string(),
                     message: message.to_string(),
                 };
@@ -348,7 +348,7 @@ pub fn add_log_entry(level: &str, message: &str) {
         Err(e) => {
             // ロック取得失敗時は標準エラー出力に出力
             // ログシステム自体が問題を抱えているため、通常のログ機能は使えない
-            eprintln!("Failed to lock log buffer for adding entry: {}", e);
+            eprintln!("Failed to lock log buffer for adding entry: {e}");
         }
     }
 }
@@ -364,10 +364,12 @@ pub fn add_log_entry(level: &str, message: &str) {
 ///
 /// # 注意
 /// limitパラメータはフィルタリング後のログに適用されます。
-/// 例：limit=100, level_filter="ERROR"の場合、ERRORログから最大100件を返します。
+/// 例：limit=100, `level_filter="ERROR"の場合、ERRORログから最大100件を返します`。
 #[tauri::command]
 fn get_logs(level_filter: Option<String>, limit: Option<usize>) -> Result<Vec<LogEntry>, String> {
-    let buffer = LOG_BUFFER.lock().map_err(|e| format!("Failed to lock log buffer: {}", e))?;
+    let buffer = LOG_BUFFER
+        .lock()
+        .map_err(|e| format!("Failed to lock log buffer: {e}"))?;
 
     if let Some(ref logs) = *buffer {
         let mut filtered_logs: Vec<LogEntry> = logs
@@ -474,7 +476,7 @@ pub fn run() {
             description: "create window_settings table",
             sql: include_str!("../migrations/013_create_window_settings_table.sql"),
             kind: MigrationKind::Up,
-        }
+        },
     ];
 
     tauri::Builder::default()
@@ -494,8 +496,6 @@ pub fn run() {
             init_log_buffer();
 
             // マルチロガーの初期化（コンソールとメモリの両方に出力）
-            use std::io::Write;
-
             // リリースビルドではWarnレベル以上、デバッグビルドではInfoレベル以上のログを出力
             // これにより、本番環境で機密情報を含む可能性のあるデバッグログを防ぐ
             #[cfg(debug_assertions)]
@@ -521,7 +521,10 @@ pub fn run() {
                 })
                 .init();
 
-            let app_data_dir = app.path().app_data_dir().expect("failed to get app data dir");
+            let app_data_dir = app
+                .path()
+                .app_data_dir()
+                .expect("failed to get app data dir");
             std::fs::create_dir_all(&app_data_dir).expect("failed to create app data dir");
 
             let db_path = app_data_dir.join("paa_data.db");
@@ -533,7 +536,7 @@ pub fn run() {
             app.handle().plugin(
                 tauri_plugin_sql::Builder::default()
                     .add_migrations(&db_url, migrations)
-                    .build()
+                    .build(),
             )?;
 
             log::info!("tauri-plugin-sql registered with migrations");
@@ -564,7 +567,9 @@ pub fn run() {
             log::info!("Sync state initialized");
 
             // Restore window settings and setup close handler
-            let window = app.get_webview_window("main").expect("Failed to get main window");
+            let window = app
+                .get_webview_window("main")
+                .expect("Failed to get main window");
 
             // Handle window close request - hide instead of closing
             let window_clone = window.clone();
@@ -575,13 +580,14 @@ pub fn run() {
                 }
             });
 
-            let pool_for_window = pool.clone();
+            let pool_for_window = pool;
             tauri::async_runtime::spawn(async move {
-                if let Ok(settings) = sqlx::query_as::<_, (i64, i64, Option<i64>, Option<i64>, i64)>(
-                    "SELECT width, height, x, y, maximized FROM window_settings WHERE id = 1"
-                )
-                .fetch_one(&pool_for_window)
-                .await
+                if let Ok(settings) =
+                    sqlx::query_as::<_, (i64, i64, Option<i64>, Option<i64>, i64)>(
+                        "SELECT width, height, x, y, maximized FROM window_settings WHERE id = 1",
+                    )
+                    .fetch_one(&pool_for_window)
+                    .await
                 {
                     let (width, height, x, y, maximized) = settings;
 
@@ -593,6 +599,7 @@ pub fn run() {
 
                     // Set window position if available
                     if let (Some(x_pos), Some(y_pos)) = (x, y) {
+                        #[allow(clippy::cast_possible_truncation)]
                         let _ = window.set_position(tauri::LogicalPosition {
                             x: x_pos as i32,
                             y: y_pos as i32,
@@ -604,7 +611,7 @@ pub fn run() {
                         let _ = window.maximize();
                     }
 
-                    log::info!("Window settings restored: {}x{}", width, height);
+                    log::info!("Window settings restored: {width}x{height}");
                 }
             });
 
@@ -618,39 +625,37 @@ pub fn run() {
             if let Some(icon) = app.default_window_icon() {
                 tray_builder = tray_builder.icon(icon.clone());
             } else {
-                log::warn!("No default window icon found; initializing system tray without a custom icon.");
+                log::warn!(
+                    "No default window icon found; initializing system tray without a custom icon."
+                );
             }
 
             let _tray = tray_builder
                 .menu(&menu)
                 .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| {
-                    match event.id.as_ref() {
-                        "show" => {
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                            }
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
                         }
-                        "quit" => {
-                            app.exit(0);
-                        }
-                        _ => {}
                     }
+                    "quit" => {
+                        app.exit(0);
+                    }
+                    _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
-                    match event {
-                        TrayIconEvent::Click {
-                            button: MouseButton::Left,
-                            ..
-                        } => {
-                            let app = tray.app_handle();
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                            }
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        ..
+                    } = event
+                    {
+                        let app = tray.app_handle();
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
                         }
-                        _ => {}
                     }
                 })
                 .build(app)?;
@@ -660,7 +665,7 @@ pub fn run() {
             // Set up notification action listener
             let app_handle = app.handle().clone();
             app.listen("notification-action", move |event| {
-                log::info!("Notification action event: {:?}", event);
+                log::info!("Notification action event: {event:?}");
                 // Show main window when notification is clicked
                 if let Some(window) = app_handle.get_webview_window("main") {
                     let _ = window.show();
@@ -746,7 +751,7 @@ mod tests {
         add_log_entry("ERROR", "Error log test");
 
         // クラッシュせずにここに到達すればOK
-        assert!(true);
+        // Test passes if no panic occurs
     }
 
     #[test]
@@ -755,7 +760,7 @@ mod tests {
 
         // MAX_LOG_ENTRIES + 100 個のログを追加
         for i in 0..(MAX_LOG_ENTRIES + 100) {
-            add_log_entry("INFO", &format!("Log entry {}", i));
+            add_log_entry("INFO", &format!("Log entry {i}"));
         }
 
         // ログを取得
@@ -785,7 +790,7 @@ mod tests {
 
         // 10個のログを追加
         for i in 0..10 {
-            add_log_entry("INFO", &format!("Message {}", i));
+            add_log_entry("INFO", &format!("Message {i}"));
         }
 
         // 最大5個だけ取得

@@ -1,17 +1,23 @@
-import { useState, useEffect } from "react";
-import { useSync } from "@/contexts/sync-context";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+import { useState, useEffect } from 'react';
+import { useSync } from '@/contexts/sync-context';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 
 export function Settings() {
   const { metadata, updateBatchSize, updateMaxIterations } = useSync();
-  const [batchSize, setBatchSize] = useState<string>("");
-  const [maxIterations, setMaxIterations] = useState<string>("");
+  const [batchSize, setBatchSize] = useState<string>('');
+  const [maxIterations, setMaxIterations] = useState<string>('');
   const [isSavingBatchSize, setIsSavingBatchSize] = useState(false);
   const [isSavingMaxIterations, setIsSavingMaxIterations] = useState(false);
-  const [successMessage, setSuccessMessage] = useState<string>("");
-  const [errorMessage, setErrorMessage] = useState<string>("");
+  const [successMessage, setSuccessMessage] = useState<string>('');
+  const [errorMessage, setErrorMessage] = useState<string>('');
 
   useEffect(() => {
     if (metadata) {
@@ -23,20 +29,22 @@ export function Settings() {
   const handleSaveBatchSize = async () => {
     const value = parseInt(batchSize, 10);
     if (isNaN(value) || value <= 0) {
-      setErrorMessage("バッチサイズは1以上の整数を入力してください");
+      setErrorMessage('バッチサイズは1以上の整数を入力してください');
       return;
     }
 
     setIsSavingBatchSize(true);
-    setErrorMessage("");
-    setSuccessMessage("");
+    setErrorMessage('');
+    setSuccessMessage('');
 
     try {
       await updateBatchSize(value);
-      setSuccessMessage("バッチサイズを更新しました");
-      setTimeout(() => setSuccessMessage(""), 3000);
+      setSuccessMessage('バッチサイズを更新しました');
+      setTimeout(() => setSuccessMessage(''), 3000);
     } catch (error) {
-      setErrorMessage(`更新に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
+      setErrorMessage(
+        `更新に失敗しました: ${error instanceof Error ? error.message : String(error)}`
+      );
     } finally {
       setIsSavingBatchSize(false);
     }
@@ -45,20 +53,22 @@ export function Settings() {
   const handleSaveMaxIterations = async () => {
     const value = parseInt(maxIterations, 10);
     if (isNaN(value) || value <= 0) {
-      setErrorMessage("最大繰り返し回数は1以上の整数を入力してください");
+      setErrorMessage('最大繰り返し回数は1以上の整数を入力してください');
       return;
     }
 
     setIsSavingMaxIterations(true);
-    setErrorMessage("");
-    setSuccessMessage("");
+    setErrorMessage('');
+    setSuccessMessage('');
 
     try {
       await updateMaxIterations(value);
-      setSuccessMessage("最大繰り返し回数を更新しました");
-      setTimeout(() => setSuccessMessage(""), 3000);
+      setSuccessMessage('最大繰り返し回数を更新しました');
+      setTimeout(() => setSuccessMessage(''), 3000);
     } catch (error) {
-      setErrorMessage(`更新に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
+      setErrorMessage(
+        `更新に失敗しました: ${error instanceof Error ? error.message : String(error)}`
+      );
     } finally {
       setIsSavingMaxIterations(false);
     }
@@ -103,7 +113,10 @@ export function Settings() {
                 disabled={isSavingBatchSize}
                 className="max-w-xs"
               />
-              <Button onClick={handleSaveBatchSize} disabled={isSavingBatchSize}>
+              <Button
+                onClick={handleSaveBatchSize}
+                disabled={isSavingBatchSize}
+              >
                 保存
               </Button>
             </div>
@@ -128,7 +141,10 @@ export function Settings() {
                 disabled={isSavingMaxIterations}
                 className="max-w-xs"
               />
-              <Button onClick={handleSaveMaxIterations} disabled={isSavingMaxIterations}>
+              <Button
+                onClick={handleSaveMaxIterations}
+                disabled={isSavingMaxIterations}
+              >
                 保存
               </Button>
             </div>
@@ -137,7 +153,7 @@ export function Settings() {
           {metadata && (
             <div className="pt-4 border-t">
               <p className="text-sm text-muted-foreground">
-                現在の最大取得件数:{" "}
+                現在の最大取得件数:{' '}
                 <span className="font-semibold text-foreground">
                   {metadata.batch_size * metadata.max_iterations} 件
                 </span>

@@ -1,5 +1,5 @@
-import { useCallback } from "react";
-import { DatabaseManager } from "@/lib/database";
+import { useCallback } from 'react';
+import { DatabaseManager } from '@/lib/database';
 
 /**
  * React hook for accessing the SQLite database

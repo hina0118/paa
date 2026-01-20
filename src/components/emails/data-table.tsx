@@ -9,7 +9,7 @@ import {
   getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
-} from "@tanstack/react-table";
+} from '@tanstack/react-table';
 
 import {
   Table,
@@ -18,12 +18,12 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table";
+} from '@/components/ui/table';
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { useState } from "react";
-import { Search, ChevronLeft, ChevronRight, CheckSquare } from "lucide-react";
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { useState } from 'react';
+import { Search, ChevronLeft, ChevronRight, CheckSquare } from 'lucide-react';
 
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[];
@@ -65,9 +65,9 @@ export function DataTable<TData, TValue>({
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="送信者で検索..."
-            value={(table.getColumn("from")?.getFilterValue() as string) ?? ""}
+            value={(table.getColumn('from')?.getFilterValue() as string) ?? ''}
             onChange={(event) =>
-              table.getColumn("from")?.setFilterValue(event.target.value)
+              table.getColumn('from')?.setFilterValue(event.target.value)
             }
             className="pl-9"
           />
@@ -104,10 +104,10 @@ export function DataTable<TData, TValue>({
               table.getRowModel().rows.map((row) => (
                 <TableRow
                   key={row.id}
-                  data-state={row.getIsSelected() && "selected"}
+                  data-state={row.getIsSelected() && 'selected'}
                   className="cursor-pointer hover:bg-muted/50"
                   onClick={() => {
-                    console.log("Row clicked:", row.original);
+                    // TODO: Implement row click functionality
                   }}
                 >
                   {row.getVisibleCells().map((cell) => (

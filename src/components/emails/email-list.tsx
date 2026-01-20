@@ -1,7 +1,7 @@
-import { emailData } from "@/lib/data";
-import { columns } from "./columns";
-import { DataTable } from "./data-table";
-import { Inbox } from "lucide-react";
+import { emailData } from '@/lib/data';
+import { columns } from './columns';
+import { DataTable } from './data-table';
+import { Inbox } from 'lucide-react';
 
 export function EmailList() {
   return (

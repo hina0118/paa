@@ -1,4 +1,4 @@
-import { TableViewer } from "@/components/tables/table-viewer";
+import { TableViewer } from '@/components/tables/table-viewer';
 
 export function EmailsTable() {
   return <TableViewer tableName="emails" title="Emails テーブル" />;
