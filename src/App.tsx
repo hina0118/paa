@@ -16,6 +16,9 @@ import {
   HtmlsTable,
   OrderEmailsTable,
   OrderHtmlsTable,
+  ShopSettingsTable,
+  SyncMetadataTable,
+  WindowSettingsTable,
 } from '@/components/screens/tables';
 import {
   NavigationProvider,
@@ -59,6 +62,12 @@ function AppContent() {
         return <OrderEmailsTable />;
       case 'table-order-htmls':
         return <OrderHtmlsTable />;
+      case 'table-shop-settings':
+        return <ShopSettingsTable />;
+      case 'table-sync-metadata':
+        return <SyncMetadataTable />;
+      case 'table-window-settings':
+        return <WindowSettingsTable />;
       default:
         return <EmailList />;
     }

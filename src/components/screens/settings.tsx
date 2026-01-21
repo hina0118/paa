@@ -18,13 +18,15 @@ export function Settings() {
   const [isSavingMaxIterations, setIsSavingMaxIterations] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string>('');
+  const [isInitialized, setIsInitialized] = useState(false);
 
   useEffect(() => {
-    if (metadata) {
+    if (metadata && !isInitialized) {
       setBatchSize(metadata.batch_size.toString());
       setMaxIterations(metadata.max_iterations.toString());
+      setIsInitialized(true);
     }
-  }, [metadata]);
+  }, [metadata, isInitialized]);
 
   const handleSaveBatchSize = async () => {
     const value = parseInt(batchSize, 10);
