@@ -477,6 +477,12 @@ pub fn run() {
             sql: include_str!("../migrations/013_create_window_settings_table.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 14,
+            description: "create shop_settings table",
+            sql: include_str!("../migrations/014_create_shop_settings_table.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
@@ -687,10 +693,60 @@ pub fn run() {
             get_window_settings,
             save_window_settings,
             get_email_stats,
-            get_logs
+            get_logs,
+            get_all_shop_settings,
+            create_shop_setting,
+            update_shop_setting,
+            delete_shop_setting
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+// Shop Settings Commands
+#[tauri::command]
+async fn get_all_shop_settings(
+    pool: tauri::State<'_, SqlitePool>,
+) -> Result<Vec<gmail::ShopSettings>, String> {
+    gmail::get_all_shop_settings(pool.inner()).await
+}
+
+#[tauri::command]
+async fn create_shop_setting(
+    pool: tauri::State<'_, SqlitePool>,
+    shop_name: String,
+    sender_address: String,
+    parser_type: String,
+) -> Result<i64, String> {
+    let settings = gmail::CreateShopSettings {
+        shop_name,
+        sender_address,
+        parser_type,
+    };
+    gmail::create_shop_setting(pool.inner(), settings).await
+}
+
+#[tauri::command]
+async fn update_shop_setting(
+    pool: tauri::State<'_, SqlitePool>,
+    id: i64,
+    shop_name: Option<String>,
+    sender_address: Option<String>,
+    parser_type: Option<String>,
+    is_enabled: Option<bool>,
+) -> Result<(), String> {
+    let settings = gmail::UpdateShopSettings {
+        shop_name,
+        sender_address,
+        parser_type,
+        is_enabled,
+    };
+    gmail::update_shop_setting(pool.inner(), id, settings).await
+}
+
+#[tauri::command]
+async fn delete_shop_setting(pool: tauri::State<'_, SqlitePool>, id: i64) -> Result<(), String> {
+    gmail::delete_shop_setting(pool.inner(), id).await
 }
 
 #[cfg(test)]

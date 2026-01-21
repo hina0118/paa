@@ -5,6 +5,7 @@ type Screen =
   | 'orders'
   | 'sync'
   | 'logs'
+  | 'shop-settings'
   | 'settings'
   | 'table-emails'
   | 'table-orders'

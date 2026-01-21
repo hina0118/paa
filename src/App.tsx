@@ -6,6 +6,7 @@ import { Dashboard } from '@/components/screens/dashboard';
 import { Sync } from '@/components/screens/sync';
 import { Logs } from '@/components/screens/logs';
 import { Settings } from '@/components/screens/settings';
+import { ShopSettings } from '@/components/screens/shop-settings';
 import {
   EmailsTable,
   OrdersTable,
@@ -38,6 +39,8 @@ function AppContent() {
         return <Sync />;
       case 'logs':
         return <Logs />;
+      case 'shop-settings':
+        return <ShopSettings />;
       case 'settings':
         return <Settings />;
       case 'table-emails':
