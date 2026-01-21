@@ -5,6 +5,7 @@ import {
   Settings,
   Database,
   ScrollText,
+  Store,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useNavigation } from '@/contexts/navigation-context';
@@ -13,7 +14,7 @@ import { useState } from 'react';
 type NavigationItem = {
   name: string;
   icon: React.ComponentType<{ className?: string }>;
-  id: 'dashboard' | 'orders' | 'sync' | 'settings' | 'logs';
+  id: 'dashboard' | 'orders' | 'sync' | 'settings' | 'logs' | 'shop-settings';
 };
 
 type TableItem = {
@@ -26,7 +27,10 @@ type TableItem = {
     | 'table-deliveries'
     | 'table-htmls'
     | 'table-order-emails'
-    | 'table-order-htmls';
+    | 'table-order-htmls'
+    | 'table-shop-settings'
+    | 'table-sync-metadata'
+    | 'table-window-settings';
 };
 
 const navigationItems: NavigationItem[] = [
@@ -34,6 +38,7 @@ const navigationItems: NavigationItem[] = [
   { name: 'Orders', icon: ShoppingCart, id: 'orders' },
   { name: 'Sync', icon: RefreshCw, id: 'sync' },
   { name: 'Logs', icon: ScrollText, id: 'logs' },
+  { name: 'Shop Settings', icon: Store, id: 'shop-settings' },
   { name: 'Settings', icon: Settings, id: 'settings' },
 ];
 
@@ -46,6 +51,9 @@ const tableItems: TableItem[] = [
   { name: 'HTMLs', id: 'table-htmls' },
   { name: 'Order-Emails', id: 'table-order-emails' },
   { name: 'Order-HTMLs', id: 'table-order-htmls' },
+  { name: 'Shop Settings', id: 'table-shop-settings' },
+  { name: 'Sync Metadata', id: 'table-sync-metadata' },
+  { name: 'Window Settings', id: 'table-window-settings' },
 ];
 
 export function Sidebar() {
