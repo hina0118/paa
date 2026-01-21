@@ -9,6 +9,7 @@ use tauri::{Emitter, Listener, Manager};
 use tauri_plugin_sql::{Migration, MigrationKind};
 
 mod gmail;
+mod parsers;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -703,7 +704,9 @@ pub fn run() {
             get_all_shop_settings,
             create_shop_setting,
             update_shop_setting,
-            delete_shop_setting
+            delete_shop_setting,
+            parse_email,
+            parse_and_save_email
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -757,6 +760,39 @@ async fn update_shop_setting(
 #[tauri::command]
 async fn delete_shop_setting(pool: tauri::State<'_, SqlitePool>, id: i64) -> Result<(), String> {
     gmail::delete_shop_setting(pool.inner(), id).await
+}
+
+#[tauri::command]
+fn parse_email(parser_type: String, email_body: String) -> Result<parsers::OrderInfo, String> {
+    let parser = parsers::get_parser(&parser_type)
+        .ok_or_else(|| format!("Unknown parser type: {}", parser_type))?;
+
+    parser.parse(&email_body)
+}
+
+#[tauri::command]
+async fn parse_and_save_email(
+    pool: tauri::State<'_, SqlitePool>,
+    parser_type: String,
+    email_body: String,
+    email_id: Option<i64>,
+    shop_domain: Option<String>,
+) -> Result<i64, String> {
+    // メール本文をパース (同期処理)
+    let order_info = {
+        let parser = parsers::get_parser(&parser_type)
+            .ok_or_else(|| format!("Unknown parser type: {}", parser_type))?;
+        parser.parse(&email_body)?
+    };
+
+    // データベースに保存 (非同期処理)
+    parsers::save_order_to_db(
+        pool.inner(),
+        &order_info,
+        email_id,
+        shop_domain.as_deref(),
+    )
+    .await
 }
 
 #[cfg(test)]
