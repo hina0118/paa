@@ -6,6 +6,7 @@ import { Dashboard } from '@/components/screens/dashboard';
 import { Sync } from '@/components/screens/sync';
 import { Logs } from '@/components/screens/logs';
 import { Settings } from '@/components/screens/settings';
+import { ShopSettings } from '@/components/screens/shop-settings';
 import {
   EmailsTable,
   OrdersTable,
@@ -15,6 +16,9 @@ import {
   HtmlsTable,
   OrderEmailsTable,
   OrderHtmlsTable,
+  ShopSettingsTable,
+  SyncMetadataTable,
+  WindowSettingsTable,
 } from '@/components/screens/tables';
 import {
   NavigationProvider,
@@ -38,6 +42,8 @@ function AppContent() {
         return <Sync />;
       case 'logs':
         return <Logs />;
+      case 'shop-settings':
+        return <ShopSettings />;
       case 'settings':
         return <Settings />;
       case 'table-emails':
@@ -56,6 +62,12 @@ function AppContent() {
         return <OrderEmailsTable />;
       case 'table-order-htmls':
         return <OrderHtmlsTable />;
+      case 'table-shop-settings':
+        return <ShopSettingsTable />;
+      case 'table-sync-metadata':
+        return <SyncMetadataTable />;
+      case 'table-window-settings':
+        return <WindowSettingsTable />;
       default:
         return <EmailList />;
     }

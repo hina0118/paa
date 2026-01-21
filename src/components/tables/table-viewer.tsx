@@ -8,6 +8,13 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import { sanitizeTableName } from '@/lib/database';
 import { useDatabase } from '@/hooks/useDatabase';
@@ -35,6 +42,10 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
+  const [selectedCell, setSelectedCell] = useState<{
+    column: string;
+    value: unknown;
+  } | null>(null);
   // Page size of 50 rows - adequate for most tables
   // For tables with many columns or large text/blob fields, consider making this configurable
   const pageSize = 50;
@@ -116,6 +127,23 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
     return String(value);
   };
 
+  const formatFullValue = (value: unknown): string => {
+    if (value === null || value === undefined) {
+      return '(null)';
+    }
+    if (typeof value === 'object') {
+      return JSON.stringify(value, null, 2);
+    }
+    if (typeof value === 'boolean') {
+      return value ? 'true' : 'false';
+    }
+    return String(value);
+  };
+
+  const handleCellClick = (column: string, value: unknown) => {
+    setSelectedCell({ column, value });
+  };
+
   const handlePreviousPage = () => {
     if (page > 0) {
       setPage(page - 1);
@@ -188,7 +216,12 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
                 data.map((row, index) => (
                   <TableRow key={index}>
                     {columns.map((column) => (
-                      <TableCell key={column} className="max-w-xs truncate">
+                      <TableCell
+                        key={column}
+                        className="max-w-xs truncate cursor-pointer hover:bg-muted/50"
+                        onClick={() => handleCellClick(column, row[column])}
+                        title="クリックして全文表示"
+                      >
                         {formatValue(row[column])}
                       </TableCell>
                     ))}
@@ -241,6 +274,24 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
           </Button>
         </div>
       </div>
+
+      {/* Cell content dialog */}
+      <Dialog
+        open={selectedCell !== null}
+        onOpenChange={() => setSelectedCell(null)}
+      >
+        <DialogContent className="max-w-3xl max-h-[80vh]">
+          <DialogHeader>
+            <DialogTitle>{selectedCell?.column}</DialogTitle>
+            <DialogDescription>セルの全内容</DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 overflow-auto max-h-[60vh]">
+            <pre className="whitespace-pre-wrap break-words text-sm font-mono bg-muted p-4 rounded-md">
+              {selectedCell && formatFullValue(selectedCell.value)}
+            </pre>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

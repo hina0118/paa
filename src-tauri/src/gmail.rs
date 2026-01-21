@@ -56,9 +56,11 @@ impl oauth2::authenticator_delegate::InstalledFlowDelegate for CustomFlowDelegat
 pub struct GmailMessage {
     pub message_id: String,
     pub snippet: String,
+    pub subject: Option<String>,
     pub body_plain: Option<String>,
     pub body_html: Option<String>,
     pub internal_date: i64,
+    pub from_address: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -89,6 +91,35 @@ pub struct SyncMetadata {
     pub last_sync_started_at: Option<String>,
     pub last_sync_completed_at: Option<String>,
     pub max_iterations: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct ShopSettings {
+    pub id: i64,
+    pub shop_name: String,
+    pub sender_address: String,
+    pub parser_type: String,
+    pub is_enabled: bool,
+    pub subject_filter: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateShopSettings {
+    pub shop_name: String,
+    pub sender_address: String,
+    pub parser_type: String,
+    pub subject_filter: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateShopSettings {
+    pub shop_name: Option<String>,
+    pub sender_address: Option<String>,
+    pub parser_type: Option<String>,
+    pub is_enabled: Option<bool>,
+    pub subject_filter: Option<String>,
 }
 
 /// Synchronization state for Gmail sync operations
@@ -368,6 +399,24 @@ impl GmailClient {
 
         let mut body_plain: Option<String> = None;
         let mut body_html: Option<String> = None;
+        let mut from_address: Option<String> = None;
+        let mut subject: Option<String> = None;
+
+        // Extract From and Subject headers from payload
+        if let Some(payload) = &message.payload {
+            if let Some(headers) = &payload.headers {
+                for header in headers {
+                    if let Some(name) = &header.name {
+                        let name_lower = name.to_lowercase();
+                        if name_lower == "from" {
+                            from_address = header.value.clone();
+                        } else if name_lower == "subject" {
+                            subject = header.value.clone();
+                        }
+                    }
+                }
+            }
+        }
 
         // 再帰的にMIMEパートを解析
         if let Some(payload) = &message.payload {
@@ -393,9 +442,11 @@ impl GmailClient {
         Ok(GmailMessage {
             message_id: message_id.to_string(),
             snippet,
+            subject,
             body_plain,
             body_html,
             internal_date,
+            from_address,
         })
     }
 
@@ -531,11 +582,13 @@ impl GmailClient {
 pub async fn save_messages_to_db(
     pool: &SqlitePool,
     messages: &[GmailMessage],
+    shop_settings: &[ShopSettings],
 ) -> Result<FetchResult, String> {
     log::info!("Saving {} messages to database using sqlx", messages.len());
 
     let mut saved_count = 0;
     let mut skipped_count = 0;
+    let mut filtered_count = 0;
 
     // トランザクションを使用してバッチ処理
     let mut tx = pool
@@ -544,6 +597,17 @@ pub async fn save_messages_to_db(
         .map_err(|e| format!("Failed to begin transaction: {e}"))?;
 
     for msg in messages {
+        // Check subject filter
+        if !should_save_message(msg, shop_settings) {
+            filtered_count += 1;
+            log::debug!(
+                "Message {} filtered out by subject filter (subject: {:?})",
+                msg.message_id,
+                msg.subject
+            );
+            continue;
+        }
+
         let result = sqlx::query(
             r"
             INSERT INTO emails (message_id, body_plain, body_html, internal_date)
@@ -570,7 +634,9 @@ pub async fn save_messages_to_db(
         .await
         .map_err(|e| format!("Failed to commit transaction: {e}"))?;
 
-    log::info!("Saved {saved_count} messages, skipped {skipped_count} duplicates");
+    log::info!(
+        "Saved {saved_count} messages, skipped {skipped_count} duplicates, filtered {filtered_count} by subject"
+    );
 
     Ok(FetchResult {
         fetched_count: messages.len(),
@@ -579,9 +645,21 @@ pub async fn save_messages_to_db(
     })
 }
 
-// Helper function to build Gmail query with date constraint
-fn build_sync_query(oldest_date: &Option<String>) -> String {
-    let base_query = r"subject:(注文 OR 予約 OR ありがとうございます)";
+// Helper function to build Gmail query with sender addresses and date constraint
+fn build_sync_query(sender_addresses: &[String], oldest_date: &Option<String>) -> String {
+    // Build query based on sender addresses
+    let base_query = if sender_addresses.is_empty() {
+        // Fallback to keyword search if no sender addresses configured
+        log::warn!("No enabled shop settings found, falling back to keyword search");
+        r"subject:(注文 OR 予約 OR ありがとうございます)".to_string()
+    } else {
+        // Build "from:addr1 OR from:addr2 OR ..." query
+        let from_clauses: Vec<String> = sender_addresses
+            .iter()
+            .map(|addr| format!("from:{addr}"))
+            .collect();
+        from_clauses.join(" OR ")
+    };
 
     if let Some(date) = oldest_date {
         // Parse and format for Gmail query (YYYY/MM/DD).
@@ -589,13 +667,13 @@ fn build_sync_query(oldest_date: &Option<String>) -> String {
         // the date filter is omitted and the base query is used without a date constraint.
         if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(date) {
             let before_date = dt.format("%Y/%m/%d");
-            return format!("{base_query} before:{before_date}");
+            return format!("({base_query}) before:{before_date}");
         }
         // If parsing fails, log warning and use base query without date filter
         log::warn!("Invalid date format in oldest_date, ignoring date constraint: {date}");
     }
 
-    base_query.to_string()
+    base_query
 }
 
 // Helper function to fetch a batch of messages
@@ -704,6 +782,25 @@ pub async fn sync_gmail_incremental(
     // Create RAII guard to ensure running flag is cleared on function exit
     let _guard = SyncGuard::new(sync_state);
 
+    // Get enabled shop settings to build sender address list
+    let enabled_shops = match get_enabled_shop_settings(pool).await {
+        Ok(shops) => shops,
+        Err(e) => {
+            update_sync_error_status(pool).await;
+            return Err(format!("Failed to fetch shop settings: {e}"));
+        }
+    };
+
+    let sender_addresses: Vec<String> = enabled_shops
+        .iter()
+        .map(|shop| shop.sender_address.clone())
+        .collect();
+
+    log::info!(
+        "Starting sync with {} enabled sender addresses",
+        sender_addresses.len()
+    );
+
     // Update sync status to 'syncing'
     let now = chrono::Utc::now().to_rfc3339();
     if let Err(e) = sqlx::query(
@@ -774,8 +871,8 @@ pub async fn sync_gmail_incremental(
         }
         // Store the oldest_date before this fetch to detect infinite loop conditions
         let oldest_date_before_fetch = oldest_date.clone();
-        // Build query with date constraint
-        let query = build_sync_query(&oldest_date);
+        // Build query with sender addresses and date constraint
+        let query = build_sync_query(&sender_addresses, &oldest_date);
         log::info!("Batch {batch_number}: Fetching up to {effective_batch_size} messages with query: {query}");
         // Fetch batch of messages
         let messages = match fetch_batch(&client, &query, effective_batch_size).await {
@@ -800,8 +897,8 @@ pub async fn sync_gmail_incremental(
         let current_message_ids: Vec<String> =
             messages.iter().map(|m| m.message_id.clone()).collect();
 
-        // Save to database
-        let result = match save_messages_to_db(pool, &messages).await {
+        // Save to database with subject filtering
+        let result = match save_messages_to_db(pool, &messages, &enabled_shops).await {
             Ok(r) => r,
             Err(e) => {
                 update_sync_error_status(pool).await;
@@ -977,6 +1074,201 @@ pub async fn sync_gmail_incremental(
     Ok(())
 }
 
+// ============================================================================
+// Parser Type Routing Functions
+// ============================================================================
+
+/// Extract email address from "From" header
+/// Handles formats like "Name <email@example.com>" or just "email@example.com"
+#[allow(dead_code)]
+fn extract_email_address(from_header: &str) -> Option<String> {
+    // Try to extract email from "Name <email@domain>" format
+    if let Some(start) = from_header.find('<') {
+        if let Some(end) = from_header.find('>') {
+            if start < end {
+                return Some(from_header[start + 1..end].trim().to_lowercase());
+            }
+        }
+    }
+
+    // If no angle brackets, assume the whole string is an email
+    let trimmed = from_header.trim();
+    if trimmed.contains('@') {
+        return Some(trimmed.to_lowercase());
+    }
+
+    None
+}
+
+/// Check if a message should be saved based on shop settings and subject filter
+/// Returns true if the message should be saved, false otherwise
+fn should_save_message(msg: &GmailMessage, shop_settings: &[ShopSettings]) -> bool {
+    // Extract sender email address
+    let sender_email = match &msg.from_address {
+        Some(addr) => match extract_email_address(addr) {
+            Some(email) => email,
+            None => return false,
+        },
+        None => return false,
+    };
+
+    // Find matching shop setting
+    for shop in shop_settings {
+        if shop.sender_address.to_lowercase() == sender_email {
+            // If no subject filter is set, allow the message
+            if shop.subject_filter.is_none() {
+                return true;
+            }
+
+            // If subject filter is set, check if message subject matches
+            if let Some(filter) = &shop.subject_filter {
+                if let Some(subject) = &msg.subject {
+                    return subject == filter;
+                }
+                // If filter is set but message has no subject, reject
+                return false;
+            }
+
+            return true;
+        }
+    }
+
+    // No matching shop setting found
+    false
+}
+
+/// Determine parser type based on sender address
+/// Returns the parser_type if a matching shop setting is found
+#[allow(dead_code)]
+fn get_parser_type_for_sender(
+    sender_address: &str,
+    shop_settings: &[ShopSettings],
+) -> Option<String> {
+    let email = extract_email_address(sender_address)?;
+
+    for shop in shop_settings {
+        if shop.sender_address.to_lowercase() == email {
+            return Some(shop.parser_type.clone());
+        }
+    }
+
+    None
+}
+
+// ============================================================================
+// Shop Settings Database Functions
+// ============================================================================
+
+/// Get all shop settings from the database
+pub async fn get_all_shop_settings(pool: &SqlitePool) -> Result<Vec<ShopSettings>, String> {
+    sqlx::query_as::<_, ShopSettings>(
+        r#"
+        SELECT id, shop_name, sender_address, parser_type, is_enabled,
+               subject_filter, created_at, updated_at
+        FROM shop_settings
+        ORDER BY id ASC
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("Failed to fetch shop settings: {e}"))
+}
+
+/// Get enabled shop settings only
+pub async fn get_enabled_shop_settings(pool: &SqlitePool) -> Result<Vec<ShopSettings>, String> {
+    sqlx::query_as::<_, ShopSettings>(
+        r#"
+        SELECT id, shop_name, sender_address, parser_type, is_enabled,
+               subject_filter, created_at, updated_at
+        FROM shop_settings
+        WHERE is_enabled = 1
+        ORDER BY id ASC
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("Failed to fetch enabled shop settings: {e}"))
+}
+
+/// Create a new shop setting
+pub async fn create_shop_setting(
+    pool: &SqlitePool,
+    settings: CreateShopSettings,
+) -> Result<i64, String> {
+    let result = sqlx::query(
+        r#"
+        INSERT INTO shop_settings (shop_name, sender_address, parser_type, subject_filter, is_enabled)
+        VALUES (?, ?, ?, ?, 1)
+        "#,
+    )
+    .bind(&settings.shop_name)
+    .bind(&settings.sender_address)
+    .bind(&settings.parser_type)
+    .bind(&settings.subject_filter)
+    .execute(pool)
+    .await
+    .map_err(|e| format!("Failed to create shop setting: {e}"))?;
+
+    Ok(result.last_insert_rowid())
+}
+
+/// Update an existing shop setting
+pub async fn update_shop_setting(
+    pool: &SqlitePool,
+    id: i64,
+    settings: UpdateShopSettings,
+) -> Result<(), String> {
+    let existing = sqlx::query_as::<_, ShopSettings>(
+        "SELECT id, shop_name, sender_address, parser_type, is_enabled, subject_filter, created_at, updated_at FROM shop_settings WHERE id = ?",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("Failed to fetch shop setting: {e}"))?
+    .ok_or_else(|| format!("Shop setting with id {id} not found"))?;
+
+    let shop_name = settings.shop_name.unwrap_or(existing.shop_name);
+    let sender_address = settings.sender_address.unwrap_or(existing.sender_address);
+    let parser_type = settings.parser_type.unwrap_or(existing.parser_type);
+    let is_enabled = settings.is_enabled.unwrap_or(existing.is_enabled);
+    let subject_filter = settings.subject_filter.or(existing.subject_filter);
+
+    sqlx::query(
+        r#"
+        UPDATE shop_settings
+        SET shop_name = ?, sender_address = ?, parser_type = ?, is_enabled = ?, subject_filter = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        "#,
+    )
+    .bind(&shop_name)
+    .bind(&sender_address)
+    .bind(&parser_type)
+    .bind(is_enabled)
+    .bind(&subject_filter)
+    .bind(id)
+    .execute(pool)
+    .await
+    .map_err(|e| format!("Failed to update shop setting: {e}"))?;
+
+    Ok(())
+}
+
+/// Delete a shop setting
+pub async fn delete_shop_setting(pool: &SqlitePool, id: i64) -> Result<(), String> {
+    let result = sqlx::query("DELETE FROM shop_settings WHERE id = ?")
+        .bind(id)
+        .execute(pool)
+        .await
+        .map_err(|e| format!("Failed to delete shop setting: {e}"))?;
+
+    if result.rows_affected() == 0 {
+        return Err(format!("Shop setting with id {id} not found"));
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1049,6 +1341,8 @@ mod tests {
             body_plain: Some("Plain text body".to_string()),
             body_html: Some("<html>HTML body</html>".to_string()),
             internal_date: 1234567890000,
+            from_address: Some("test@example.com".to_string()),
+            subject: Some("Test subject".to_string()),
         };
 
         assert_eq!(message.message_id, "test123");
@@ -1132,8 +1426,9 @@ mod tests {
     async fn test_save_messages_to_db_empty() {
         let pool = create_test_db().await;
         let messages: Vec<GmailMessage> = vec![];
+        let shop_settings: Vec<ShopSettings> = vec![];
 
-        let result = save_messages_to_db(&pool, &messages)
+        let result = save_messages_to_db(&pool, &messages, &shop_settings)
             .await
             .expect("Failed to save empty messages");
 
@@ -1152,9 +1447,22 @@ mod tests {
             body_plain: Some("Plain text".to_string()),
             body_html: Some("<html>HTML</html>".to_string()),
             internal_date: 1609459200000, // 2021-01-01
+            from_address: Some("test@example.com".to_string()),
+            subject: Some("Test subject".to_string()),
         };
 
-        let result = save_messages_to_db(&pool, &[message])
+        let shop_settings = vec![ShopSettings {
+            id: 1,
+            shop_name: "Test Shop".to_string(),
+            sender_address: "test@example.com".to_string(),
+            parser_type: "test".to_string(),
+            subject_filter: None,
+            is_enabled: true,
+            created_at: "2021-01-01 00:00:00".to_string(),
+            updated_at: "2021-01-01 00:00:00".to_string(),
+        }];
+
+        let result = save_messages_to_db(&pool, &[message], &shop_settings)
             .await
             .expect("Failed to save message");
 
@@ -1184,10 +1492,23 @@ mod tests {
             body_plain: Some("Plain text".to_string()),
             body_html: Some("<html>HTML</html>".to_string()),
             internal_date: 1609459200000,
+            from_address: Some("test@example.com".to_string()),
+            subject: Some("Test subject".to_string()),
         };
 
+        let shop_settings = vec![ShopSettings {
+            id: 1,
+            shop_name: "Test Shop".to_string(),
+            sender_address: "test@example.com".to_string(),
+            parser_type: "test".to_string(),
+            subject_filter: None,
+            is_enabled: true,
+            created_at: "2021-01-01 00:00:00".to_string(),
+            updated_at: "2021-01-01 00:00:00".to_string(),
+        }];
+
         // Save first time
-        let result1 = save_messages_to_db(&pool, &[message.clone()])
+        let result1 = save_messages_to_db(&pool, &[message.clone()], &shop_settings)
             .await
             .expect("Failed to save message first time");
 
@@ -1195,7 +1516,7 @@ mod tests {
         assert_eq!(result1.skipped_count, 0);
 
         // Save second time (should skip duplicate)
-        let result2 = save_messages_to_db(&pool, &[message])
+        let result2 = save_messages_to_db(&pool, &[message], &shop_settings)
             .await
             .expect("Failed to save message second time");
 
@@ -1214,6 +1535,8 @@ mod tests {
                 body_plain: Some("Body 1".to_string()),
                 body_html: None,
                 internal_date: 1609459200000,
+                from_address: Some("test@example.com".to_string()),
+                subject: Some("Test subject 1".to_string()),
             },
             GmailMessage {
                 message_id: "msg004".to_string(),
@@ -1221,6 +1544,8 @@ mod tests {
                 body_plain: None,
                 body_html: Some("<html>Body 2</html>".to_string()),
                 internal_date: 1609545600000,
+                from_address: Some("test@example.com".to_string()),
+                subject: Some("Test subject 2".to_string()),
             },
             GmailMessage {
                 message_id: "msg005".to_string(),
@@ -1228,10 +1553,23 @@ mod tests {
                 body_plain: Some("Body 3".to_string()),
                 body_html: Some("<html>Body 3</html>".to_string()),
                 internal_date: 1609632000000,
+                from_address: Some("test@example.com".to_string()),
+                subject: Some("Test subject 3".to_string()),
             },
         ];
 
-        let result = save_messages_to_db(&pool, &messages)
+        let shop_settings = vec![ShopSettings {
+            id: 1,
+            shop_name: "Test Shop".to_string(),
+            sender_address: "test@example.com".to_string(),
+            parser_type: "test".to_string(),
+            subject_filter: None,
+            is_enabled: true,
+            created_at: "2021-01-01 00:00:00".to_string(),
+            updated_at: "2021-01-01 00:00:00".to_string(),
+        }];
+
+        let result = save_messages_to_db(&pool, &messages, &shop_settings)
             .await
             .expect("Failed to save batch");
 
@@ -1252,6 +1590,17 @@ mod tests {
     async fn test_save_messages_to_db_partial_duplicate() {
         let pool = create_test_db().await;
 
+        let shop_settings = vec![ShopSettings {
+            id: 1,
+            shop_name: "Test Shop".to_string(),
+            sender_address: "test@example.com".to_string(),
+            parser_type: "test".to_string(),
+            subject_filter: None,
+            is_enabled: true,
+            created_at: "2021-01-01 00:00:00".to_string(),
+            updated_at: "2021-01-01 00:00:00".to_string(),
+        }];
+
         // First batch
         let messages1 = vec![
             GmailMessage {
@@ -1260,6 +1609,8 @@ mod tests {
                 body_plain: Some("Body 1".to_string()),
                 body_html: None,
                 internal_date: 1609459200000,
+                from_address: Some("test@example.com".to_string()),
+                subject: Some("Test subject 1".to_string()),
             },
             GmailMessage {
                 message_id: "msg007".to_string(),
@@ -1267,10 +1618,12 @@ mod tests {
                 body_plain: Some("Body 2".to_string()),
                 body_html: None,
                 internal_date: 1609545600000,
+                from_address: Some("test@example.com".to_string()),
+                subject: Some("Test subject 2".to_string()),
             },
         ];
 
-        save_messages_to_db(&pool, &messages1)
+        save_messages_to_db(&pool, &messages1, &shop_settings)
             .await
             .expect("Failed to save first batch");
 
@@ -1282,6 +1635,8 @@ mod tests {
                 body_plain: Some("Body 2".to_string()),
                 body_html: None,
                 internal_date: 1609545600000,
+                from_address: Some("test@example.com".to_string()),
+                subject: Some("Test subject 2".to_string()),
             },
             GmailMessage {
                 message_id: "msg008".to_string(), // New
@@ -1289,10 +1644,12 @@ mod tests {
                 body_plain: Some("Body 3".to_string()),
                 body_html: None,
                 internal_date: 1609632000000,
+                from_address: Some("test@example.com".to_string()),
+                subject: Some("Test subject 3".to_string()),
             },
         ];
 
-        let result = save_messages_to_db(&pool, &messages2)
+        let result = save_messages_to_db(&pool, &messages2, &shop_settings)
             .await
             .expect("Failed to save second batch");
 
@@ -1345,6 +1702,17 @@ mod tests {
     async fn test_save_messages_db_constraint_violation() {
         let pool = create_test_db().await;
 
+        let shop_settings = vec![ShopSettings {
+            id: 1,
+            shop_name: "Test Shop".to_string(),
+            sender_address: "test@example.com".to_string(),
+            parser_type: "test".to_string(),
+            subject_filter: None,
+            is_enabled: true,
+            created_at: "2021-01-01 00:00:00".to_string(),
+            updated_at: "2021-01-01 00:00:00".to_string(),
+        }];
+
         // 正常にメッセージを保存
         let message = GmailMessage {
             message_id: "msg_unique".to_string(),
@@ -1352,16 +1720,18 @@ mod tests {
             body_plain: Some("Plain text".to_string()),
             body_html: Some("<html>HTML</html>".to_string()),
             internal_date: 1609459200000,
+            from_address: Some("test@example.com".to_string()),
+            subject: Some("Test subject".to_string()),
         };
 
-        let result1 = save_messages_to_db(&pool, &[message.clone()])
+        let result1 = save_messages_to_db(&pool, &[message.clone()], &shop_settings)
             .await
             .expect("Failed to save first message");
 
         assert_eq!(result1.saved_count, 1);
 
         // 同じmessage_idで再度保存しようとする（UNIQUE制約違反）
-        let result2 = save_messages_to_db(&pool, &[message])
+        let result2 = save_messages_to_db(&pool, &[message], &shop_settings)
             .await
             .expect("Should handle duplicate gracefully");
 
@@ -1374,6 +1744,17 @@ mod tests {
     async fn test_save_messages_invalid_internal_date() {
         let pool = create_test_db().await;
 
+        let shop_settings = vec![ShopSettings {
+            id: 1,
+            shop_name: "Test Shop".to_string(),
+            sender_address: "test@example.com".to_string(),
+            parser_type: "test".to_string(),
+            subject_filter: None,
+            is_enabled: true,
+            created_at: "2021-01-01 00:00:00".to_string(),
+            updated_at: "2021-01-01 00:00:00".to_string(),
+        }];
+
         // internal_dateが負の値（無効なタイムスタンプ）
         let message = GmailMessage {
             message_id: "msg_invalid_date".to_string(),
@@ -1381,11 +1762,13 @@ mod tests {
             body_plain: Some("Plain text".to_string()),
             body_html: Some("<html>HTML</html>".to_string()),
             internal_date: -1, // 無効な値
+            from_address: Some("test@example.com".to_string()),
+            subject: Some("Test subject".to_string()),
         };
 
         // データベース制約によっては保存される可能性があるが、
         // アプリケーションロジックでバリデーションを行う場合はエラーになる
-        let result = save_messages_to_db(&pool, &[message]).await;
+        let result = save_messages_to_db(&pool, &[message], &shop_settings).await;
 
         // この場合、SQLiteは負の値も許容するため成功する
         assert!(result.is_ok());
@@ -1442,6 +1825,17 @@ mod tests {
     async fn test_save_messages_empty_message_id() {
         let pool = create_test_db().await;
 
+        let shop_settings = vec![ShopSettings {
+            id: 1,
+            shop_name: "Test Shop".to_string(),
+            sender_address: "test@example.com".to_string(),
+            parser_type: "test".to_string(),
+            subject_filter: None,
+            is_enabled: true,
+            created_at: "2021-01-01 00:00:00".to_string(),
+            updated_at: "2021-01-01 00:00:00".to_string(),
+        }];
+
         // message_idが空文字列
         let message = GmailMessage {
             message_id: String::new(),
@@ -1449,9 +1843,11 @@ mod tests {
             body_plain: Some("Plain text".to_string()),
             body_html: Some("<html>HTML</html>".to_string()),
             internal_date: 1609459200000,
+            from_address: Some("test@example.com".to_string()),
+            subject: Some("Test subject".to_string()),
         };
 
-        let result = save_messages_to_db(&pool, &[message]).await;
+        let result = save_messages_to_db(&pool, &[message], &shop_settings).await;
 
         // SQLiteはNOT NULL制約でも空文字列を許容する
         assert!(result.is_ok());
@@ -1464,6 +1860,17 @@ mod tests {
     async fn test_save_messages_very_large_body() {
         let pool = create_test_db().await;
 
+        let shop_settings = vec![ShopSettings {
+            id: 1,
+            shop_name: "Test Shop".to_string(),
+            sender_address: "test@example.com".to_string(),
+            parser_type: "test".to_string(),
+            subject_filter: None,
+            is_enabled: true,
+            created_at: "2021-01-01 00:00:00".to_string(),
+            updated_at: "2021-01-01 00:00:00".to_string(),
+        }];
+
         // 非常に大きなボディ（1MB）
         let large_body = "x".repeat(1024 * 1024);
 
@@ -1473,9 +1880,11 @@ mod tests {
             body_plain: Some(large_body.clone()),
             body_html: Some(large_body),
             internal_date: 1609459200000,
+            from_address: Some("test@example.com".to_string()),
+            subject: Some("Test subject".to_string()),
         };
 
-        let result = save_messages_to_db(&pool, &[message]).await;
+        let result = save_messages_to_db(&pool, &[message], &shop_settings).await;
 
         // 大きなデータも保存できる
         assert!(result.is_ok());
@@ -1488,6 +1897,17 @@ mod tests {
     async fn test_save_messages_unicode_content() {
         let pool = create_test_db().await;
 
+        let shop_settings = vec![ShopSettings {
+            id: 1,
+            shop_name: "Test Shop".to_string(),
+            sender_address: "test@example.com".to_string(),
+            parser_type: "test".to_string(),
+            subject_filter: None,
+            is_enabled: true,
+            created_at: "2021-01-01 00:00:00".to_string(),
+            updated_at: "2021-01-01 00:00:00".to_string(),
+        }];
+
         // Unicode文字を含むメッセージ
         let message = GmailMessage {
             message_id: "msg_unicode".to_string(),
@@ -1495,9 +1915,11 @@ mod tests {
             body_plain: Some("こんにちは、世界！\n你好世界！\n안녕하세요！".to_string()),
             body_html: Some("<html>🌍 Unicode HTML 🌏</html>".to_string()),
             internal_date: 1609459200000,
+            from_address: Some("test@example.com".to_string()),
+            subject: Some("テスト件名".to_string()),
         };
 
-        let result = save_messages_to_db(&pool, &[message.clone()])
+        let result = save_messages_to_db(&pool, &[message.clone()], &shop_settings)
             .await
             .expect("Failed to save unicode message");
 
@@ -1558,6 +1980,17 @@ mod tests {
     async fn test_save_messages_special_characters() {
         let pool = create_test_db().await;
 
+        let shop_settings = vec![ShopSettings {
+            id: 1,
+            shop_name: "Test Shop".to_string(),
+            sender_address: "test@example.com".to_string(),
+            parser_type: "test".to_string(),
+            subject_filter: None,
+            is_enabled: true,
+            created_at: "2021-01-01 00:00:00".to_string(),
+            updated_at: "2021-01-01 00:00:00".to_string(),
+        }];
+
         // 特殊文字を含むメッセージ（SQL injection対策テスト）
         let message = GmailMessage {
             message_id: "msg'; DROP TABLE emails; --".to_string(),
@@ -1565,9 +1998,11 @@ mod tests {
             body_plain: Some("Plain text with 'quotes' and \"double quotes\"".to_string()),
             body_html: Some("<html><body onload='alert(1)'>HTML</body></html>".to_string()),
             internal_date: 1609459200000,
+            from_address: Some("test@example.com".to_string()),
+            subject: Some("Test'; DROP TABLE--".to_string()),
         };
 
-        let result = save_messages_to_db(&pool, &[message.clone()])
+        let result = save_messages_to_db(&pool, &[message.clone()], &shop_settings)
             .await
             .expect("Failed to save message with special characters");
 
@@ -1595,28 +2030,32 @@ mod tests {
 
     #[test]
     fn test_build_sync_query_without_date() {
-        let query = build_sync_query(&None);
-        assert_eq!(query, r"subject:(注文 OR 予約 OR ありがとうございます)");
+        let addresses = vec!["test@example.com".to_string()];
+        let query = build_sync_query(&addresses, &None);
+        assert_eq!(query, "from:test@example.com");
     }
 
     #[test]
     fn test_build_sync_query_with_valid_date() {
+        let addresses = vec!["test@example.com".to_string()];
         let date = Some("2024-01-15T10:30:00Z".to_string());
-        let query = build_sync_query(&date);
-        assert!(query.contains(r"subject:(注文 OR 予約 OR ありがとうございます)"));
+        let query = build_sync_query(&addresses, &date);
+        assert!(query.contains("from:test@example.com"));
         assert!(query.contains("before:2024/01/15"));
     }
 
     #[test]
     fn test_build_sync_query_with_invalid_date() {
+        let addresses = vec!["test@example.com".to_string()];
         let date = Some("invalid-date".to_string());
-        let query = build_sync_query(&date);
+        let query = build_sync_query(&addresses, &date);
         // 無効な日付の場合、基本クエリのみが返される
-        assert_eq!(query, r"subject:(注文 OR 予約 OR ありがとうございます)");
+        assert_eq!(query, "from:test@example.com");
     }
 
     #[test]
     fn test_build_sync_query_with_different_dates() {
+        let addresses = vec!["test@example.com".to_string()];
         let test_cases = vec![
             ("2024-01-01T00:00:00Z", "before:2024/01/01"),
             ("2023-12-31T23:59:59Z", "before:2023/12/31"),
@@ -1624,12 +2063,34 @@ mod tests {
         ];
 
         for (date_str, expected_before) in test_cases {
-            let query = build_sync_query(&Some(date_str.to_string()));
+            let query = build_sync_query(&addresses, &Some(date_str.to_string()));
             assert!(
                 query.contains(expected_before),
                 "Query: {query}, Expected: {expected_before}"
             );
         }
+    }
+
+    #[test]
+    fn test_build_sync_query_with_multiple_addresses() {
+        let addresses = vec![
+            "test1@example.com".to_string(),
+            "test2@example.com".to_string(),
+            "test3@example.com".to_string(),
+        ];
+        let query = build_sync_query(&addresses, &None);
+        assert_eq!(
+            query,
+            "from:test1@example.com OR from:test2@example.com OR from:test3@example.com"
+        );
+    }
+
+    #[test]
+    fn test_build_sync_query_with_empty_addresses() {
+        let addresses: Vec<String> = vec![];
+        let query = build_sync_query(&addresses, &None);
+        // Should fallback to keyword search
+        assert_eq!(query, r"subject:(注文 OR 予約 OR ありがとうございます)");
     }
 
     #[test]
@@ -1729,6 +2190,8 @@ mod tests {
             body_plain: None,
             body_html: None,
             internal_date: 1609459200000,
+            from_address: None,
+            subject: None,
         };
 
         assert!(message.body_plain.is_none());
@@ -1893,6 +2356,8 @@ mod tests {
             body_plain: Some("Plain text body".to_string()),
             body_html: Some("<p>HTML body</p>".to_string()),
             internal_date: 1705329600,
+            from_address: Some("test@example.com".to_string()),
+            subject: Some("Test subject".to_string()),
         };
 
         assert_eq!(message.message_id, "msg_123");
@@ -1910,6 +2375,8 @@ mod tests {
             body_plain: None,
             body_html: None,
             internal_date: 1705329600,
+            from_address: None,
+            subject: None,
         };
 
         assert_eq!(message.message_id, "msg_456");
@@ -1921,8 +2388,9 @@ mod tests {
 
     #[test]
     fn test_build_sync_query_date_format() {
+        let addresses = vec!["test@example.com".to_string()];
         let date = Some("2024-01-15T10:30:00Z".to_string());
-        let query = build_sync_query(&date);
+        let query = build_sync_query(&addresses, &date);
 
         // Should extract just the date part (2024-01-15) and format as 2024/01/15
         assert!(query.contains("before:2024/01/15"));
@@ -2403,6 +2871,8 @@ mod tests {
                 body_plain: None,
                 body_html: None,
                 internal_date: 1000,
+                from_address: None,
+                subject: None,
             },
             GmailMessage {
                 message_id: "msg002".to_string(),
@@ -2410,6 +2880,8 @@ mod tests {
                 body_plain: None,
                 body_html: None,
                 internal_date: 2000,
+                from_address: None,
+                subject: None,
             },
         ];
 

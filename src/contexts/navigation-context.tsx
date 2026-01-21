@@ -5,6 +5,7 @@ type Screen =
   | 'orders'
   | 'sync'
   | 'logs'
+  | 'shop-settings'
   | 'settings'
   | 'table-emails'
   | 'table-orders'
@@ -13,7 +14,10 @@ type Screen =
   | 'table-deliveries'
   | 'table-htmls'
   | 'table-order-emails'
-  | 'table-order-htmls';
+  | 'table-order-htmls'
+  | 'table-shop-settings'
+  | 'table-sync-metadata'
+  | 'table-window-settings';
 
 type NavigationContextType = {
   currentScreen: Screen;
