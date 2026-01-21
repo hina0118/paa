@@ -5,6 +5,7 @@ import {
   Settings,
   Database,
   ScrollText,
+  Store,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useNavigation } from '@/contexts/navigation-context';
@@ -13,7 +14,7 @@ import { useState } from 'react';
 type NavigationItem = {
   name: string;
   icon: React.ComponentType<{ className?: string }>;
-  id: 'dashboard' | 'orders' | 'sync' | 'settings' | 'logs';
+  id: 'dashboard' | 'orders' | 'sync' | 'settings' | 'logs' | 'shop-settings';
 };
 
 type TableItem = {
@@ -34,6 +35,7 @@ const navigationItems: NavigationItem[] = [
   { name: 'Orders', icon: ShoppingCart, id: 'orders' },
   { name: 'Sync', icon: RefreshCw, id: 'sync' },
   { name: 'Logs', icon: ScrollText, id: 'logs' },
+  { name: 'Shop Settings', icon: Store, id: 'shop-settings' },
   { name: 'Settings', icon: Settings, id: 'settings' },
 ];
 
