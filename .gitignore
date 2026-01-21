@@ -114,3 +114,6 @@ coverage/
 *.profdata
 .nyc_output/
 src-tauri/target/llvm-cov/
+
+# sample file
+sample/

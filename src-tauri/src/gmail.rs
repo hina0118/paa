@@ -56,6 +56,7 @@ impl oauth2::authenticator_delegate::InstalledFlowDelegate for CustomFlowDelegat
 pub struct GmailMessage {
     pub message_id: String,
     pub snippet: String,
+    pub subject: Option<String>,
     pub body_plain: Option<String>,
     pub body_html: Option<String>,
     pub internal_date: i64,
@@ -99,6 +100,7 @@ pub struct ShopSettings {
     pub sender_address: String,
     pub parser_type: String,
     pub is_enabled: bool,
+    pub subject_filter: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -108,6 +110,7 @@ pub struct CreateShopSettings {
     pub shop_name: String,
     pub sender_address: String,
     pub parser_type: String,
+    pub subject_filter: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -116,6 +119,7 @@ pub struct UpdateShopSettings {
     pub sender_address: Option<String>,
     pub parser_type: Option<String>,
     pub is_enabled: Option<bool>,
+    pub subject_filter: Option<String>,
 }
 
 /// Synchronization state for Gmail sync operations
@@ -396,15 +400,18 @@ impl GmailClient {
         let mut body_plain: Option<String> = None;
         let mut body_html: Option<String> = None;
         let mut from_address: Option<String> = None;
+        let mut subject: Option<String> = None;
 
-        // Extract From header from payload
+        // Extract From and Subject headers from payload
         if let Some(payload) = &message.payload {
             if let Some(headers) = &payload.headers {
                 for header in headers {
                     if let Some(name) = &header.name {
-                        if name.to_lowercase() == "from" {
+                        let name_lower = name.to_lowercase();
+                        if name_lower == "from" {
                             from_address = header.value.clone();
-                            break;
+                        } else if name_lower == "subject" {
+                            subject = header.value.clone();
                         }
                     }
                 }
@@ -435,6 +442,7 @@ impl GmailClient {
         Ok(GmailMessage {
             message_id: message_id.to_string(),
             snippet,
+            subject,
             body_plain,
             body_html,
             internal_date,
@@ -574,11 +582,13 @@ impl GmailClient {
 pub async fn save_messages_to_db(
     pool: &SqlitePool,
     messages: &[GmailMessage],
+    shop_settings: &[ShopSettings],
 ) -> Result<FetchResult, String> {
     log::info!("Saving {} messages to database using sqlx", messages.len());
 
     let mut saved_count = 0;
     let mut skipped_count = 0;
+    let mut filtered_count = 0;
 
     // トランザクションを使用してバッチ処理
     let mut tx = pool
@@ -587,6 +597,17 @@ pub async fn save_messages_to_db(
         .map_err(|e| format!("Failed to begin transaction: {e}"))?;
 
     for msg in messages {
+        // Check subject filter
+        if !should_save_message(msg, shop_settings) {
+            filtered_count += 1;
+            log::debug!(
+                "Message {} filtered out by subject filter (subject: {:?})",
+                msg.message_id,
+                msg.subject
+            );
+            continue;
+        }
+
         let result = sqlx::query(
             r"
             INSERT INTO emails (message_id, body_plain, body_html, internal_date)
@@ -613,7 +634,9 @@ pub async fn save_messages_to_db(
         .await
         .map_err(|e| format!("Failed to commit transaction: {e}"))?;
 
-    log::info!("Saved {saved_count} messages, skipped {skipped_count} duplicates");
+    log::info!(
+        "Saved {saved_count} messages, skipped {skipped_count} duplicates, filtered {filtered_count} by subject"
+    );
 
     Ok(FetchResult {
         fetched_count: messages.len(),
@@ -874,8 +897,8 @@ pub async fn sync_gmail_incremental(
         let current_message_ids: Vec<String> =
             messages.iter().map(|m| m.message_id.clone()).collect();
 
-        // Save to database
-        let result = match save_messages_to_db(pool, &messages).await {
+        // Save to database with subject filtering
+        let result = match save_messages_to_db(pool, &messages, &enabled_shops).await {
             Ok(r) => r,
             Err(e) => {
                 update_sync_error_status(pool).await;
@@ -1077,6 +1100,43 @@ fn extract_email_address(from_header: &str) -> Option<String> {
     None
 }
 
+/// Check if a message should be saved based on shop settings and subject filter
+/// Returns true if the message should be saved, false otherwise
+fn should_save_message(msg: &GmailMessage, shop_settings: &[ShopSettings]) -> bool {
+    // Extract sender email address
+    let sender_email = match &msg.from_address {
+        Some(addr) => match extract_email_address(addr) {
+            Some(email) => email,
+            None => return false,
+        },
+        None => return false,
+    };
+
+    // Find matching shop setting
+    for shop in shop_settings {
+        if shop.sender_address.to_lowercase() == sender_email {
+            // If no subject filter is set, allow the message
+            if shop.subject_filter.is_none() {
+                return true;
+            }
+
+            // If subject filter is set, check if message subject matches
+            if let Some(filter) = &shop.subject_filter {
+                if let Some(subject) = &msg.subject {
+                    return subject == filter;
+                }
+                // If filter is set but message has no subject, reject
+                return false;
+            }
+
+            return true;
+        }
+    }
+
+    // No matching shop setting found
+    false
+}
+
 /// Determine parser type based on sender address
 /// Returns the parser_type if a matching shop setting is found
 #[allow(dead_code)]
@@ -1104,7 +1164,7 @@ pub async fn get_all_shop_settings(pool: &SqlitePool) -> Result<Vec<ShopSettings
     sqlx::query_as::<_, ShopSettings>(
         r#"
         SELECT id, shop_name, sender_address, parser_type, is_enabled,
-               created_at, updated_at
+               subject_filter, created_at, updated_at
         FROM shop_settings
         ORDER BY id ASC
         "#,
@@ -1119,7 +1179,7 @@ pub async fn get_enabled_shop_settings(pool: &SqlitePool) -> Result<Vec<ShopSett
     sqlx::query_as::<_, ShopSettings>(
         r#"
         SELECT id, shop_name, sender_address, parser_type, is_enabled,
-               created_at, updated_at
+               subject_filter, created_at, updated_at
         FROM shop_settings
         WHERE is_enabled = 1
         ORDER BY id ASC
@@ -1137,13 +1197,14 @@ pub async fn create_shop_setting(
 ) -> Result<i64, String> {
     let result = sqlx::query(
         r#"
-        INSERT INTO shop_settings (shop_name, sender_address, parser_type, is_enabled)
-        VALUES (?, ?, ?, 1)
+        INSERT INTO shop_settings (shop_name, sender_address, parser_type, subject_filter, is_enabled)
+        VALUES (?, ?, ?, ?, 1)
         "#,
     )
     .bind(&settings.shop_name)
     .bind(&settings.sender_address)
     .bind(&settings.parser_type)
+    .bind(&settings.subject_filter)
     .execute(pool)
     .await
     .map_err(|e| format!("Failed to create shop setting: {e}"))?;
@@ -1158,7 +1219,7 @@ pub async fn update_shop_setting(
     settings: UpdateShopSettings,
 ) -> Result<(), String> {
     let existing = sqlx::query_as::<_, ShopSettings>(
-        "SELECT id, shop_name, sender_address, parser_type, is_enabled, created_at, updated_at FROM shop_settings WHERE id = ?",
+        "SELECT id, shop_name, sender_address, parser_type, is_enabled, subject_filter, created_at, updated_at FROM shop_settings WHERE id = ?",
     )
     .bind(id)
     .fetch_optional(pool)
@@ -1170,11 +1231,12 @@ pub async fn update_shop_setting(
     let sender_address = settings.sender_address.unwrap_or(existing.sender_address);
     let parser_type = settings.parser_type.unwrap_or(existing.parser_type);
     let is_enabled = settings.is_enabled.unwrap_or(existing.is_enabled);
+    let subject_filter = settings.subject_filter.or(existing.subject_filter);
 
     sqlx::query(
         r#"
         UPDATE shop_settings
-        SET shop_name = ?, sender_address = ?, parser_type = ?, is_enabled = ?,
+        SET shop_name = ?, sender_address = ?, parser_type = ?, is_enabled = ?, subject_filter = ?,
             updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
         "#,
@@ -1183,6 +1245,7 @@ pub async fn update_shop_setting(
     .bind(&sender_address)
     .bind(&parser_type)
     .bind(is_enabled)
+    .bind(&subject_filter)
     .bind(id)
     .execute(pool)
     .await

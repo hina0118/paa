@@ -31,3 +31,21 @@ export function OrderEmailsTable() {
 export function OrderHtmlsTable() {
   return <TableViewer tableName="order_htmls" title="Order-HTMLs テーブル" />;
 }
+
+export function ShopSettingsTable() {
+  return (
+    <TableViewer tableName="shop_settings" title="Shop Settings テーブル" />
+  );
+}
+
+export function SyncMetadataTable() {
+  return (
+    <TableViewer tableName="sync_metadata" title="Sync Metadata テーブル" />
+  );
+}
+
+export function WindowSettingsTable() {
+  return (
+    <TableViewer tableName="window_settings" title="Window Settings テーブル" />
+  );
+}

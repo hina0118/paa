@@ -27,7 +27,10 @@ type TableItem = {
     | 'table-deliveries'
     | 'table-htmls'
     | 'table-order-emails'
-    | 'table-order-htmls';
+    | 'table-order-htmls'
+    | 'table-shop-settings'
+    | 'table-sync-metadata'
+    | 'table-window-settings';
 };
 
 const navigationItems: NavigationItem[] = [
@@ -48,6 +51,9 @@ const tableItems: TableItem[] = [
   { name: 'HTMLs', id: 'table-htmls' },
   { name: 'Order-Emails', id: 'table-order-emails' },
   { name: 'Order-HTMLs', id: 'table-order-htmls' },
+  { name: 'Shop Settings', id: 'table-shop-settings' },
+  { name: 'Sync Metadata', id: 'table-sync-metadata' },
+  { name: 'Window Settings', id: 'table-window-settings' },
 ];
 
 export function Sidebar() {

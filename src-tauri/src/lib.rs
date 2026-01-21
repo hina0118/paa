@@ -483,6 +483,12 @@ pub fn run() {
             sql: include_str!("../migrations/014_create_shop_settings_table.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 15,
+            description: "add subject_filter to shop_settings",
+            sql: include_str!("../migrations/015_add_subject_filter_to_shop_settings.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
@@ -717,11 +723,13 @@ async fn create_shop_setting(
     shop_name: String,
     sender_address: String,
     parser_type: String,
+    subject_filter: Option<String>,
 ) -> Result<i64, String> {
     let settings = gmail::CreateShopSettings {
         shop_name,
         sender_address,
         parser_type,
+        subject_filter,
     };
     gmail::create_shop_setting(pool.inner(), settings).await
 }
@@ -734,12 +742,14 @@ async fn update_shop_setting(
     sender_address: Option<String>,
     parser_type: Option<String>,
     is_enabled: Option<bool>,
+    subject_filter: Option<String>,
 ) -> Result<(), String> {
     let settings = gmail::UpdateShopSettings {
         shop_name,
         sender_address,
         parser_type,
         is_enabled,
+        subject_filter,
     };
     gmail::update_shop_setting(pool.inner(), id, settings).await
 }

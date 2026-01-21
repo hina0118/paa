@@ -17,6 +17,7 @@ interface ShopSetting {
   sender_address: string;
   parser_type: string;
   is_enabled: boolean;
+  subject_filter: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -31,6 +32,7 @@ export function ShopSettings() {
   const [newShopName, setNewShopName] = useState('');
   const [newSenderAddress, setNewSenderAddress] = useState('');
   const [newParserType, setNewParserType] = useState('');
+  const [newSubjectFilter, setNewSubjectFilter] = useState('');
   const [isAdding, setIsAdding] = useState(false);
 
   // Edit state
@@ -79,12 +81,14 @@ export function ShopSettings() {
         shopName: newShopName,
         senderAddress: newSenderAddress.toLowerCase(),
         parserType: newParserType,
+        subjectFilter: newSubjectFilter.trim() || null,
       });
       setSuccessMessage('新しい店舗設定を追加しました');
       setTimeout(() => setSuccessMessage(''), 3000);
       setNewShopName('');
       setNewSenderAddress('');
       setNewParserType('');
+      setNewSubjectFilter('');
       await loadShops();
     } catch (err) {
       setError(
@@ -102,6 +106,7 @@ export function ShopSettings() {
       sender_address: shop.sender_address,
       parser_type: shop.parser_type,
       is_enabled: shop.is_enabled,
+      subject_filter: shop.subject_filter,
     });
   };
 
@@ -133,6 +138,7 @@ export function ShopSettings() {
         senderAddress: editForm.sender_address?.toLowerCase(),
         parserType: editForm.parser_type,
         isEnabled: editForm.is_enabled,
+        subjectFilter: editForm.subject_filter?.trim() || null,
       });
       setSuccessMessage('店舗設定を更新しました');
       setTimeout(() => setSuccessMessage(''), 3000);
@@ -247,6 +253,21 @@ export function ShopSettings() {
                 />
               </div>
             </div>
+            <div className="space-y-2">
+              <label htmlFor="subject-filter" className="text-sm font-medium">
+                件名フィルター（オプション）
+              </label>
+              <Input
+                id="subject-filter"
+                placeholder="例: 【ホビーサーチ】ご注文の発送が完了しました"
+                value={newSubjectFilter}
+                onChange={(e) => setNewSubjectFilter(e.target.value)}
+                disabled={isAdding}
+              />
+              <p className="text-xs text-muted-foreground">
+                設定した場合、この件名に完全一致するメールのみを取り込みます
+              </p>
+            </div>
             <div>
               <Button onClick={handleAdd} disabled={isAdding}>
                 {isAdding ? '追加中...' : '追加'}
@@ -321,6 +342,24 @@ export function ShopSettings() {
                           />
                         </div>
                       </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">
+                          件名フィルター（オプション）
+                        </label>
+                        <Input
+                          value={editForm.subject_filter || ''}
+                          placeholder="例: 【ホビーサーチ】ご注文の発送が完了しました"
+                          onChange={(e) =>
+                            setEditForm({
+                              ...editForm,
+                              subject_filter: e.target.value,
+                            })
+                          }
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          設定した場合、この件名に完全一致するメールのみを取り込みます
+                        </p>
+                      </div>
                       <div className="flex items-center gap-2">
                         <Checkbox
                           id={`enabled-${shop.id}`}
@@ -371,6 +410,11 @@ export function ShopSettings() {
                           <p className="text-sm text-muted-foreground">
                             パーサー: {shop.parser_type}
                           </p>
+                          {shop.subject_filter && (
+                            <p className="text-sm text-muted-foreground">
+                              件名フィルター: {shop.subject_filter}
+                            </p>
+                          )}
                         </div>
                         <div className="flex gap-2">
                           <Button
