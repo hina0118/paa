@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useSync } from '@/contexts/sync-context';
+import { useParse } from '@/contexts/parse-context';
 import {
   Card,
   CardContent,
@@ -12,10 +13,14 @@ import { Button } from '@/components/ui/button';
 
 export function Settings() {
   const { metadata, updateBatchSize, updateMaxIterations } = useSync();
+  const { metadata: parseMetadata, updateBatchSize: updateParseBatchSize } =
+    useParse();
   const [batchSize, setBatchSize] = useState<string>('');
   const [maxIterations, setMaxIterations] = useState<string>('');
+  const [parseBatchSize, setParseBatchSize] = useState<string>('');
   const [isSavingBatchSize, setIsSavingBatchSize] = useState(false);
   const [isSavingMaxIterations, setIsSavingMaxIterations] = useState(false);
+  const [isSavingParseBatchSize, setIsSavingParseBatchSize] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [isInitialized, setIsInitialized] = useState(false);
@@ -27,6 +32,12 @@ export function Settings() {
       setIsInitialized(true);
     }
   }, [metadata, isInitialized]);
+
+  useEffect(() => {
+    if (parseMetadata) {
+      setParseBatchSize(parseMetadata.batch_size.toString());
+    }
+  }, [parseMetadata]);
 
   const handleSaveBatchSize = async () => {
     const value = parseInt(batchSize, 10);
@@ -73,6 +84,30 @@ export function Settings() {
       );
     } finally {
       setIsSavingMaxIterations(false);
+    }
+  };
+
+  const handleSaveParseBatchSize = async () => {
+    const value = parseInt(parseBatchSize, 10);
+    if (isNaN(value) || value <= 0) {
+      setErrorMessage('パースバッチサイズは1以上の整数を入力してください');
+      return;
+    }
+
+    setIsSavingParseBatchSize(true);
+    setErrorMessage('');
+    setSuccessMessage('');
+
+    try {
+      await updateParseBatchSize(value);
+      setSuccessMessage('パースバッチサイズを更新しました');
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (error) {
+      setErrorMessage(
+        `更新に失敗しました: ${error instanceof Error ? error.message : String(error)}`
+      );
+    } finally {
+      setIsSavingParseBatchSize(false);
     }
   };
 
@@ -162,6 +197,40 @@ export function Settings() {
               </p>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>パース設定</CardTitle>
+          <CardDescription>メールパースの動作を調整します</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="space-y-2">
+            <label htmlFor="parse-batch-size" className="text-sm font-medium">
+              バッチサイズ
+            </label>
+            <p className="text-sm text-muted-foreground">
+              1回のパース処理で処理するメールの件数 (推奨: 50-500)
+            </p>
+            <div className="flex gap-2">
+              <Input
+                id="parse-batch-size"
+                type="number"
+                min="1"
+                value={parseBatchSize}
+                onChange={(e) => setParseBatchSize(e.target.value)}
+                disabled={isSavingParseBatchSize}
+                className="max-w-xs"
+              />
+              <Button
+                onClick={handleSaveParseBatchSize}
+                disabled={isSavingParseBatchSize}
+              >
+                保存
+              </Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
     </div>

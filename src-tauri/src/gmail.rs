@@ -100,9 +100,21 @@ pub struct ShopSettings {
     pub sender_address: String,
     pub parser_type: String,
     pub is_enabled: bool,
-    pub subject_filter: Option<String>,
+    #[serde(default)]
+    #[sqlx(default)]
+    pub subject_filters: Option<String>, // JSON array stored as string
     pub created_at: String,
     pub updated_at: String,
+}
+
+impl ShopSettings {
+    /// subject_filtersをパースしてVec<String>として取得
+    pub fn get_subject_filters(&self) -> Vec<String> {
+        self.subject_filters
+            .as_ref()
+            .and_then(|json_str| serde_json::from_str::<Vec<String>>(json_str).ok())
+            .unwrap_or_default()
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -110,7 +122,7 @@ pub struct CreateShopSettings {
     pub shop_name: String,
     pub sender_address: String,
     pub parser_type: String,
-    pub subject_filter: Option<String>,
+    pub subject_filters: Option<Vec<String>>, // Frontend sends array, we'll convert to JSON
 }
 
 #[derive(Debug, Deserialize)]
@@ -119,7 +131,7 @@ pub struct UpdateShopSettings {
     pub sender_address: Option<String>,
     pub parser_type: Option<String>,
     pub is_enabled: Option<bool>,
-    pub subject_filter: Option<String>,
+    pub subject_filters: Option<Vec<String>>,
 }
 
 /// Synchronization state for Gmail sync operations
@@ -610,8 +622,8 @@ pub async fn save_messages_to_db(
 
         let result = sqlx::query(
             r"
-            INSERT INTO emails (message_id, body_plain, body_html, internal_date)
-            VALUES (?1, ?2, ?3, ?4)
+            INSERT INTO emails (message_id, body_plain, body_html, internal_date, from_address, subject)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
             ON CONFLICT(message_id) DO NOTHING
             ",
         )
@@ -619,6 +631,8 @@ pub async fn save_messages_to_db(
         .bind(&msg.body_plain)
         .bind(&msg.body_html)
         .bind(msg.internal_date)
+        .bind(&msg.from_address)
+        .bind(&msg.subject)
         .execute(&mut *tx)
         .await
         .map_err(|e| format!("Failed to insert message {}: {}", msg.message_id, e))?;
@@ -1116,20 +1130,22 @@ fn should_save_message(msg: &GmailMessage, shop_settings: &[ShopSettings]) -> bo
     for shop in shop_settings {
         if shop.sender_address.to_lowercase() == sender_email {
             // If no subject filter is set, allow the message
-            if shop.subject_filter.is_none() {
+            if shop.subject_filters.is_none() {
                 return true;
             }
 
-            // If subject filter is set, check if message subject matches
-            if let Some(filter) = &shop.subject_filter {
-                if let Some(subject) = &msg.subject {
-                    return subject == filter;
-                }
-                // If filter is set but message has no subject, reject
-                return false;
+            // If subject filters are set, check if message subject matches any filter
+            let filters = shop.get_subject_filters();
+            if filters.is_empty() {
+                return true;
             }
 
-            return true;
+            if let Some(subject) = &msg.subject {
+                // Check if subject contains any of the filters
+                return filters.iter().any(|filter| subject.contains(filter));
+            }
+            // If filters are set but message has no subject, reject
+            return false;
         }
     }
 
@@ -1164,7 +1180,7 @@ pub async fn get_all_shop_settings(pool: &SqlitePool) -> Result<Vec<ShopSettings
     sqlx::query_as::<_, ShopSettings>(
         r#"
         SELECT id, shop_name, sender_address, parser_type, is_enabled,
-               subject_filter, created_at, updated_at
+               subject_filters, created_at, updated_at
         FROM shop_settings
         ORDER BY id ASC
         "#,
@@ -1179,7 +1195,7 @@ pub async fn get_enabled_shop_settings(pool: &SqlitePool) -> Result<Vec<ShopSett
     sqlx::query_as::<_, ShopSettings>(
         r#"
         SELECT id, shop_name, sender_address, parser_type, is_enabled,
-               subject_filter, created_at, updated_at
+               subject_filters, created_at, updated_at
         FROM shop_settings
         WHERE is_enabled = 1
         ORDER BY id ASC
@@ -1195,16 +1211,23 @@ pub async fn create_shop_setting(
     pool: &SqlitePool,
     settings: CreateShopSettings,
 ) -> Result<i64, String> {
+    // Convert Vec<String> to JSON string
+    let subject_filters_json = settings.subject_filters
+        .as_ref()
+        .map(|filters| serde_json::to_string(filters))
+        .transpose()
+        .map_err(|e| format!("Failed to serialize subject_filters: {e}"))?;
+
     let result = sqlx::query(
         r#"
-        INSERT INTO shop_settings (shop_name, sender_address, parser_type, subject_filter, is_enabled)
+        INSERT INTO shop_settings (shop_name, sender_address, parser_type, subject_filters, is_enabled)
         VALUES (?, ?, ?, ?, 1)
         "#,
     )
     .bind(&settings.shop_name)
     .bind(&settings.sender_address)
     .bind(&settings.parser_type)
-    .bind(&settings.subject_filter)
+    .bind(&subject_filters_json)
     .execute(pool)
     .await
     .map_err(|e| format!("Failed to create shop setting: {e}"))?;
@@ -1219,7 +1242,7 @@ pub async fn update_shop_setting(
     settings: UpdateShopSettings,
 ) -> Result<(), String> {
     let existing = sqlx::query_as::<_, ShopSettings>(
-        "SELECT id, shop_name, sender_address, parser_type, is_enabled, subject_filter, created_at, updated_at FROM shop_settings WHERE id = ?",
+        "SELECT id, shop_name, sender_address, parser_type, is_enabled, subject_filters, created_at, updated_at FROM shop_settings WHERE id = ?",
     )
     .bind(id)
     .fetch_optional(pool)
@@ -1231,12 +1254,19 @@ pub async fn update_shop_setting(
     let sender_address = settings.sender_address.unwrap_or(existing.sender_address);
     let parser_type = settings.parser_type.unwrap_or(existing.parser_type);
     let is_enabled = settings.is_enabled.unwrap_or(existing.is_enabled);
-    let subject_filter = settings.subject_filter.or(existing.subject_filter);
+
+    // Convert Vec<String> to JSON string if provided, otherwise keep existing
+    let subject_filters_json = if let Some(filters) = settings.subject_filters {
+        Some(serde_json::to_string(&filters)
+            .map_err(|e| format!("Failed to serialize subject_filters: {e}"))?)
+    } else {
+        existing.subject_filters
+    };
 
     sqlx::query(
         r#"
         UPDATE shop_settings
-        SET shop_name = ?, sender_address = ?, parser_type = ?, is_enabled = ?, subject_filter = ?,
+        SET shop_name = ?, sender_address = ?, parser_type = ?, is_enabled = ?, subject_filters = ?,
             updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
         "#,
@@ -1245,7 +1275,7 @@ pub async fn update_shop_setting(
     .bind(&sender_address)
     .bind(&parser_type)
     .bind(is_enabled)
-    .bind(&subject_filter)
+    .bind(&subject_filters_json)
     .bind(id)
     .execute(pool)
     .await

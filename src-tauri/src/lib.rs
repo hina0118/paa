@@ -109,6 +109,22 @@ async fn reset_sync_status(pool: tauri::State<'_, SqlitePool>) -> Result<(), Str
 }
 
 #[tauri::command]
+async fn reset_sync_date(pool: tauri::State<'_, SqlitePool>) -> Result<(), String> {
+    log::info!("Resetting oldest_fetched_date to allow re-sync from latest emails");
+
+    sqlx::query(
+        "UPDATE sync_metadata
+         SET oldest_fetched_date = NULL
+         WHERE id = 1",
+    )
+    .execute(pool.inner())
+    .await
+    .map_err(|e| format!("Failed to reset sync date: {e}"))?;
+
+    Ok(())
+}
+
+#[tauri::command]
 async fn update_batch_size(
     pool: tauri::State<'_, SqlitePool>,
     batch_size: i64,
@@ -486,8 +502,32 @@ pub fn run() {
         },
         Migration {
             version: 15,
-            description: "add subject_filter to shop_settings",
+            description: "add subject_filters to shop_settings",
             sql: include_str!("../migrations/015_add_subject_filter_to_shop_settings.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 16,
+            description: "create parse_metadata table",
+            sql: include_str!("../migrations/016_create_parse_metadata_table.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 17,
+            description: "add from_address to emails",
+            sql: include_str!("../migrations/017_add_from_address_to_emails.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 18,
+            description: "add batch_size to parse_metadata",
+            sql: include_str!("../migrations/018_add_batch_size_to_parse_metadata.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 19,
+            description: "add subject to emails",
+            sql: include_str!("../migrations/019_add_subject_to_emails.sql"),
             kind: MigrationKind::Up,
         },
     ];
@@ -578,6 +618,10 @@ pub fn run() {
             // Initialize sync state
             app.manage(gmail::SyncState::new());
             log::info!("Sync state initialized");
+
+            // Initialize parse state
+            app.manage(parsers::ParseState::new());
+            log::info!("Parse state initialized");
 
             // Restore window settings and setup close handler
             let window = app
@@ -697,6 +741,7 @@ pub fn run() {
             update_batch_size,
             update_max_iterations,
             reset_sync_status,
+            reset_sync_date,
             get_window_settings,
             save_window_settings,
             get_email_stats,
@@ -706,7 +751,11 @@ pub fn run() {
             update_shop_setting,
             delete_shop_setting,
             parse_email,
-            parse_and_save_email
+            parse_and_save_email,
+            start_batch_parse,
+            cancel_parse,
+            get_parse_status,
+            update_parse_batch_size
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -726,13 +775,13 @@ async fn create_shop_setting(
     shop_name: String,
     sender_address: String,
     parser_type: String,
-    subject_filter: Option<String>,
+    subject_filters: Option<Vec<String>>,
 ) -> Result<i64, String> {
     let settings = gmail::CreateShopSettings {
         shop_name,
         sender_address,
         parser_type,
-        subject_filter,
+        subject_filters,
     };
     gmail::create_shop_setting(pool.inner(), settings).await
 }
@@ -745,14 +794,14 @@ async fn update_shop_setting(
     sender_address: Option<String>,
     parser_type: Option<String>,
     is_enabled: Option<bool>,
-    subject_filter: Option<String>,
+    subject_filters: Option<Vec<String>>,
 ) -> Result<(), String> {
     let settings = gmail::UpdateShopSettings {
         shop_name,
         sender_address,
         parser_type,
         is_enabled,
-        subject_filter,
+        subject_filters,
     };
     gmail::update_shop_setting(pool.inner(), id, settings).await
 }
@@ -794,6 +843,107 @@ async fn parse_and_save_email(
     )
     .await
 }
+
+#[tauri::command]
+async fn start_batch_parse(
+    app_handle: tauri::AppHandle,
+    pool: tauri::State<'_, SqlitePool>,
+    parse_state: tauri::State<'_, parsers::ParseState>,
+    batch_size: Option<usize>,
+) -> Result<(), String> {
+    log::info!("Starting batch parse...");
+
+    // batch_sizeが指定されていない場合はparse_metadataから取得
+    let size = if let Some(size) = batch_size {
+        size
+    } else {
+        let row: (i64,) = sqlx::query_as(
+            "SELECT batch_size FROM parse_metadata WHERE id = 1"
+        )
+        .fetch_one(pool.inner())
+        .await
+        .map_err(|e| format!("Failed to fetch batch size: {}", e))?;
+        row.0 as usize
+    };
+
+    let pool_clone = pool.inner().clone();
+    let parse_state_clone = parse_state.inner().clone();
+
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = parsers::batch_parse_emails(&app_handle, &pool_clone, &parse_state_clone, size).await {
+            log::error!("Batch parse failed: {}", e);
+
+            // エラーイベントを送信
+            let error_event = parsers::ParseProgressEvent {
+                batch_number: 0,
+                total_emails: 0,
+                parsed_count: 0,
+                success_count: 0,
+                failed_count: 0,
+                status_message: format!("Parse error: {}", e),
+                is_complete: true,
+                error: Some(e.clone()),
+            };
+
+            let _ = app_handle.emit("parse-progress", error_event);
+
+            // データベースのステータスをエラーに更新
+            let _ = sqlx::query(
+                "UPDATE parse_metadata SET parse_status = 'error', last_error_message = ?1 WHERE id = 1"
+            )
+            .bind(&e)
+            .execute(&pool_clone)
+            .await;
+        }
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn cancel_parse(parse_state: tauri::State<'_, parsers::ParseState>) -> Result<(), String> {
+    log::info!("Cancelling parse...");
+    parse_state.request_cancel();
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_parse_status(
+    pool: tauri::State<'_, SqlitePool>,
+) -> Result<parsers::ParseMetadata, String> {
+    let row: (String, Option<String>, Option<String>, i64, Option<String>, i64) = sqlx::query_as(
+        "SELECT parse_status, last_parse_started_at, last_parse_completed_at, total_parsed_count, last_error_message, batch_size FROM parse_metadata WHERE id = 1"
+    )
+    .fetch_one(pool.inner())
+    .await
+    .map_err(|e| format!("Failed to fetch parse status: {}", e))?;
+
+    Ok(parsers::ParseMetadata {
+        parse_status: row.0,
+        last_parse_started_at: row.1,
+        last_parse_completed_at: row.2,
+        total_parsed_count: row.3,
+        last_error_message: row.4,
+        batch_size: row.5,
+    })
+}
+
+#[tauri::command]
+async fn update_parse_batch_size(
+    pool: tauri::State<'_, SqlitePool>,
+    batch_size: i64,
+) -> Result<(), String> {
+    log::info!("Updating parse batch size to: {batch_size}");
+
+    sqlx::query("UPDATE parse_metadata SET batch_size = ?1 WHERE id = 1")
+        .bind(batch_size)
+        .execute(pool.inner())
+        .await
+        .map_err(|e| format!("Failed to update parse batch size: {}", e))?;
+
+    Ok(())
+}
+
 
 #[cfg(test)]
 mod tests {
