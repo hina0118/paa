@@ -3,7 +3,14 @@ use sqlx::SqlitePool;
 use std::sync::{Arc, Mutex};
 use tauri::Emitter;
 
+// 旧実装（後方互換性のため残す）
 pub mod hobbysearch;
+
+// 新しい分離されたパーサー
+pub mod hobbysearch_confirm;
+pub mod hobbysearch_confirm_yoyaku;
+pub mod hobbysearch_change;
+pub mod hobbysearch_send;
 
 /// パース状態管理
 #[derive(Clone)]
@@ -124,7 +131,15 @@ pub trait EmailParser {
 /// パーサータイプから適切なパーサーを取得する
 pub fn get_parser(parser_type: &str) -> Option<Box<dyn EmailParser>> {
     match parser_type {
+        // 旧パーサー（後方互換性のため）
         "hobbysearch" => Some(Box::new(hobbysearch::HobbySearchParser)),
+
+        // 新しい分離されたパーサー
+        "hobbysearch_confirm" => Some(Box::new(hobbysearch_confirm::HobbySearchConfirmParser)),
+        "hobbysearch_confirm_yoyaku" => Some(Box::new(hobbysearch_confirm_yoyaku::HobbySearchConfirmYoyakuParser)),
+        "hobbysearch_change" => Some(Box::new(hobbysearch_change::HobbySearchChangeParser)),
+        "hobbysearch_send" => Some(Box::new(hobbysearch_send::HobbySearchSendParser)),
+
         _ => None,
     }
 }
@@ -511,55 +526,79 @@ pub async fn batch_parse_emails(
             }
         };
 
-        // 送信元アドレスと件名フィルターからパーサータイプを決定
-        let parser_type = shop_settings
+        // 送信元アドレスと件名フィルターから候補のパーサータイプを全て取得
+        let candidate_parsers: Vec<&str> = shop_settings
             .iter()
-            .find(|(addr, _, subject_filters_json)| {
+            .filter_map(|(addr, parser_type, subject_filters_json)| {
                 // 送信元アドレスが一致するか確認
                 if !from_address.contains(addr) {
-                    return false;
+                    return None;
                 }
 
                 // 件名フィルターがない場合は、アドレス一致だけでOK
                 let Some(filters_json) = subject_filters_json else {
-                    return true;
+                    return Some(parser_type.as_str());
                 };
 
                 // 件名フィルターがある場合は、件名も確認
                 let Ok(filters) = serde_json::from_str::<Vec<String>>(filters_json) else {
-                    return true; // JSONパースエラー時はフィルター無視
+                    return Some(parser_type.as_str()); // JSONパースエラー時はフィルター無視
                 };
 
                 // 件名がない場合は除外
                 let Some(subject) = subject_opt else {
-                    return false;
+                    return None;
                 };
 
                 // いずれかのフィルターに一致すればOK
-                filters.iter().any(|filter| subject.contains(filter))
+                if filters.iter().any(|filter| subject.contains(filter)) {
+                    Some(parser_type.as_str())
+                } else {
+                    None
+                }
             })
-            .map(|(_, parser, _)| parser.as_str());
+            .collect();
 
-        let parser_type = match parser_type {
-            Some(pt) => pt,
-            None => {
-                log::debug!("No parser found for address: {} with subject: {:?}", from_address, subject_opt);
-                failed_count += 1;
-                continue;
-            }
-        };
+        if candidate_parsers.is_empty() {
+            log::debug!("No parser found for address: {} with subject: {:?}", from_address, subject_opt);
+            failed_count += 1;
+            continue;
+        }
 
-        // パース実行（awaitの前にparserをドロップ）
-        let parse_result = {
+        // 複数のパーサーを順番に試す（最初に成功したものを使用）
+        let mut parse_result: Option<Result<OrderInfo, String>> = None;
+        let mut last_error = String::new();
+
+        for parser_type in &candidate_parsers {
             let parser = match get_parser(parser_type) {
                 Some(p) => p,
                 None => {
                     log::warn!("Unknown parser type: {}", parser_type);
-                    failed_count += 1;
                     continue;
                 }
             };
-            parser.parse(body_plain)
+
+            match parser.parse(body_plain) {
+                Ok(order_info) => {
+                    log::debug!("Successfully parsed with parser: {}", parser_type);
+                    parse_result = Some(Ok(order_info));
+                    break;
+                }
+                Err(e) => {
+                    log::debug!("Parser {} failed: {}", parser_type, e);
+                    last_error = e;
+                    // 次のパーサーを試す
+                    continue;
+                }
+            }
+        }
+
+        let parse_result = match parse_result {
+            Some(result) => result,
+            None => {
+                log::error!("All parsers failed for email {}. Last error: {}", email_id, last_error);
+                Err(last_error)
+            }
         };
 
         match parse_result {

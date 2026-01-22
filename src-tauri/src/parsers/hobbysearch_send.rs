@@ -1,30 +1,31 @@
 use super::{DeliveryAddress, DeliveryInfo, EmailParser, OrderInfo, OrderItem};
 use regex::Regex;
 
-pub struct HobbySearchParser;
+/// 発送通知メール用パーサー
+pub struct HobbySearchSendParser;
 
-impl EmailParser for HobbySearchParser {
+impl EmailParser for HobbySearchSendParser {
     fn parse(&self, email_body: &str) -> Result<OrderInfo, String> {
         let lines: Vec<&str> = email_body.lines().collect();
 
-        // 注文番号を抽出
-        let order_number = extract_order_number(&lines)?;
+        // 代表注文番号を抽出
+        let order_number = extract_representative_order_number(&lines)?;
 
         // 配送先情報を抽出
         let delivery_address = extract_delivery_address(&lines);
 
-        // 配送情報を抽出
+        // 配送情報を抽出（追跡番号など）
         let delivery_info = extract_delivery_info(&lines);
 
-        // 商品情報を抽出
-        let items = extract_items(&lines)?;
+        // 商品情報を抽出（[ご購入内容]セクション）
+        let items = extract_purchase_items(&lines)?;
 
         // 金額情報を抽出
         let (subtotal, shipping_fee, total_amount) = extract_amounts(&lines);
 
         Ok(OrderInfo {
             order_number,
-            order_date: None, // メールから取得する場合はここで抽出
+            order_date: None,
             delivery_address,
             delivery_info,
             items,
@@ -35,8 +36,8 @@ impl EmailParser for HobbySearchParser {
     }
 }
 
-/// 注文番号を抽出
-fn extract_order_number(lines: &[&str]) -> Result<String, String> {
+/// 代表注文番号を抽出（[代表注文番号] 形式）
+fn extract_representative_order_number(lines: &[&str]) -> Result<String, String> {
     let order_number_pattern = Regex::new(r"\[代表注文番号\]\s*(\d+-\d+-\d+)")
         .map_err(|e| format!("Regex error: {e}"))?;
 
@@ -48,7 +49,7 @@ fn extract_order_number(lines: &[&str]) -> Result<String, String> {
         }
     }
 
-    Err("Order number not found".to_string())
+    Err("Representative order number not found".to_string())
 }
 
 /// 配送先情報を抽出
@@ -72,12 +73,19 @@ fn extract_delivery_address(lines: &[&str]) -> Option<DeliveryAddress> {
                 break;
             }
 
-            // 郵便番号を抽出
+            // 郵便番号と住所を抽出（同じ行にある場合）
             if trimmed.starts_with('〒') {
-                postal_code = Some(trimmed.trim_start_matches('〒').trim().to_string());
+                // 郵便番号だけを抽出（例: "〒812-0044 福岡県..." → "812-0044"）
+                let rest = trimmed.trim_start_matches('〒').trim();
+                if let Some(space_pos) = rest.find(' ') {
+                    postal_code = Some(rest[..space_pos].trim().to_string());
+                    address = Some(rest[space_pos..].trim().to_string());
+                } else {
+                    postal_code = Some(rest.to_string());
+                }
             }
-            // 住所を抽出（都道府県で始まる行）
-            else if trimmed.contains('県') || trimmed.contains('都') || trimmed.contains('府') {
+            // 住所だけの行（都道府県で始まる行）
+            else if (trimmed.contains('県') || trimmed.contains('都') || trimmed.contains('府')) && address.is_none() {
                 address = Some(trimmed.to_string());
             }
             // 名前を抽出（「様」で終わる行）
@@ -135,8 +143,8 @@ fn extract_delivery_info(lines: &[&str]) -> Option<DeliveryInfo> {
     }
 }
 
-/// 商品情報を抽出
-fn extract_items(lines: &[&str]) -> Result<Vec<OrderItem>, String> {
+/// 商品情報を抽出（[ご購入内容]セクション）
+fn extract_purchase_items(lines: &[&str]) -> Result<Vec<OrderItem>, String> {
     let mut items = Vec::new();
     let mut in_purchase_section = false;
 
@@ -157,7 +165,7 @@ fn extract_items(lines: &[&str]) -> Result<Vec<OrderItem>, String> {
             continue;
         }
 
-        // セクション終了判定（次のセクションまたは区切り線）
+        // セクション終了判定（小計または区切り線）
         if in_purchase_section && (line.starts_with("小計") || line.starts_with("****")) {
             break;
         }
@@ -169,7 +177,6 @@ fn extract_items(lines: &[&str]) -> Result<Vec<OrderItem>, String> {
                 continue;
             }
 
-            // 商品名の行を検出（メーカー名で始まる行）
             if !line.is_empty() && !line.starts_with("単価：") {
                 // 次の行に価格情報があるか確認
                 if i + 1 < lines.len() {
@@ -220,7 +227,6 @@ fn extract_items(lines: &[&str]) -> Result<Vec<OrderItem>, String> {
 }
 
 /// 商品行から商品名、メーカー、品番を抽出
-/// 形式例: "マックスファクトリー 014554 PLAMAX BP-02 ソフィア・F・シャーリング 虎アーマーVer. (プラモデル) PLAMAX、BP-02"
 fn parse_item_line(line: &str) -> (String, Option<String>, Option<String>) {
     let parts: Vec<&str> = line.split_whitespace().collect();
 
@@ -238,8 +244,10 @@ fn parse_item_line(line: &str) -> (String, Option<String>, Option<String>) {
         None
     };
 
-    // (プラモデル)より前の部分を商品名として抽出
-    let name = if let Some(paren_pos) = line.find('(') {
+    // (プラモデル) または (ディスプレイ) の直前までを商品名として抽出
+    let name = if let Some(paren_pos) = line.find(" (プラモデル)") {
+        line[..paren_pos].trim().to_string()
+    } else if let Some(paren_pos) = line.find(" (ディスプレイ)") {
         line[..paren_pos].trim().to_string()
     } else {
         line.to_string()
@@ -271,7 +279,6 @@ fn extract_amounts(lines: &[&str]) -> (Option<i64>, Option<i64>, Option<i64>) {
 
 /// 行から金額を抽出
 fn extract_amount_from_line(line: &str) -> Option<i64> {
-    // "小計　　　　　　　　    46,974円" のような形式から金額を抽出
     let amount_pattern = Regex::new(r"([\d,]+)円").ok()?;
     amount_pattern.captures(line).and_then(|captures| {
         captures
@@ -285,9 +292,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_hobbysearch_email() {
+    fn test_parse_hobbysearch_send() {
         let sample_email = include_str!("../../../sample/hobbysearch_mail_send.txt");
-        let parser = HobbySearchParser;
+        let parser = HobbySearchSendParser;
         let result = parser.parse(sample_email);
 
         assert!(result.is_ok());
