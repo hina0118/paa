@@ -19,7 +19,39 @@ import {
   Copy,
   Tag,
   Clock,
+  FileText,
 } from 'lucide-react';
+import { invoke } from '@tauri-apps/api/core';
+import { toast } from 'sonner';
+
+// パースハンドラー関数
+async function handleParseEmail(email: Email) {
+  try {
+    if (!email.bodyPlain) {
+      toast.error('メール本文がありません');
+      return;
+    }
+
+    // 送信元アドレスから店舗ドメインを抽出
+    const emailMatch = email.from.match(/<(.+?)>/);
+    const senderEmail = emailMatch ? emailMatch[1] : email.from;
+    const shopDomain = senderEmail.split('@')[1];
+
+    toast.info('メールをパース中...');
+
+    const orderId = await invoke<number>('parse_and_save_email', {
+      parserType: 'hobbysearch',
+      emailBody: email.bodyPlain,
+      emailId: parseInt(email.id),
+      shopDomain,
+    });
+
+    toast.success(`注文を保存しました (ID: ${orderId})`);
+  } catch (error) {
+    console.error('Parse error:', error);
+    toast.error(`パースに失敗しました: ${error}`);
+  }
+}
 
 export const columns: ColumnDef<Email>[] = [
   {
@@ -180,6 +212,11 @@ export const columns: ColumnDef<Email>[] = [
             >
               <Copy className="mr-2 h-4 w-4" />
               IDをコピー
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => handleParseEmail(email)}>
+              <FileText className="mr-2 h-4 w-4" />
+              パースして保存
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem>

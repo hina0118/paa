@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { useParse } from '@/contexts/parse-context';
 import {
   Card,
   CardContent,
@@ -28,6 +29,8 @@ export function Dashboard() {
   const [stats, setStats] = useState<EmailStats | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { metadata: parseMetadata, refreshStatus: refreshParseStatus } =
+    useParse();
 
   const loadStats = async () => {
     try {
@@ -45,7 +48,8 @@ export function Dashboard() {
 
   useEffect(() => {
     loadStats();
-  }, []);
+    refreshParseStatus();
+  }, [refreshParseStatus]);
 
   const formatNumber = (num: number) => {
     return new Intl.NumberFormat('ja-JP').format(num);
@@ -208,7 +212,7 @@ export function Dashboard() {
             </Card>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             <Card>
               <CardHeader>
                 <CardTitle>平均本文長</CardTitle>
@@ -296,6 +300,62 @@ export function Dashboard() {
                   {stats.without_body === 0 && (
                     <p className="text-xs text-green-600 dark:text-green-400">
                       全てのメールに本文データがあります。
+                    </p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>パース状況</CardTitle>
+                <CardDescription>メールからの注文情報抽出状態</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm">ステータス</span>
+                      <span
+                        className={`px-2 py-1 rounded text-xs font-semibold ${
+                          parseMetadata?.parse_status === 'running'
+                            ? 'bg-blue-100 text-blue-800'
+                            : parseMetadata?.parse_status === 'completed'
+                              ? 'bg-green-100 text-green-800'
+                              : parseMetadata?.parse_status === 'error'
+                                ? 'bg-red-100 text-red-800'
+                                : 'bg-gray-100 text-gray-800'
+                        }`}
+                      >
+                        {parseMetadata?.parse_status === 'running'
+                          ? 'パース中'
+                          : parseMetadata?.parse_status === 'completed'
+                            ? '完了'
+                            : parseMetadata?.parse_status === 'error'
+                              ? 'エラー'
+                              : '待機中'}
+                      </span>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm">総パース件数</span>
+                      <span className="text-lg font-bold">
+                        {formatNumber(parseMetadata?.total_parsed_count || 0)}
+                      </span>
+                    </div>
+                  </div>
+                  {parseMetadata?.last_parse_completed_at && (
+                    <p className="text-xs text-muted-foreground">
+                      最終完了:{' '}
+                      {new Date(
+                        parseMetadata.last_parse_completed_at
+                      ).toLocaleString('ja-JP')}
+                    </p>
+                  )}
+                  {parseMetadata?.last_error_message && (
+                    <p className="text-xs text-red-600 dark:text-red-400">
+                      エラー: {parseMetadata.last_error_message}
                     </p>
                   )}
                 </div>

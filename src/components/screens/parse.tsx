@@ -1,0 +1,252 @@
+import { useEffect, useState } from 'react';
+import { useParse } from '@/contexts/parse-context';
+import { Button } from '@/components/ui/button';
+import { Progress } from '@/components/ui/progress';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+
+export function Parse() {
+  const {
+    isParsing,
+    progress,
+    metadata,
+    startParse,
+    cancelParse,
+    refreshStatus,
+  } = useParse();
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Refresh status when component mounts
+    refreshStatus();
+  }, [refreshStatus]);
+
+  const handleStartParse = async () => {
+    setError(null);
+    try {
+      // batch_sizeを指定せずに呼び出すとparse_metadataの値が使われる
+      await startParse();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleCancelParse = async () => {
+    try {
+      await cancelParse();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const progressPercentage =
+    progress?.total_emails && progress.parsed_count
+      ? Math.min((progress.parsed_count / progress.total_emails) * 100, 100)
+      : 0;
+
+  const getStatusBadgeClass = (status?: string) => {
+    switch (status) {
+      case 'running':
+        return 'bg-blue-100 text-blue-800';
+      case 'idle':
+        return 'bg-green-100 text-green-800';
+      case 'completed':
+        return 'bg-green-100 text-green-800';
+      case 'error':
+        return 'bg-red-100 text-red-800';
+      default:
+        return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const getStatusText = (status?: string) => {
+    switch (status) {
+      case 'running':
+        return 'パース中';
+      case 'idle':
+        return '待機中';
+      case 'completed':
+        return '完了';
+      case 'error':
+        return 'エラー';
+      default:
+        return '不明';
+    }
+  };
+
+  return (
+    <div className="container mx-auto py-10 space-y-6">
+      <h1 className="text-3xl font-bold">メールパース</h1>
+
+      {/* Parse Controls */}
+      <Card>
+        <CardHeader>
+          <CardTitle>パースコントロール</CardTitle>
+          <CardDescription>
+            データベースからメールを取得して注文情報をパースします
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex gap-4">
+            <Button
+              onClick={handleStartParse}
+              disabled={isParsing}
+              variant={isParsing ? 'secondary' : 'default'}
+            >
+              {isParsing ? 'パース中...' : 'パースを開始'}
+            </Button>
+            {isParsing && (
+              <Button onClick={handleCancelParse} variant="outline">
+                キャンセル
+              </Button>
+            )}
+          </div>
+          <p className="text-sm text-muted-foreground">
+            バッチサイズ: {metadata?.batch_size || 100}件 （設定画面で変更可能）
+          </p>
+
+          {/* Status Badge */}
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium">ステータス:</span>
+            <span
+              className={`px-2 py-1 rounded text-xs font-semibold ${getStatusBadgeClass(metadata?.parse_status)}`}
+            >
+              {getStatusText(metadata?.parse_status)}
+            </span>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Progress Display */}
+      {(isParsing || progress) && (
+        <Card>
+          <CardHeader>
+            <CardTitle>パース進捗</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {progress && (
+              <>
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span>
+                      {progress.parsed_count} / {progress.total_emails} 件
+                    </span>
+                    <span>{Math.round(progressPercentage)}%</span>
+                  </div>
+                  <Progress value={progressPercentage} />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-muted-foreground">成功:</span>
+                    <div className="text-lg font-bold text-green-600">
+                      {progress.success_count}
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">失敗:</span>
+                    <div className="text-lg font-bold text-red-600">
+                      {progress.failed_count}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-sm text-muted-foreground">
+                  {progress.status_message}
+                </div>
+
+                {progress.is_complete && !progress.error && (
+                  <div className="p-3 bg-green-50 border border-green-200 rounded text-sm text-green-800">
+                    パースが完了しました
+                  </div>
+                )}
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Parse Statistics */}
+      {metadata && (
+        <Card>
+          <CardHeader>
+            <CardTitle>パース統計</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <span className="text-muted-foreground">総パース件数:</span>
+                <div className="text-2xl font-bold">
+                  {metadata.total_parsed_count}
+                </div>
+              </div>
+              {metadata.last_parse_started_at && (
+                <div>
+                  <span className="text-muted-foreground">開始日時:</span>
+                  <div className="text-sm">
+                    {new Date(metadata.last_parse_started_at).toLocaleString(
+                      'ja-JP'
+                    )}
+                  </div>
+                </div>
+              )}
+              {metadata.last_parse_completed_at && (
+                <div className="col-span-2">
+                  <span className="text-muted-foreground">最終完了:</span>
+                  <div className="text-sm">
+                    {new Date(metadata.last_parse_completed_at).toLocaleString(
+                      'ja-JP'
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Error Display */}
+      {(error || progress?.error || metadata?.last_error_message) && (
+        <Card className="border-red-200 bg-red-50">
+          <CardHeader>
+            <CardTitle className="text-red-800">エラー</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-red-700">
+              {error || progress?.error || metadata?.last_error_message}
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Setup Instructions */}
+      <Card className="bg-blue-50 border-blue-200">
+        <CardHeader>
+          <CardTitle className="text-blue-900">使い方</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm text-blue-800">
+          <p>
+            メールパース機能は、データベースに保存されたメールから注文情報を自動抽出します。
+          </p>
+          <ol className="list-decimal list-inside space-y-1 ml-2">
+            <li>店舗設定で対象のメールアドレスとパーサータイプを登録</li>
+            <li>Gmail同期でメールを取得</li>
+            <li>このページでパースを実行</li>
+          </ol>
+          <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded">
+            <p className="font-semibold text-yellow-800 mb-1">注意事項</p>
+            <p className="text-xs text-yellow-700">
+              パース処理は店舗設定で有効化された送信元アドレスのメールのみを対象とします。
+              対象メールがない場合はエラーとなります。
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
