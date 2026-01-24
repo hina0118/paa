@@ -231,7 +231,8 @@ fn extract_yoyaku_total(lines: &[&str]) -> Option<i64> {
     None
 }
 
-#[cfg(test)]
+// テストはローカル環境でのみ実行（サンプルファイルに個人情報が含まれるため）
+#[cfg(all(test, not(ci)))]
 mod tests {
     use super::*;
 
