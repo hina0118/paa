@@ -897,7 +897,6 @@ pub async fn sync_gmail_incremental(
             }
         };
         if messages.is_empty() {
-            has_more = false;
             log::info!("No more messages to fetch");
             break;
         }
@@ -1538,7 +1537,7 @@ mod tests {
         }];
 
         // Save first time
-        let result1 = save_messages_to_db(&pool, &[message.clone()], &shop_settings)
+        let result1 = save_messages_to_db(&pool, std::slice::from_ref(&message), &shop_settings)
             .await
             .expect("Failed to save message first time");
 
@@ -1754,7 +1753,7 @@ mod tests {
             subject: Some("Test subject".to_string()),
         };
 
-        let result1 = save_messages_to_db(&pool, &[message.clone()], &shop_settings)
+        let result1 = save_messages_to_db(&pool, std::slice::from_ref(&message), &shop_settings)
             .await
             .expect("Failed to save first message");
 
@@ -1949,7 +1948,7 @@ mod tests {
             subject: Some("テスト件名".to_string()),
         };
 
-        let result = save_messages_to_db(&pool, &[message.clone()], &shop_settings)
+        let result = save_messages_to_db(&pool, std::slice::from_ref(&message), &shop_settings)
             .await
             .expect("Failed to save unicode message");
 
@@ -2032,7 +2031,7 @@ mod tests {
             subject: Some("Test'; DROP TABLE--".to_string()),
         };
 
-        let result = save_messages_to_db(&pool, &[message.clone()], &shop_settings)
+        let result = save_messages_to_db(&pool, std::slice::from_ref(&message), &shop_settings)
             .await
             .expect("Failed to save message with special characters");
 

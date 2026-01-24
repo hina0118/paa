@@ -3,6 +3,9 @@ use sqlx::SqlitePool;
 use std::sync::{Arc, Mutex};
 use tauri::Emitter;
 
+// 型エイリアス：パース対象メールの情報
+type EmailRow = (i64, String, String, Option<String>, Option<String>);
+
 // 旧実装（後方互換性のため残す）
 pub mod hobbysearch;
 
@@ -476,7 +479,7 @@ pub async fn batch_parse_emails(
         // パース対象のメールを取得（既にパース済みのものを除外）
         // order_emailsテーブルにemail_idが存在しないメールのみ取得
         // メール送信日時（internal_date）の古い順（ASC）でパースすることで、時系列に沿って注文情報が更新される
-        let emails: Vec<(i64, String, String, Option<String>, Option<String>)> = sqlx::query_as(
+        let emails: Vec<EmailRow> = sqlx::query_as(
             r#"
             SELECT e.id, e.message_id, e.body_plain, e.from_address, e.subject
             FROM emails e
