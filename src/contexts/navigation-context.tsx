@@ -4,6 +4,7 @@ type Screen =
   | 'dashboard'
   | 'orders'
   | 'sync'
+  | 'parse'
   | 'logs'
   | 'shop-settings'
   | 'settings'
@@ -17,7 +18,8 @@ type Screen =
   | 'table-order-htmls'
   | 'table-shop-settings'
   | 'table-sync-metadata'
-  | 'table-window-settings';
+  | 'table-window-settings'
+  | 'table-parse-metadata';
 
 type NavigationContextType = {
   currentScreen: Screen;

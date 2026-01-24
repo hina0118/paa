@@ -4,6 +4,7 @@ import { EmailList } from '@/components/emails/email-list';
 import { Sidebar } from '@/components/layout/sidebar';
 import { Dashboard } from '@/components/screens/dashboard';
 import { Sync } from '@/components/screens/sync';
+import { Parse } from '@/components/screens/parse';
 import { Logs } from '@/components/screens/logs';
 import { Settings } from '@/components/screens/settings';
 import { ShopSettings } from '@/components/screens/shop-settings';
@@ -19,15 +20,18 @@ import {
   ShopSettingsTable,
   SyncMetadataTable,
   WindowSettingsTable,
+  ParseMetadataTable,
 } from '@/components/screens/tables';
 import {
   NavigationProvider,
   useNavigation,
 } from '@/contexts/navigation-context';
 import { SyncProvider } from '@/contexts/sync-context';
+import { ParseProvider } from '@/contexts/parse-context';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { Toaster } from 'sonner';
 
 function AppContent() {
   const { currentScreen } = useNavigation();
@@ -40,6 +44,8 @@ function AppContent() {
         return <EmailList />;
       case 'sync':
         return <Sync />;
+      case 'parse':
+        return <Parse />;
       case 'logs':
         return <Logs />;
       case 'shop-settings':
@@ -68,6 +74,8 @@ function AppContent() {
         return <SyncMetadataTable />;
       case 'table-window-settings':
         return <WindowSettingsTable />;
+      case 'table-parse-metadata':
+        return <ParseMetadataTable />;
       default:
         return <EmailList />;
     }
@@ -77,6 +85,7 @@ function AppContent() {
     <div className="flex h-screen overflow-hidden">
       <Sidebar />
       <main className="flex-1 overflow-auto">{renderScreen()}</main>
+      <Toaster position="top-right" richColors />
     </div>
   );
 }
@@ -171,7 +180,9 @@ function App() {
   return (
     <NavigationProvider>
       <SyncProvider>
-        <AppContent />
+        <ParseProvider>
+          <AppContent />
+        </ParseProvider>
       </SyncProvider>
     </NavigationProvider>
   );

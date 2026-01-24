@@ -7,6 +7,8 @@ export type Email = {
   read: boolean;
   starred: boolean;
   labels: string[];
+  bodyPlain?: string;
+  bodyHtml?: string;
 };
 
 export type DeliveryStatus =

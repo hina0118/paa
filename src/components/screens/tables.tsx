@@ -49,3 +49,9 @@ export function WindowSettingsTable() {
     <TableViewer tableName="window_settings" title="Window Settings テーブル" />
   );
 }
+
+export function ParseMetadataTable() {
+  return (
+    <TableViewer tableName="parse_metadata" title="Parse Metadata テーブル" />
+  );
+}
