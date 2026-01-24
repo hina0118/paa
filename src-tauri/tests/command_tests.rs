@@ -1,6 +1,9 @@
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use std::str::FromStr;
 
+// 型エイリアス：sync_metadataクエリの結果
+type SyncMetadataRow = (String, Option<String>, i64, i64, Option<String>, Option<String>);
+
 // テスト用のデータベースプールを作成
 async fn create_test_pool() -> sqlx::SqlitePool {
     let options = SqliteConnectOptions::from_str("sqlite::memory:")
@@ -246,7 +249,7 @@ mod command_tests {
             .unwrap();
 
         // 存在しないレコードを取得しようとする
-        let result: Result<(String, Option<String>, i64, i64, Option<String>, Option<String>), _> = sqlx::query_as(
+        let result: Result<SyncMetadataRow, _> = sqlx::query_as(
             "SELECT sync_status, oldest_fetched_date, total_synced_count, batch_size, last_sync_started_at, last_sync_completed_at FROM sync_metadata WHERE id = 1"
         )
         .fetch_one(&pool)
