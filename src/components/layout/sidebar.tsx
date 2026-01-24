@@ -6,6 +6,7 @@ import {
   Database,
   ScrollText,
   Store,
+  FileText,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useNavigation } from '@/contexts/navigation-context';
@@ -14,7 +15,14 @@ import { useState } from 'react';
 type NavigationItem = {
   name: string;
   icon: React.ComponentType<{ className?: string }>;
-  id: 'dashboard' | 'orders' | 'sync' | 'settings' | 'logs' | 'shop-settings';
+  id:
+    | 'dashboard'
+    | 'orders'
+    | 'sync'
+    | 'parse'
+    | 'settings'
+    | 'logs'
+    | 'shop-settings';
 };
 
 type TableItem = {
@@ -30,13 +38,15 @@ type TableItem = {
     | 'table-order-htmls'
     | 'table-shop-settings'
     | 'table-sync-metadata'
-    | 'table-window-settings';
+    | 'table-window-settings'
+    | 'table-parse-metadata';
 };
 
 const navigationItems: NavigationItem[] = [
   { name: 'Dashboard', icon: LayoutDashboard, id: 'dashboard' },
   { name: 'Orders', icon: ShoppingCart, id: 'orders' },
   { name: 'Sync', icon: RefreshCw, id: 'sync' },
+  { name: 'Parse', icon: FileText, id: 'parse' },
   { name: 'Logs', icon: ScrollText, id: 'logs' },
   { name: 'Shop Settings', icon: Store, id: 'shop-settings' },
   { name: 'Settings', icon: Settings, id: 'settings' },
@@ -54,6 +64,7 @@ const tableItems: TableItem[] = [
   { name: 'Shop Settings', id: 'table-shop-settings' },
   { name: 'Sync Metadata', id: 'table-sync-metadata' },
   { name: 'Window Settings', id: 'table-window-settings' },
+  { name: 'Parse Metadata', id: 'table-parse-metadata' },
 ];
 
 export function Sidebar() {

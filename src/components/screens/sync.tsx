@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { useSync } from '@/contexts/sync-context';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -20,6 +21,7 @@ export function Sync() {
     refreshStatus,
   } = useSync();
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   useEffect(() => {
     // Refresh status when component mounts or returns to sync screen
@@ -38,6 +40,29 @@ export function Sync() {
   const handleCancelSync = async () => {
     try {
       await cancelSync();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleResetSyncDate = async () => {
+    if (
+      !confirm(
+        '同期日時をリセットして、最新のメールから再度同期しますか？\nこれにより、新しい店舗設定や件名フィルターで過去のメールも取得できます。'
+      )
+    ) {
+      return;
+    }
+
+    setError(null);
+    setSuccessMessage(null);
+    try {
+      await invoke('reset_sync_date');
+      setSuccessMessage(
+        '同期日時をリセットしました。次回の同期から最新のメールが取得されます。'
+      );
+      setTimeout(() => setSuccessMessage(null), 5000);
+      await refreshStatus();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -87,6 +112,18 @@ export function Sync() {
     <div className="container mx-auto py-10 space-y-6">
       <h1 className="text-3xl font-bold">Gmail同期</h1>
 
+      {successMessage && (
+        <div className="p-3 bg-green-50 border border-green-200 rounded text-sm text-green-800">
+          {successMessage}
+        </div>
+      )}
+
+      {error && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-800">
+          {error}
+        </div>
+      )}
+
       {/* Sync Controls */}
       <Card>
         <CardHeader>
@@ -112,6 +149,12 @@ export function Sync() {
             {isSyncing && (
               <Button onClick={handleCancelSync} variant="destructive">
                 中止
+              </Button>
+            )}
+
+            {!isSyncing && (
+              <Button onClick={handleResetSyncDate} variant="outline">
+                同期日時をリセット
               </Button>
             )}
           </div>

@@ -17,13 +17,17 @@ interface ShopSetting {
   sender_address: string;
   parser_type: string;
   is_enabled: boolean;
-  subject_filter: string | null;
+  subject_filters: string | null; // JSON array stored as string
   created_at: string;
   updated_at: string;
 }
 
+interface ShopSettingDisplay extends Omit<ShopSetting, 'subject_filters'> {
+  subject_filters_array: string[]; // Parsed array for display
+}
+
 export function ShopSettings() {
-  const [shops, setShops] = useState<ShopSetting[]>([]);
+  const [shops, setShops] = useState<ShopSettingDisplay[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string>('');
   const [successMessage, setSuccessMessage] = useState<string>('');
@@ -32,12 +36,12 @@ export function ShopSettings() {
   const [newShopName, setNewShopName] = useState('');
   const [newSenderAddress, setNewSenderAddress] = useState('');
   const [newParserType, setNewParserType] = useState('');
-  const [newSubjectFilter, setNewSubjectFilter] = useState('');
+  const [newSubjectFilters, setNewSubjectFilters] = useState<string[]>(['']); // Array of subject filters
   const [isAdding, setIsAdding] = useState(false);
 
   // Edit state
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [editForm, setEditForm] = useState<Partial<ShopSetting>>({});
+  const [editForm, setEditForm] = useState<Partial<ShopSettingDisplay>>({});
 
   useEffect(() => {
     loadShops();
@@ -48,7 +52,14 @@ export function ShopSettings() {
       setIsLoading(true);
       setError('');
       const result = await invoke<ShopSetting[]>('get_all_shop_settings');
-      setShops(result);
+      // Parse JSON subject_filters to array for display
+      const displayShops: ShopSettingDisplay[] = result.map((shop) => ({
+        ...shop,
+        subject_filters_array: shop.subject_filters
+          ? JSON.parse(shop.subject_filters)
+          : [],
+      }));
+      setShops(displayShops);
     } catch (err) {
       setError(
         `読み込みに失敗しました: ${err instanceof Error ? err.message : String(err)}`
@@ -77,18 +88,24 @@ export function ShopSettings() {
     try {
       setIsAdding(true);
       setError('');
+
+      // Filter out empty strings from subject filters
+      const cleanedFilters = newSubjectFilters
+        .map((f) => f.trim())
+        .filter((f) => f.length > 0);
+
       await invoke('create_shop_setting', {
         shopName: newShopName,
         senderAddress: newSenderAddress.toLowerCase(),
         parserType: newParserType,
-        subjectFilter: newSubjectFilter.trim() || null,
+        subjectFilters: cleanedFilters.length > 0 ? cleanedFilters : null,
       });
       setSuccessMessage('新しい店舗設定を追加しました');
       setTimeout(() => setSuccessMessage(''), 3000);
       setNewShopName('');
       setNewSenderAddress('');
       setNewParserType('');
-      setNewSubjectFilter('');
+      setNewSubjectFilters(['']);
       await loadShops();
     } catch (err) {
       setError(
@@ -99,14 +116,17 @@ export function ShopSettings() {
     }
   };
 
-  const handleEdit = (shop: ShopSetting) => {
+  const handleEdit = (shop: ShopSettingDisplay) => {
     setEditingId(shop.id);
     setEditForm({
       shop_name: shop.shop_name,
       sender_address: shop.sender_address,
       parser_type: shop.parser_type,
       is_enabled: shop.is_enabled,
-      subject_filter: shop.subject_filter,
+      subject_filters_array:
+        shop.subject_filters_array.length > 0
+          ? shop.subject_filters_array
+          : [''],
     });
   };
 
@@ -132,13 +152,19 @@ export function ShopSettings() {
 
     try {
       setError('');
+
+      // Filter out empty strings from subject filters
+      const cleanedFilters = (editForm.subject_filters_array || [])
+        .map((f) => f.trim())
+        .filter((f) => f.length > 0);
+
       await invoke('update_shop_setting', {
         id,
         shopName: editForm.shop_name,
         senderAddress: editForm.sender_address?.toLowerCase(),
         parserType: editForm.parser_type,
         isEnabled: editForm.is_enabled,
-        subjectFilter: editForm.subject_filter?.trim() || null,
+        subjectFilters: cleanedFilters.length > 0 ? cleanedFilters : null,
       });
       setSuccessMessage('店舗設定を更新しました');
       setTimeout(() => setSuccessMessage(''), 3000);
@@ -170,7 +196,7 @@ export function ShopSettings() {
     }
   };
 
-  const handleToggleEnabled = async (shop: ShopSetting) => {
+  const handleToggleEnabled = async (shop: ShopSettingDisplay) => {
     try {
       setError('');
       await invoke('update_shop_setting', {
@@ -179,6 +205,7 @@ export function ShopSettings() {
         senderAddress: null,
         parserType: null,
         isEnabled: !shop.is_enabled,
+        subjectFilters: null,
       });
       await loadShops();
     } catch (err) {
@@ -254,18 +281,52 @@ export function ShopSettings() {
               </div>
             </div>
             <div className="space-y-2">
-              <label htmlFor="subject-filter" className="text-sm font-medium">
+              <label className="text-sm font-medium">
                 件名フィルター（オプション）
               </label>
-              <Input
-                id="subject-filter"
-                placeholder="例: 【ホビーサーチ】ご注文の発送が完了しました"
-                value={newSubjectFilter}
-                onChange={(e) => setNewSubjectFilter(e.target.value)}
-                disabled={isAdding}
-              />
+              <div className="space-y-2">
+                {newSubjectFilters.map((filter, index) => (
+                  <div key={index} className="flex gap-2">
+                    <Input
+                      placeholder="例: 【ホビーサーチ】ご注文の発送が完了しました"
+                      value={filter}
+                      onChange={(e) => {
+                        const updated = [...newSubjectFilters];
+                        updated[index] = e.target.value;
+                        setNewSubjectFilters(updated);
+                      }}
+                      disabled={isAdding}
+                    />
+                    {newSubjectFilters.length > 1 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const updated = newSubjectFilters.filter(
+                            (_, i) => i !== index
+                          );
+                          setNewSubjectFilters(updated);
+                        }}
+                        disabled={isAdding}
+                      >
+                        削除
+                      </Button>
+                    )}
+                  </div>
+                ))}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setNewSubjectFilters([...newSubjectFilters, ''])
+                  }
+                  disabled={isAdding}
+                >
+                  + 件名パターンを追加
+                </Button>
+              </div>
               <p className="text-xs text-muted-foreground">
-                設定した場合、この件名に完全一致するメールのみを取り込みます
+                設定した場合、いずれかの件名パターンを含むメールのみを取り込みます
               </p>
             </div>
             <div>
@@ -346,18 +407,65 @@ export function ShopSettings() {
                         <label className="text-sm font-medium">
                           件名フィルター（オプション）
                         </label>
-                        <Input
-                          value={editForm.subject_filter || ''}
-                          placeholder="例: 【ホビーサーチ】ご注文の発送が完了しました"
-                          onChange={(e) =>
-                            setEditForm({
-                              ...editForm,
-                              subject_filter: e.target.value,
-                            })
-                          }
-                        />
+                        <div className="space-y-2">
+                          {(editForm.subject_filters_array || ['']).map(
+                            (filter, index) => (
+                              <div key={index} className="flex gap-2">
+                                <Input
+                                  placeholder="例: 【ホビーサーチ】ご注文の発送が完了しました"
+                                  value={filter}
+                                  onChange={(e) => {
+                                    const updated = [
+                                      ...(editForm.subject_filters_array || [
+                                        '',
+                                      ]),
+                                    ];
+                                    updated[index] = e.target.value;
+                                    setEditForm({
+                                      ...editForm,
+                                      subject_filters_array: updated,
+                                    });
+                                  }}
+                                />
+                                {(editForm.subject_filters_array || [''])
+                                  .length > 1 && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      const updated = (
+                                        editForm.subject_filters_array || ['']
+                                      ).filter((_, i) => i !== index);
+                                      setEditForm({
+                                        ...editForm,
+                                        subject_filters_array: updated,
+                                      });
+                                    }}
+                                  >
+                                    削除
+                                  </Button>
+                                )}
+                              </div>
+                            )
+                          )}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setEditForm({
+                                ...editForm,
+                                subject_filters_array: [
+                                  ...(editForm.subject_filters_array || ['']),
+                                  '',
+                                ],
+                              });
+                            }}
+                          >
+                            + 件名パターンを追加
+                          </Button>
+                        </div>
                         <p className="text-xs text-muted-foreground">
-                          設定した場合、この件名に完全一致するメールのみを取り込みます
+                          設定した場合、いずれかの件名パターンを含むメールのみを取り込みます
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
@@ -410,11 +518,21 @@ export function ShopSettings() {
                           <p className="text-sm text-muted-foreground">
                             パーサー: {shop.parser_type}
                           </p>
-                          {shop.subject_filter && (
-                            <p className="text-sm text-muted-foreground">
-                              件名フィルター: {shop.subject_filter}
-                            </p>
-                          )}
+                          {shop.subject_filters_array &&
+                            shop.subject_filters_array.length > 0 && (
+                              <div className="text-sm text-muted-foreground">
+                                <div className="font-medium">
+                                  件名フィルター:
+                                </div>
+                                <ul className="list-disc list-inside pl-2">
+                                  {shop.subject_filters_array.map(
+                                    (filter, index) => (
+                                      <li key={index}>{filter}</li>
+                                    )
+                                  )}
+                                </ul>
+                              </div>
+                            )}
                         </div>
                         <div className="flex gap-2">
                           <Button

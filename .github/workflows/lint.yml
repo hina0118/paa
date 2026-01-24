@@ -92,6 +92,8 @@ jobs:
 
       - name: Run Clippy
         run: npm run lint:rust
+        env:
+          RUSTFLAGS: "--cfg ci"
 
       - name: Check Rust formatting
         run: cd src-tauri && cargo fmt -- --check
