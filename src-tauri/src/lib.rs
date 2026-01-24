@@ -750,6 +750,7 @@ pub fn run() {
             create_shop_setting,
             update_shop_setting,
             delete_shop_setting,
+            get_parser_type_by_sender,
             parse_email,
             parse_and_save_email,
             start_batch_parse,
@@ -809,6 +810,14 @@ async fn update_shop_setting(
 #[tauri::command]
 async fn delete_shop_setting(pool: tauri::State<'_, SqlitePool>, id: i64) -> Result<(), String> {
     gmail::delete_shop_setting(pool.inner(), id).await
+}
+
+#[tauri::command]
+async fn get_parser_type_by_sender(
+    pool: tauri::State<'_, SqlitePool>,
+    sender_address: String,
+) -> Result<Option<String>, String> {
+    gmail::get_parser_type_by_sender(pool.inner(), &sender_address).await
 }
 
 #[tauri::command]
