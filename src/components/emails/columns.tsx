@@ -37,26 +37,15 @@ async function handleParseEmail(email: Email) {
     const senderEmail = emailMatch ? emailMatch[1] : email.from;
     const shopDomain = senderEmail.split('@')[1];
 
-    // sender addressからparser typeを取得
-    const parserType = await invoke<string | null>(
-      'get_parser_type_by_sender',
-      {
-        senderAddress: senderEmail,
-      }
-    );
-
-    if (!parserType) {
-      toast.error(`送信元 ${senderEmail} に対応するパーサーが見つかりません`);
-      return;
-    }
-
     toast.info('メールをパース中...');
 
+    // バックエンド側で複数パーサーを試す実装に変更
     const orderId = await invoke<number>('parse_and_save_email', {
-      parserType,
       emailBody: email.bodyPlain,
       emailId: parseInt(email.id),
       shopDomain,
+      senderAddress: senderEmail,
+      subject: email.subject,
     });
 
     toast.success(`注文を保存しました (ID: ${orderId})`);

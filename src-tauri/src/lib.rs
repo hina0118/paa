@@ -750,7 +750,6 @@ pub fn run() {
             create_shop_setting,
             update_shop_setting,
             delete_shop_setting,
-            get_parser_type_by_sender,
             parse_email,
             parse_and_save_email,
             start_batch_parse,
@@ -813,14 +812,6 @@ async fn delete_shop_setting(pool: tauri::State<'_, SqlitePool>, id: i64) -> Res
 }
 
 #[tauri::command]
-async fn get_parser_type_by_sender(
-    pool: tauri::State<'_, SqlitePool>,
-    sender_address: String,
-) -> Result<Option<String>, String> {
-    gmail::get_parser_type_by_sender(pool.inner(), &sender_address).await
-}
-
-#[tauri::command]
 fn parse_email(parser_type: String, email_body: String) -> Result<parsers::OrderInfo, String> {
     let parser = parsers::get_parser(&parser_type)
         .ok_or_else(|| format!("Unknown parser type: {}", parser_type))?;
@@ -831,19 +822,92 @@ fn parse_email(parser_type: String, email_body: String) -> Result<parsers::Order
 #[tauri::command]
 async fn parse_and_save_email(
     pool: tauri::State<'_, SqlitePool>,
-    parser_type: String,
     email_body: String,
     email_id: Option<i64>,
     shop_domain: Option<String>,
+    sender_address: String,
+    subject: Option<String>,
 ) -> Result<i64, String> {
-    // メール本文をパース (同期処理)
+    // shop_settingsから有効な設定を取得
+    let shop_settings: Vec<(String, String, Option<String>)> = sqlx::query_as(
+        "SELECT sender_address, parser_type, subject_filters FROM shop_settings WHERE is_enabled = 1"
+    )
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|e| format!("Failed to fetch shop settings: {}", e))?;
+
+    // 送信元アドレスと件名フィルターから候補のパーサータイプを全て取得
+    let candidate_parsers: Vec<&str> = shop_settings
+        .iter()
+        .filter_map(|(addr, parser_type, subject_filters_json)| {
+            // 送信元アドレスが一致するか確認
+            if !sender_address.contains(addr) {
+                return None;
+            }
+
+            // 件名フィルターがない場合は、アドレス一致だけでOK
+            let Some(filters_json) = subject_filters_json else {
+                return Some(parser_type.as_str());
+            };
+
+            // 件名フィルターがある場合は、件名も確認
+            let Ok(filters) = serde_json::from_str::<Vec<String>>(filters_json) else {
+                return Some(parser_type.as_str()); // JSONパースエラー時はフィルター無視
+            };
+
+            // 件名がない場合は除外
+            let subj = subject.as_ref()?;
+
+            // いずれかのフィルターに一致すればOK
+            if filters.iter().any(|filter| subj.contains(filter)) {
+                Some(parser_type.as_str())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if candidate_parsers.is_empty() {
+        return Err(format!("No parser found for address: {} with subject: {:?}", sender_address, subject));
+    }
+
+    // 複数のパーサーを順番に試す（最初に成功したものを使用）
+    // パーサーの参照をawaitの前で解放するため、同期ブロック内で完了させる
     let order_info = {
-        let parser = parsers::get_parser(&parser_type)
-            .ok_or_else(|| format!("Unknown parser type: {}", parser_type))?;
-        parser.parse(&email_body)?
+        let mut last_error = String::new();
+        let mut result = None;
+
+        for parser_type in &candidate_parsers {
+            let parser = match parsers::get_parser(parser_type) {
+                Some(p) => p,
+                None => {
+                    log::warn!("Unknown parser type: {}", parser_type);
+                    continue;
+                }
+            };
+
+            match parser.parse(&email_body) {
+                Ok(info) => {
+                    log::info!("Successfully parsed with parser: {}", parser_type);
+                    result = Some(info);
+                    break;
+                }
+                Err(e) => {
+                    log::debug!("Parser {} failed: {}", parser_type, e);
+                    last_error = e;
+                    // 次のパーサーを試す
+                    continue;
+                }
+            }
+        }
+
+        match result {
+            Some(info) => info,
+            None => return Err(format!("All parsers failed. Last error: {}", last_error)),
+        }
     };
 
-    // データベースに保存 (非同期処理)
+    // データベースに保存（非同期処理）
     parsers::save_order_to_db(
         pool.inner(),
         &order_info,
