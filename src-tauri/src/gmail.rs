@@ -1299,22 +1299,6 @@ pub async fn delete_shop_setting(pool: &SqlitePool, id: i64) -> Result<(), Strin
     Ok(())
 }
 
-/// Get parser type by sender address
-pub async fn get_parser_type_by_sender(
-    pool: &SqlitePool,
-    sender_address: &str,
-) -> Result<Option<String>, String> {
-    let result: Option<(String,)> = sqlx::query_as(
-        "SELECT parser_type FROM shop_settings WHERE sender_address = ? AND is_enabled = 1 LIMIT 1",
-    )
-    .bind(sender_address)
-    .fetch_optional(pool)
-    .await
-    .map_err(|e| format!("Failed to fetch parser type: {e}"))?;
-
-    Ok(result.map(|(parser_type,)| parser_type))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
