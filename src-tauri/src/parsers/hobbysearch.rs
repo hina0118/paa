@@ -37,8 +37,8 @@ impl EmailParser for HobbySearchParser {
 
 /// 注文番号を抽出
 fn extract_order_number(lines: &[&str]) -> Result<String, String> {
-    let order_number_pattern = Regex::new(r"\[代表注文番号\]\s*(\d+-\d+-\d+)")
-        .map_err(|e| format!("Regex error: {e}"))?;
+    let order_number_pattern =
+        Regex::new(r"\[代表注文番号\]\s*(\d+-\d+-\d+)").map_err(|e| format!("Regex error: {e}"))?;
 
     for line in lines {
         if let Some(captures) = order_number_pattern.captures(line) {
@@ -77,7 +77,8 @@ fn extract_delivery_address(lines: &[&str]) -> Option<DeliveryAddress> {
                 postal_code = Some(trimmed.trim_start_matches('〒').trim().to_string());
             }
             // 住所を抽出（都道府県で始まる行）
-            else if trimmed.contains('県') || trimmed.contains('都') || trimmed.contains('府') {
+            else if trimmed.contains('県') || trimmed.contains('都') || trimmed.contains('府')
+            {
                 address = Some(trimmed.to_string());
             }
             // 名前を抽出（「様」で終わる行）
@@ -142,9 +143,8 @@ fn extract_items(lines: &[&str]) -> Result<Vec<OrderItem>, String> {
 
     // 商品行のパターン: "メーカー 品番 商品名 (プラモデル) シリーズ"
     // 次の行: "単価：X円 × 個数：Y = Z円"
-    let price_pattern =
-        Regex::new(r"単価：([\d,]+)円\s*×\s*個数：(\d+)\s*=\s*([\d,]+)円")
-            .map_err(|e| format!("Regex error: {e}"))?;
+    let price_pattern = Regex::new(r"単価：([\d,]+)円\s*×\s*個数：(\d+)\s*=\s*([\d,]+)円")
+        .map_err(|e| format!("Regex error: {e}"))?;
 
     let mut i = 0;
     while i < lines.len() {
@@ -232,7 +232,8 @@ fn parse_item_line(line: &str) -> (String, Option<String>, Option<String>) {
     let manufacturer = Some(parts[0].to_string());
 
     // 2番目の部分が数字で始まる場合は品番
-    let model_number = if parts.len() > 1 && parts[1].chars().next().is_some_and(|c| c.is_numeric()) {
+    let model_number = if parts.len() > 1 && parts[1].chars().next().is_some_and(|c| c.is_numeric())
+    {
         Some(parts[1].to_string())
     } else {
         None

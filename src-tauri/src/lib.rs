@@ -868,7 +868,10 @@ async fn parse_and_save_email(
         .collect();
 
     if candidate_parsers.is_empty() {
-        return Err(format!("No parser found for address: {} with subject: {:?}", sender_address, subject));
+        return Err(format!(
+            "No parser found for address: {} with subject: {:?}",
+            sender_address, subject
+        ));
     }
 
     // 複数のパーサーを順番に試す（最初に成功したものを使用）
@@ -908,13 +911,7 @@ async fn parse_and_save_email(
     };
 
     // データベースに保存（非同期処理）
-    parsers::save_order_to_db(
-        pool.inner(),
-        &order_info,
-        email_id,
-        shop_domain.as_deref(),
-    )
-    .await
+    parsers::save_order_to_db(pool.inner(), &order_info, email_id, shop_domain.as_deref()).await
 }
 
 #[tauri::command]
@@ -930,12 +927,10 @@ async fn start_batch_parse(
     let size = if let Some(size) = batch_size {
         size
     } else {
-        let row: (i64,) = sqlx::query_as(
-            "SELECT batch_size FROM parse_metadata WHERE id = 1"
-        )
-        .fetch_one(pool.inner())
-        .await
-        .map_err(|e| format!("Failed to fetch batch size: {}", e))?;
+        let row: (i64,) = sqlx::query_as("SELECT batch_size FROM parse_metadata WHERE id = 1")
+            .fetch_one(pool.inner())
+            .await
+            .map_err(|e| format!("Failed to fetch batch size: {}", e))?;
         row.0 as usize
     };
 
@@ -943,7 +938,9 @@ async fn start_batch_parse(
     let parse_state_clone = parse_state.inner().clone();
 
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = parsers::batch_parse_emails(&app_handle, &pool_clone, &parse_state_clone, size).await {
+        if let Err(e) =
+            parsers::batch_parse_emails(&app_handle, &pool_clone, &parse_state_clone, size).await
+        {
             log::error!("Batch parse failed: {}", e);
 
             // エラーイベントを送信
@@ -1016,7 +1013,6 @@ async fn update_parse_batch_size(
 
     Ok(())
 }
-
 
 #[cfg(test)]
 mod tests {
