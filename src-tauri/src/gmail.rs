@@ -1211,7 +1211,8 @@ pub async fn create_shop_setting(
     settings: CreateShopSettings,
 ) -> Result<i64, String> {
     // Convert Vec<String> to JSON string
-    let subject_filters_json = settings.subject_filters
+    let subject_filters_json = settings
+        .subject_filters
         .as_ref()
         .map(serde_json::to_string)
         .transpose()
@@ -1256,8 +1257,10 @@ pub async fn update_shop_setting(
 
     // Convert Vec<String> to JSON string if provided, otherwise keep existing
     let subject_filters_json = if let Some(filters) = settings.subject_filters {
-        Some(serde_json::to_string(&filters)
-            .map_err(|e| format!("Failed to serialize subject_filters: {e}"))?)
+        Some(
+            serde_json::to_string(&filters)
+                .map_err(|e| format!("Failed to serialize subject_filters: {e}"))?,
+        )
     } else {
         existing.subject_filters
     };

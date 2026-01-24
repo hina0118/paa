@@ -10,9 +10,9 @@ type EmailRow = (i64, String, String, Option<String>, Option<String>);
 pub mod hobbysearch;
 
 // 新しい分離されたパーサー
+pub mod hobbysearch_change;
 pub mod hobbysearch_confirm;
 pub mod hobbysearch_confirm_yoyaku;
-pub mod hobbysearch_change;
 pub mod hobbysearch_send;
 
 /// パース状態管理
@@ -139,7 +139,9 @@ pub fn get_parser(parser_type: &str) -> Option<Box<dyn EmailParser>> {
 
         // 新しい分離されたパーサー
         "hobbysearch_confirm" => Some(Box::new(hobbysearch_confirm::HobbySearchConfirmParser)),
-        "hobbysearch_confirm_yoyaku" => Some(Box::new(hobbysearch_confirm_yoyaku::HobbySearchConfirmYoyakuParser)),
+        "hobbysearch_confirm_yoyaku" => Some(Box::new(
+            hobbysearch_confirm_yoyaku::HobbySearchConfirmYoyakuParser,
+        )),
         "hobbysearch_change" => Some(Box::new(hobbysearch_change::HobbySearchChangeParser)),
         "hobbysearch_send" => Some(Box::new(hobbysearch_send::HobbySearchSendParser)),
 
@@ -431,7 +433,7 @@ pub async fn batch_parse_emails(
         FROM emails
         WHERE body_plain IS NOT NULL
         AND from_address IS NOT NULL
-        "#
+        "#,
     )
     .fetch_one(pool)
     .await
@@ -465,11 +467,9 @@ pub async fn batch_parse_emails(
             let _ = app_handle.emit("parse-progress", cancel_event);
 
             // ステータスをidleに戻す
-            let _ = sqlx::query(
-                "UPDATE parse_metadata SET parse_status = 'idle' WHERE id = 1"
-            )
-            .execute(pool)
-            .await;
+            let _ = sqlx::query("UPDATE parse_metadata SET parse_status = 'idle' WHERE id = 1")
+                .execute(pool)
+                .await;
 
             return Ok(());
         }
@@ -489,7 +489,7 @@ pub async fn batch_parse_emails(
             AND oe.email_id IS NULL
             ORDER BY e.internal_date ASC
             LIMIT ?
-            "#
+            "#,
         )
         .bind(batch_size as i64)
         .fetch_all(pool)
@@ -505,142 +505,157 @@ pub async fn batch_parse_emails(
         let mut success_count = 0;
         let mut failed_count = 0;
 
-        log::info!("Iteration {}: Found {} emails to parse", iteration, batch_email_count);
+        log::info!(
+            "Iteration {}: Found {} emails to parse",
+            iteration,
+            batch_email_count
+        );
 
-    for (email_id, _message_id, body_plain, from_address_opt, subject_opt) in emails.iter() {
-        let from_address = match from_address_opt {
-            Some(addr) => addr,
-            None => {
-                failed_count += 1;
-                continue;
-            }
-        };
-
-        // 送信元アドレスと件名フィルターから候補のパーサータイプを全て取得
-        let candidate_parsers: Vec<&str> = shop_settings
-            .iter()
-            .filter_map(|(addr, parser_type, subject_filters_json)| {
-                // 送信元アドレスが一致するか確認
-                if !from_address.contains(addr) {
-                    return None;
-                }
-
-                // 件名フィルターがない場合は、アドレス一致だけでOK
-                let Some(filters_json) = subject_filters_json else {
-                    return Some(parser_type.as_str());
-                };
-
-                // 件名フィルターがある場合は、件名も確認
-                let Ok(filters) = serde_json::from_str::<Vec<String>>(filters_json) else {
-                    return Some(parser_type.as_str()); // JSONパースエラー時はフィルター無視
-                };
-
-                // 件名がない場合は除外
-                let Some(subject) = subject_opt else {
-                    return None;
-                };
-
-                // いずれかのフィルターに一致すればOK
-                if filters.iter().any(|filter| subject.contains(filter)) {
-                    Some(parser_type.as_str())
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        if candidate_parsers.is_empty() {
-            log::debug!("No parser found for address: {} with subject: {:?}", from_address, subject_opt);
-            failed_count += 1;
-            continue;
-        }
-
-        // 複数のパーサーを順番に試す（最初に成功したものを使用）
-        let mut parse_result: Option<Result<OrderInfo, String>> = None;
-        let mut last_error = String::new();
-
-        for parser_type in &candidate_parsers {
-            let parser = match get_parser(parser_type) {
-                Some(p) => p,
+        for (email_id, _message_id, body_plain, from_address_opt, subject_opt) in emails.iter() {
+            let from_address = match from_address_opt {
+                Some(addr) => addr,
                 None => {
-                    log::warn!("Unknown parser type: {}", parser_type);
+                    failed_count += 1;
                     continue;
                 }
             };
 
-            match parser.parse(body_plain) {
-                Ok(order_info) => {
-                    log::debug!("Successfully parsed with parser: {}", parser_type);
-                    parse_result = Some(Ok(order_info));
-                    break;
-                }
-                Err(e) => {
-                    log::debug!("Parser {} failed: {}", parser_type, e);
-                    last_error = e;
-                    // 次のパーサーを試す
-                    continue;
-                }
+            // 送信元アドレスと件名フィルターから候補のパーサータイプを全て取得
+            let candidate_parsers: Vec<&str> = shop_settings
+                .iter()
+                .filter_map(|(addr, parser_type, subject_filters_json)| {
+                    // 送信元アドレスが一致するか確認
+                    if !from_address.contains(addr) {
+                        return None;
+                    }
+
+                    // 件名フィルターがない場合は、アドレス一致だけでOK
+                    let Some(filters_json) = subject_filters_json else {
+                        return Some(parser_type.as_str());
+                    };
+
+                    // 件名フィルターがある場合は、件名も確認
+                    let Ok(filters) = serde_json::from_str::<Vec<String>>(filters_json) else {
+                        return Some(parser_type.as_str()); // JSONパースエラー時はフィルター無視
+                    };
+
+                    // 件名がない場合は除外
+                    let Some(subject) = subject_opt else {
+                        return None;
+                    };
+
+                    // いずれかのフィルターに一致すればOK
+                    if filters.iter().any(|filter| subject.contains(filter)) {
+                        Some(parser_type.as_str())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            if candidate_parsers.is_empty() {
+                log::debug!(
+                    "No parser found for address: {} with subject: {:?}",
+                    from_address,
+                    subject_opt
+                );
+                failed_count += 1;
+                continue;
             }
-        }
 
-        let parse_result = match parse_result {
-            Some(result) => result,
-            None => {
-                log::error!("All parsers failed for email {}. Last error: {}", email_id, last_error);
-                Err(last_error)
-            }
-        };
+            // 複数のパーサーを順番に試す（最初に成功したものを使用）
+            let mut parse_result: Option<Result<OrderInfo, String>> = None;
+            let mut last_error = String::new();
 
-        match parse_result {
-            Ok(order_info) => {
-                // ドメインを抽出
-                let shop_domain = from_address.split('@').nth(1);
+            for parser_type in &candidate_parsers {
+                let parser = match get_parser(parser_type) {
+                    Some(p) => p,
+                    None => {
+                        log::warn!("Unknown parser type: {}", parser_type);
+                        continue;
+                    }
+                };
 
-                // データベースに保存
-                match save_order_to_db(pool, &order_info, Some(*email_id), shop_domain).await {
-                    Ok(order_id) => {
-                        log::info!("Successfully parsed and saved order: {}", order_id);
-                        success_count += 1;
+                match parser.parse(body_plain) {
+                    Ok(order_info) => {
+                        log::debug!("Successfully parsed with parser: {}", parser_type);
+                        parse_result = Some(Ok(order_info));
+                        break;
                     }
                     Err(e) => {
-                        log::error!("Failed to save order: {}", e);
-                        failed_count += 1;
+                        log::debug!("Parser {} failed: {}", parser_type, e);
+                        last_error = e;
+                        // 次のパーサーを試す
+                        continue;
                     }
                 }
             }
-            Err(e) => {
-                log::error!("Failed to parse email {}: {}", email_id, e);
-                failed_count += 1;
+
+            let parse_result = match parse_result {
+                Some(result) => result,
+                None => {
+                    log::error!(
+                        "All parsers failed for email {}. Last error: {}",
+                        email_id,
+                        last_error
+                    );
+                    Err(last_error)
+                }
+            };
+
+            match parse_result {
+                Ok(order_info) => {
+                    // ドメインを抽出
+                    let shop_domain = from_address.split('@').nth(1);
+
+                    // データベースに保存
+                    match save_order_to_db(pool, &order_info, Some(*email_id), shop_domain).await {
+                        Ok(order_id) => {
+                            log::info!("Successfully parsed and saved order: {}", order_id);
+                            success_count += 1;
+                        }
+                        Err(e) => {
+                            log::error!("Failed to save order: {}", e);
+                            failed_count += 1;
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::error!("Failed to parse email {}: {}", email_id, e);
+                    failed_count += 1;
+                }
             }
+
+            overall_parsed_count += 1;
         }
 
-        overall_parsed_count += 1;
+        // バッチ処理完了後に進捗イベントを送信（バッチごとに1回）
+        overall_success_count += success_count;
+        overall_failed_count += failed_count;
+
+        let progress = ParseProgressEvent {
+            batch_number: iteration,
+            total_emails: total_email_count as usize,
+            parsed_count: overall_parsed_count,
+            success_count: overall_success_count,
+            failed_count: overall_failed_count,
+            status_message: format!(
+                "パース中... ({}/{})",
+                overall_parsed_count, total_email_count
+            ),
+            is_complete: false,
+            error: None,
+        };
+
+        let _ = app_handle.emit("parse-progress", progress);
+
+        log::info!(
+            "Iteration {} completed: success={}, failed={}",
+            iteration,
+            success_count,
+            failed_count
+        );
     }
-
-    // バッチ処理完了後に進捗イベントを送信（バッチごとに1回）
-    overall_success_count += success_count;
-    overall_failed_count += failed_count;
-
-    let progress = ParseProgressEvent {
-        batch_number: iteration,
-        total_emails: total_email_count as usize,
-        parsed_count: overall_parsed_count,
-        success_count: overall_success_count,
-        failed_count: overall_failed_count,
-        status_message: format!("パース中... ({}/{})", overall_parsed_count, total_email_count),
-        is_complete: false,
-        error: None,
-    };
-
-    let _ = app_handle.emit("parse-progress", progress);
-
-    log::info!(
-        "Iteration {} completed: success={}, failed={}",
-        iteration,
-        success_count,
-        failed_count
-    );
-}
 
     // 完了イベントを送信
     let final_progress = ParseProgressEvent {
@@ -667,7 +682,7 @@ pub async fn batch_parse_emails(
             last_parse_completed_at = ?1,
             total_parsed_count = ?2
         WHERE id = 1
-        "#
+        "#,
     )
     .bind(Utc::now().to_rfc3339())
     .bind(overall_success_count as i64)
@@ -675,7 +690,11 @@ pub async fn batch_parse_emails(
     .await
     .map_err(|e| format!("Failed to update parse metadata: {}", e))?;
 
-    log::info!("Batch parse completed: success={}, failed={}", overall_success_count, overall_failed_count);
+    log::info!(
+        "Batch parse completed: success={}, failed={}",
+        overall_success_count,
+        overall_failed_count
+    );
 
     // パース状態をクリーンアップ
     parse_state.finish();
