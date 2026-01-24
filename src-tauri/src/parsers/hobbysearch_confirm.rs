@@ -247,7 +247,8 @@ fn extract_amount_from_line(line: &str) -> Option<i64> {
     })
 }
 
-#[cfg(test)]
+// テストはローカル環境でのみ実行（サンプルファイルに個人情報が含まれるため）
+#[cfg(all(test, not(ci)))]
 mod tests {
     use super::*;
 
