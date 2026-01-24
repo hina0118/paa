@@ -9,6 +9,14 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 export function Parse() {
   const {
@@ -20,13 +28,20 @@ export function Parse() {
     refreshStatus,
   } = useParse();
   const [error, setError] = useState<string | null>(null);
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
 
   useEffect(() => {
     // Refresh status when component mounts
     refreshStatus();
   }, [refreshStatus]);
 
-  const handleStartParse = async () => {
+  const handleStartParse = () => {
+    // 確認ダイアログを表示
+    setShowConfirmDialog(true);
+  };
+
+  const handleConfirmParse = async () => {
+    setShowConfirmDialog(false);
     setError(null);
     try {
       // batch_sizeを指定せずに呼び出すとparse_metadataの値が使われる
@@ -34,6 +49,10 @@ export function Parse() {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
+  };
+
+  const handleCancelDialog = () => {
+    setShowConfirmDialog(false);
   };
 
   const handleCancelParse = async () => {
@@ -82,6 +101,41 @@ export function Parse() {
   return (
     <div className="container mx-auto py-10 space-y-6">
       <h1 className="text-3xl font-bold">メールパース</h1>
+
+      {/* Confirmation Dialog */}
+      <Dialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>パース処理の確認</DialogTitle>
+            <DialogDescription className="space-y-3 pt-2">
+              <p className="font-semibold text-yellow-800">⚠️ 重要な確認事項</p>
+              <p>
+                パース処理を開始すると、以下のテーブルの全データが削除されます：
+              </p>
+              <ul className="list-disc list-inside space-y-1 ml-2 text-sm">
+                <li>注文情報（orders）</li>
+                <li>商品情報（items）</li>
+                <li>配送情報（deliveries）</li>
+                <li>注文とメールの紐付け（order_emails）</li>
+              </ul>
+              <p className="text-sm">
+                この操作は、パーサーの更新時にデータを再作成するために必要です。
+              </p>
+              <p className="font-semibold text-red-700">
+                削除されたデータは復元できません。本当に実行しますか？
+              </p>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={handleCancelDialog}>
+              キャンセル
+            </Button>
+            <Button variant="destructive" onClick={handleConfirmParse}>
+              削除して実行
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Parse Controls */}
       <Card>

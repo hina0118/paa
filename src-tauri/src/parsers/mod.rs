@@ -402,16 +402,30 @@ pub async fn batch_parse_emails(
     .await
     .map_err(|e| format!("Failed to update parse status: {}", e))?;
 
-    // NOTE:
-    //  以前はパース処理の開始時に order_emails, deliveries, items, orders テーブルを
-    //  全件削除していましたが、パースの再実行やバッチ処理により既存データが
-    //  失われる危険があるため、全削除は行わないように変更しました。
-    //
-    //  代わりに、各レコードの重複チェックと更新は save_order_to_db などの
-    //  保存ロジック側で行うことを前提としています。
-    log::info!(
-        "Skipping clearing of order_emails, deliveries, items, and orders tables to avoid data loss; relying on duplicate-check/update logic instead."
-    );
+    // order_emails, deliveries, items, orders テーブルをクリア（パースやり直しのため）
+    // 外部キー制約により、order_emails -> deliveries -> items -> orders の順でクリア
+    // NOTE: ユーザーには事前にUI（Parse画面）で警告と確認ダイアログを表示済み
+    log::info!("Clearing order_emails, deliveries, items, and orders tables for fresh parse...");
+
+    sqlx::query("DELETE FROM order_emails")
+        .execute(pool)
+        .await
+        .map_err(|e| format!("Failed to clear order_emails table: {}", e))?;
+
+    sqlx::query("DELETE FROM deliveries")
+        .execute(pool)
+        .await
+        .map_err(|e| format!("Failed to clear deliveries table: {}", e))?;
+
+    sqlx::query("DELETE FROM items")
+        .execute(pool)
+        .await
+        .map_err(|e| format!("Failed to clear items table: {}", e))?;
+
+    sqlx::query("DELETE FROM orders")
+        .execute(pool)
+        .await
+        .map_err(|e| format!("Failed to clear orders table: {}", e))?;
 
     // shop_settingsから有効な店舗とパーサータイプ、件名フィルターを取得
     let shop_settings: Vec<(String, String, Option<String>)> = sqlx::query_as(
