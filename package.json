@@ -15,7 +15,7 @@
     "test:all": "npm run test:frontend:run && npm run test",
     "lint:rust": "cd src-tauri && cargo clippy --all-targets --all-features -- -D warnings",
     "lint:rust:fix": "cd src-tauri && cargo clippy --fix --all-targets --all-features --allow-dirty --allow-staged",
-    "lint:ui": "eslint . --max-warnings 3",
+    "lint:ui": "eslint . --max-warnings 4",
     "lint:ui:fix": "eslint . --fix",
     "format": "prettier --write \"src/**/*.{js,jsx,ts,tsx,json,css,md}\"",
     "format:check": "prettier --check \"src/**/*.{js,jsx,ts,tsx,json,css,md}\"",

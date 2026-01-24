@@ -517,7 +517,7 @@ pub async fn batch_parse_emails(
 
         log::info!("Iteration {}: Found {} emails to parse", iteration, batch_email_count);
 
-    for (_index, (email_id, _message_id, body_plain, from_address_opt, subject_opt)) in emails.iter().enumerate() {
+    for (email_id, _message_id, body_plain, from_address_opt, subject_opt) in emails.iter() {
         let from_address = match from_address_opt {
             Some(addr) => addr,
             None => {
@@ -627,6 +627,9 @@ pub async fn batch_parse_emails(
             overall_parsed_count += 1;
 
             // 進捗イベントを送信
+            overall_success_count += success_count;
+            overall_failed_count += failed_count;
+
             let progress = ParseProgressEvent {
                 batch_number: iteration,
                 total_emails: total_email_count as usize,
@@ -640,9 +643,6 @@ pub async fn batch_parse_emails(
 
             let _ = app_handle.emit("parse-progress", progress);
         }
-
-        overall_success_count += success_count;
-        overall_failed_count += failed_count;
 
         log::info!(
             "Iteration {} completed: success={}, failed={}",

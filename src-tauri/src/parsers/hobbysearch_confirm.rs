@@ -196,7 +196,7 @@ fn parse_item_line(line: &str) -> (String, Option<String>, Option<String>) {
     let manufacturer = Some(parts[0].to_string());
 
     // 2番目の部分が数字で始まる場合は品番
-    let model_number = if parts.len() > 1 && parts[1].chars().next().map_or(false, |c| c.is_numeric()) {
+    let model_number = if parts.len() > 1 && parts[1].chars().next().is_some_and(|c| c.is_numeric()) {
         Some(parts[1].to_string())
     } else {
         None
