@@ -710,3 +710,401 @@ pub async fn batch_parse_emails(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ==================== ParseState Tests ====================
+
+    #[test]
+    fn test_parse_state_new() {
+        let state = ParseState::new();
+        assert!(!state.is_cancelled());
+        assert!(state.should_cancel.lock().unwrap().eq(&false));
+        assert!(state.is_running.lock().unwrap().eq(&false));
+    }
+
+    #[test]
+    fn test_parse_state_request_cancel() {
+        let state = ParseState::new();
+        assert!(!state.is_cancelled());
+
+        state.request_cancel();
+        assert!(state.is_cancelled());
+    }
+
+    #[test]
+    fn test_parse_state_start_success() {
+        let state = ParseState::new();
+        let result = state.start();
+        assert!(result.is_ok());
+        assert!(*state.is_running.lock().unwrap());
+    }
+
+    #[test]
+    fn test_parse_state_start_already_running() {
+        let state = ParseState::new();
+
+        // 最初のstart
+        let result = state.start();
+        assert!(result.is_ok());
+
+        // 2回目のstartはエラー
+        let result = state.start();
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Parse is already running");
+    }
+
+    #[test]
+    fn test_parse_state_start_resets_cancel_flag() {
+        let state = ParseState::new();
+        state.request_cancel();
+        assert!(state.is_cancelled());
+
+        let result = state.start();
+        assert!(result.is_ok());
+        assert!(!state.is_cancelled());
+    }
+
+    #[test]
+    fn test_parse_state_finish() {
+        let state = ParseState::new();
+        state.start().unwrap();
+        state.request_cancel();
+
+        assert!(*state.is_running.lock().unwrap());
+        assert!(state.is_cancelled());
+
+        state.finish();
+
+        assert!(!*state.is_running.lock().unwrap());
+        assert!(!state.is_cancelled());
+    }
+
+    #[test]
+    fn test_parse_state_finish_when_not_running() {
+        let state = ParseState::new();
+        // finishを呼んでもパニックしない
+        state.finish();
+        assert!(!*state.is_running.lock().unwrap());
+    }
+
+    #[test]
+    fn test_parse_state_multiple_cycles() {
+        let state = ParseState::new();
+
+        // サイクル1
+        state.start().unwrap();
+        state.request_cancel();
+        state.finish();
+
+        // サイクル2
+        state.start().unwrap();
+        assert!(!state.is_cancelled());
+        state.finish();
+
+        // サイクル3
+        state.start().unwrap();
+        state.finish();
+
+        assert!(!*state.is_running.lock().unwrap());
+    }
+
+    // ==================== get_parser Tests ====================
+
+    #[test]
+    fn test_get_parser_hobbysearch_confirm() {
+        let parser = get_parser("hobbysearch_confirm");
+        assert!(parser.is_some());
+    }
+
+    #[test]
+    fn test_get_parser_hobbysearch_confirm_yoyaku() {
+        let parser = get_parser("hobbysearch_confirm_yoyaku");
+        assert!(parser.is_some());
+    }
+
+    #[test]
+    fn test_get_parser_hobbysearch_change() {
+        let parser = get_parser("hobbysearch_change");
+        assert!(parser.is_some());
+    }
+
+    #[test]
+    fn test_get_parser_hobbysearch_send() {
+        let parser = get_parser("hobbysearch_send");
+        assert!(parser.is_some());
+    }
+
+    #[test]
+    fn test_get_parser_unknown_type() {
+        let parser = get_parser("unknown_parser");
+        assert!(parser.is_none());
+    }
+
+    #[test]
+    fn test_get_parser_empty_string() {
+        let parser = get_parser("");
+        assert!(parser.is_none());
+    }
+
+    // ==================== Data Structure Tests ====================
+
+    #[test]
+    fn test_order_info_structure() {
+        let order = OrderInfo {
+            order_number: "ORD-001".to_string(),
+            order_date: Some("2024-01-01".to_string()),
+            delivery_address: None,
+            delivery_info: None,
+            items: vec![],
+            subtotal: Some(1000),
+            shipping_fee: Some(500),
+            total_amount: Some(1500),
+        };
+
+        assert_eq!(order.order_number, "ORD-001");
+        assert_eq!(order.order_date, Some("2024-01-01".to_string()));
+        assert_eq!(order.total_amount, Some(1500));
+    }
+
+    #[test]
+    fn test_order_info_with_items() {
+        let item = OrderItem {
+            name: "Test Product".to_string(),
+            manufacturer: Some("Test Maker".to_string()),
+            model_number: Some("MODEL-001".to_string()),
+            unit_price: 1000,
+            quantity: 2,
+            subtotal: 2000,
+        };
+
+        let order = OrderInfo {
+            order_number: "ORD-002".to_string(),
+            order_date: None,
+            delivery_address: None,
+            delivery_info: None,
+            items: vec![item],
+            subtotal: None,
+            shipping_fee: None,
+            total_amount: None,
+        };
+
+        assert_eq!(order.items.len(), 1);
+        assert_eq!(order.items[0].name, "Test Product");
+        assert_eq!(order.items[0].subtotal, 2000);
+    }
+
+    #[test]
+    fn test_delivery_address_structure() {
+        let addr = DeliveryAddress {
+            name: "山田太郎".to_string(),
+            postal_code: Some("123-4567".to_string()),
+            address: Some("東京都渋谷区".to_string()),
+        };
+
+        assert_eq!(addr.name, "山田太郎");
+        assert_eq!(addr.postal_code, Some("123-4567".to_string()));
+    }
+
+    #[test]
+    fn test_delivery_info_structure() {
+        let info = DeliveryInfo {
+            carrier: "ヤマト運輸".to_string(),
+            tracking_number: "1234-5678-9012".to_string(),
+            delivery_date: Some("2024-01-15".to_string()),
+            delivery_time: Some("14:00-16:00".to_string()),
+            carrier_url: Some("https://example.com/track".to_string()),
+        };
+
+        assert_eq!(info.carrier, "ヤマト運輸");
+        assert_eq!(info.tracking_number, "1234-5678-9012");
+    }
+
+    #[test]
+    fn test_parse_metadata_structure() {
+        let metadata = ParseMetadata {
+            parse_status: "idle".to_string(),
+            last_parse_started_at: None,
+            last_parse_completed_at: None,
+            total_parsed_count: 0,
+            last_error_message: None,
+            batch_size: 100,
+        };
+
+        assert_eq!(metadata.parse_status, "idle");
+        assert_eq!(metadata.batch_size, 100);
+    }
+
+    #[test]
+    fn test_parse_progress_event_structure() {
+        let event = ParseProgressEvent {
+            batch_number: 1,
+            total_emails: 100,
+            parsed_count: 50,
+            success_count: 45,
+            failed_count: 5,
+            status_message: "Processing...".to_string(),
+            is_complete: false,
+            error: None,
+        };
+
+        assert_eq!(event.batch_number, 1);
+        assert_eq!(event.total_emails, 100);
+        assert!(!event.is_complete);
+    }
+
+    #[test]
+    fn test_parse_progress_event_with_error() {
+        let event = ParseProgressEvent {
+            batch_number: 2,
+            total_emails: 100,
+            parsed_count: 30,
+            success_count: 25,
+            failed_count: 5,
+            status_message: "Error occurred".to_string(),
+            is_complete: true,
+            error: Some("Database connection failed".to_string()),
+        };
+
+        assert!(event.is_complete);
+        assert!(event.error.is_some());
+    }
+
+    // ==================== Serialization Tests ====================
+
+    #[test]
+    fn test_order_info_serialization() {
+        let order = OrderInfo {
+            order_number: "ORD-003".to_string(),
+            order_date: Some("2024-01-01".to_string()),
+            delivery_address: None,
+            delivery_info: None,
+            items: vec![],
+            subtotal: Some(1000),
+            shipping_fee: None,
+            total_amount: Some(1000),
+        };
+
+        let json = serde_json::to_string(&order).unwrap();
+        assert!(json.contains("ORD-003"));
+
+        let deserialized: OrderInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.order_number, "ORD-003");
+    }
+
+    #[test]
+    fn test_parse_metadata_serialization() {
+        let metadata = ParseMetadata {
+            parse_status: "running".to_string(),
+            last_parse_started_at: Some("2024-01-01T10:00:00Z".to_string()),
+            last_parse_completed_at: None,
+            total_parsed_count: 50,
+            last_error_message: None,
+            batch_size: 200,
+        };
+
+        let json = serde_json::to_string(&metadata).unwrap();
+        let deserialized: ParseMetadata = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.parse_status, "running");
+        assert_eq!(deserialized.total_parsed_count, 50);
+    }
+
+    #[test]
+    fn test_parse_progress_event_serialization() {
+        let event = ParseProgressEvent {
+            batch_number: 5,
+            total_emails: 500,
+            parsed_count: 250,
+            success_count: 240,
+            failed_count: 10,
+            status_message: "Half done".to_string(),
+            is_complete: false,
+            error: None,
+        };
+
+        let json = serde_json::to_string(&event).unwrap();
+        let deserialized: ParseProgressEvent = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.batch_number, 5);
+        assert_eq!(deserialized.success_count, 240);
+    }
+
+    #[test]
+    fn test_order_item_serialization() {
+        let item = OrderItem {
+            name: "ガンプラ HG".to_string(),
+            manufacturer: Some("バンダイ".to_string()),
+            model_number: Some("BAN-001".to_string()),
+            unit_price: 2500,
+            quantity: 1,
+            subtotal: 2500,
+        };
+
+        let json = serde_json::to_string(&item).unwrap();
+        assert!(json.contains("ガンプラ HG"));
+        assert!(json.contains("バンダイ"));
+
+        let deserialized: OrderItem = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.unit_price, 2500);
+    }
+
+    #[test]
+    fn test_delivery_info_serialization() {
+        let info = DeliveryInfo {
+            carrier: "佐川急便".to_string(),
+            tracking_number: "9999-8888-7777".to_string(),
+            delivery_date: None,
+            delivery_time: None,
+            carrier_url: None,
+        };
+
+        let json = serde_json::to_string(&info).unwrap();
+        let deserialized: DeliveryInfo = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.carrier, "佐川急便");
+        assert_eq!(deserialized.tracking_number, "9999-8888-7777");
+    }
+
+    // ==================== Clone Tests ====================
+
+    #[test]
+    fn test_parse_state_clone() {
+        let state = ParseState::new();
+        state.start().unwrap();
+
+        let cloned = state.clone();
+        // クローンは同じArcを共有
+        assert!(*cloned.is_running.lock().unwrap());
+
+        state.finish();
+        assert!(!*cloned.is_running.lock().unwrap());
+    }
+
+    #[test]
+    fn test_order_info_clone() {
+        let order = OrderInfo {
+            order_number: "ORD-CLONE".to_string(),
+            order_date: None,
+            delivery_address: None,
+            delivery_info: None,
+            items: vec![OrderItem {
+                name: "Item".to_string(),
+                manufacturer: None,
+                model_number: None,
+                unit_price: 100,
+                quantity: 1,
+                subtotal: 100,
+            }],
+            subtotal: None,
+            shipping_fee: None,
+            total_amount: None,
+        };
+
+        let cloned = order.clone();
+        assert_eq!(cloned.order_number, "ORD-CLONE");
+        assert_eq!(cloned.items.len(), 1);
+    }
+}
