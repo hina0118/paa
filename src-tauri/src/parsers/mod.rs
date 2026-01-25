@@ -6,10 +6,10 @@ use tauri::Emitter;
 // 型エイリアス：パース対象メールの情報
 type EmailRow = (i64, String, String, Option<String>, Option<String>);
 
-// 旧実装（後方互換性のため残す）
-pub mod hobbysearch;
+// ホビーサーチ用の共通パースユーティリティ関数
+mod hobbysearch_common;
 
-// 新しい分離されたパーサー
+// ホビーサーチ用パーサー
 pub mod hobbysearch_change;
 pub mod hobbysearch_confirm;
 pub mod hobbysearch_confirm_yoyaku;
@@ -134,17 +134,12 @@ pub trait EmailParser {
 /// パーサータイプから適切なパーサーを取得する
 pub fn get_parser(parser_type: &str) -> Option<Box<dyn EmailParser>> {
     match parser_type {
-        // 旧パーサー（後方互換性のため）
-        "hobbysearch" => Some(Box::new(hobbysearch::HobbySearchParser)),
-
-        // 新しい分離されたパーサー
         "hobbysearch_confirm" => Some(Box::new(hobbysearch_confirm::HobbySearchConfirmParser)),
         "hobbysearch_confirm_yoyaku" => Some(Box::new(
             hobbysearch_confirm_yoyaku::HobbySearchConfirmYoyakuParser,
         )),
         "hobbysearch_change" => Some(Box::new(hobbysearch_change::HobbySearchChangeParser)),
         "hobbysearch_send" => Some(Box::new(hobbysearch_send::HobbySearchSendParser)),
-
         _ => None,
     }
 }
