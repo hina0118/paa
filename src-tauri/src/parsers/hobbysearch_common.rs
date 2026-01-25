@@ -1,14 +1,14 @@
 use super::{DeliveryAddress, DeliveryInfo};
+use once_cell::sync::Lazy;
 use regex::Regex;
-use std::sync::LazyLock;
 
 /// 金額抽出用の正規表現（静的キャッシュ）
-static AMOUNT_PATTERN: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"([\d,]+)円").expect("Invalid regex pattern"));
+static AMOUNT_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"([\d,]+)円").expect("Invalid regex pattern"));
 
 /// 予約商品合計抽出用の正規表現（静的キャッシュ）
-static YOYAKU_TOTAL_PATTERN: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"予約商品合計\s*([\d,]+)円").expect("Invalid regex pattern"));
+static YOYAKU_TOTAL_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"予約商品合計\s*([\d,]+)円").expect("Invalid regex pattern"));
 
 /// 配送先情報を抽出
 ///
