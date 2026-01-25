@@ -1,18 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { SyncProvider, useSync } from './sync-context';
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { mockInvoke, mockListen } from '@/test/setup';
 import { ReactNode } from 'react';
-
-// Tauri APIのモック
-vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn(),
-}));
-
-vi.mock('@tauri-apps/api/event', () => ({
-  listen: vi.fn(() => Promise.resolve(() => {})),
-}));
 
 const mockSyncMetadata = {
   sync_status: 'idle' as const,
@@ -33,13 +23,13 @@ describe('SyncContext', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // デフォルトではidleステータスを返す
-    vi.mocked(invoke).mockImplementation((cmd: string) => {
+    mockInvoke.mockImplementation((cmd: string) => {
       if (cmd === 'get_sync_status') {
         return Promise.resolve(mockSyncMetadata);
       }
       return Promise.resolve(undefined);
     });
-    vi.mocked(listen).mockResolvedValue(() => {});
+    mockListen.mockResolvedValue(() => {});
   });
 
   const wrapper = ({ children }: { children: ReactNode }) => (
@@ -55,7 +45,7 @@ describe('SyncContext', () => {
   });
 
   it('initializes with metadata from backend', async () => {
-    vi.mocked(invoke).mockImplementation((cmd: string) => {
+    mockInvoke.mockImplementation((cmd: string) => {
       if (cmd === 'get_sync_status') {
         return Promise.resolve({
           sync_status: 'idle' as const,
@@ -79,7 +69,7 @@ describe('SyncContext', () => {
 
   it('handles stuck syncing status on initialization', async () => {
     let callCount = 0;
-    vi.mocked(invoke).mockImplementation((cmd: string) => {
+    mockInvoke.mockImplementation((cmd: string) => {
       if (cmd === 'get_sync_status') {
         callCount++;
         if (callCount === 1) {
@@ -107,14 +97,14 @@ describe('SyncContext', () => {
 
     await waitFor(
       () => {
-        expect(invoke).toHaveBeenCalledWith('reset_sync_status');
+        expect(mockInvoke).toHaveBeenCalledWith('reset_sync_status');
       },
       { timeout: 3000 }
     );
   });
 
   it('starts sync successfully', async () => {
-    vi.mocked(invoke).mockResolvedValue(undefined);
+    mockInvoke.mockResolvedValue(undefined);
 
     const { result } = renderHook(() => useSync(), { wrapper });
 
@@ -123,13 +113,13 @@ describe('SyncContext', () => {
     });
 
     await waitFor(() => {
-      expect(invoke).toHaveBeenCalledWith('start_sync');
+      expect(mockInvoke).toHaveBeenCalledWith('start_sync');
       expect(result.current.isSyncing).toBe(true);
     });
   });
 
   it('cancels sync successfully', async () => {
-    vi.mocked(invoke).mockResolvedValue(undefined);
+    mockInvoke.mockResolvedValue(undefined);
 
     const { result } = renderHook(() => useSync(), { wrapper });
 
@@ -144,7 +134,7 @@ describe('SyncContext', () => {
     });
 
     await waitFor(() => {
-      expect(invoke).toHaveBeenCalledWith('cancel_sync');
+      expect(mockInvoke).toHaveBeenCalledWith('cancel_sync');
     });
   });
 
@@ -155,7 +145,7 @@ describe('SyncContext', () => {
       batch_size: 50,
     };
 
-    vi.mocked(invoke).mockResolvedValue(updatedMetadata);
+    mockInvoke.mockResolvedValue(updatedMetadata);
 
     const { result } = renderHook(() => useSync(), { wrapper });
 
@@ -176,14 +166,14 @@ describe('SyncContext', () => {
     });
 
     await waitFor(() => {
-      expect(invoke).toHaveBeenCalledWith('update_batch_size', {
+      expect(mockInvoke).toHaveBeenCalledWith('update_batch_size', {
         batchSize: 100,
       });
     });
   });
 
   it('handles sync error', async () => {
-    vi.mocked(invoke).mockImplementation((cmd: string) => {
+    mockInvoke.mockImplementation((cmd: string) => {
       if (cmd === 'get_sync_status') {
         return Promise.resolve(mockSyncMetadata);
       }
@@ -238,7 +228,7 @@ describe('SyncContext', () => {
   });
 
   it('handles refresh status error gracefully', async () => {
-    vi.mocked(invoke).mockRejectedValue(new Error('Failed to fetch'));
+    mockInvoke.mockRejectedValue(new Error('Failed to fetch'));
 
     const { result } = renderHook(() => useSync(), { wrapper });
 
@@ -251,7 +241,7 @@ describe('SyncContext', () => {
   });
 
   it('sets isSyncing to true during sync', async () => {
-    vi.mocked(invoke).mockResolvedValue(undefined);
+    mockInvoke.mockResolvedValue(undefined);
 
     const { result } = renderHook(() => useSync(), { wrapper });
 
@@ -272,7 +262,7 @@ describe('SyncContext', () => {
     };
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    vi.mocked(invoke).mockImplementation((cmd: string, args?: any) => {
+    mockInvoke.mockImplementation((cmd: string, args?: any) => {
       if (cmd === 'get_sync_status') {
         return Promise.resolve(metadataState);
       }
