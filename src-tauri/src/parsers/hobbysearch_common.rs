@@ -1,5 +1,14 @@
 use super::{DeliveryAddress, DeliveryInfo};
 use regex::Regex;
+use std::sync::LazyLock;
+
+/// 金額抽出用の正規表現（静的キャッシュ）
+static AMOUNT_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"([\d,]+)円").expect("Invalid regex pattern"));
+
+/// 予約商品合計抽出用の正規表現（静的キャッシュ）
+static YOYAKU_TOTAL_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"予約商品合計\s*([\d,]+)円").expect("Invalid regex pattern"));
 
 /// 配送先情報を抽出
 ///
@@ -131,8 +140,7 @@ pub fn extract_amounts(lines: &[&str]) -> (Option<i64>, Option<i64>, Option<i64>
 ///
 /// "小計　　　　　　　　    46,974円" のような形式から金額を抽出する。
 pub fn extract_amount_from_line(line: &str) -> Option<i64> {
-    let amount_pattern = Regex::new(r"([\d,]+)円").ok()?;
-    amount_pattern.captures(line).and_then(|captures| {
+    AMOUNT_PATTERN.captures(line).and_then(|captures| {
         captures
             .get(1)
             .and_then(|m| m.as_str().replace(',', "").parse::<i64>().ok())
@@ -186,10 +194,8 @@ pub fn extract_delivery_info(lines: &[&str]) -> Option<DeliveryInfo> {
 ///
 /// "予約商品合計　8,096円" のような形式から金額を抽出する。
 pub fn extract_yoyaku_total(lines: &[&str]) -> Option<i64> {
-    let total_pattern = Regex::new(r"予約商品合計\s*([\d,]+)円").ok()?;
-
     for line in lines {
-        if let Some(captures) = total_pattern.captures(line) {
+        if let Some(captures) = YOYAKU_TOTAL_PATTERN.captures(line) {
             return captures
                 .get(1)
                 .and_then(|m| m.as_str().replace(',', "").parse::<i64>().ok());
@@ -197,4 +203,165 @@ pub fn extract_yoyaku_total(lines: &[&str]) -> Option<i64> {
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_delivery_address_basic() {
+        let lines = vec![
+            "[商品お届け先]",
+            "山田 太郎 様",
+            "〒100-0001 東京都千代田区1-1-1",
+        ];
+        let result = extract_delivery_address(&lines);
+        assert!(result.is_some());
+        let addr = result.unwrap();
+        assert_eq!(addr.name, "山田 太郎");
+        assert_eq!(addr.postal_code, Some("100-0001".to_string()));
+        assert_eq!(addr.address, Some("東京都千代田区1-1-1".to_string()));
+    }
+
+    #[test]
+    fn test_extract_delivery_address_name_on_same_line() {
+        let lines = vec![
+            "[商品お届け先]  山田 太郎 様",
+            "〒100-0001 東京都千代田区1-1-1",
+        ];
+        let result = extract_delivery_address(&lines);
+        assert!(result.is_some());
+        let addr = result.unwrap();
+        assert_eq!(addr.name, "山田 太郎");
+    }
+
+    #[test]
+    fn test_extract_delivery_address_no_section() {
+        let lines = vec!["山田 太郎 様", "〒100-0001 東京都千代田区1-1-1"];
+        let result = extract_delivery_address(&lines);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_parse_item_line_with_model_number() {
+        let line = "メーカー 12345 商品名 (プラモデル)";
+        let (name, manufacturer, model_number) = parse_item_line(line);
+        assert_eq!(name, "メーカー 12345 商品名");
+        assert_eq!(manufacturer, Some("メーカー".to_string()));
+        assert_eq!(model_number, Some("12345".to_string()));
+    }
+
+    #[test]
+    fn test_parse_item_line_without_model_number() {
+        let line = "メーカー ABC 商品名 (ディスプレイ)";
+        let (name, manufacturer, model_number) = parse_item_line(line);
+        assert_eq!(name, "メーカー ABC 商品名");
+        assert_eq!(manufacturer, Some("メーカー".to_string()));
+        assert_eq!(model_number, None);
+    }
+
+    #[test]
+    fn test_parse_item_line_no_category() {
+        let line = "メーカー 12345 商品名";
+        let (name, manufacturer, model_number) = parse_item_line(line);
+        assert_eq!(name, "メーカー 12345 商品名");
+        assert_eq!(manufacturer, Some("メーカー".to_string()));
+        assert_eq!(model_number, Some("12345".to_string()));
+    }
+
+    #[test]
+    fn test_extract_amounts_all_present() {
+        let lines = vec![
+            "小計　　　　　　　　1,000円",
+            "送料　　　　　　　　500円",
+            "合計　　　　　　　　1,500円",
+        ];
+        let (subtotal, shipping, total) = extract_amounts(&lines);
+        assert_eq!(subtotal, Some(1000));
+        assert_eq!(shipping, Some(500));
+        assert_eq!(total, Some(1500));
+    }
+
+    #[test]
+    fn test_extract_amounts_partial() {
+        let lines = vec!["小計　　　　　　　　2,500円", "合計　　　　　　　　2,500円"];
+        let (subtotal, shipping, total) = extract_amounts(&lines);
+        assert_eq!(subtotal, Some(2500));
+        assert_eq!(shipping, None);
+        assert_eq!(total, Some(2500));
+    }
+
+    #[test]
+    fn test_extract_amount_from_line_with_comma() {
+        assert_eq!(extract_amount_from_line("小計 46,974円"), Some(46974));
+    }
+
+    #[test]
+    fn test_extract_amount_from_line_without_comma() {
+        assert_eq!(extract_amount_from_line("送料 500円"), Some(500));
+    }
+
+    #[test]
+    fn test_extract_amount_from_line_no_amount() {
+        assert_eq!(extract_amount_from_line("送料無料"), None);
+    }
+
+    #[test]
+    fn test_extract_delivery_info_complete() {
+        let lines = vec![
+            "[運送会社] ヤマト運輸",
+            "[配送伝票] 1234567890",
+            "[配送日] 2024/01/15",
+            "[配送時間] 14:00-16:00",
+            "[運送会社URL]",
+            "https://example.com/track",
+        ];
+        let result = extract_delivery_info(&lines);
+        assert!(result.is_some());
+        let info = result.unwrap();
+        assert_eq!(info.carrier, "ヤマト運輸");
+        assert_eq!(info.tracking_number, "1234567890");
+        assert_eq!(info.delivery_date, Some("2024/01/15".to_string()));
+        assert_eq!(info.delivery_time, Some("14:00-16:00".to_string()));
+        assert_eq!(info.carrier_url, Some("https://example.com/track".to_string()));
+    }
+
+    #[test]
+    fn test_extract_delivery_info_minimal() {
+        let lines = vec!["[運送会社] 佐川急便", "[配送伝票] 9876543210"];
+        let result = extract_delivery_info(&lines);
+        assert!(result.is_some());
+        let info = result.unwrap();
+        assert_eq!(info.carrier, "佐川急便");
+        assert_eq!(info.tracking_number, "9876543210");
+        assert_eq!(info.delivery_date, None);
+        assert_eq!(info.delivery_time, None);
+        assert_eq!(info.carrier_url, None);
+    }
+
+    #[test]
+    fn test_extract_delivery_info_missing_required() {
+        let lines = vec!["[運送会社] ヤマト運輸"];
+        let result = extract_delivery_info(&lines);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_extract_yoyaku_total_found() {
+        let lines = vec!["その他の情報", "予約商品合計　8,096円", "備考"];
+        assert_eq!(extract_yoyaku_total(&lines), Some(8096));
+    }
+
+    #[test]
+    fn test_extract_yoyaku_total_with_spaces() {
+        let lines = vec!["予約商品合計  12,345円"];
+        assert_eq!(extract_yoyaku_total(&lines), Some(12345));
+    }
+
+    #[test]
+    fn test_extract_yoyaku_total_not_found() {
+        let lines = vec!["商品合計　8,096円", "送料　500円"];
+        assert_eq!(extract_yoyaku_total(&lines), None);
+    }
 }
