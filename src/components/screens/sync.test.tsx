@@ -3,17 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Sync } from './sync';
 import { SyncProvider } from '@/contexts/sync-context';
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
-
-// Tauri APIのモック
-vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn(),
-}));
-
-vi.mock('@tauri-apps/api/event', () => ({
-  listen: vi.fn(() => Promise.resolve(() => {})),
-}));
+import { mockInvoke, mockListen } from '@/test/setup';
 
 const mockSyncMetadata = {
   sync_status: 'idle' as const,
@@ -25,8 +15,8 @@ describe('Sync', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // デフォルトのモック実装を設定
-    vi.mocked(invoke).mockResolvedValue(mockSyncMetadata);
-    vi.mocked(listen).mockResolvedValue(() => {});
+    mockInvoke.mockResolvedValue(mockSyncMetadata);
+    mockListen.mockResolvedValue(() => {});
   });
 
   const renderWithProvider = async () => {
@@ -37,7 +27,7 @@ describe('Sync', () => {
     );
     // 初期化が完了するのを待つ
     await waitFor(() => {
-      expect(invoke).toHaveBeenCalled();
+      expect(mockInvoke).toHaveBeenCalled();
     });
     return result;
   };
@@ -128,7 +118,7 @@ describe('Sync', () => {
 
   it('calls startSync when start button is clicked', async () => {
     const user = userEvent.setup();
-    vi.mocked(invoke).mockImplementation((cmd: string) => {
+    mockInvoke.mockImplementation((cmd: string) => {
       if (cmd === 'get_sync_status') {
         return Promise.resolve(mockSyncMetadata);
       }
@@ -143,7 +133,7 @@ describe('Sync', () => {
     await user.click(startButton);
 
     await waitFor(() => {
-      expect(invoke).toHaveBeenCalledWith('start_sync');
+      expect(mockInvoke).toHaveBeenCalledWith('start_sync');
     });
   });
 
@@ -151,7 +141,7 @@ describe('Sync', () => {
     const user = userEvent.setup();
     const errorMessage = 'Sync failed: connection error';
 
-    vi.mocked(invoke).mockImplementation((cmd: string) => {
+    mockInvoke.mockImplementation((cmd: string) => {
       if (cmd === 'get_sync_status') {
         return Promise.resolve(mockSyncMetadata);
       }
@@ -175,7 +165,7 @@ describe('Sync', () => {
   });
 
   it('shows cancel button when syncing', async () => {
-    vi.mocked(invoke).mockImplementation((cmd: string) => {
+    mockInvoke.mockImplementation((cmd: string) => {
       if (cmd === 'get_sync_status') {
         return Promise.resolve({
           sync_status: 'syncing' as const,
@@ -195,7 +185,7 @@ describe('Sync', () => {
 
   it('calls cancelSync when cancel button is clicked', async () => {
     const user = userEvent.setup();
-    vi.mocked(invoke).mockImplementation((cmd: string) => {
+    mockInvoke.mockImplementation((cmd: string) => {
       if (cmd === 'get_sync_status') {
         return Promise.resolve({
           sync_status: 'syncing' as const,
@@ -219,7 +209,7 @@ describe('Sync', () => {
     await user.click(cancelButton);
 
     await waitFor(() => {
-      expect(invoke).toHaveBeenCalledWith('cancel_sync');
+      expect(mockInvoke).toHaveBeenCalledWith('cancel_sync');
     });
   });
 
@@ -227,7 +217,7 @@ describe('Sync', () => {
     const user = userEvent.setup();
     const errorMessage = 'Cancel failed';
 
-    vi.mocked(invoke).mockImplementation((cmd: string) => {
+    mockInvoke.mockImplementation((cmd: string) => {
       if (cmd === 'get_sync_status') {
         return Promise.resolve({
           sync_status: 'syncing' as const,
@@ -254,7 +244,7 @@ describe('Sync', () => {
   });
 
   it('displays "waiting" status badge for idle state', async () => {
-    vi.mocked(invoke).mockResolvedValue({
+    mockInvoke.mockResolvedValue({
       sync_status: 'idle' as const,
       total_synced_count: 0,
       batch_size: 50,
@@ -268,7 +258,7 @@ describe('Sync', () => {
   });
 
   it('displays "syncing" status badge when syncing', async () => {
-    vi.mocked(invoke).mockResolvedValue({
+    mockInvoke.mockResolvedValue({
       sync_status: 'syncing' as const,
       total_synced_count: 100,
       batch_size: 50,
@@ -282,7 +272,7 @@ describe('Sync', () => {
   });
 
   it('displays "paused" status badge when paused', async () => {
-    vi.mocked(invoke).mockResolvedValue({
+    mockInvoke.mockResolvedValue({
       sync_status: 'paused' as const,
       total_synced_count: 100,
       batch_size: 50,
@@ -296,7 +286,7 @@ describe('Sync', () => {
   });
 
   it('displays "error" status badge when error state', async () => {
-    vi.mocked(invoke).mockResolvedValue({
+    mockInvoke.mockResolvedValue({
       sync_status: 'error' as const,
       total_synced_count: 100,
       batch_size: 50,
@@ -310,7 +300,7 @@ describe('Sync', () => {
   });
 
   it('shows "resume sync" button text when paused', async () => {
-    vi.mocked(invoke).mockResolvedValue({
+    mockInvoke.mockResolvedValue({
       sync_status: 'paused' as const,
       total_synced_count: 100,
       batch_size: 50,
@@ -327,7 +317,7 @@ describe('Sync', () => {
 
   it('displays oldest fetched date when available', async () => {
     const testDate = '2024-01-15T10:30:00Z';
-    vi.mocked(invoke).mockResolvedValue({
+    mockInvoke.mockResolvedValue({
       sync_status: 'idle' as const,
       total_synced_count: 100,
       batch_size: 50,
@@ -343,7 +333,7 @@ describe('Sync', () => {
 
   it('displays last sync completed date when available', async () => {
     const testDate = '2024-01-15T10:30:00Z';
-    vi.mocked(invoke).mockResolvedValue({
+    mockInvoke.mockResolvedValue({
       sync_status: 'idle' as const,
       total_synced_count: 100,
       batch_size: 50,
@@ -358,7 +348,7 @@ describe('Sync', () => {
   });
 
   it('disables start button when syncing', async () => {
-    vi.mocked(invoke).mockResolvedValue({
+    mockInvoke.mockResolvedValue({
       sync_status: 'syncing' as const,
       total_synced_count: 100,
       batch_size: 50,
