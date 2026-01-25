@@ -1,0 +1,151 @@
+name: Coverage
+
+on:
+  pull_request:
+    branches:
+      - main
+      - master
+      - develop
+  push:
+    branches:
+      - main
+      - master
+      - develop
+
+env:
+  COVERAGE_THRESHOLD: 85
+
+jobs:
+  coverage-frontend:
+    name: Coverage Frontend (Vitest)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run frontend tests with coverage
+        run: npm run test:frontend:coverage
+        continue-on-error: true
+        id: coverage
+
+      - name: Check coverage threshold
+        run: |
+          echo "Coverage threshold: ${{ env.COVERAGE_THRESHOLD }}%"
+          # Vitestの設定でthresholdチェックが行われるため、
+          # テスト結果のexit codeで判定
+          if [[ "${{ steps.coverage.outcome }}" == "failure" ]]; then
+            echo "::error::Frontend coverage is below ${{ env.COVERAGE_THRESHOLD }}% threshold"
+            exit 1
+          fi
+          echo "Frontend coverage meets the threshold"
+
+  coverage-rust:
+    name: Coverage Rust (llvm-cov)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: src-tauri/target
+          key: ${{ runner.os }}-cargo-build-coverage-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run Rust tests with coverage
+        id: rust-coverage
+        run: |
+          cd src-tauri
+          # JSON形式でカバレッジを出力
+          cargo llvm-cov --all-features --workspace --json --output-path coverage.json
+
+          # 行カバレッジを抽出
+          LINE_COVERAGE=$(cat coverage.json | jq '.data[0].totals.lines.percent')
+          echo "Line coverage: ${LINE_COVERAGE}%"
+          echo "line_coverage=${LINE_COVERAGE}" >> $GITHUB_OUTPUT
+        env:
+          RUSTFLAGS: "--cfg ci"
+
+      - name: Check coverage threshold
+        run: |
+          LINE_COVERAGE=${{ steps.rust-coverage.outputs.line_coverage }}
+          THRESHOLD=${{ env.COVERAGE_THRESHOLD }}
+
+          echo "Rust line coverage: ${LINE_COVERAGE}%"
+          echo "Threshold: ${THRESHOLD}%"
+
+          # bcを使って浮動小数点比較
+          if (( $(echo "${LINE_COVERAGE} < ${THRESHOLD}" | bc -l) )); then
+            echo "::error::Rust coverage (${LINE_COVERAGE}%) is below ${THRESHOLD}% threshold"
+            exit 1
+          fi
+          echo "Rust coverage meets the threshold"
+
+  coverage-status-check:
+    name: Coverage Status Check
+    runs-on: ubuntu-latest
+    needs: [coverage-frontend, coverage-rust]
+    if: always()
+
+    steps:
+      - name: Check coverage results
+        run: |
+          if [[ "${{ needs.coverage-frontend.result }}" == "failure" ]] || [[ "${{ needs.coverage-rust.result }}" == "failure" ]]; then
+            echo "::error::Coverage check failed. Please ensure all coverage thresholds are met."
+            exit 1
+          fi
+          echo "All coverage checks passed"
