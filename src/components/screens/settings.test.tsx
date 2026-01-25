@@ -1,23 +1,68 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { Settings } from './settings';
+import { SyncProvider } from '@/contexts/sync-context';
+import { ParseProvider } from '@/contexts/parse-context';
+
+// Tauri APIをモック
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: vi.fn().mockImplementation((cmd: string) => {
+    if (cmd === 'get_sync_status') {
+      return Promise.resolve({
+        batch_size: 50,
+        max_iterations: 100,
+        sync_status: 'idle',
+        last_sync_started_at: null,
+        last_sync_completed_at: null,
+        total_synced_count: 0,
+      });
+    }
+    if (cmd === 'get_parse_status') {
+      return Promise.resolve({
+        batch_size: 100,
+        parse_status: 'idle',
+        last_parse_started_at: null,
+        last_parse_completed_at: null,
+        last_error_message: null,
+        total_parsed_count: 0,
+      });
+    }
+    return Promise.resolve(null);
+  }),
+}));
+
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: vi.fn().mockResolvedValue(() => {}),
+}));
+
+const renderWithProviders = (ui: React.ReactElement) => {
+  return render(
+    <SyncProvider>
+      <ParseProvider>{ui}</ParseProvider>
+    </SyncProvider>
+  );
+};
 
 describe('Settings', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it('renders settings heading', () => {
-    render(<Settings />);
+    renderWithProviders(<Settings />);
     expect(
-      screen.getByRole('heading', { name: /Settings画面です/i })
+      screen.getByRole('heading', { name: /設定/i, level: 1 })
     ).toBeInTheDocument();
   });
 
   it('renders with correct heading level', () => {
-    render(<Settings />);
-    const heading = screen.getByRole('heading', { name: /Settings画面です/i });
+    renderWithProviders(<Settings />);
+    const heading = screen.getByRole('heading', { name: /設定/i, level: 1 });
     expect(heading.tagName).toBe('H1');
   });
 
   it('applies container styling', () => {
-    const { container } = render(<Settings />);
+    const { container } = renderWithProviders(<Settings />);
     const div = container.querySelector('.container');
     expect(div).toBeInTheDocument();
     expect(div).toHaveClass('mx-auto');
@@ -25,13 +70,13 @@ describe('Settings', () => {
   });
 
   it('applies heading styling', () => {
-    render(<Settings />);
-    const heading = screen.getByRole('heading', { name: /Settings画面です/i });
+    renderWithProviders(<Settings />);
+    const heading = screen.getByRole('heading', { name: /設定/i, level: 1 });
     expect(heading).toHaveClass('text-3xl');
     expect(heading).toHaveClass('font-bold');
   });
 
   it('renders without errors', () => {
-    expect(() => render(<Settings />)).not.toThrow();
+    expect(() => renderWithProviders(<Settings />)).not.toThrow();
   });
 });
