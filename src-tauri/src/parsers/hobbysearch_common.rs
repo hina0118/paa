@@ -324,7 +324,10 @@ mod tests {
         assert_eq!(info.tracking_number, "1234567890");
         assert_eq!(info.delivery_date, Some("2024/01/15".to_string()));
         assert_eq!(info.delivery_time, Some("14:00-16:00".to_string()));
-        assert_eq!(info.carrier_url, Some("https://example.com/track".to_string()));
+        assert_eq!(
+            info.carrier_url,
+            Some("https://example.com/track".to_string())
+        );
     }
 
     #[test]
