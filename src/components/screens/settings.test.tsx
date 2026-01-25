@@ -3,37 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { Settings } from './settings';
 import { SyncProvider } from '@/contexts/sync-context';
 import { ParseProvider } from '@/contexts/parse-context';
-
-// Tauri APIをモック
-vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn().mockImplementation((cmd: string) => {
-    if (cmd === 'get_sync_status') {
-      return Promise.resolve({
-        batch_size: 50,
-        max_iterations: 100,
-        sync_status: 'idle',
-        last_sync_started_at: null,
-        last_sync_completed_at: null,
-        total_synced_count: 0,
-      });
-    }
-    if (cmd === 'get_parse_status') {
-      return Promise.resolve({
-        batch_size: 100,
-        parse_status: 'idle',
-        last_parse_started_at: null,
-        last_parse_completed_at: null,
-        last_error_message: null,
-        total_parsed_count: 0,
-      });
-    }
-    return Promise.resolve(null);
-  }),
-}));
-
-vi.mock('@tauri-apps/api/event', () => ({
-  listen: vi.fn().mockResolvedValue(() => {}),
-}));
+import { mockInvoke, mockListen } from '@/test/setup';
 
 const renderWithProviders = (ui: React.ReactElement) => {
   return render(
@@ -46,6 +16,31 @@ const renderWithProviders = (ui: React.ReactElement) => {
 describe('Settings', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // セットアップのモックを上書き
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_sync_status') {
+        return Promise.resolve({
+          batch_size: 50,
+          max_iterations: 100,
+          sync_status: 'idle',
+          last_sync_started_at: null,
+          last_sync_completed_at: null,
+          total_synced_count: 0,
+        });
+      }
+      if (cmd === 'get_parse_status') {
+        return Promise.resolve({
+          batch_size: 100,
+          parse_status: 'idle',
+          last_parse_started_at: null,
+          last_parse_completed_at: null,
+          last_error_message: null,
+          total_parsed_count: 0,
+        });
+      }
+      return Promise.resolve(null);
+    });
+    mockListen.mockResolvedValue(() => {});
   });
 
   it('renders settings heading', () => {
