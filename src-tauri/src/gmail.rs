@@ -1327,6 +1327,8 @@ mod tests {
                 body_plain TEXT,
                 body_html TEXT,
                 internal_date INTEGER NOT NULL,
+                from_address TEXT,
+                subject TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
             ",
