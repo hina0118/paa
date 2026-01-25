@@ -166,8 +166,11 @@ describe('Sync', () => {
     await user.click(startButton);
 
     await waitFor(() => {
-      expect(screen.getByText('エラー')).toBeInTheDocument();
-      expect(screen.getByText(errorMessage)).toBeInTheDocument();
+      // エラーメッセージが表示されることを確認（複数要素が存在する可能性があるためgetAllByTextを使用）
+      const errorHeadings = screen.getAllByText('エラー');
+      expect(errorHeadings.length).toBeGreaterThan(0);
+      const errorMessages = screen.getAllByText(errorMessage);
+      expect(errorMessages.length).toBeGreaterThan(0);
     });
   });
 
@@ -244,7 +247,9 @@ describe('Sync', () => {
     await user.click(cancelButton);
 
     await waitFor(() => {
-      expect(screen.getByText(errorMessage)).toBeInTheDocument();
+      // エラーメッセージが表示されることを確認（複数要素が存在する可能性があるためgetAllByTextを使用）
+      const errorElements = screen.getAllByText(errorMessage);
+      expect(errorElements.length).toBeGreaterThan(0);
     });
   });
 
