@@ -74,10 +74,8 @@ fn test_build_sync_query_integration() {
     assert!(query.contains(" OR "));
 
     // 日付フィルター付き
-    let query_with_date = build_sync_query(
-        &addresses,
-        &Some("2024-06-15T12:00:00+09:00".to_string()),
-    );
+    let query_with_date =
+        build_sync_query(&addresses, &Some("2024-06-15T12:00:00+09:00".to_string()));
     assert!(query_with_date.contains("before:2024/06/15"));
 }
 
@@ -104,7 +102,11 @@ fn test_extract_email_address_integration() {
     ];
 
     for (input, expected) in test_cases {
-        assert_eq!(extract_email_address(input), expected, "Failed for: {input}");
+        assert_eq!(
+            extract_email_address(input),
+            expected,
+            "Failed for: {input}"
+        );
     }
 }
 
@@ -163,20 +165,20 @@ fn test_is_valid_parser_type_integration() {
 
 #[test]
 fn test_get_candidate_parsers_integration() {
-    // 実際のショップ設定を模倣
+    // 実際のショップ設定を模倣（sender_addressはメールアドレス全体を指定）
     let shop_settings = vec![
         (
-            "hobbysearch.co.jp".to_string(),
+            "order@hobbysearch.co.jp".to_string(),
             "hobbysearch_confirm".to_string(),
             Some(r#"["注文確認", "ご注文"]"#.to_string()),
         ),
         (
-            "hobbysearch.co.jp".to_string(),
+            "order@hobbysearch.co.jp".to_string(),
             "hobbysearch_send".to_string(),
             Some(r#"["発送", "出荷"]"#.to_string()),
         ),
         (
-            "anotherstore.com".to_string(),
+            "info@anotherstore.com".to_string(),
             "hobbysearch_confirm".to_string(),
             None,
         ),
@@ -200,13 +202,31 @@ fn test_get_candidate_parsers_integration() {
     assert_eq!(candidates.len(), 1);
     assert_eq!(candidates[0], "hobbysearch_send");
 
-    // マッチしないケース
+    // マッチしないケース（件名フィルターに一致しない）
     let candidates = get_candidate_parsers(
         "order@hobbysearch.co.jp",
         Some("キャンペーンのお知らせ"),
         &shop_settings,
     );
     assert!(candidates.is_empty());
+
+    // "Name <email>" 形式のテスト
+    let candidates = get_candidate_parsers(
+        "ホビーサーチ <order@hobbysearch.co.jp>",
+        Some("【ホビーサーチ】ご注文確認"),
+        &shop_settings,
+    );
+    assert_eq!(candidates.len(), 1);
+    assert_eq!(candidates[0], "hobbysearch_confirm");
+
+    // 大文字小文字の違いがあっても一致
+    let candidates = get_candidate_parsers(
+        "ORDER@HOBBYSEARCH.CO.JP",
+        Some("【ホビーサーチ】ご注文確認"),
+        &shop_settings,
+    );
+    assert_eq!(candidates.len(), 1);
+    assert_eq!(candidates[0], "hobbysearch_confirm");
 }
 
 #[test]
@@ -216,15 +236,16 @@ fn test_extract_domain_integration() {
         ("noreply@amazon.co.jp", Some("amazon.co.jp")),
         ("info@mail.rakuten.co.jp", Some("mail.rakuten.co.jp")),
         ("invalid", None),
+        // エッジケース: @のみ
+        ("@", None),
+        // エッジケース: @で終わる
+        ("user@", None),
+        // エッジケース: @が複数
+        ("a@b@c", None),
     ];
 
     for (email, expected) in test_cases {
-        assert_eq!(
-            extract_domain(email),
-            expected,
-            "Failed for: {}",
-            email
-        );
+        assert_eq!(extract_domain(email), expected, "Failed for: {}", email);
     }
 }
 
@@ -235,18 +256,16 @@ fn test_email_processing_workflow() {
     // 1. ショップ設定からアドレスを抽出
     use paa_lib::gmail::ShopSettings;
 
-    let shop_settings = vec![
-        ShopSettings {
-            id: 1,
-            shop_name: "ホビーサーチ".to_string(),
-            sender_address: "order@hobbysearch.co.jp".to_string(),
-            parser_type: "hobbysearch_confirm".to_string(),
-            is_enabled: true,
-            subject_filters: Some(r#"["注文確認"]"#.to_string()),
-            created_at: "2024-01-01".to_string(),
-            updated_at: "2024-01-01".to_string(),
-        },
-    ];
+    let shop_settings = vec![ShopSettings {
+        id: 1,
+        shop_name: "ホビーサーチ".to_string(),
+        sender_address: "order@hobbysearch.co.jp".to_string(),
+        parser_type: "hobbysearch_confirm".to_string(),
+        is_enabled: true,
+        subject_filters: Some(r#"["注文確認"]"#.to_string()),
+        created_at: "2024-01-01".to_string(),
+        updated_at: "2024-01-01".to_string(),
+    }];
 
     let addresses = extract_sender_addresses(&shop_settings);
     assert_eq!(addresses.len(), 1);

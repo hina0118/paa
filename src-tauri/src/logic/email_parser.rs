@@ -3,6 +3,7 @@
 //! このモジュールはメールパースに関する純粋関数を提供します。
 //! 外部依存を持たないため、テストが容易です。
 
+use crate::logic::sync_logic::extract_email_address;
 use crate::parsers::{EmailParser, OrderInfo};
 
 /// パーサータイプ名からパーサーが存在するかチェックする
@@ -37,22 +38,32 @@ pub fn try_parse(parser: &dyn EmailParser, email_body: &str) -> Result<OrderInfo
 /// 送信者アドレスと件名からパーサータイプの候補を取得する
 ///
 /// # Arguments
-/// * `from_address` - 送信者アドレス
+/// * `from_address` - 送信者アドレス（"Name <email@domain>" 形式も可）
 /// * `subject` - メール件名
 /// * `shop_settings` - ショップ設定リスト（タプル: (sender_address, parser_type, subject_filters_json)）
 ///
 /// # Returns
 /// マッチするパーサータイプのリスト
+///
+/// # Note
+/// - メールアドレスは正規化（小文字化）して完全一致で比較
+/// - 大文字小文字は無視される
 pub fn get_candidate_parsers<'a>(
     from_address: &str,
     subject: Option<&str>,
     shop_settings: &'a [(String, String, Option<String>)],
 ) -> Vec<&'a str> {
+    // from_addressからメールアドレスを抽出して正規化
+    let normalized_from = match extract_email_address(from_address) {
+        Some(email) => email,
+        None => return vec![], // 有効なメールアドレスが抽出できない場合は空を返す
+    };
+
     shop_settings
         .iter()
         .filter_map(|(addr, parser_type, subject_filters_json)| {
-            // 送信元アドレスが一致するか確認
-            if !from_address.contains(addr) {
+            // 送信元アドレスが完全一致するか確認（大文字小文字無視）
+            if normalized_from != addr.to_lowercase() {
                 return None;
             }
 
@@ -85,9 +96,27 @@ pub fn get_candidate_parsers<'a>(
 /// * `email` - メールアドレス
 ///
 /// # Returns
-/// ドメイン部分（@の後ろ）
+/// ドメイン部分（@の後ろ）。@ が 1 つでドメイン部が非空の場合のみ `Some` を返す。
 pub fn extract_domain(email: &str) -> Option<&str> {
-    email.split('@').nth(1)
+    let mut parts = email.split('@');
+
+    // ローカル部（@ の前）は何でもよいが、@ が無い場合は None
+    let _local = parts.next()?;
+
+    // ドメイン部（@ の後ろ）が存在しない場合は None
+    let domain = parts.next()?;
+
+    // 追加の @ が存在する場合（@ が 2 個以上）は無効
+    if parts.next().is_some() {
+        return None;
+    }
+
+    // ドメイン部が空文字列の場合は無効
+    if domain.is_empty() {
+        return None;
+    }
+
+    Some(domain)
 }
 
 #[cfg(test)]
@@ -150,7 +179,8 @@ mod tests {
             Some(r#"["注文確認"]"#.to_string()),
         )];
 
-        let candidates = get_candidate_parsers("shop@example.com", Some("注文確認メール"), &settings);
+        let candidates =
+            get_candidate_parsers("shop@example.com", Some("注文確認メール"), &settings);
 
         assert_eq!(candidates.len(), 1);
     }
@@ -196,7 +226,8 @@ mod tests {
             ),
         ];
 
-        let candidates = get_candidate_parsers("shop@example.com", Some("注文確認メール"), &settings);
+        let candidates =
+            get_candidate_parsers("shop@example.com", Some("注文確認メール"), &settings);
 
         assert_eq!(candidates.len(), 1);
         assert_eq!(candidates[0], "hobbysearch_confirm");
@@ -229,6 +260,19 @@ mod tests {
 
     #[test]
     fn test_extract_domain_only_at() {
-        assert_eq!(extract_domain("@"), Some(""));
+        // "@" のみの場合、ドメイン部が空なのでNoneを返す
+        assert_eq!(extract_domain("@"), None);
+    }
+
+    #[test]
+    fn test_extract_domain_multiple_at() {
+        // @ が複数ある場合は無効
+        assert_eq!(extract_domain("a@b@c"), None);
+    }
+
+    #[test]
+    fn test_extract_domain_trailing_at() {
+        // "user@" の場合、ドメイン部が空なのでNone
+        assert_eq!(extract_domain("user@"), None);
     }
 }
