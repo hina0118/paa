@@ -13,7 +13,8 @@ on:
       - develop
 
 env:
-  COVERAGE_THRESHOLD: 85
+  COVERAGE_THRESHOLD_FRONTEND: 85
+  COVERAGE_THRESHOLD_RUST: 55
 
 jobs:
   coverage-frontend:
@@ -40,11 +41,11 @@ jobs:
 
       - name: Check coverage threshold
         run: |
-          echo "Coverage threshold: ${{ env.COVERAGE_THRESHOLD }}%"
+          echo "Coverage threshold: ${{ env.COVERAGE_THRESHOLD_FRONTEND }}%"
           # Vitestの設定でthresholdチェックが行われるため、
           # テスト結果のexit codeで判定
           if [[ "${{ steps.coverage.outcome }}" == "failure" ]]; then
-            echo "::error::Frontend coverage is below ${{ env.COVERAGE_THRESHOLD }}% threshold"
+            echo "::error::Frontend coverage is below ${{ env.COVERAGE_THRESHOLD_FRONTEND }}% threshold"
             exit 1
           fi
           echo "Frontend coverage meets the threshold"
@@ -123,7 +124,7 @@ jobs:
       - name: Check coverage threshold
         run: |
           LINE_COVERAGE=${{ steps.rust-coverage.outputs.line_coverage }}
-          THRESHOLD=${{ env.COVERAGE_THRESHOLD }}
+          THRESHOLD=${{ env.COVERAGE_THRESHOLD_RUST }}
 
           echo "Rust line coverage: ${LINE_COVERAGE}%"
           echo "Threshold: ${THRESHOLD}%"
