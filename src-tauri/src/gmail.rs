@@ -151,12 +151,18 @@ pub struct SyncState {
     pub is_running: Arc<Mutex<bool>>,
 }
 
-impl SyncState {
-    pub fn new() -> Self {
+impl Default for SyncState {
+    fn default() -> Self {
         Self {
             should_cancel: Arc::new(Mutex::new(false)),
             is_running: Arc::new(Mutex::new(false)),
         }
+    }
+}
+
+impl SyncState {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn request_cancel(&self) {

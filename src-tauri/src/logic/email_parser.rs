@@ -67,9 +67,7 @@ pub fn get_candidate_parsers<'a>(
             };
 
             // 件名がない場合は除外
-            let Some(subj) = subject else {
-                return None;
-            };
+            let subj = subject?;
 
             // いずれかのフィルターに一致すればOK
             if filters.iter().any(|filter| subj.contains(filter)) {
