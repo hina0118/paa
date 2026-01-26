@@ -47,6 +47,9 @@ pub trait EmailRepository: Send + Sync {
 
     /// エラーステータスに更新（last_sync_completed_atも更新）
     async fn update_sync_error_status(&self) -> Result<(), String>;
+
+    /// 同期開始（ステータスと開始日時をアトミックに更新）
+    async fn start_sync(&self) -> Result<(), String>;
 }
 
 /// ショップ設定関連のDB操作を抽象化するトレイト
@@ -273,6 +276,23 @@ impl EmailRepository for SqliteEmailRepository {
 
         Ok(())
     }
+
+    async fn start_sync(&self) -> Result<(), String> {
+        let now = Utc::now().to_rfc3339();
+        sqlx::query(
+            r#"
+            UPDATE sync_metadata
+            SET sync_status = 'syncing', last_sync_started_at = ?
+            WHERE id = 1
+            "#,
+        )
+        .bind(&now)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to start sync: {e}"))?;
+
+        Ok(())
+    }
 }
 
 /// SQLiteを使用したShopSettingsRepositoryの実装
@@ -324,7 +344,7 @@ impl ShopSettingsRepository for SqliteShopSettingsRepository {
             .subject_filters
             .map(|filters| serde_json::to_string(&filters).unwrap_or_default());
 
-        sqlx::query(
+        let result = sqlx::query(
             r#"
             INSERT INTO shop_settings (shop_name, sender_address, parser_type, subject_filters)
             VALUES (?, ?, ?, ?)
@@ -338,18 +358,16 @@ impl ShopSettingsRepository for SqliteShopSettingsRepository {
         .await
         .map_err(|e| format!("Failed to create shop setting: {e}"))?;
 
-        // 作成したレコードを取得
+        // last_insert_rowid()を使用して作成したレコードを取得
+        let inserted_id = result.last_insert_rowid();
         let created = sqlx::query_as::<_, ShopSettings>(
             r#"
             SELECT id, shop_name, sender_address, parser_type, is_enabled, subject_filters, created_at, updated_at
             FROM shop_settings
-            WHERE shop_name = ? AND sender_address = ?
-            ORDER BY id DESC
-            LIMIT 1
+            WHERE id = ?
             "#,
         )
-        .bind(&settings.shop_name)
-        .bind(&settings.sender_address)
+        .bind(inserted_id)
         .fetch_one(&self.pool)
         .await
         .map_err(|e| format!("Failed to get created shop setting: {e}"))?;

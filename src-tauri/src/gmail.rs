@@ -630,8 +630,8 @@ impl GmailClientTrait for GmailClient {
     }
 
     async fn get_message(&self, message_id: &str) -> Result<GmailMessage, String> {
-        // 既存の get_message メソッドを呼び出す
-        Self::get_message(self, message_id).await
+        // 既存の get_message メソッドを呼び出す（GmailClient の固有実装）
+        GmailClient::get_message(self, message_id).await
     }
 }
 
@@ -871,14 +871,10 @@ pub async fn sync_gmail_incremental_with_client(
         sender_addresses.len()
     );
 
-    // Update sync status to 'syncing' and sync started timestamp (via repository)
-    if let Err(e) = email_repo.update_sync_status("syncing").await {
+    // Update sync status to 'syncing' and sync started timestamp atomically (via repository)
+    if let Err(e) = email_repo.start_sync().await {
         let _ = email_repo.update_sync_error_status().await;
-        return Err(format!("Failed to update sync status: {e}"));
-    }
-    if let Err(e) = email_repo.update_sync_started_at().await {
-        let _ = email_repo.update_sync_error_status().await;
-        return Err(format!("Failed to update sync started at: {e}"));
+        return Err(format!("Failed to start sync: {e}"));
     }
 
     // Get sync metadata (via repository)
