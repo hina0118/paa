@@ -925,7 +925,8 @@ pub async fn sync_gmail_incremental_with_client(
         let oldest_date_before_fetch = oldest_date.clone();
         // Build query with sender addresses and date constraint
         let query = build_sync_query(&sender_addresses, &oldest_date);
-        log::info!("Batch {batch_number}: Fetching up to {effective_batch_size} messages with query: {query}");
+        // Do not log the query itself to avoid exposing sender/recipient information
+        log::info!("Batch {batch_number}: Fetching up to {effective_batch_size} messages");
         // Fetch batch of messages
         let messages = match fetch_batch(client, &query, effective_batch_size).await {
             Ok(m) => m,

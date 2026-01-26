@@ -77,24 +77,59 @@ pub fn build_sync_query(sender_addresses: &[String], oldest_date: &Option<String
 ///     Some("john@example.com".to_string())
 /// );
 /// assert_eq!(extract_email_address("invalid"), None);
+/// assert_eq!(extract_email_address("user@"), None);
+/// assert_eq!(extract_email_address("a@b@c"), None);
 /// ```
 pub fn extract_email_address(from_header: &str) -> Option<String> {
     // Try to extract email from "Name <email@domain>" format
     if let Some(start) = from_header.find('<') {
         if let Some(end) = from_header.find('>') {
             if start < end {
-                return Some(from_header[start + 1..end].trim().to_lowercase());
+                let candidate = from_header[start + 1..end].trim();
+                if is_valid_simple_email(candidate) {
+                    return Some(candidate.to_lowercase());
+                }
             }
         }
     }
 
-    // If no angle brackets, assume the whole string is an email
+    // If no angle brackets, assume the whole string is an email candidate
     let trimmed = from_header.trim();
-    if trimmed.contains('@') {
+    if is_valid_simple_email(trimmed) {
         return Some(trimmed.to_lowercase());
     }
 
     None
+}
+
+/// 最低限の形式チェックを行うシンプルなメールアドレスバリデーション
+/// - 全体をtrim
+/// - '@'で分割して2要素のみ
+/// - ローカル部・ドメイン部がともに非空
+/// - 明らかな不正を避けるため、空白文字を含まない
+fn is_valid_simple_email(email: &str) -> bool {
+    let trimmed = email.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    let parts: Vec<&str> = trimmed.split('@').collect();
+    if parts.len() != 2 {
+        return false;
+    }
+
+    let local = parts[0];
+    let domain = parts[1];
+
+    if local.is_empty() || domain.is_empty() {
+        return false;
+    }
+
+    if local.contains(char::is_whitespace) || domain.contains(char::is_whitespace) {
+        return false;
+    }
+
+    true
 }
 
 /// メッセージをショップ設定と件名フィルターに基づいて保存すべきかを判定する
