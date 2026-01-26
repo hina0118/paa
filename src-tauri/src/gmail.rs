@@ -9,6 +9,7 @@
 //! - **本番環境**: リリースビルドではWarnレベル以上のログのみが出力されます
 
 use crate::gmail_client::GmailClientTrait;
+use crate::repository::EmailRepository;
 use async_trait::async_trait;
 use google_gmail1::{hyper_rustls, Gmail};
 use hyper_util::client::legacy::connect::HttpConnector;
@@ -782,20 +783,6 @@ fn format_timestamp(internal_date: i64) -> String {
         })
 }
 
-// Helper function to update sync status to 'error' on early exit
-async fn update_sync_error_status(pool: &SqlitePool) {
-    let now = chrono::Utc::now().to_rfc3339();
-    if let Err(e) = sqlx::query(
-        "UPDATE sync_metadata SET sync_status = 'error', last_sync_completed_at = ?1 WHERE id = 1",
-    )
-    .bind(&now)
-    .execute(pool)
-    .await
-    {
-        log::error!("Failed to update error status: {e}");
-    }
-}
-
 // Main incremental sync function
 pub async fn sync_gmail_incremental(
     app_handle: &tauri::AppHandle,
@@ -803,18 +790,18 @@ pub async fn sync_gmail_incremental(
     sync_state: &SyncState,
     batch_size: usize,
 ) -> Result<(), String> {
+    // Create repository instances first (needed for error handling)
+    let email_repo = crate::repository::SqliteEmailRepository::new(pool.clone());
+    let shop_repo = crate::repository::SqliteShopSettingsRepository::new(pool.clone());
+
     // Initialize Gmail client
     let client = match GmailClient::new(app_handle).await {
         Ok(c) => c,
         Err(e) => {
-            update_sync_error_status(pool).await;
+            let _ = email_repo.update_sync_error_status().await;
             return Err(e);
         }
     };
-
-    // Create repository instances
-    let email_repo = crate::repository::SqliteEmailRepository::new(pool.clone());
-    let shop_repo = crate::repository::SqliteShopSettingsRepository::new(pool.clone());
 
     // Delegate to trait-based implementation
     sync_gmail_incremental_with_client(
@@ -2234,7 +2221,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_sync_error_status() {
+        use crate::repository::{EmailRepository, SqliteEmailRepository};
+
         let pool = create_test_db().await;
+        let email_repo = SqliteEmailRepository::new(pool.clone());
 
         // 初期状態を確認
         let before: (String,) =
@@ -2245,8 +2235,11 @@ mod tests {
 
         assert_eq!(before.0, "idle");
 
-        // エラー状態に更新
-        update_sync_error_status(&pool).await;
+        // エラー状態に更新（リポジトリ経由）
+        email_repo
+            .update_sync_error_status()
+            .await
+            .expect("Failed to update error status");
 
         // エラー状態になったことを確認
         let after: (String, Option<String>) = sqlx::query_as(
