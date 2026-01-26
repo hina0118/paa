@@ -1118,7 +1118,10 @@ mod tests {
         let logs = get_logs(Some("LIMIT_TEST".to_string()), Some(5)).unwrap();
         // 並列テスト実行時に他テストがバッファをリセットする可能性があるため、
         // limit機能が正しく動作することを確認（取得数がlimit以下）
-        assert!(logs.len() <= 5, "limit should restrict results to at most 5 entries");
+        assert!(
+            logs.len() <= 5,
+            "limit should restrict results to at most 5 entries"
+        );
         // 全てのログが正しいレベルであることを確認
         assert!(logs.iter().all(|log| log.level == "LIMIT_TEST"));
     }

@@ -35,20 +35,11 @@ jobs:
         run: npm ci
 
       - name: Run frontend tests with coverage
-        run: npm run test:frontend:coverage
-        continue-on-error: true
-        id: coverage
-
-      - name: Check coverage threshold
         run: |
           echo "Coverage threshold: ${{ env.COVERAGE_THRESHOLD_FRONTEND }}%"
           # Vitestの設定でthresholdチェックが行われるため、
-          # テスト結果のexit codeで判定
-          if [[ "${{ steps.coverage.outcome }}" == "failure" ]]; then
-            echo "::error::Frontend coverage is below ${{ env.COVERAGE_THRESHOLD_FRONTEND }}% threshold"
-            exit 1
-          fi
-          echo "Frontend coverage meets the threshold"
+          # カバレッジが閾値を下回るとこのコマンドは非ゼロで終了し、ジョブが失敗します
+          npm run test:frontend:coverage
 
   coverage-rust:
     name: Coverage Rust (llvm-cov)
@@ -129,8 +120,8 @@ jobs:
           echo "Rust line coverage: ${LINE_COVERAGE}%"
           echo "Threshold: ${THRESHOLD}%"
 
-          # bcを使って浮動小数点比較
-          if (( $(echo "${LINE_COVERAGE} < ${THRESHOLD}" | bc -l) )); then
+          # awkを使って浮動小数点比較
+          if awk "BEGIN {exit !(${LINE_COVERAGE} < ${THRESHOLD})}"; then
             echo "::error::Rust coverage (${LINE_COVERAGE}%) is below ${THRESHOLD}% threshold"
             exit 1
           fi
