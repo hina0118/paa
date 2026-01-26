@@ -38,6 +38,12 @@ pub trait EmailRepository: Send + Sync {
 
     /// 同期完了日時を更新
     async fn update_sync_completed_at(&self) -> Result<(), String>;
+
+    /// 同期ステータスのみを更新
+    async fn update_sync_status(&self, status: &str) -> Result<(), String>;
+
+    /// エラーステータスに更新（last_sync_completed_atも更新）
+    async fn update_sync_error_status(&self) -> Result<(), String>;
 }
 
 /// ショップ設定関連のDB操作を抽象化するトレイト
@@ -217,6 +223,37 @@ impl EmailRepository for SqliteEmailRepository {
         .execute(&self.pool)
         .await
         .map_err(|e| format!("Failed to update sync completed at: {e}"))?;
+
+        Ok(())
+    }
+
+    async fn update_sync_status(&self, status: &str) -> Result<(), String> {
+        sqlx::query(
+            r#"
+            UPDATE sync_metadata
+            SET sync_status = ?
+            WHERE id = 1
+            "#,
+        )
+        .bind(status)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to update sync status: {e}"))?;
+
+        Ok(())
+    }
+
+    async fn update_sync_error_status(&self) -> Result<(), String> {
+        sqlx::query(
+            r#"
+            UPDATE sync_metadata
+            SET sync_status = 'error', last_sync_completed_at = datetime('now')
+            WHERE id = 1
+            "#,
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to update error status: {e}"))?;
 
         Ok(())
     }
