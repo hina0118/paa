@@ -8,6 +8,8 @@
 //! - **メトリクスのみ**: ログに出力できるのは文字数、件数、処理時間などの統計情報のみ
 //! - **本番環境**: リリースビルドではWarnレベル以上のログのみが出力されます
 
+use crate::gmail_client::GmailClientTrait;
+use async_trait::async_trait;
 use google_gmail1::{hyper_rustls, Gmail};
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::client::legacy::Client;
@@ -588,6 +590,40 @@ impl GmailClient {
                 Self::extract_body_from_part(child_part, body_plain, body_html);
             }
         }
+    }
+}
+
+/// GmailClientTrait の実装
+///
+/// これにより GmailClient をモックに置き換えてテストできます。
+#[async_trait]
+impl GmailClientTrait for GmailClient {
+    async fn list_message_ids(&self, query: &str, max_results: u32) -> Result<Vec<String>, String> {
+        let req = self
+            .hub
+            .users()
+            .messages_list("me")
+            .q(query)
+            .max_results(max_results);
+
+        let (_, result) = req
+            .doit()
+            .await
+            .map_err(|e| format!("Failed to list messages: {e}"))?;
+
+        let message_ids = result
+            .messages
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|msg| msg.id)
+            .collect();
+
+        Ok(message_ids)
+    }
+
+    async fn get_message(&self, message_id: &str) -> Result<GmailMessage, String> {
+        // 既存の get_message メソッドを呼び出す
+        Self::get_message(self, message_id).await
     }
 }
 
