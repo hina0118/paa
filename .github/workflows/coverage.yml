@@ -1,0 +1,148 @@
+name: Coverage
+
+on:
+  pull_request:
+    branches:
+      - main
+      - master
+      - develop
+  push:
+    branches:
+      - main
+      - master
+      - develop
+
+env:
+  COVERAGE_THRESHOLD_RUST: 50
+
+jobs:
+  coverage-frontend:
+    name: Coverage Frontend (Vitest)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run frontend tests with coverage
+        run: |
+          # Vitestの設定（vitest.config.ts）でthresholdチェックが行われるため、
+          # カバレッジが閾値（85%）を下回るとこのコマンドは非ゼロで終了し、ジョブが失敗します
+          npm run test:frontend:coverage
+
+  coverage-rust:
+    name: Coverage Rust (llvm-cov)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ runner.os }}-cargo-coverage-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-coverage-
+
+      - name: Run Rust tests with coverage
+        id: rust-coverage
+        run: |
+          cd src-tauri
+          # JSON形式でカバレッジを出力
+          cargo llvm-cov --all-features --workspace --json --output-path coverage.json
+
+          # coverage.jsonの存在と中身を確認
+          if [ ! -s coverage.json ]; then
+            echo "::error::coverage.json not found or is empty"
+            exit 1
+          fi
+
+          # 行カバレッジを抽出（jqはGitHub Actionsのubuntu-latestにプリインストール済み）
+          LINE_COVERAGE=$(jq -r '.data[0].totals.lines.percent // empty' coverage.json)
+
+          # 抽出結果の検証
+          if [ -z "$LINE_COVERAGE" ]; then
+            echo "::error::Failed to extract line coverage from coverage.json"
+            exit 1
+          fi
+
+          echo "Line coverage: ${LINE_COVERAGE}%"
+          echo "line_coverage=${LINE_COVERAGE}" >> "$GITHUB_OUTPUT"
+        env:
+          RUSTFLAGS: "--cfg ci"
+
+      - name: Check coverage threshold
+        run: |
+          LINE_COVERAGE=${{ steps.rust-coverage.outputs.line_coverage }}
+          THRESHOLD=${{ env.COVERAGE_THRESHOLD_RUST }}
+
+          echo "Rust line coverage: ${LINE_COVERAGE}%"
+          echo "Threshold: ${THRESHOLD}%"
+
+          # awkを使って浮動小数点比較
+          if awk "BEGIN {exit (${LINE_COVERAGE} >= ${THRESHOLD}) ? 0 : 1}"; then
+            echo "Rust coverage meets the threshold"
+          else
+            echo "::error::Rust coverage (${LINE_COVERAGE}%) is below ${THRESHOLD}% threshold"
+            exit 1
+          fi
+
+  coverage-status-check:
+    name: Coverage Status Check
+    runs-on: ubuntu-latest
+    needs: [coverage-frontend, coverage-rust]
+    if: always()
+
+    steps:
+      - name: Check coverage results
+        run: |
+          if [[ "${{ needs.coverage-frontend.result }}" == "failure" ]] || [[ "${{ needs.coverage-rust.result }}" == "failure" ]]; then
+            echo "::error::Coverage check failed. Please ensure all coverage thresholds are met."
+            exit 1
+          fi
+          echo "All coverage checks passed"
