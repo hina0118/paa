@@ -2,8 +2,11 @@
 //!
 //! このモジュールはデータベース操作を抽象化し、テスト時にモック可能にします。
 
-use crate::gmail::{GmailMessage, ShopSettings, CreateShopSettings, UpdateShopSettings, SyncMetadata};
+use crate::gmail::{
+    CreateShopSettings, GmailMessage, ShopSettings, SyncMetadata, UpdateShopSettings,
+};
 use async_trait::async_trait;
+use chrono::Utc;
 #[cfg(test)]
 use mockall::automock;
 use sqlx::sqlite::SqlitePool;
@@ -142,9 +145,16 @@ impl EmailRepository for SqliteEmailRepository {
     }
 
     async fn get_sync_metadata(&self) -> Result<SyncMetadata, String> {
-        let row: (String, Option<String>, i64, i64, Option<String>, Option<String>, i64) =
-            sqlx::query_as(
-                r#"
+        let row: (
+            String,
+            Option<String>,
+            i64,
+            i64,
+            Option<String>,
+            Option<String>,
+            i64,
+        ) = sqlx::query_as(
+            r#"
                 SELECT
                     sync_status,
                     oldest_fetched_date,
@@ -156,10 +166,10 @@ impl EmailRepository for SqliteEmailRepository {
                 FROM sync_metadata
                 WHERE id = 1
                 "#,
-            )
-            .fetch_one(&self.pool)
-            .await
-            .map_err(|e| format!("Failed to get sync metadata: {e}"))?;
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to get sync metadata: {e}"))?;
 
         Ok(SyncMetadata {
             sync_status: row.0,
@@ -198,13 +208,15 @@ impl EmailRepository for SqliteEmailRepository {
     }
 
     async fn update_sync_started_at(&self) -> Result<(), String> {
+        let now = Utc::now().to_rfc3339();
         sqlx::query(
             r#"
             UPDATE sync_metadata
-            SET last_sync_started_at = datetime('now')
+            SET last_sync_started_at = ?
             WHERE id = 1
             "#,
         )
+        .bind(&now)
         .execute(&self.pool)
         .await
         .map_err(|e| format!("Failed to update sync started at: {e}"))?;
@@ -213,13 +225,15 @@ impl EmailRepository for SqliteEmailRepository {
     }
 
     async fn update_sync_completed_at(&self) -> Result<(), String> {
+        let now = Utc::now().to_rfc3339();
         sqlx::query(
             r#"
             UPDATE sync_metadata
-            SET last_sync_completed_at = datetime('now')
+            SET last_sync_completed_at = ?
             WHERE id = 1
             "#,
         )
+        .bind(&now)
         .execute(&self.pool)
         .await
         .map_err(|e| format!("Failed to update sync completed at: {e}"))?;
@@ -244,13 +258,15 @@ impl EmailRepository for SqliteEmailRepository {
     }
 
     async fn update_sync_error_status(&self) -> Result<(), String> {
+        let now = Utc::now().to_rfc3339();
         sqlx::query(
             r#"
             UPDATE sync_metadata
-            SET sync_status = 'error', last_sync_completed_at = datetime('now')
+            SET sync_status = 'error', last_sync_completed_at = ?
             WHERE id = 1
             "#,
         )
+        .bind(&now)
         .execute(&self.pool)
         .await
         .map_err(|e| format!("Failed to update error status: {e}"))?;
@@ -369,10 +385,24 @@ impl ShopSettingsRepository for SqliteShopSettingsRepository {
             "#,
         )
         .bind(settings.shop_name.as_ref().unwrap_or(&current.shop_name))
-        .bind(settings.sender_address.as_ref().unwrap_or(&current.sender_address))
-        .bind(settings.parser_type.as_ref().unwrap_or(&current.parser_type))
+        .bind(
+            settings
+                .sender_address
+                .as_ref()
+                .unwrap_or(&current.sender_address),
+        )
+        .bind(
+            settings
+                .parser_type
+                .as_ref()
+                .unwrap_or(&current.parser_type),
+        )
         .bind(settings.is_enabled.unwrap_or(current.is_enabled))
-        .bind(subject_filters_json.as_ref().or(current.subject_filters.as_ref()))
+        .bind(
+            subject_filters_json
+                .as_ref()
+                .or(current.subject_filters.as_ref()),
+        )
         .bind(id)
         .execute(&self.pool)
         .await

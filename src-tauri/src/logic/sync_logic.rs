@@ -633,8 +633,7 @@ mod tests {
     async fn test_fetch_batch_with_client_empty_result() {
         let mut mock = MockGmailClientTrait::new();
 
-        mock.expect_list_message_ids()
-            .returning(|_, _| Ok(vec![]));
+        mock.expect_list_message_ids().returning(|_, _| Ok(vec![]));
 
         let result = super::fetch_batch_with_client(&mock, "query", 10).await;
 

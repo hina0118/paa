@@ -3,5 +3,5 @@
 //! このモジュールはTauriに依存しない純粋なビジネスロジックを提供します。
 //! テスト容易性を高めるため、外部依存を持たない純粋関数として実装されています。
 
-pub mod sync_logic;
 pub mod email_parser;
+pub mod sync_logic;

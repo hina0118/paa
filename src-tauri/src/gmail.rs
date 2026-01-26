@@ -9,6 +9,7 @@
 //! - **本番環境**: リリースビルドではWarnレベル以上のログのみが出力されます
 
 use crate::gmail_client::GmailClientTrait;
+use crate::logic::sync_logic::build_sync_query;
 use crate::repository::EmailRepository;
 use async_trait::async_trait;
 use google_gmail1::{hyper_rustls, Gmail};
@@ -716,7 +717,10 @@ pub async fn save_messages_to_db_with_repo(
     messages: &[GmailMessage],
     shop_settings: &[ShopSettings],
 ) -> Result<FetchResult, String> {
-    log::info!("Saving {} messages to database via repository", messages.len());
+    log::info!(
+        "Saving {} messages to database via repository",
+        messages.len()
+    );
 
     // ショップ設定でフィルタリング
     let (filtered_messages, filtered_count) =
@@ -734,37 +738,6 @@ pub async fn save_messages_to_db_with_repo(
         saved_count,
         skipped_count,
     })
-}
-
-// Helper function to build Gmail query with sender addresses and date constraint
-fn build_sync_query(sender_addresses: &[String], oldest_date: &Option<String>) -> String {
-    // Build query based on sender addresses
-    let base_query = if sender_addresses.is_empty() {
-        // Fallback to keyword search if no sender addresses configured
-        log::warn!("No enabled shop settings found, falling back to keyword search");
-        r"subject:(注文 OR 予約 OR ありがとうございます)".to_string()
-    } else {
-        // Build "from:addr1 OR from:addr2 OR ..." query
-        let from_clauses: Vec<String> = sender_addresses
-            .iter()
-            .map(|addr| format!("from:{addr}"))
-            .collect();
-        from_clauses.join(" OR ")
-    };
-
-    if let Some(date) = oldest_date {
-        // Parse and format for Gmail query (YYYY/MM/DD).
-        // This ensures the date is validated and formatted correctly; if parsing fails,
-        // the date filter is omitted and the base query is used without a date constraint.
-        if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(date) {
-            let before_date = dt.format("%Y/%m/%d");
-            return format!("({base_query}) before:{before_date}");
-        }
-        // If parsing fails, log warning and use base query without date filter
-        log::warn!("Invalid date format in oldest_date, ignoring date constraint: {date}");
-    }
-
-    base_query
 }
 
 // Helper function to fetch a batch of messages using GmailClientTrait
@@ -980,13 +953,14 @@ pub async fn sync_gmail_incremental_with_client(
             messages.iter().map(|m| m.message_id.clone()).collect();
 
         // Save to database with subject filtering (via repository)
-        let result = match save_messages_to_db_with_repo(email_repo, &messages, &enabled_shops).await {
-            Ok(r) => r,
-            Err(e) => {
-                let _ = email_repo.update_sync_error_status().await;
-                return Err(e);
-            }
-        };
+        let result =
+            match save_messages_to_db_with_repo(email_repo, &messages, &enabled_shops).await {
+                Ok(r) => r,
+                Err(e) => {
+                    let _ = email_repo.update_sync_error_status().await;
+                    return Err(e);
+                }
+            };
         total_synced = total_synced.saturating_add(result.saved_count as i64);
         // Update oldest fetched date
         // Note: messages is guaranteed to be non-empty at this point (checked above with messages.is_empty())
@@ -1065,7 +1039,11 @@ pub async fn sync_gmail_incremental_with_client(
 
         // All validations passed - now safe to update database (via repository)
         if let Err(e) = email_repo
-            .update_sync_metadata(Some(new_oldest.clone()), total_synced, "syncing".to_string())
+            .update_sync_metadata(
+                Some(new_oldest.clone()),
+                total_synced,
+                "syncing".to_string(),
+            )
             .await
         {
             let _ = email_repo.update_sync_error_status().await;
