@@ -34,6 +34,7 @@ const SAMPLE_HOBBYSEARCH_CONFIRM: &str = r#"
 "#;
 
 /// ホビーサーチ発送通知メールのサンプル（ダミーデータ）
+#[allow(dead_code)]
 const SAMPLE_HOBBYSEARCH_SEND: &str = r#"
 ホビーサーチ発送通知メール
 
@@ -272,7 +273,7 @@ fn test_email_processing_workflow() {
     assert!(should_save, "Message should be saved");
 
     // 4. ドメイン抽出
-    let domain = extract_domain(&msg.from_address.as_ref().unwrap());
+    let domain = extract_domain(msg.from_address.as_ref().unwrap());
     assert_eq!(domain, Some("hobbysearch.co.jp"));
 }
 
