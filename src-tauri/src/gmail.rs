@@ -812,24 +812,41 @@ pub async fn sync_gmail_incremental(
         }
     };
 
+    // Create repository instances
+    let email_repo = crate::repository::SqliteEmailRepository::new(pool.clone());
+    let shop_repo = crate::repository::SqliteShopSettingsRepository::new(pool.clone());
+
     // Delegate to trait-based implementation
-    sync_gmail_incremental_with_client(app_handle, pool, sync_state, batch_size, &client).await
+    sync_gmail_incremental_with_client(
+        app_handle,
+        pool,
+        sync_state,
+        batch_size,
+        &client,
+        &email_repo,
+        &shop_repo,
+    )
+    .await
 }
 
 /// GmailClientTrait経由でメールを同期する（テスト可能なバージョン）
 ///
 /// # Arguments
 /// * `app_handle` - Tauriアプリケーションハンドル
-/// * `pool` - SQLiteデータベースプール
+/// * `pool` - SQLiteデータベースプール（sync_metadata更新用、将来的にはEmailRepository経由に移行予定）
 /// * `sync_state` - 同期状態管理
 /// * `batch_size` - バッチサイズ（0の場合はデフォルト値を使用）
 /// * `client` - GmailClientTraitを実装したクライアント
+/// * `email_repo` - EmailRepositoryを実装したリポジトリ
+/// * `shop_repo` - ShopSettingsRepositoryを実装したリポジトリ
 pub async fn sync_gmail_incremental_with_client(
     app_handle: &tauri::AppHandle,
-    pool: &SqlitePool,
+    _pool: &SqlitePool, // TODO: Remove once all DB operations are via repository
     sync_state: &SyncState,
     batch_size: usize,
     client: &dyn GmailClientTrait,
+    email_repo: &dyn crate::repository::EmailRepository,
+    shop_repo: &dyn crate::repository::ShopSettingsRepository,
 ) -> Result<(), String> {
     const DEFAULT_BATCH_SIZE: usize = 50;
     // NOTE: MAX_ITERATIONS and SYNC_TIMEOUT_MINUTES are intentionally hard-coded safety limits.
@@ -869,11 +886,11 @@ pub async fn sync_gmail_incremental_with_client(
     // Create RAII guard to ensure running flag is cleared on function exit
     let _guard = SyncGuard::new(sync_state);
 
-    // Get enabled shop settings to build sender address list
-    let enabled_shops = match get_enabled_shop_settings(pool).await {
+    // Get enabled shop settings to build sender address list (via repository)
+    let enabled_shops = match shop_repo.get_enabled().await {
         Ok(shops) => shops,
         Err(e) => {
-            update_sync_error_status(pool).await;
+            let _ = email_repo.update_sync_error_status().await;
             return Err(format!("Failed to fetch shop settings: {e}"));
         }
     };
@@ -888,35 +905,29 @@ pub async fn sync_gmail_incremental_with_client(
         sender_addresses.len()
     );
 
-    // Update sync status to 'syncing'
-    let now = chrono::Utc::now().to_rfc3339();
-    if let Err(e) = sqlx::query(
-        "UPDATE sync_metadata SET sync_status = 'syncing', last_sync_started_at = ?1 WHERE id = 1",
-    )
-    .bind(&now)
-    .execute(pool)
-    .await
-    {
-        update_sync_error_status(pool).await;
+    // Update sync status to 'syncing' and sync started timestamp (via repository)
+    if let Err(e) = email_repo.update_sync_status("syncing").await {
+        let _ = email_repo.update_sync_error_status().await;
         return Err(format!("Failed to update sync status: {e}"));
     }
+    if let Err(e) = email_repo.update_sync_started_at().await {
+        let _ = email_repo.update_sync_error_status().await;
+        return Err(format!("Failed to update sync started at: {e}"));
+    }
 
-    // Get oldest fetched date, batch size, and max iterations from metadata
-    let metadata: Option<(Option<String>, i64, i64, i64)> = match sqlx::query_as(
-        "SELECT oldest_fetched_date, total_synced_count, batch_size, max_iterations FROM sync_metadata WHERE id = 1"
-    )
-    .fetch_optional(pool)
-    .await
-    {
+    // Get sync metadata (via repository)
+    let metadata = match email_repo.get_sync_metadata().await {
         Ok(m) => m,
         Err(e) => {
-            update_sync_error_status(pool).await;
+            let _ = email_repo.update_sync_error_status().await;
             return Err(format!("Failed to fetch sync metadata: {e}"));
         }
     };
 
-    let (mut oldest_date, mut total_synced, db_batch_size, db_max_iterations) =
-        metadata.unwrap_or((None, 0, batch_size as i64, MAX_ITERATIONS as i64));
+    let mut oldest_date = metadata.oldest_fetched_date;
+    let mut total_synced = metadata.total_synced_count;
+    let db_batch_size = metadata.batch_size;
+    let db_max_iterations = metadata.max_iterations;
     let effective_batch_size = if db_batch_size > 0 {
         db_batch_size as usize
     } else {
@@ -957,7 +968,7 @@ pub async fn sync_gmail_incremental_with_client(
         let messages = match fetch_batch(client, &query, effective_batch_size).await {
             Ok(m) => m,
             Err(e) => {
-                update_sync_error_status(pool).await;
+                let _ = email_repo.update_sync_error_status().await;
                 return Err(e);
             }
         };
@@ -975,11 +986,11 @@ pub async fn sync_gmail_incremental_with_client(
         let current_message_ids: Vec<String> =
             messages.iter().map(|m| m.message_id.clone()).collect();
 
-        // Save to database with subject filtering
-        let result = match save_messages_to_db(pool, &messages, &enabled_shops).await {
+        // Save to database with subject filtering (via repository)
+        let result = match save_messages_to_db_with_repo(email_repo, &messages, &enabled_shops).await {
             Ok(r) => r,
             Err(e) => {
-                update_sync_error_status(pool).await;
+                let _ = email_repo.update_sync_error_status().await;
                 return Err(e);
             }
         };
@@ -994,7 +1005,7 @@ pub async fn sync_gmail_incremental_with_client(
         {
             ts
         } else {
-            update_sync_error_status(pool).await;
+            let _ = email_repo.update_sync_error_status().await;
             return Err(format!(
                 "Logic error: min_by_key returned None on non-empty messages while updating sync metadata. batch_number={}, messages_len={}",
                 batch_number,
@@ -1014,7 +1025,7 @@ pub async fn sync_gmail_incremental_with_client(
                     log::error!(
                         "Invalid timestamp detected: new_oldest ({new_oldest}) is significantly in the future, indicates timestamp parsing failure"
                     );
-                    update_sync_error_status(pool).await;
+                    let _ = email_repo.update_sync_error_status().await;
                     return Err("Invalid message timestamp detected (future date beyond allowed clock skew). This indicates a data integrity issue.".to_string());
                 }
             }
@@ -1023,7 +1034,7 @@ pub async fn sync_gmail_incremental_with_client(
                 log::error!(
                     "Failed to parse new_oldest timestamp as RFC3339 (value: '{new_oldest}'): {e}"
                 );
-                update_sync_error_status(pool).await;
+                let _ = email_repo.update_sync_error_status().await;
                 return Err("Failed to parse message timestamp (RFC3339). This indicates a data integrity or formatting issue.".to_string());
             }
         }
@@ -1059,16 +1070,12 @@ pub async fn sync_gmail_incremental_with_client(
         }
         previous_message_ids = Some(current_message_ids);
 
-        // All validations passed - now safe to update database
-        if let Err(e) = sqlx::query(
-            "UPDATE sync_metadata SET oldest_fetched_date = ?1, total_synced_count = ?2 WHERE id = 1"
-        )
-        .bind(&new_oldest)
-        .bind(total_synced)
-        .execute(pool)
-        .await
+        // All validations passed - now safe to update database (via repository)
+        if let Err(e) = email_repo
+            .update_sync_metadata(Some(new_oldest.clone()), total_synced, "syncing".to_string())
+            .await
         {
-            update_sync_error_status(pool).await;
+            let _ = email_repo.update_sync_error_status().await;
             return Err(format!("Failed to update metadata: {e}"));
         }
 
@@ -1088,7 +1095,7 @@ pub async fn sync_gmail_incremental_with_client(
             error: None,
         };
         if let Err(e) = app_handle.emit("sync-progress", progress) {
-            update_sync_error_status(pool).await;
+            let _ = email_repo.update_sync_error_status().await;
             return Err(format!("Failed to emit progress: {e}"));
         }
         // Check if we got fewer messages than requested (end of results)
@@ -1103,17 +1110,12 @@ pub async fn sync_gmail_incremental_with_client(
     } else {
         "idle"
     };
-    // Update sync metadata
-    let now = chrono::Utc::now().to_rfc3339();
-    if let Err(e) = sqlx::query(
-        "UPDATE sync_metadata SET sync_status = ?1, last_sync_completed_at = ?2 WHERE id = 1",
-    )
-    .bind(final_status)
-    .bind(&now)
-    .execute(pool)
-    .await
-    {
+    // Update sync metadata (via repository)
+    if let Err(e) = email_repo.update_sync_status(final_status).await {
         return Err(format!("Failed to update final status: {e}"));
+    }
+    if let Err(e) = email_repo.update_sync_completed_at().await {
+        return Err(format!("Failed to update sync completed at: {e}"));
     }
 
     // Emit completion event
