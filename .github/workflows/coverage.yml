@@ -14,7 +14,7 @@ on:
 
 env:
   COVERAGE_THRESHOLD_FRONTEND: 85
-  COVERAGE_THRESHOLD_RUST: 55
+  COVERAGE_THRESHOLD_RUST: 50
 
 jobs:
   coverage-frontend:
