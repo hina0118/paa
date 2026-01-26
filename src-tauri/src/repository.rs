@@ -461,18 +461,22 @@ mod tests {
             .await
             .expect("Failed to create test database");
 
-        // テーブル作成
+        // テーブル作成（migrationsと同等の定義）
+
+        // emails テーブル (002, 011, 017, 019 に対応)
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS emails (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 message_id TEXT UNIQUE NOT NULL,
-                subject TEXT,
                 body_plain TEXT,
                 body_html TEXT,
-                internal_date INTEGER NOT NULL,
+                analysis_status TEXT NOT NULL DEFAULT 'pending' CHECK(analysis_status IN ('pending', 'completed')),
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                internal_date INTEGER,
                 from_address TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                subject TEXT
             )
             "#,
         )
@@ -480,17 +484,21 @@ mod tests {
         .await
         .expect("Failed to create emails table");
 
+        // sync_metadata テーブル (010, 012 に対応)
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS sync_metadata (
-                id INTEGER PRIMARY KEY,
-                sync_status TEXT DEFAULT 'idle',
+                id INTEGER PRIMARY KEY CHECK (id = 1),
                 oldest_fetched_date TEXT,
-                total_synced_count INTEGER DEFAULT 0,
-                batch_size INTEGER DEFAULT 50,
+                sync_status TEXT NOT NULL DEFAULT 'idle' CHECK(sync_status IN ('idle', 'syncing', 'paused', 'error')),
+                total_synced_count INTEGER NOT NULL DEFAULT 0,
+                batch_size INTEGER NOT NULL DEFAULT 50,
                 last_sync_started_at TEXT,
                 last_sync_completed_at TEXT,
-                max_iterations INTEGER DEFAULT 10
+                last_error_message TEXT,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now')),
+                max_iterations INTEGER NOT NULL DEFAULT 1000
             )
             "#,
         )
@@ -498,11 +506,12 @@ mod tests {
         .await
         .expect("Failed to create sync_metadata table");
 
-        sqlx::query("INSERT OR IGNORE INTO sync_metadata (id) VALUES (1)")
+        sqlx::query("INSERT INTO sync_metadata (id, sync_status) VALUES (1, 'idle')")
             .execute(&pool)
             .await
             .expect("Failed to insert default metadata");
 
+        // shop_settings テーブル (014, 015 に対応)
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS shop_settings (
@@ -510,10 +519,10 @@ mod tests {
                 shop_name TEXT NOT NULL,
                 sender_address TEXT NOT NULL,
                 parser_type TEXT NOT NULL,
-                is_enabled INTEGER DEFAULT 1,
-                subject_filters TEXT,
+                is_enabled INTEGER NOT NULL DEFAULT 1 CHECK(is_enabled IN (0, 1)),
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                subject_filters TEXT
             )
             "#,
         )
