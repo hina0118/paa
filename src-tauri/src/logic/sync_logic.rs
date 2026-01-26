@@ -4,6 +4,7 @@
 //! 外部依存（Gmail API, DB）を持たないため、テストが容易です。
 
 use crate::gmail::{GmailMessage, ShopSettings};
+use crate::gmail_client::GmailClientTrait;
 
 /// Gmail検索クエリを構築する
 ///
@@ -176,6 +177,60 @@ pub fn extract_sender_addresses(shop_settings: &[ShopSettings]) -> Vec<String> {
         .iter()
         .map(|s| s.sender_address.clone())
         .collect()
+}
+
+/// メッセージをショップ設定でフィルタリングする
+///
+/// # Arguments
+/// * `messages` - フィルタリング対象のメッセージリスト
+/// * `shop_settings` - 有効なショップ設定のリスト
+///
+/// # Returns
+/// (保存すべきメッセージ, フィルタで除外されたメッセージ数)
+pub fn filter_messages_by_shop_settings(
+    messages: &[GmailMessage],
+    shop_settings: &[ShopSettings],
+) -> (Vec<GmailMessage>, usize) {
+    let mut filtered_messages = Vec::new();
+    let mut filtered_out_count = 0;
+
+    for msg in messages {
+        if should_save_message(msg, shop_settings) {
+            filtered_messages.push(msg.clone());
+        } else {
+            filtered_out_count += 1;
+        }
+    }
+
+    (filtered_messages, filtered_out_count)
+}
+
+/// GmailClientTraitを使用してメッセージのバッチを取得する
+///
+/// # Arguments
+/// * `client` - GmailClientTraitを実装したクライアント
+/// * `query` - Gmail検索クエリ
+/// * `max_results` - 最大取得数
+///
+/// # Returns
+/// 取得したGmailMessageのVec、またはエラー
+pub async fn fetch_batch_with_client(
+    client: &dyn GmailClientTrait,
+    query: &str,
+    max_results: usize,
+) -> Result<Vec<GmailMessage>, String> {
+    // メッセージIDリストを取得
+    let message_ids = client.list_message_ids(query, max_results as u32).await?;
+
+    let mut messages = Vec::new();
+    for id in message_ids {
+        match client.get_message(&id).await {
+            Ok(msg) => messages.push(msg),
+            Err(e) => log::warn!("Failed to fetch message {id}: {e}"),
+        }
+    }
+
+    Ok(messages)
 }
 
 #[cfg(test)]
@@ -404,5 +459,186 @@ mod tests {
         let settings: Vec<ShopSettings> = vec![];
         let addresses = extract_sender_addresses(&settings);
         assert!(addresses.is_empty());
+    }
+
+    // ==================== filter_messages_by_shop_settings Tests ====================
+
+    #[test]
+    fn test_filter_messages_by_shop_settings_all_pass() {
+        let messages = vec![
+            create_test_message(Some("shop@example.com"), Some("注文確認メール")),
+            create_test_message(Some("shop@example.com"), Some("注文受付完了")),
+        ];
+        let settings = vec![create_shop_setting(
+            "shop@example.com",
+            Some(vec!["注文".to_string()]),
+        )];
+
+        let (filtered, filtered_out) =
+            super::filter_messages_by_shop_settings(&messages, &settings);
+
+        assert_eq!(filtered.len(), 2);
+        assert_eq!(filtered_out, 0);
+    }
+
+    #[test]
+    fn test_filter_messages_by_shop_settings_some_filtered() {
+        let messages = vec![
+            create_test_message(Some("shop@example.com"), Some("注文確認メール")),
+            create_test_message(Some("shop@example.com"), Some("キャンペーンのお知らせ")),
+        ];
+        let settings = vec![create_shop_setting(
+            "shop@example.com",
+            Some(vec!["注文".to_string()]),
+        )];
+
+        let (filtered, filtered_out) =
+            super::filter_messages_by_shop_settings(&messages, &settings);
+
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered_out, 1);
+        assert!(filtered[0].subject.as_ref().unwrap().contains("注文"));
+    }
+
+    #[test]
+    fn test_filter_messages_by_shop_settings_all_filtered() {
+        let messages = vec![
+            create_test_message(Some("other@example.com"), Some("注文確認メール")),
+            create_test_message(Some("shop@example.com"), Some("広告メール")),
+        ];
+        let settings = vec![create_shop_setting(
+            "shop@example.com",
+            Some(vec!["注文".to_string()]),
+        )];
+
+        let (filtered, filtered_out) =
+            super::filter_messages_by_shop_settings(&messages, &settings);
+
+        assert_eq!(filtered.len(), 0);
+        assert_eq!(filtered_out, 2);
+    }
+
+    #[test]
+    fn test_filter_messages_by_shop_settings_empty_messages() {
+        let messages: Vec<GmailMessage> = vec![];
+        let settings = vec![create_shop_setting("shop@example.com", None)];
+
+        let (filtered, filtered_out) =
+            super::filter_messages_by_shop_settings(&messages, &settings);
+
+        assert!(filtered.is_empty());
+        assert_eq!(filtered_out, 0);
+    }
+
+    // ==================== fetch_batch_with_client Tests ====================
+
+    use crate::gmail_client::MockGmailClientTrait;
+
+    #[tokio::test]
+    async fn test_fetch_batch_with_client_success() {
+        let mut mock = MockGmailClientTrait::new();
+
+        // list_message_idsのモック設定
+        mock.expect_list_message_ids()
+            .withf(|query, max_results| query == "from:shop@example.com" && *max_results == 10)
+            .returning(|_, _| Ok(vec!["msg1".to_string(), "msg2".to_string()]));
+
+        // get_messageのモック設定
+        mock.expect_get_message()
+            .withf(|id| id == "msg1")
+            .returning(|_| {
+                Ok(GmailMessage {
+                    message_id: "msg1".to_string(),
+                    snippet: "Snippet 1".to_string(),
+                    subject: Some("Subject 1".to_string()),
+                    body_plain: Some("Body 1".to_string()),
+                    body_html: None,
+                    internal_date: 1704067200000,
+                    from_address: Some("shop@example.com".to_string()),
+                })
+            });
+
+        mock.expect_get_message()
+            .withf(|id| id == "msg2")
+            .returning(|_| {
+                Ok(GmailMessage {
+                    message_id: "msg2".to_string(),
+                    snippet: "Snippet 2".to_string(),
+                    subject: Some("Subject 2".to_string()),
+                    body_plain: Some("Body 2".to_string()),
+                    body_html: None,
+                    internal_date: 1704153600000,
+                    from_address: Some("shop@example.com".to_string()),
+                })
+            });
+
+        let result = super::fetch_batch_with_client(&mock, "from:shop@example.com", 10).await;
+
+        assert!(result.is_ok());
+        let messages = result.unwrap();
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].message_id, "msg1");
+        assert_eq!(messages[1].message_id, "msg2");
+    }
+
+    #[tokio::test]
+    async fn test_fetch_batch_with_client_list_error() {
+        let mut mock = MockGmailClientTrait::new();
+
+        mock.expect_list_message_ids()
+            .returning(|_, _| Err("API error".to_string()));
+
+        let result = super::fetch_batch_with_client(&mock, "query", 10).await;
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "API error");
+    }
+
+    #[tokio::test]
+    async fn test_fetch_batch_with_client_partial_fetch_error() {
+        let mut mock = MockGmailClientTrait::new();
+
+        mock.expect_list_message_ids()
+            .returning(|_, _| Ok(vec!["msg1".to_string(), "msg2".to_string()]));
+
+        // msg1は成功、msg2は失敗
+        mock.expect_get_message()
+            .withf(|id| id == "msg1")
+            .returning(|_| {
+                Ok(GmailMessage {
+                    message_id: "msg1".to_string(),
+                    snippet: "Snippet".to_string(),
+                    subject: Some("Subject".to_string()),
+                    body_plain: None,
+                    body_html: None,
+                    internal_date: 1704067200000,
+                    from_address: None,
+                })
+            });
+
+        mock.expect_get_message()
+            .withf(|id| id == "msg2")
+            .returning(|_| Err("Fetch error".to_string()));
+
+        let result = super::fetch_batch_with_client(&mock, "query", 10).await;
+
+        // 部分的な失敗はワーニングログのみで、成功したメッセージは返される
+        assert!(result.is_ok());
+        let messages = result.unwrap();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].message_id, "msg1");
+    }
+
+    #[tokio::test]
+    async fn test_fetch_batch_with_client_empty_result() {
+        let mut mock = MockGmailClientTrait::new();
+
+        mock.expect_list_message_ids()
+            .returning(|_, _| Ok(vec![]));
+
+        let result = super::fetch_batch_with_client(&mock, "query", 10).await;
+
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
     }
 }

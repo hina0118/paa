@@ -77,47 +77,48 @@ impl EmailRepository for SqliteEmailRepository {
         let mut saved = 0;
         let mut skipped = 0;
 
-        for message in messages {
-            // まず既存チェック
-            let existing: Option<(i64,)> = sqlx::query_as(
-                "SELECT 1 FROM gmail_messages WHERE message_id = ?",
-            )
-            .bind(&message.message_id)
-            .fetch_optional(&self.pool)
+        // トランザクションを使用してバッチ処理
+        let mut tx = self
+            .pool
+            .begin()
             .await
-            .map_err(|e| format!("Failed to check existing message: {e}"))?;
+            .map_err(|e| format!("Failed to begin transaction: {e}"))?;
 
-            if existing.is_some() {
-                skipped += 1;
-                continue;
-            }
-
-            // 新規挿入
-            sqlx::query(
+        for message in messages {
+            // ON CONFLICT で重複をスキップ
+            let result = sqlx::query(
                 r#"
-                INSERT INTO gmail_messages (message_id, snippet, subject, body_plain, body_html, internal_date, from_address)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO emails (message_id, body_plain, body_html, internal_date, from_address, subject)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(message_id) DO NOTHING
                 "#,
             )
             .bind(&message.message_id)
-            .bind(&message.snippet)
-            .bind(&message.subject)
             .bind(&message.body_plain)
             .bind(&message.body_html)
             .bind(message.internal_date)
             .bind(&message.from_address)
-            .execute(&self.pool)
+            .bind(&message.subject)
+            .execute(&mut *tx)
             .await
-            .map_err(|e| format!("Failed to insert message: {e}"))?;
+            .map_err(|e| format!("Failed to insert message {}: {}", message.message_id, e))?;
 
-            saved += 1;
+            if result.rows_affected() > 0 {
+                saved += 1;
+            } else {
+                skipped += 1;
+            }
         }
+
+        tx.commit()
+            .await
+            .map_err(|e| format!("Failed to commit transaction: {e}"))?;
 
         Ok((saved, skipped))
     }
 
     async fn get_existing_message_ids(&self) -> Result<Vec<String>, String> {
-        let rows: Vec<(String,)> = sqlx::query_as("SELECT message_id FROM gmail_messages")
+        let rows: Vec<(String,)> = sqlx::query_as("SELECT message_id FROM emails")
             .fetch_all(&self.pool)
             .await
             .map_err(|e| format!("Failed to get existing message IDs: {e}"))?;
@@ -126,7 +127,7 @@ impl EmailRepository for SqliteEmailRepository {
     }
 
     async fn get_message_count(&self) -> Result<i64, String> {
-        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM gmail_messages")
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM emails")
             .fetch_one(&self.pool)
             .await
             .map_err(|e| format!("Failed to get message count: {e}"))?;
@@ -146,7 +147,7 @@ impl EmailRepository for SqliteEmailRepository {
                     last_sync_started_at,
                     last_sync_completed_at,
                     max_iterations
-                FROM gmail_sync_metadata
+                FROM sync_metadata
                 WHERE id = 1
                 "#,
             )
@@ -173,7 +174,7 @@ impl EmailRepository for SqliteEmailRepository {
     ) -> Result<(), String> {
         sqlx::query(
             r#"
-            UPDATE gmail_sync_metadata
+            UPDATE sync_metadata
             SET oldest_fetched_date = COALESCE(?, oldest_fetched_date),
                 total_synced_count = ?,
                 sync_status = ?
@@ -193,7 +194,7 @@ impl EmailRepository for SqliteEmailRepository {
     async fn update_sync_started_at(&self) -> Result<(), String> {
         sqlx::query(
             r#"
-            UPDATE gmail_sync_metadata
+            UPDATE sync_metadata
             SET last_sync_started_at = datetime('now')
             WHERE id = 1
             "#,
@@ -208,7 +209,7 @@ impl EmailRepository for SqliteEmailRepository {
     async fn update_sync_completed_at(&self) -> Result<(), String> {
         sqlx::query(
             r#"
-            UPDATE gmail_sync_metadata
+            UPDATE sync_metadata
             SET last_sync_completed_at = datetime('now')
             WHERE id = 1
             "#,
@@ -378,10 +379,9 @@ mod tests {
         // テーブル作成
         sqlx::query(
             r#"
-            CREATE TABLE IF NOT EXISTS gmail_messages (
+            CREATE TABLE IF NOT EXISTS emails (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 message_id TEXT UNIQUE NOT NULL,
-                snippet TEXT NOT NULL,
                 subject TEXT,
                 body_plain TEXT,
                 body_html TEXT,
@@ -393,11 +393,11 @@ mod tests {
         )
         .execute(&pool)
         .await
-        .expect("Failed to create gmail_messages table");
+        .expect("Failed to create emails table");
 
         sqlx::query(
             r#"
-            CREATE TABLE IF NOT EXISTS gmail_sync_metadata (
+            CREATE TABLE IF NOT EXISTS sync_metadata (
                 id INTEGER PRIMARY KEY,
                 sync_status TEXT DEFAULT 'idle',
                 oldest_fetched_date TEXT,
@@ -411,9 +411,9 @@ mod tests {
         )
         .execute(&pool)
         .await
-        .expect("Failed to create gmail_sync_metadata table");
+        .expect("Failed to create sync_metadata table");
 
-        sqlx::query("INSERT OR IGNORE INTO gmail_sync_metadata (id) VALUES (1)")
+        sqlx::query("INSERT OR IGNORE INTO sync_metadata (id) VALUES (1)")
             .execute(&pool)
             .await
             .expect("Failed to insert default metadata");

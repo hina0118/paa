@@ -695,6 +695,40 @@ pub async fn save_messages_to_db(
     })
 }
 
+/// EmailRepository経由でメッセージをDBに保存する（テスト可能なバージョン）
+///
+/// # Arguments
+/// * `repo` - EmailRepositoryを実装したリポジトリ
+/// * `messages` - 保存するメッセージリスト
+/// * `shop_settings` - 有効なショップ設定（件名フィルタリングに使用）
+///
+/// # Returns
+/// FetchResult（保存数、スキップ数などの統計情報）
+pub async fn save_messages_to_db_with_repo(
+    repo: &dyn crate::repository::EmailRepository,
+    messages: &[GmailMessage],
+    shop_settings: &[ShopSettings],
+) -> Result<FetchResult, String> {
+    log::info!("Saving {} messages to database via repository", messages.len());
+
+    // ショップ設定でフィルタリング
+    let (filtered_messages, filtered_count) =
+        crate::logic::sync_logic::filter_messages_by_shop_settings(messages, shop_settings);
+
+    // リポジトリ経由で保存
+    let (saved_count, skipped_count) = repo.save_messages(&filtered_messages).await?;
+
+    log::info!(
+        "Saved {saved_count} messages, skipped {skipped_count} duplicates, filtered {filtered_count} by subject"
+    );
+
+    Ok(FetchResult {
+        fetched_count: messages.len(),
+        saved_count,
+        skipped_count,
+    })
+}
+
 // Helper function to build Gmail query with sender addresses and date constraint
 fn build_sync_query(sender_addresses: &[String], oldest_date: &Option<String>) -> String {
     // Build query based on sender addresses
@@ -726,38 +760,13 @@ fn build_sync_query(sender_addresses: &[String], oldest_date: &Option<String>) -
     base_query
 }
 
-// Helper function to fetch a batch of messages
+// Helper function to fetch a batch of messages using GmailClientTrait
 async fn fetch_batch(
-    client: &GmailClient,
+    client: &dyn GmailClientTrait,
     query: &str,
     max_results: usize,
 ) -> Result<Vec<GmailMessage>, String> {
-    let req = client
-        .hub
-        .users()
-        .messages_list("me")
-        .q(query)
-        .max_results(max_results as u32);
-
-    let (_, result) = req
-        .doit()
-        .await
-        .map_err(|e| format!("Failed to list messages: {e}"))?;
-
-    let mut messages = Vec::new();
-
-    if let Some(msg_list) = result.messages {
-        for msg in msg_list {
-            if let Some(id) = msg.id {
-                match client.get_message(&id).await {
-                    Ok(full_msg) => messages.push(full_msg),
-                    Err(e) => log::warn!("Failed to fetch message {id}: {e}"),
-                }
-            }
-        }
-    }
-
-    Ok(messages)
+    crate::logic::sync_logic::fetch_batch_with_client(client, query, max_results).await
 }
 
 // Helper function to format timestamp as RFC3339
@@ -793,6 +802,34 @@ pub async fn sync_gmail_incremental(
     pool: &SqlitePool,
     sync_state: &SyncState,
     batch_size: usize,
+) -> Result<(), String> {
+    // Initialize Gmail client
+    let client = match GmailClient::new(app_handle).await {
+        Ok(c) => c,
+        Err(e) => {
+            update_sync_error_status(pool).await;
+            return Err(e);
+        }
+    };
+
+    // Delegate to trait-based implementation
+    sync_gmail_incremental_with_client(app_handle, pool, sync_state, batch_size, &client).await
+}
+
+/// GmailClientTrait経由でメールを同期する（テスト可能なバージョン）
+///
+/// # Arguments
+/// * `app_handle` - Tauriアプリケーションハンドル
+/// * `pool` - SQLiteデータベースプール
+/// * `sync_state` - 同期状態管理
+/// * `batch_size` - バッチサイズ（0の場合はデフォルト値を使用）
+/// * `client` - GmailClientTraitを実装したクライアント
+pub async fn sync_gmail_incremental_with_client(
+    app_handle: &tauri::AppHandle,
+    pool: &SqlitePool,
+    sync_state: &SyncState,
+    batch_size: usize,
+    client: &dyn GmailClientTrait,
 ) -> Result<(), String> {
     const DEFAULT_BATCH_SIZE: usize = 50;
     // NOTE: MAX_ITERATIONS and SYNC_TIMEOUT_MINUTES are intentionally hard-coded safety limits.
@@ -891,14 +928,6 @@ pub async fn sync_gmail_incremental(
         MAX_ITERATIONS
     };
 
-    // Initialize Gmail client
-    let client = match GmailClient::new(app_handle).await {
-        Ok(c) => c,
-        Err(e) => {
-            update_sync_error_status(pool).await;
-            return Err(e);
-        }
-    };
     let mut batch_number = 0;
     #[allow(unused_assignments)]
     let mut has_more = true;
@@ -925,7 +954,7 @@ pub async fn sync_gmail_incremental(
         let query = build_sync_query(&sender_addresses, &oldest_date);
         log::info!("Batch {batch_number}: Fetching up to {effective_batch_size} messages with query: {query}");
         // Fetch batch of messages
-        let messages = match fetch_batch(&client, &query, effective_batch_size).await {
+        let messages = match fetch_batch(client, &query, effective_batch_size).await {
             Ok(m) => m,
             Err(e) => {
                 update_sync_error_status(pool).await;
