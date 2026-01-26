@@ -8,8 +8,11 @@ use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Listener, Manager};
 use tauri_plugin_sql::{Migration, MigrationKind};
 
-mod gmail;
-mod parsers;
+pub mod gmail;
+mod gmail_client;
+pub mod logic;
+pub mod parsers;
+mod repository;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]

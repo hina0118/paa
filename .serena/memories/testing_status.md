@@ -5,6 +5,7 @@
 ## テスト環境
 
 ### フロントエンド (React + TypeScript)
+
 - **テストフレームワーク**: Vitest 4.0.17
 - **テスティングライブラリ**: React Testing Library
 - **DOM環境**: jsdom
@@ -12,6 +13,7 @@
 - **設定ファイル**: `vitest.config.ts`
 
 ### バックエンド (Rust)
+
 - **テストフレームワーク**: Cargo test (標準)
 - **カバレッジツール**: cargo-llvm-cov
 - **データベーステスト**: sqlx + sqlite::memory
@@ -19,6 +21,7 @@
 ## 現在のカバレッジ状況
 
 ### フロントエンド: 93.60% ✅ (目標85%達成)
+
 - **Statements**: 93.65%
 - **Branches**: 80.35%
 - **Functions**: 96.96%
@@ -26,6 +29,7 @@
 - **テスト数**: 122件
 
 #### 100%カバレッジ達成ファイル
+
 - `src/components/screens/dashboard.tsx` ✅
 - `src/components/screens/settings.tsx` ✅
 - `src/components/screens/sync.tsx` ✅
@@ -38,35 +42,41 @@
 - `src/lib/utils.ts` ✅
 
 #### 高カバレッジ
+
 - `src/contexts/sync-context.tsx`: 85.45%
 
-### バックエンド: 57.13% 🔄 (目標85%に向けて改善中)
-- **行カバレッジ**: 57.13% (1465行中628行未カバー)
-- **関数カバレッジ**: 59.46% (148関数中60関数未カバー)
-- **リージョンカバレッジ**: 56.14%
-- **テスト数**: 67件
+### バックエンド: 63.03% 🔄 (前回57.13%から+5.90%向上)
+
+- **行カバレッジ**: 63.03% (4845行中1791行未カバー)
+- **関数カバレッジ**: 61.54% (520関数中200関数未カバー)
+- **リージョンカバレッジ**: 66.57%
+- **テスト数**: 206件 (183 + 15 + 8)
 
 #### ファイル別カバレッジ
-- `src-tauri/src/gmail.rs`: 66.94% (コア機能)
-- `src-tauri/src/lib.rs`: 6.41% (主にTauriセットアップコード)
+
+- `src-tauri/src/gmail.rs`: 70.83% (前回66.94%から+3.89%)
+- `src-tauri/src/logic/sync_logic.rs`: 97.25% ✅ 新規追加
+- `src-tauri/src/logic/email_parser.rs`: 96.03% ✅ 新規追加
+- `src-tauri/src/repository.rs`: 88.94% ✅ 新規追加
+- `src-tauri/src/parsers/hobbysearch_common.rs`: 99.59% ✅
+- `src-tauri/src/parsers/hobbysearch_confirm.rs`: 93.27%
+- `src-tauri/src/parsers/hobbysearch_send.rs`: 93.91%
+- `src-tauri/src/lib.rs`: 12.82% (主にTauriセットアップコード)
 - `src-tauri/src/main.rs`: 0.00% (エントリーポイント)
 
-#### 主な未カバー領域
-1. **OAuth認証フロー** (`GmailClient::new`, `authenticate`)
-   - 実際のGmail API通信が必要
-   - モックフレームワークでのテストが推奨
+#### Issue #35 対応による改善点
 
-2. **Gmail同期ロジック** (`sync_gmail_incremental`)
-   - 複雑な非同期処理と状態管理
-   - API呼び出しとDB操作の統合
-
-3. **API呼び出し関数** (`fetch_batch`, `fetch_messages`)
-   - Gmail API依存
-   - wiremock/mockitoでのモックテストが可能
+1. **GmailClientTrait**: Gmail API操作を抽象化、mockall対応
+2. **EmailRepository / ShopSettingsRepository**: DB操作をリポジトリパターンで抽象化
+3. **logic層**: ビジネスロジックを純粋関数として切り出し
+   - `sync_logic.rs`: クエリビルド、メールアドレス抽出、メッセージフィルタリング
+   - `email_parser.rs`: パーサー候補取得、ドメイン抽出
+4. **統合テスト**: `parser_integration_tests.rs` 追加（8テスト）
 
 ## テストコマンド
 
 ### フロントエンド
+
 ```bash
 # ウォッチモード
 npm run test:frontend
@@ -82,6 +92,7 @@ npm run test:frontend:ui
 ```
 
 ### バックエンド
+
 ```bash
 # テスト実行
 cd src-tauri && cargo test
@@ -94,6 +105,7 @@ cd src-tauri && cargo llvm-cov --all-features --workspace --html
 ```
 
 ### 全体
+
 ```bash
 npm run test:all
 ```
@@ -101,6 +113,7 @@ npm run test:all
 ## テストファイル構造
 
 ### フロントエンド
+
 ```
 src/
 ├── components/
@@ -124,6 +137,7 @@ src/
 ```
 
 ### バックエンド
+
 ```
 src-tauri/
 ├── src/
@@ -136,12 +150,14 @@ src-tauri/
 ## テストベストプラクティス
 
 ### フロントエンド
+
 1. **AAA パターン** (Arrange-Act-Assert)
 2. **ユーザー中心のクエリ**: `getByRole` > `getByLabelText` > `getByTestId`
 3. **非同期操作**: `findBy*` クエリを使用
 4. **Tauri APIモック**: `src/test/setup.ts` で自動モック化
 
 ### バックエンド
+
 1. **インメモリDB**: `sqlite::memory:` でテスト高速化
 2. **トランザクション**: テストごとに独立したDB状態
 3. **エラーケース**: 境界値・エラーパスも網羅
@@ -150,6 +166,7 @@ src-tauri/
 ## 改善履歴
 
 ### 2026-01-17
+
 - フロントエンド: 61.94% → 93.60% (+31.66%)
 - バックエンド: 36.13% → 57.13% (+21.00%)
 - テスト総数: 33件 → 189件 (+156件)
@@ -157,6 +174,7 @@ src-tauri/
 ## 今後の課題
 
 ### バックエンド
+
 1. **モックフレームワーク導入**
    - `mockito` または `wiremock` を検討
    - OAuth認証フローのモックテスト
@@ -171,10 +189,12 @@ src-tauri/
    - 長期: 85% (モックテスト完備後)
 
 ### フロントエンド
+
 1. **sync-context.tsx** のカバレッジ向上 (85.45% → 90%+)
 2. **統合テスト** の追加 (画面間遷移など)
 
 ## 関連ドキュメント
+
 - `TESTING_FRONTEND.md` - フロントエンドテストガイド
 - `COVERAGE_STATUS.md` - カバレッジレポート
 - `src-tauri/TESTING.md` - バックエンドテストガイド
