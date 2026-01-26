@@ -361,4 +361,152 @@ describe('Sync', () => {
       expect(button).toBeDisabled();
     });
   });
+
+  // handleResetSyncDate関数のテスト
+  describe('handleResetSyncDate', () => {
+    it('shows reset sync date button when not syncing', async () => {
+      await renderWithProvider();
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: /同期日時をリセット/i })
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('does not show reset button when syncing', async () => {
+      mockInvoke.mockResolvedValue({
+        sync_status: 'syncing' as const,
+        total_synced_count: 100,
+        batch_size: 50,
+      });
+
+      await renderWithProvider();
+
+      await waitFor(() => {
+        expect(
+          screen.queryByRole('button', { name: /同期日時をリセット/i })
+        ).not.toBeInTheDocument();
+      });
+    });
+
+    it('calls reset_sync_date when confirmed', async () => {
+      const user = userEvent.setup();
+      // window.confirmをモック
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status') {
+          return Promise.resolve(mockSyncMetadata);
+        }
+        if (cmd === 'reset_sync_date') {
+          return Promise.resolve(undefined);
+        }
+        return Promise.resolve(undefined);
+      });
+
+      await renderWithProvider();
+
+      const resetButton = screen.getByRole('button', {
+        name: /同期日時をリセット/i,
+      });
+      await user.click(resetButton);
+
+      await waitFor(() => {
+        expect(confirmSpy).toHaveBeenCalled();
+        expect(mockInvoke).toHaveBeenCalledWith('reset_sync_date');
+      });
+
+      confirmSpy.mockRestore();
+    });
+
+    it('does not call reset_sync_date when cancelled', async () => {
+      const user = userEvent.setup();
+      // window.confirmをモックしてfalseを返す
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status') {
+          return Promise.resolve(mockSyncMetadata);
+        }
+        return Promise.resolve(undefined);
+      });
+
+      await renderWithProvider();
+
+      const resetButton = screen.getByRole('button', {
+        name: /同期日時をリセット/i,
+      });
+      await user.click(resetButton);
+
+      // confirmは呼ばれるが、reset_sync_dateは呼ばれない
+      expect(confirmSpy).toHaveBeenCalled();
+      expect(mockInvoke).not.toHaveBeenCalledWith('reset_sync_date');
+
+      confirmSpy.mockRestore();
+    });
+
+    it('displays success message after reset', async () => {
+      const user = userEvent.setup();
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status') {
+          return Promise.resolve(mockSyncMetadata);
+        }
+        if (cmd === 'reset_sync_date') {
+          return Promise.resolve(undefined);
+        }
+        return Promise.resolve(undefined);
+      });
+
+      await renderWithProvider();
+
+      const resetButton = screen.getByRole('button', {
+        name: /同期日時をリセット/i,
+      });
+      await user.click(resetButton);
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            '同期日時をリセットしました。次回の同期から最新のメールが取得されます。'
+          )
+        ).toBeInTheDocument();
+      });
+
+      confirmSpy.mockRestore();
+    });
+
+    it('displays error message when reset fails', async () => {
+      const user = userEvent.setup();
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+      const errorMessage = 'Reset failed: database error';
+
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status') {
+          return Promise.resolve(mockSyncMetadata);
+        }
+        if (cmd === 'reset_sync_date') {
+          return Promise.reject(new Error(errorMessage));
+        }
+        return Promise.resolve(undefined);
+      });
+
+      await renderWithProvider();
+
+      const resetButton = screen.getByRole('button', {
+        name: /同期日時をリセット/i,
+      });
+      await user.click(resetButton);
+
+      await waitFor(() => {
+        // エラーメッセージが複数箇所に表示される可能性があるため、getAllByTextを使用
+        const errorElements = screen.getAllByText(errorMessage);
+        expect(errorElements.length).toBeGreaterThan(0);
+      });
+
+      confirmSpy.mockRestore();
+    });
+  });
 });
