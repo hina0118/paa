@@ -653,8 +653,8 @@ pub async fn save_messages_to_db(
         .map_err(|e| format!("Failed to begin transaction: {e}"))?;
 
     for msg in messages {
-        // Check subject filter
-        if !should_save_message(msg, shop_settings) {
+        // Check subject filter (use the logic module version for consistency)
+        if !crate::logic::sync_logic::should_save_message(msg, shop_settings) {
             filtered_count += 1;
             log::debug!(
                 "Message {} filtered out by subject filter (subject: {:?})",
@@ -1115,85 +1115,9 @@ pub async fn sync_gmail_incremental_with_client(
 // ============================================================================
 // Parser Type Routing Functions
 // ============================================================================
-
-/// Extract email address from "From" header
-/// Handles formats like "Name <email@example.com>" or just "email@example.com"
-#[allow(dead_code)]
-fn extract_email_address(from_header: &str) -> Option<String> {
-    // Try to extract email from "Name <email@domain>" format
-    if let Some(start) = from_header.find('<') {
-        if let Some(end) = from_header.find('>') {
-            if start < end {
-                return Some(from_header[start + 1..end].trim().to_lowercase());
-            }
-        }
-    }
-
-    // If no angle brackets, assume the whole string is an email
-    let trimmed = from_header.trim();
-    if trimmed.contains('@') {
-        return Some(trimmed.to_lowercase());
-    }
-
-    None
-}
-
-/// Check if a message should be saved based on shop settings and subject filter
-/// Returns true if the message should be saved, false otherwise
-fn should_save_message(msg: &GmailMessage, shop_settings: &[ShopSettings]) -> bool {
-    // Extract sender email address
-    let sender_email = match &msg.from_address {
-        Some(addr) => match extract_email_address(addr) {
-            Some(email) => email,
-            None => return false,
-        },
-        None => return false,
-    };
-
-    // Find matching shop setting
-    for shop in shop_settings {
-        if shop.sender_address.to_lowercase() == sender_email {
-            // If no subject filter is set, allow the message
-            if shop.subject_filters.is_none() {
-                return true;
-            }
-
-            // If subject filters are set, check if message subject matches any filter
-            let filters = shop.get_subject_filters();
-            if filters.is_empty() {
-                return true;
-            }
-
-            if let Some(subject) = &msg.subject {
-                // Check if subject contains any of the filters
-                return filters.iter().any(|filter| subject.contains(filter));
-            }
-            // If filters are set but message has no subject, reject
-            return false;
-        }
-    }
-
-    // No matching shop setting found
-    false
-}
-
-/// Determine parser type based on sender address
-/// Returns the parser_type if a matching shop setting is found
-#[allow(dead_code)]
-fn get_parser_type_for_sender(
-    sender_address: &str,
-    shop_settings: &[ShopSettings],
-) -> Option<String> {
-    let email = extract_email_address(sender_address)?;
-
-    for shop in shop_settings {
-        if shop.sender_address.to_lowercase() == email {
-            return Some(shop.parser_type.clone());
-        }
-    }
-
-    None
-}
+// NOTE: should_save_message と extract_email_address は
+// crate::logic::sync_logic に統一されました。
+// get_parser_type_for_sender は crate::logic::email_parser::get_candidate_parsers を使用してください。
 
 // ============================================================================
 // Shop Settings Database Functions

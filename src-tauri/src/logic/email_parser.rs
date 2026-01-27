@@ -77,6 +77,12 @@ pub fn get_candidate_parsers<'a>(
                 return Some(parser_type.as_str()); // JSONパースエラー時はフィルター無視
             };
 
+            // 空のフィルターリストは「フィルターなし＝全許可」と同じ扱い
+            // (should_save_message や ShopSettings::get_subject_filters との整合性)
+            if filters.is_empty() {
+                return Some(parser_type.as_str());
+            }
+
             // 件名がない場合は除外
             let subj = subject?;
 
@@ -228,6 +234,36 @@ mod tests {
 
         let candidates =
             get_candidate_parsers("shop@example.com", Some("注文確認メール"), &settings);
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0], "hobbysearch_confirm");
+    }
+
+    #[test]
+    fn test_get_candidate_parsers_with_empty_subject_filter() {
+        // 空のフィルターリスト（"[]"）は「フィルターなし＝全許可」と同じ扱い
+        let settings = vec![(
+            "shop@example.com".to_string(),
+            "hobbysearch_confirm".to_string(),
+            Some(r#"[]"#.to_string()), // 空のフィルターリスト
+        )];
+
+        let candidates = get_candidate_parsers("shop@example.com", Some("任意の件名"), &settings);
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0], "hobbysearch_confirm");
+    }
+
+    #[test]
+    fn test_get_candidate_parsers_with_empty_subject_filter_no_subject() {
+        // 空のフィルターリストは件名がなくてもマッチ
+        let settings = vec![(
+            "shop@example.com".to_string(),
+            "hobbysearch_confirm".to_string(),
+            Some(r#"[]"#.to_string()),
+        )];
+
+        let candidates = get_candidate_parsers("shop@example.com", None, &settings);
 
         assert_eq!(candidates.len(), 1);
         assert_eq!(candidates[0], "hobbysearch_confirm");
