@@ -221,17 +221,17 @@ pub fn extract_sender_addresses(shop_settings: &[ShopSettings]) -> Vec<String> {
 /// * `shop_settings` - 有効なショップ設定のリスト
 ///
 /// # Returns
-/// (保存すべきメッセージ, フィルタで除外されたメッセージ数)
-pub fn filter_messages_by_shop_settings(
-    messages: &[GmailMessage],
+/// (保存すべきメッセージへの参照, フィルタで除外されたメッセージ数)
+pub fn filter_messages_by_shop_settings<'a>(
+    messages: &'a [GmailMessage],
     shop_settings: &[ShopSettings],
-) -> (Vec<GmailMessage>, usize) {
+) -> (Vec<&'a GmailMessage>, usize) {
     let mut filtered_messages = Vec::new();
     let mut filtered_out_count = 0;
 
     for msg in messages {
         if should_save_message(msg, shop_settings) {
-            filtered_messages.push(msg.clone());
+            filtered_messages.push(msg);
         } else {
             filtered_out_count += 1;
         }

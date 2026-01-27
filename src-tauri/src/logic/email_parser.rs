@@ -62,8 +62,8 @@ pub fn get_candidate_parsers<'a>(
     shop_settings
         .iter()
         .filter_map(|(addr, parser_type, subject_filters_json)| {
-            // 送信元アドレスが完全一致するか確認（大文字小文字無視）
-            if normalized_from != addr.to_lowercase() {
+            // 送信元アドレスが完全一致するか確認（大文字小文字無視、allocなし）
+            if !addr.eq_ignore_ascii_case(&normalized_from) {
                 return None;
             }
 
