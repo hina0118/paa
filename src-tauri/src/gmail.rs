@@ -1032,11 +1032,7 @@ pub async fn sync_gmail_incremental_with_client(
 
         // All validations passed - now safe to update database (via repository)
         if let Err(e) = email_repo
-            .update_sync_metadata(
-                Some(new_oldest.clone()),
-                total_synced,
-                "syncing".to_string(),
-            )
+            .update_sync_metadata(Some(new_oldest.clone()), total_synced, "syncing")
             .await
         {
             let _ = email_repo.update_sync_error_status().await;

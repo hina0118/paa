@@ -256,8 +256,10 @@ pub async fn fetch_batch_with_client(
     query: &str,
     max_results: usize,
 ) -> Result<Vec<GmailMessage>, String> {
-    // メッセージIDリストを取得
-    let message_ids = client.list_message_ids(query, max_results as u32).await?;
+    // メッセージIDリストを取得（Gmail API は u32 を要求するため検証）
+    let max_results_u32 =
+        u32::try_from(max_results).map_err(|_| "max_results exceeds u32::MAX".to_string())?;
+    let message_ids = client.list_message_ids(query, max_results_u32).await?;
 
     let mut messages = Vec::new();
     for id in message_ids {
@@ -491,14 +493,8 @@ mod tests {
     fn test_should_save_message_same_sender_multiple_settings_none_match() {
         let msg = create_test_message(Some("shop@example.com"), Some("広告メール"));
         let settings = vec![
-            create_shop_setting(
-                "shop@example.com",
-                Some(vec!["注文".to_string()]),
-            ),
-            create_shop_setting(
-                "shop@example.com",
-                Some(vec!["キャンセル".to_string()]),
-            ),
+            create_shop_setting("shop@example.com", Some(vec!["注文".to_string()])),
+            create_shop_setting("shop@example.com", Some(vec!["キャンセル".to_string()])),
         ];
 
         assert!(!should_save_message(&msg, &settings));
