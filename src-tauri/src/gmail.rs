@@ -707,35 +707,32 @@ pub async fn save_messages_to_db(
 ///
 /// # Arguments
 /// * `repo` - EmailRepositoryを実装したリポジトリ
-/// * `messages` - 保存するメッセージリスト
+/// * `messages` - 保存するメッセージリスト（所有権を取得し、in-placeでフィルタリング）
 /// * `shop_settings` - 有効なショップ設定（件名フィルタリングに使用）
 ///
 /// # Returns
 /// FetchResult（保存数、スキップ数などの統計情報）
 pub async fn save_messages_to_db_with_repo(
     repo: &dyn EmailRepository,
-    messages: &[GmailMessage],
+    mut messages: Vec<GmailMessage>,
     shop_settings: &[ShopSettings],
 ) -> Result<FetchResult, String> {
-    log::info!(
-        "Saving {} messages to database via repository",
-        messages.len()
-    );
+    let original_count = messages.len();
+    log::info!("Saving {} messages to database via repository", original_count);
 
-    // ショップ設定でフィルタリング（参照を返すのでフィルタリング時はclone不要）
-    let (filtered_refs, filtered_count) =
-        crate::logic::sync_logic::filter_messages_by_shop_settings(messages, shop_settings);
+    // ショップ設定でin-placeフィルタリング（cloneを回避）
+    messages.retain(|msg| crate::logic::sync_logic::should_save_message(msg, shop_settings));
+    let filtered_count = original_count - messages.len();
 
-    // リポジトリ経由で保存（保存時のみcloneする）
-    let filtered_messages: Vec<GmailMessage> = filtered_refs.into_iter().cloned().collect();
-    let (saved_count, skipped_count) = repo.save_messages(&filtered_messages).await?;
+    // リポジトリ経由で保存
+    let (saved_count, skipped_count) = repo.save_messages(&messages).await?;
 
     log::info!(
         "Saved {saved_count} messages, skipped {skipped_count} duplicates, filtered {filtered_count} by subject"
     );
 
     Ok(FetchResult {
-        fetched_count: messages.len(),
+        fetched_count: original_count,
         saved_count,
         skipped_count,
     })
@@ -943,23 +940,10 @@ pub async fn sync_gmail_incremental_with_client(
             messages.len()
         );
 
-        // Extract message IDs for infinite loop detection
+        // Extract message IDs and oldest date BEFORE passing ownership to save function
         let current_message_ids: Vec<String> =
             messages.iter().map(|m| m.message_id.clone()).collect();
-
-        // Save to database with subject filtering (via repository)
-        let result =
-            match save_messages_to_db_with_repo(email_repo, &messages, &enabled_shops).await {
-                Ok(r) => r,
-                Err(e) => {
-                    let _ = email_repo.update_sync_error_status().await;
-                    return Err(e);
-                }
-            };
-        total_synced = total_synced.saturating_add(result.saved_count as i64);
-        // Update oldest fetched date
-        // Note: messages is guaranteed to be non-empty at this point (checked above with messages.is_empty())
-        // min_by_key returns Some because iterator is non-empty
+        let messages_len = messages.len();
         let new_oldest = if let Some(ts) = messages
             .iter()
             .min_by_key(|m| m.internal_date)
@@ -971,9 +955,20 @@ pub async fn sync_gmail_incremental_with_client(
             return Err(format!(
                 "Logic error: min_by_key returned None on non-empty messages while updating sync metadata. batch_number={}, messages_len={}",
                 batch_number,
-                messages.len()
+                messages_len
             ));
         };
+
+        // Save to database with subject filtering (via repository, takes ownership)
+        let result =
+            match save_messages_to_db_with_repo(email_repo, messages, &enabled_shops).await {
+                Ok(r) => r,
+                Err(e) => {
+                    let _ = email_repo.update_sync_error_status().await;
+                    return Err(e);
+                }
+            };
+        total_synced = total_synced.saturating_add(result.saved_count as i64);
 
         // Validate timestamp BEFORE updating database to avoid persisting invalid data
         // Validate that new_oldest is a reasonable timestamp (not unreasonably far in the future)
@@ -1050,7 +1045,7 @@ pub async fn sync_gmail_incremental_with_client(
         // Emit progress event
         let progress = SyncProgressEvent {
             batch_number,
-            batch_size: messages.len(),
+            batch_size: messages_len,
             total_synced: total_synced as usize,
             newly_saved: result.saved_count,
             status_message: format!(
@@ -1065,7 +1060,7 @@ pub async fn sync_gmail_incremental_with_client(
             return Err(format!("Failed to emit progress: {e}"));
         }
         // Check if we got fewer messages than requested (end of results)
-        if messages.len() < effective_batch_size {
+        if messages_len < effective_batch_size {
             has_more = false;
             log::info!("Received fewer messages than batch size, sync complete");
         }
