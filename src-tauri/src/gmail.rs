@@ -10,7 +10,7 @@
 
 use crate::gmail_client::GmailClientTrait;
 use crate::logic::sync_logic::build_sync_query;
-use crate::repository::EmailRepository;
+use crate::repository::{EmailRepository, ShopSettingsRepository};
 use async_trait::async_trait;
 use google_gmail1::{hyper_rustls, Gmail};
 use hyper_util::client::legacy::connect::HttpConnector;
@@ -713,7 +713,7 @@ pub async fn save_messages_to_db(
 /// # Returns
 /// FetchResult（保存数、スキップ数などの統計情報）
 pub async fn save_messages_to_db_with_repo(
-    repo: &dyn crate::repository::EmailRepository,
+    repo: &dyn EmailRepository,
     messages: &[GmailMessage],
     shop_settings: &[ShopSettings],
 ) -> Result<FetchResult, String> {
@@ -809,8 +809,8 @@ pub async fn sync_gmail_incremental_with_client(
     sync_state: &SyncState,
     batch_size: usize,
     client: &dyn GmailClientTrait,
-    email_repo: &dyn crate::repository::EmailRepository,
-    shop_repo: &dyn crate::repository::ShopSettingsRepository,
+    email_repo: &dyn EmailRepository,
+    shop_repo: &dyn ShopSettingsRepository,
 ) -> Result<(), String> {
     const DEFAULT_BATCH_SIZE: usize = 50;
     // NOTE: MAX_ITERATIONS and SYNC_TIMEOUT_MINUTES are intentionally hard-coded safety limits.
