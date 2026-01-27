@@ -718,7 +718,10 @@ pub async fn save_messages_to_db_with_repo(
     shop_settings: &[ShopSettings],
 ) -> Result<FetchResult, String> {
     let original_count = messages.len();
-    log::info!("Saving {} messages to database via repository", original_count);
+    log::info!(
+        "Saving {} messages to database via repository",
+        original_count
+    );
 
     // ショップ設定でin-placeフィルタリング（cloneを回避）
     messages.retain(|msg| crate::logic::sync_logic::should_save_message(msg, shop_settings));
@@ -960,14 +963,14 @@ pub async fn sync_gmail_incremental_with_client(
         };
 
         // Save to database with subject filtering (via repository, takes ownership)
-        let result =
-            match save_messages_to_db_with_repo(email_repo, messages, &enabled_shops).await {
-                Ok(r) => r,
-                Err(e) => {
-                    let _ = email_repo.update_sync_error_status().await;
-                    return Err(e);
-                }
-            };
+        let result = match save_messages_to_db_with_repo(email_repo, messages, &enabled_shops).await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                let _ = email_repo.update_sync_error_status().await;
+                return Err(e);
+            }
+        };
         total_synced = total_synced.saturating_add(result.saved_count as i64);
 
         // Validate timestamp BEFORE updating database to avoid persisting invalid data
