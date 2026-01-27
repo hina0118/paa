@@ -1,7 +1,8 @@
 //! Gmail同期関連のビジネスロジック
 //!
-//! このモジュールはGmail同期に関する純粋関数を提供します。
-//! 外部依存（Gmail API, DB）を持たないため、テストが容易です。
+//! このモジュールはGmail同期に関するビジネスロジック関数を提供します。
+//! Gmail API や DB へのアクセスといった外部依存を持たないためテストが容易ですが、
+//! ログ出力などの副作用は発生する場合があります。
 
 use crate::gmail::{GmailMessage, ShopSettings};
 use crate::gmail_client::GmailClientTrait;

@@ -363,7 +363,9 @@ impl ShopSettingsRepository for SqliteShopSettingsRepository {
     async fn create(&self, settings: CreateShopSettings) -> Result<ShopSettings, String> {
         let subject_filters_json = settings
             .subject_filters
-            .map(|filters| serde_json::to_string(&filters).unwrap_or_default());
+            .map(|filters| serde_json::to_string(&filters))
+            .transpose()
+            .map_err(|e| format!("Failed to serialize subject filters: {e}"))?;
 
         let result = sqlx::query(
             r#"
@@ -409,16 +411,19 @@ impl ShopSettingsRepository for SqliteShopSettingsRepository {
 
         let subject_filters_json = settings
             .subject_filters
-            .map(|filters| serde_json::to_string(&filters).unwrap_or_default());
+            .map(|filters| serde_json::to_string(&filters))
+            .transpose()
+            .map_err(|e| format!("Failed to serialize subject filters: {e}"))?;
 
+        // COALESCEは不要（unwrap_or/orで既にフォールバック済み）
         sqlx::query(
             r#"
             UPDATE shop_settings
-            SET shop_name = COALESCE(?, shop_name),
-                sender_address = COALESCE(?, sender_address),
-                parser_type = COALESCE(?, parser_type),
-                is_enabled = COALESCE(?, is_enabled),
-                subject_filters = COALESCE(?, subject_filters),
+            SET shop_name = ?,
+                sender_address = ?,
+                parser_type = ?,
+                is_enabled = ?,
+                subject_filters = ?,
                 updated_at = datetime('now')
             WHERE id = ?
             "#,
