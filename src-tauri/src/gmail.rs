@@ -722,11 +722,12 @@ pub async fn save_messages_to_db_with_repo(
         messages.len()
     );
 
-    // ショップ設定でフィルタリング
-    let (filtered_messages, filtered_count) =
+    // ショップ設定でフィルタリング（参照を返すのでフィルタリング時はclone不要）
+    let (filtered_refs, filtered_count) =
         crate::logic::sync_logic::filter_messages_by_shop_settings(messages, shop_settings);
 
-    // リポジトリ経由で保存
+    // リポジトリ経由で保存（保存時のみcloneする）
+    let filtered_messages: Vec<GmailMessage> = filtered_refs.into_iter().cloned().collect();
     let (saved_count, skipped_count) = repo.save_messages(&filtered_messages).await?;
 
     log::info!(
@@ -785,7 +786,6 @@ pub async fn sync_gmail_incremental(
     // Delegate to trait-based implementation
     sync_gmail_incremental_with_client(
         app_handle,
-        pool,
         sync_state,
         batch_size,
         &client,
@@ -799,7 +799,6 @@ pub async fn sync_gmail_incremental(
 ///
 /// # Arguments
 /// * `app_handle` - Tauriアプリケーションハンドル
-/// * `pool` - SQLiteデータベースプール（sync_metadata更新用、将来的にはEmailRepository経由に移行予定）
 /// * `sync_state` - 同期状態管理
 /// * `batch_size` - バッチサイズ（0の場合はデフォルト値を使用）
 /// * `client` - GmailClientTraitを実装したクライアント
@@ -807,7 +806,6 @@ pub async fn sync_gmail_incremental(
 /// * `shop_repo` - ShopSettingsRepositoryを実装したリポジトリ
 pub async fn sync_gmail_incremental_with_client(
     app_handle: &tauri::AppHandle,
-    _pool: &SqlitePool, // TODO: Remove once all DB operations are via repository
     sync_state: &SyncState,
     batch_size: usize,
     client: &dyn GmailClientTrait,
@@ -1078,12 +1076,9 @@ pub async fn sync_gmail_incremental_with_client(
     } else {
         "idle"
     };
-    // Update sync metadata (via repository)
-    if let Err(e) = email_repo.update_sync_status(final_status).await {
-        return Err(format!("Failed to update final status: {e}"));
-    }
-    if let Err(e) = email_repo.update_sync_completed_at().await {
-        return Err(format!("Failed to update sync completed at: {e}"));
+    // Update sync metadata atomically (via repository)
+    if let Err(e) = email_repo.complete_sync(final_status).await {
+        return Err(format!("Failed to complete sync: {e}"));
     }
 
     // Emit completion event

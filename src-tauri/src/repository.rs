@@ -50,6 +50,9 @@ pub trait EmailRepository: Send + Sync {
 
     /// 同期開始（ステータスと開始日時をアトミックに更新）
     async fn start_sync(&self) -> Result<(), String>;
+
+    /// 同期完了（ステータスと完了日時をアトミックに更新）
+    async fn complete_sync(&self, status: &str) -> Result<(), String>;
 }
 
 /// ショップ設定関連のDB操作を抽象化するトレイト
@@ -290,6 +293,24 @@ impl EmailRepository for SqliteEmailRepository {
         .execute(&self.pool)
         .await
         .map_err(|e| format!("Failed to start sync: {e}"))?;
+
+        Ok(())
+    }
+
+    async fn complete_sync(&self, status: &str) -> Result<(), String> {
+        let now = Utc::now().to_rfc3339();
+        sqlx::query(
+            r#"
+            UPDATE sync_metadata
+            SET sync_status = ?, last_sync_completed_at = ?
+            WHERE id = 1
+            "#,
+        )
+        .bind(status)
+        .bind(&now)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to complete sync: {e}"))?;
 
         Ok(())
     }
