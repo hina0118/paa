@@ -152,34 +152,35 @@ pub fn should_save_message(msg: &GmailMessage, shop_settings: &[ShopSettings]) -
     };
 
     // Find matching shop setting
+    // 同じsender_addressで複数のShopSettingsが存在する場合があるため、
+    // いずれかのエントリがマッチすればtrueを返す
     for shop in shop_settings {
-        if shop.sender_address.to_lowercase() == sender_email {
-            // If no subject filter is set, allow the message
-            if shop.subject_filters.is_none() {
-                return true;
-            }
-
-            // If subject filters are set, check if message subject matches any filter
-            let filters = shop.get_subject_filters();
-            if filters.is_empty() {
-                return true;
-            }
-
-            // Check if subject matches any filter
-            if let Some(subject) = &msg.subject {
-                for filter in &filters {
-                    if subject.contains(filter) {
-                        return true;
-                    }
-                }
-            }
-
-            // Subject doesn't match any filter
-            return false;
+        if !shop.sender_address.eq_ignore_ascii_case(&sender_email) {
+            continue;
         }
+
+        // If no subject filter is set, allow the message
+        if shop.subject_filters.is_none() {
+            return true;
+        }
+
+        // If subject filters are set, check if message subject matches any filter
+        let filters = shop.get_subject_filters();
+        if filters.is_empty() {
+            return true;
+        }
+
+        // Check if subject matches any filter
+        if let Some(subject) = &msg.subject {
+            if filters.iter().any(|filter| subject.contains(filter)) {
+                return true;
+            }
+        }
+
+        // Subject doesn't match this shop's filters; try next matching setting
     }
 
-    // No matching shop setting found
+    // No matching shop setting found or none of the matching settings allowed the message
     false
 }
 
@@ -447,6 +448,58 @@ mod tests {
     fn test_should_save_message_empty_settings() {
         let msg = create_test_message(Some("shop@example.com"), Some("注文確認"));
         let settings: Vec<ShopSettings> = vec![];
+
+        assert!(!should_save_message(&msg, &settings));
+    }
+
+    /// 同一 sender_address で複数 ShopSettings がある場合、件名が1件目と合わなくても
+    /// 2件目で許可されるエントリがあれば true となる（全一致候補を試してから false にすることの回帰防止）
+    #[test]
+    fn test_should_save_message_same_sender_multiple_settings_second_allows() {
+        let msg = create_test_message(Some("shop@example.com"), Some("注文確認メール"));
+        let settings = vec![
+            create_shop_setting(
+                "shop@example.com",
+                Some(vec!["キャンセル".to_string()]), // 1件目は件名と不一致
+            ),
+            create_shop_setting(
+                "shop@example.com",
+                Some(vec!["注文".to_string()]), // 2件目で一致 → 保存すべき
+            ),
+        ];
+
+        assert!(should_save_message(&msg, &settings));
+    }
+
+    /// 同一 sender の複数エントリのうち、2件目はフィルターなしで許可するケース
+    #[test]
+    fn test_should_save_message_same_sender_multiple_settings_second_no_filter() {
+        let msg = create_test_message(Some("shop@example.com"), Some("任意の件名"));
+        let settings = vec![
+            create_shop_setting(
+                "shop@example.com",
+                Some(vec!["注文".to_string()]), // 1件目は不一致
+            ),
+            create_shop_setting("shop@example.com", None), // 2件目はフィルターなし → 許可
+        ];
+
+        assert!(should_save_message(&msg, &settings));
+    }
+
+    /// 同一 sender の全エントリで件名が一致しない場合は false
+    #[test]
+    fn test_should_save_message_same_sender_multiple_settings_none_match() {
+        let msg = create_test_message(Some("shop@example.com"), Some("広告メール"));
+        let settings = vec![
+            create_shop_setting(
+                "shop@example.com",
+                Some(vec!["注文".to_string()]),
+            ),
+            create_shop_setting(
+                "shop@example.com",
+                Some(vec!["キャンセル".to_string()]),
+            ),
+        ];
 
         assert!(!should_save_message(&msg, &settings));
     }

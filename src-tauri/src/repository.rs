@@ -369,14 +369,15 @@ impl ShopSettingsRepository for SqliteShopSettingsRepository {
 
         let result = sqlx::query(
             r#"
-            INSERT INTO shop_settings (shop_name, sender_address, parser_type, subject_filters)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO shop_settings (shop_name, sender_address, parser_type, subject_filters, is_enabled)
+            VALUES (?, ?, ?, ?, ?)
             "#,
         )
         .bind(&settings.shop_name)
         .bind(&settings.sender_address)
         .bind(&settings.parser_type)
         .bind(&subject_filters_json)
+        .bind(1) // 新規作成時は有効化しておく（DBデフォルトには依存しない）
         .execute(&self.pool)
         .await
         .map_err(|e| format!("Failed to create shop setting: {e}"))?;
