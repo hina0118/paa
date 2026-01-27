@@ -33,7 +33,7 @@ pub trait EmailRepository: Send + Sync {
         &self,
         oldest_date: Option<String>,
         total_synced: i64,
-        status: String,
+        status: &str,
     ) -> Result<(), String>;
 
     /// 同期開始日時を更新
@@ -192,7 +192,7 @@ impl EmailRepository for SqliteEmailRepository {
         &self,
         oldest_date: Option<String>,
         total_synced: i64,
-        status: String,
+        status: &str,
     ) -> Result<(), String> {
         sqlx::query(
             r#"
@@ -205,7 +205,7 @@ impl EmailRepository for SqliteEmailRepository {
         )
         .bind(oldest_date)
         .bind(total_synced)
-        .bind(&status)
+        .bind(status)
         .execute(&self.pool)
         .await
         .map_err(|e| format!("Failed to update sync metadata: {e}"))?;
@@ -618,7 +618,7 @@ mod tests {
         assert_eq!(metadata.total_synced_count, 0);
 
         // 更新
-        repo.update_sync_metadata(Some("2024-01-01".to_string()), 100, "syncing".to_string())
+        repo.update_sync_metadata(Some("2024-01-01".to_string()), 100, "syncing")
             .await
             .unwrap();
 
