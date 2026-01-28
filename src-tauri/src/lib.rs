@@ -842,7 +842,8 @@ async fn parse_and_save_email(
     .map_err(|e| format!("Failed to fetch shop settings: {}", e))?;
 
     // 送信元アドレスと件名フィルターから候補のパーサータイプを取得（extract_email_address + 完全一致）
-    let candidate_parsers = get_candidate_parsers(&sender_address, subject.as_deref(), &shop_settings);
+    let candidate_parsers =
+        get_candidate_parsers(&sender_address, subject.as_deref(), &shop_settings);
 
     if candidate_parsers.is_empty() {
         return Err(format!(
