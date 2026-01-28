@@ -14,6 +14,8 @@ pub mod logic;
 pub mod parsers;
 pub mod repository;
 
+use crate::logic::email_parser::get_candidate_parsers;
+
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -839,36 +841,8 @@ async fn parse_and_save_email(
     .await
     .map_err(|e| format!("Failed to fetch shop settings: {}", e))?;
 
-    // 送信元アドレスと件名フィルターから候補のパーサータイプを全て取得
-    let candidate_parsers: Vec<&str> = shop_settings
-        .iter()
-        .filter_map(|(addr, parser_type, subject_filters_json)| {
-            // 送信元アドレスが一致するか確認
-            if !sender_address.contains(addr) {
-                return None;
-            }
-
-            // 件名フィルターがない場合は、アドレス一致だけでOK
-            let Some(filters_json) = subject_filters_json else {
-                return Some(parser_type.as_str());
-            };
-
-            // 件名フィルターがある場合は、件名も確認
-            let Ok(filters) = serde_json::from_str::<Vec<String>>(filters_json) else {
-                return Some(parser_type.as_str()); // JSONパースエラー時はフィルター無視
-            };
-
-            // 件名がない場合は除外
-            let subj = subject.as_ref()?;
-
-            // いずれかのフィルターに一致すればOK
-            if filters.iter().any(|filter| subj.contains(filter)) {
-                Some(parser_type.as_str())
-            } else {
-                None
-            }
-        })
-        .collect();
+    // 送信元アドレスと件名フィルターから候補のパーサータイプを取得（extract_email_address + 完全一致）
+    let candidate_parsers = get_candidate_parsers(&sender_address, subject.as_deref(), &shop_settings);
 
     if candidate_parsers.is_empty() {
         return Err(format!(

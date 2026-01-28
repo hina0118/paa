@@ -185,12 +185,13 @@ npm run test:all
 
 npm スクリプト（プロジェクトルートで実行）
 
-コマンド 内容
-npm run lint Rust・UI・フォーマットをまとめて実行（CI 想定）
-npm run lint:rust Rust 用（Clippy、全ターゲット・全機能、警告をエラー扱い）
-npm run lint:rust:fix Rust 用の自動修正
-npm run lint:ui フロント用 ESLint（--max-warnings 4）
-npm run lint:ui:fix フロント用 ESLint の自動修正
-npm run format:check Prettier のチェックのみ（書き換えしない）
-npm run format Prettier でフォーマット（書き換えする）
-npm run lint:fix lint:rust:fix ＋ lint:ui:fix ＋ format をまとめて実行
+| コマンド                | 内容                                                      |
+| ----------------------- | --------------------------------------------------------- |
+| `npm run lint`          | Rust・UI・フォーマットをまとめて実行（CI 想定）           |
+| `npm run lint:rust`     | Rust 用（Clippy、全ターゲット・全機能、警告をエラー扱い） |
+| `npm run lint:rust:fix` | Rust 用の自動修正                                         |
+| `npm run lint:ui`       | フロント用 ESLint（--max-warnings 4）                     |
+| `npm run lint:ui:fix`   | フロント用 ESLint の自動修正                              |
+| `npm run format:check`  | Prettier のチェックのみ（書き換えしない）                 |
+| `npm run format`        | Prettier でフォーマット（書き換えする）                   |
+| `npm run lint:fix`      | lint:rust:fix ＋ lint:ui:fix ＋ format をまとめて実行     |
