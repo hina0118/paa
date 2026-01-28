@@ -13,7 +13,7 @@ on:
       - develop
 
 env:
-  COVERAGE_THRESHOLD_RUST: 50
+  COVERAGE_THRESHOLD_RUST: 70
 
 jobs:
   coverage-frontend:
