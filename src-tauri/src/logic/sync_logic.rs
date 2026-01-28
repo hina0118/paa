@@ -82,14 +82,14 @@ pub fn build_sync_query(sender_addresses: &[String], oldest_date: &Option<String
 /// assert_eq!(extract_email_address("a@b@c"), None);
 /// ```
 pub fn extract_email_address(from_header: &str) -> Option<String> {
-    // Try to extract email from "Name <email@domain>" format
+    // Try to extract email from "Name <email@domain>" format.
+    // Search for '>' from start+1 so that '>' in display name (e.g. "Name >" <x@y>) doesn't match.
     if let Some(start) = from_header.find('<') {
-        if let Some(end) = from_header.find('>') {
-            if start < end {
-                let candidate = from_header[start + 1..end].trim();
-                if is_valid_simple_email(candidate) {
-                    return Some(candidate.to_lowercase());
-                }
+        if let Some(end_rel) = from_header[start + 1..].find('>') {
+            let end = start + 1 + end_rel;
+            let candidate = from_header[start + 1..end].trim();
+            if is_valid_simple_email(candidate) {
+                return Some(candidate.to_lowercase());
             }
         }
     }
@@ -210,10 +210,13 @@ pub fn format_timestamp(internal_date: i64) -> String {
 /// # Returns
 /// 送信者アドレスのリスト
 pub fn extract_sender_addresses(shop_settings: &[ShopSettings]) -> Vec<String> {
-    shop_settings
+    let mut addresses: Vec<String> = shop_settings
         .iter()
         .map(|s| s.sender_address.clone())
-        .collect()
+        .collect();
+    addresses.sort();
+    addresses.dedup();
+    addresses
 }
 
 /// メッセージをショップ設定でフィルタリングする
@@ -371,6 +374,13 @@ mod tests {
     fn test_extract_email_address_japanese_name() {
         let result = extract_email_address("山田太郎 <yamada@example.co.jp>");
         assert_eq!(result, Some("yamada@example.co.jp".to_string()));
+    }
+
+    #[test]
+    fn test_extract_email_address_display_name_contains_gt() {
+        // 表示名に '>' が含まれる場合、start+1 以降の '>' を終端として正しく抽出
+        let result = extract_email_address("Name > tag <user@example.com>");
+        assert_eq!(result, Some("user@example.com".to_string()));
     }
 
     // ==================== should_save_message Tests ====================
@@ -544,6 +554,18 @@ mod tests {
         let settings: Vec<ShopSettings> = vec![];
         let addresses = extract_sender_addresses(&settings);
         assert!(addresses.is_empty());
+    }
+
+    #[test]
+    fn test_extract_sender_addresses_dedupes_duplicate_senders() {
+        // 同一 sender_address が複数ショップ設定にある場合、重複排除して返す
+        let settings = vec![
+            create_shop_setting("shop@example.com", None),
+            create_shop_setting("shop@example.com", Some(vec!["注文".to_string()])),
+        ];
+        let addresses = extract_sender_addresses(&settings);
+        assert_eq!(addresses.len(), 1);
+        assert_eq!(addresses[0], "shop@example.com");
     }
 
     // ==================== filter_messages_by_shop_settings Tests ====================

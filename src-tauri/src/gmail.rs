@@ -9,7 +9,7 @@
 //! - **本番環境**: リリースビルドではWarnレベル以上のログのみが出力されます
 
 use crate::gmail_client::GmailClientTrait;
-use crate::logic::sync_logic::build_sync_query;
+use crate::logic::sync_logic::{build_sync_query, extract_sender_addresses};
 use crate::repository::{EmailRepository, ShopSettingsRepository};
 use async_trait::async_trait;
 use google_gmail1::{hyper_rustls, Gmail};
@@ -859,10 +859,7 @@ pub async fn sync_gmail_incremental_with_client(
         }
     };
 
-    let sender_addresses: Vec<String> = enabled_shops
-        .iter()
-        .map(|shop| shop.sender_address.clone())
-        .collect();
+    let sender_addresses: Vec<String> = extract_sender_addresses(&enabled_shops);
 
     log::info!(
         "Starting sync with {} enabled sender addresses",
