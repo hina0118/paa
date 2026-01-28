@@ -55,4 +55,7 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(ci)'] }
 # テスト時の最適化を有効化（カバレッジ計測の精度向上）
 opt-level = 0
 debug = true
+split-debuginfo = "unpacked" # Windowsでのリンク速度を上げる魔法のオプション
 
+[profile.dev.package."*"]
+opt-level = 3 # 依存ライブラリは最適化して実行速度を稼ぐ
