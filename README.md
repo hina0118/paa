@@ -11,6 +11,7 @@ This template should help get you started developing with Tauri, React and Types
 10年以上の買い物履歴を「資産」に変え、現在の買い物をサポートするパーソナル・アシスタント。
 
 ## 1. システム概要
+
 - **プラットフォーム**: Windows (Tauri + Rust)
 - **常駐形態**: タスクトレイ常駐型
 - **データベース**: SQLite (ローカル完結、オフライン動作)
@@ -18,6 +19,7 @@ This template should help get you started developing with Tauri, React and Types
 ## 2. 主要機能
 
 ### 2.1 データ収集 (Data Ingestion)
+
 - **Gmail同期**: API経由で特定ECサイトのメールをフィルタリング取得。
   - 保存データ: メール本文 (Raw Body), メールのメタデータ。
 - **注文詳細保存**: アプリ内WebView(Tauri)経由でECサイトの注文詳細ページを取得。
@@ -26,15 +28,18 @@ This template should help get you started developing with Tauri, React and Types
   - 保存データ: 画像バイナリ (BLOB) をDBに直接保存。
 
 ### 2.2 解析・管理 (Parsing & Management)
+
 - **情報の統合 (Merge)**: メール(受信日等)とHTML(正式名・価格・追跡番号)をマージ。
 - **解析ロジックの分離**: 各サイトのパーサーを独立させ、正規表現やセレクタをアプリ画面から編集可能にする。
 - **商品ベース管理**: 1注文内にある複数商品を個別のレコードとして管理。
 
 ### 2.3 配送管理 (Delivery Tracker)
+
 - **追跡番号抽出**: 保存済みHTMLから自動で運送会社と追跡番号を特定。
 - **自動更新**: 配送会社の追跡ページを定期的にバックグラウンドで確認し、ステータスを更新。
 
 ### 2.4 OCR・購入確認アシスタント
+
 - **Windows OCR**: `Windows.Media.Ocr` を利用し、画面上の商品名を読み取り。
 - **購入チェック**: `Alt + S` などのホットキーで画面をスキャンし、DBと照合。
   - **曖昧検索**: 文字揺れやノイズ(送料込等)を許容するFuzzy Search。
@@ -43,15 +48,19 @@ This template should help get you started developing with Tauri, React and Types
 ## 3. データベース構造 (主要テーブル)
 
 ### `orders` (注文単位)
+
 - `id`, `gmail_message_id`, `shop_domain`, `raw_body`, `raw_html`, `order_date`
 
 ### `items` (商品単位)
+
 - `id`, `order_id` (FK), `item_name`, `price`, `tracking_number`, `delivery_status`
 
 ### `images` (画像データ)
+
 - `item_id` (FK), `image_data` (BLOB), `source_url`
 
 ## 4. UI/UX 仕様
+
 - **メイン画面**: 商品画像を中心としたカード型グリッド表示。10年分の履歴を高速スクロール可能。
 - **トレイメニュー**: 同期実行、画面スキャン、設定へのクイックアクセス。
 - **進捗表示**: 「メール同期済み」「解析済み」「配送中」などのフェーズを視覚化。
@@ -79,11 +88,13 @@ This template should help get you started developing with Tauri, React and Types
 ダウンロードしたJSONファイルを **DBファイルと同じディレクトリ** に `client_secret.json` として配置:
 
 **配置場所**:
+
 ```
 %APPDATA%\jp.github.hina0118.paa\client_secret.json
 ```
 
 **パスの例**:
+
 ```
 C:\Users\<ユーザー名>\AppData\Roaming\jp.github.hina0118.paa\client_secret.json
 ```
@@ -117,6 +128,7 @@ C:\Users\<ユーザー名>\AppData\Roaming\jp.github.hina0118.paa\client_secret.
 ## 開発用コマンド
 
 ### アプリケーションの起動
+
 ```bash
 npm run tauri dev
 ```
@@ -134,6 +146,7 @@ cd src-tauri && cargo test
 ```
 
 カバレッジ計測:
+
 ```bash
 npm run test:coverage
 # または
@@ -153,6 +166,7 @@ npm run test:frontend:run  # 一度だけ実行
 ```
 
 カバレッジ計測:
+
 ```bash
 npm run test:frontend:coverage
 ```
@@ -166,3 +180,18 @@ HTMLレポート: `coverage/index.html`
 ```bash
 npm run test:all
 ```
+
+#### Lint
+
+npm スクリプト（プロジェクトルートで実行）
+
+| コマンド                | 内容                                                      |
+| ----------------------- | --------------------------------------------------------- |
+| `npm run lint`          | Rust・UI・フォーマットをまとめて実行（CI 想定）           |
+| `npm run lint:rust`     | Rust 用（Clippy、全ターゲット・全機能、警告をエラー扱い） |
+| `npm run lint:rust:fix` | Rust 用の自動修正                                         |
+| `npm run lint:ui`       | フロント用 ESLint（--max-warnings 4）                     |
+| `npm run lint:ui:fix`   | フロント用 ESLint の自動修正                              |
+| `npm run format:check`  | Prettier のチェックのみ（書き換えしない）                 |
+| `npm run format`        | Prettier でフォーマット（書き換えする）                   |
+| `npm run lint:fix`      | lint:rust:fix ＋ lint:ui:fix ＋ format をまとめて実行     |

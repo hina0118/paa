@@ -8,6 +8,10 @@
 //! - **メトリクスのみ**: ログに出力できるのは文字数、件数、処理時間などの統計情報のみ
 //! - **本番環境**: リリースビルドではWarnレベル以上のログのみが出力されます
 
+use crate::gmail_client::GmailClientTrait;
+use crate::logic::sync_logic::{build_sync_query, extract_sender_addresses};
+use crate::repository::{EmailRepository, ShopSettingsRepository};
+use async_trait::async_trait;
 use google_gmail1::{hyper_rustls, Gmail};
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::client::legacy::Client;
@@ -148,12 +152,18 @@ pub struct SyncState {
     pub is_running: Arc<Mutex<bool>>,
 }
 
-impl SyncState {
-    pub fn new() -> Self {
+impl Default for SyncState {
+    fn default() -> Self {
         Self {
             should_cancel: Arc::new(Mutex::new(false)),
             is_running: Arc::new(Mutex::new(false)),
         }
+    }
+}
+
+impl SyncState {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn request_cancel(&self) {
@@ -591,6 +601,40 @@ impl GmailClient {
     }
 }
 
+/// GmailClientTrait の実装
+///
+/// これにより GmailClient をモックに置き換えてテストできます。
+#[async_trait]
+impl GmailClientTrait for GmailClient {
+    async fn list_message_ids(&self, query: &str, max_results: u32) -> Result<Vec<String>, String> {
+        let req = self
+            .hub
+            .users()
+            .messages_list("me")
+            .q(query)
+            .max_results(max_results);
+
+        let (_, result) = req
+            .doit()
+            .await
+            .map_err(|e| format!("Failed to list messages: {e}"))?;
+
+        let message_ids = result
+            .messages
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|msg| msg.id)
+            .collect();
+
+        Ok(message_ids)
+    }
+
+    async fn get_message(&self, message_id: &str) -> Result<GmailMessage, String> {
+        // 既存の get_message メソッドを呼び出す（GmailClient の固有実装）
+        GmailClient::get_message(self, message_id).await
+    }
+}
+
 pub async fn save_messages_to_db(
     pool: &SqlitePool,
     messages: &[GmailMessage],
@@ -609,8 +653,8 @@ pub async fn save_messages_to_db(
         .map_err(|e| format!("Failed to begin transaction: {e}"))?;
 
     for msg in messages {
-        // Check subject filter
-        if !should_save_message(msg, shop_settings) {
+        // Check subject filter (use the logic module version for consistency)
+        if !crate::logic::sync_logic::should_save_message(msg, shop_settings) {
             filtered_count += 1;
             log::debug!(
                 "Message {} filtered out by subject filter (subject: {:?})",
@@ -659,69 +703,51 @@ pub async fn save_messages_to_db(
     })
 }
 
-// Helper function to build Gmail query with sender addresses and date constraint
-fn build_sync_query(sender_addresses: &[String], oldest_date: &Option<String>) -> String {
-    // Build query based on sender addresses
-    let base_query = if sender_addresses.is_empty() {
-        // Fallback to keyword search if no sender addresses configured
-        log::warn!("No enabled shop settings found, falling back to keyword search");
-        r"subject:(注文 OR 予約 OR ありがとうございます)".to_string()
-    } else {
-        // Build "from:addr1 OR from:addr2 OR ..." query
-        let from_clauses: Vec<String> = sender_addresses
-            .iter()
-            .map(|addr| format!("from:{addr}"))
-            .collect();
-        from_clauses.join(" OR ")
-    };
+/// EmailRepository経由でメッセージをDBに保存する（テスト可能なバージョン）
+///
+/// # Arguments
+/// * `repo` - EmailRepositoryを実装したリポジトリ
+/// * `messages` - 保存するメッセージリスト（所有権を取得し、in-placeでフィルタリング）
+/// * `shop_settings` - 有効なショップ設定（件名フィルタリングに使用）
+///
+/// # Returns
+/// FetchResult（保存数、スキップ数などの統計情報）
+pub async fn save_messages_to_db_with_repo(
+    repo: &dyn EmailRepository,
+    mut messages: Vec<GmailMessage>,
+    shop_settings: &[ShopSettings],
+) -> Result<FetchResult, String> {
+    let original_count = messages.len();
+    log::info!(
+        "Saving {} messages to database via repository",
+        original_count
+    );
 
-    if let Some(date) = oldest_date {
-        // Parse and format for Gmail query (YYYY/MM/DD).
-        // This ensures the date is validated and formatted correctly; if parsing fails,
-        // the date filter is omitted and the base query is used without a date constraint.
-        if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(date) {
-            let before_date = dt.format("%Y/%m/%d");
-            return format!("({base_query}) before:{before_date}");
-        }
-        // If parsing fails, log warning and use base query without date filter
-        log::warn!("Invalid date format in oldest_date, ignoring date constraint: {date}");
-    }
+    // ショップ設定でin-placeフィルタリング（cloneを回避）
+    messages.retain(|msg| crate::logic::sync_logic::should_save_message(msg, shop_settings));
+    let filtered_count = original_count - messages.len();
 
-    base_query
+    // リポジトリ経由で保存
+    let (saved_count, skipped_count) = repo.save_messages(&messages).await?;
+
+    log::info!(
+        "Saved {saved_count} messages, skipped {skipped_count} duplicates, filtered {filtered_count} by subject"
+    );
+
+    Ok(FetchResult {
+        fetched_count: original_count,
+        saved_count,
+        skipped_count,
+    })
 }
 
-// Helper function to fetch a batch of messages
+// Helper function to fetch a batch of messages using GmailClientTrait
 async fn fetch_batch(
-    client: &GmailClient,
+    client: &dyn GmailClientTrait,
     query: &str,
     max_results: usize,
 ) -> Result<Vec<GmailMessage>, String> {
-    let req = client
-        .hub
-        .users()
-        .messages_list("me")
-        .q(query)
-        .max_results(max_results as u32);
-
-    let (_, result) = req
-        .doit()
-        .await
-        .map_err(|e| format!("Failed to list messages: {e}"))?;
-
-    let mut messages = Vec::new();
-
-    if let Some(msg_list) = result.messages {
-        for msg in msg_list {
-            if let Some(id) = msg.id {
-                match client.get_message(&id).await {
-                    Ok(full_msg) => messages.push(full_msg),
-                    Err(e) => log::warn!("Failed to fetch message {id}: {e}"),
-                }
-            }
-        }
-    }
-
-    Ok(messages)
+    crate::logic::sync_logic::fetch_batch_with_client(client, query, max_results).await
 }
 
 // Helper function to format timestamp as RFC3339
@@ -737,26 +763,54 @@ fn format_timestamp(internal_date: i64) -> String {
         })
 }
 
-// Helper function to update sync status to 'error' on early exit
-async fn update_sync_error_status(pool: &SqlitePool) {
-    let now = chrono::Utc::now().to_rfc3339();
-    if let Err(e) = sqlx::query(
-        "UPDATE sync_metadata SET sync_status = 'error', last_sync_completed_at = ?1 WHERE id = 1",
-    )
-    .bind(&now)
-    .execute(pool)
-    .await
-    {
-        log::error!("Failed to update error status: {e}");
-    }
-}
-
 // Main incremental sync function
 pub async fn sync_gmail_incremental(
     app_handle: &tauri::AppHandle,
     pool: &SqlitePool,
     sync_state: &SyncState,
     batch_size: usize,
+) -> Result<(), String> {
+    // Create repository instances first (needed for error handling)
+    let email_repo = crate::repository::SqliteEmailRepository::new(pool.clone());
+    let shop_repo = crate::repository::SqliteShopSettingsRepository::new(pool.clone());
+
+    // Initialize Gmail client
+    let client = match GmailClient::new(app_handle).await {
+        Ok(c) => c,
+        Err(e) => {
+            let _ = email_repo.update_sync_error_status().await;
+            return Err(e);
+        }
+    };
+
+    // Delegate to trait-based implementation
+    sync_gmail_incremental_with_client(
+        app_handle,
+        sync_state,
+        batch_size,
+        &client,
+        &email_repo,
+        &shop_repo,
+    )
+    .await
+}
+
+/// GmailClientTrait経由でメールを同期する（テスト可能なバージョン）
+///
+/// # Arguments
+/// * `app_handle` - Tauriアプリケーションハンドル
+/// * `sync_state` - 同期状態管理
+/// * `batch_size` - バッチサイズ（0の場合はデフォルト値を使用）
+/// * `client` - GmailClientTraitを実装したクライアント
+/// * `email_repo` - EmailRepositoryを実装したリポジトリ
+/// * `shop_repo` - ShopSettingsRepositoryを実装したリポジトリ
+pub async fn sync_gmail_incremental_with_client(
+    app_handle: &tauri::AppHandle,
+    sync_state: &SyncState,
+    batch_size: usize,
+    client: &dyn GmailClientTrait,
+    email_repo: &dyn EmailRepository,
+    shop_repo: &dyn ShopSettingsRepository,
 ) -> Result<(), String> {
     const DEFAULT_BATCH_SIZE: usize = 50;
     // NOTE: MAX_ITERATIONS and SYNC_TIMEOUT_MINUTES are intentionally hard-coded safety limits.
@@ -796,54 +850,41 @@ pub async fn sync_gmail_incremental(
     // Create RAII guard to ensure running flag is cleared on function exit
     let _guard = SyncGuard::new(sync_state);
 
-    // Get enabled shop settings to build sender address list
-    let enabled_shops = match get_enabled_shop_settings(pool).await {
+    // Get enabled shop settings to build sender address list (via repository)
+    let enabled_shops = match shop_repo.get_enabled().await {
         Ok(shops) => shops,
         Err(e) => {
-            update_sync_error_status(pool).await;
+            let _ = email_repo.update_sync_error_status().await;
             return Err(format!("Failed to fetch shop settings: {e}"));
         }
     };
 
-    let sender_addresses: Vec<String> = enabled_shops
-        .iter()
-        .map(|shop| shop.sender_address.clone())
-        .collect();
+    let sender_addresses: Vec<String> = extract_sender_addresses(&enabled_shops);
 
     log::info!(
         "Starting sync with {} enabled sender addresses",
         sender_addresses.len()
     );
 
-    // Update sync status to 'syncing'
-    let now = chrono::Utc::now().to_rfc3339();
-    if let Err(e) = sqlx::query(
-        "UPDATE sync_metadata SET sync_status = 'syncing', last_sync_started_at = ?1 WHERE id = 1",
-    )
-    .bind(&now)
-    .execute(pool)
-    .await
-    {
-        update_sync_error_status(pool).await;
-        return Err(format!("Failed to update sync status: {e}"));
+    // Update sync status to 'syncing' and sync started timestamp atomically (via repository)
+    if let Err(e) = email_repo.start_sync().await {
+        let _ = email_repo.update_sync_error_status().await;
+        return Err(format!("Failed to start sync: {e}"));
     }
 
-    // Get oldest fetched date, batch size, and max iterations from metadata
-    let metadata: Option<(Option<String>, i64, i64, i64)> = match sqlx::query_as(
-        "SELECT oldest_fetched_date, total_synced_count, batch_size, max_iterations FROM sync_metadata WHERE id = 1"
-    )
-    .fetch_optional(pool)
-    .await
-    {
+    // Get sync metadata (via repository)
+    let metadata = match email_repo.get_sync_metadata().await {
         Ok(m) => m,
         Err(e) => {
-            update_sync_error_status(pool).await;
+            let _ = email_repo.update_sync_error_status().await;
             return Err(format!("Failed to fetch sync metadata: {e}"));
         }
     };
 
-    let (mut oldest_date, mut total_synced, db_batch_size, db_max_iterations) =
-        metadata.unwrap_or((None, 0, batch_size as i64, MAX_ITERATIONS as i64));
+    let mut oldest_date = metadata.oldest_fetched_date;
+    let mut total_synced = metadata.total_synced_count;
+    let db_batch_size = metadata.batch_size;
+    let db_max_iterations = metadata.max_iterations;
     let effective_batch_size = if db_batch_size > 0 {
         db_batch_size as usize
     } else {
@@ -855,14 +896,6 @@ pub async fn sync_gmail_incremental(
         MAX_ITERATIONS
     };
 
-    // Initialize Gmail client
-    let client = match GmailClient::new(app_handle).await {
-        Ok(c) => c,
-        Err(e) => {
-            update_sync_error_status(pool).await;
-            return Err(e);
-        }
-    };
     let mut batch_number = 0;
     #[allow(unused_assignments)]
     let mut has_more = true;
@@ -887,12 +920,13 @@ pub async fn sync_gmail_incremental(
         let oldest_date_before_fetch = oldest_date.clone();
         // Build query with sender addresses and date constraint
         let query = build_sync_query(&sender_addresses, &oldest_date);
-        log::info!("Batch {batch_number}: Fetching up to {effective_batch_size} messages with query: {query}");
+        // Do not log the query itself to avoid exposing sender/recipient information
+        log::info!("Batch {batch_number}: Fetching up to {effective_batch_size} messages");
         // Fetch batch of messages
-        let messages = match fetch_batch(&client, &query, effective_batch_size).await {
+        let messages = match fetch_batch(client, &query, effective_batch_size).await {
             Ok(m) => m,
             Err(e) => {
-                update_sync_error_status(pool).await;
+                let _ = email_repo.update_sync_error_status().await;
                 return Err(e);
             }
         };
@@ -906,22 +940,10 @@ pub async fn sync_gmail_incremental(
             messages.len()
         );
 
-        // Extract message IDs for infinite loop detection
+        // Extract message IDs and oldest date BEFORE passing ownership to save function
         let current_message_ids: Vec<String> =
             messages.iter().map(|m| m.message_id.clone()).collect();
-
-        // Save to database with subject filtering
-        let result = match save_messages_to_db(pool, &messages, &enabled_shops).await {
-            Ok(r) => r,
-            Err(e) => {
-                update_sync_error_status(pool).await;
-                return Err(e);
-            }
-        };
-        total_synced = total_synced.saturating_add(result.saved_count as i64);
-        // Update oldest fetched date
-        // Note: messages is guaranteed to be non-empty at this point (checked above with messages.is_empty())
-        // min_by_key returns Some because iterator is non-empty
+        let messages_len = messages.len();
         let new_oldest = if let Some(ts) = messages
             .iter()
             .min_by_key(|m| m.internal_date)
@@ -929,13 +951,24 @@ pub async fn sync_gmail_incremental(
         {
             ts
         } else {
-            update_sync_error_status(pool).await;
+            let _ = email_repo.update_sync_error_status().await;
             return Err(format!(
                 "Logic error: min_by_key returned None on non-empty messages while updating sync metadata. batch_number={}, messages_len={}",
                 batch_number,
-                messages.len()
+                messages_len
             ));
         };
+
+        // Save to database with subject filtering (via repository, takes ownership)
+        let result = match save_messages_to_db_with_repo(email_repo, messages, &enabled_shops).await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                let _ = email_repo.update_sync_error_status().await;
+                return Err(e);
+            }
+        };
+        total_synced = total_synced.saturating_add(result.saved_count as i64);
 
         // Validate timestamp BEFORE updating database to avoid persisting invalid data
         // Validate that new_oldest is a reasonable timestamp (not unreasonably far in the future)
@@ -949,7 +982,7 @@ pub async fn sync_gmail_incremental(
                     log::error!(
                         "Invalid timestamp detected: new_oldest ({new_oldest}) is significantly in the future, indicates timestamp parsing failure"
                     );
-                    update_sync_error_status(pool).await;
+                    let _ = email_repo.update_sync_error_status().await;
                     return Err("Invalid message timestamp detected (future date beyond allowed clock skew). This indicates a data integrity issue.".to_string());
                 }
             }
@@ -958,7 +991,7 @@ pub async fn sync_gmail_incremental(
                 log::error!(
                     "Failed to parse new_oldest timestamp as RFC3339 (value: '{new_oldest}'): {e}"
                 );
-                update_sync_error_status(pool).await;
+                let _ = email_repo.update_sync_error_status().await;
                 return Err("Failed to parse message timestamp (RFC3339). This indicates a data integrity or formatting issue.".to_string());
             }
         }
@@ -994,16 +1027,12 @@ pub async fn sync_gmail_incremental(
         }
         previous_message_ids = Some(current_message_ids);
 
-        // All validations passed - now safe to update database
-        if let Err(e) = sqlx::query(
-            "UPDATE sync_metadata SET oldest_fetched_date = ?1, total_synced_count = ?2 WHERE id = 1"
-        )
-        .bind(&new_oldest)
-        .bind(total_synced)
-        .execute(pool)
-        .await
+        // All validations passed - now safe to update database (via repository)
+        if let Err(e) = email_repo
+            .update_sync_metadata(Some(new_oldest.clone()), total_synced, "syncing")
+            .await
         {
-            update_sync_error_status(pool).await;
+            let _ = email_repo.update_sync_error_status().await;
             return Err(format!("Failed to update metadata: {e}"));
         }
 
@@ -1012,7 +1041,7 @@ pub async fn sync_gmail_incremental(
         // Emit progress event
         let progress = SyncProgressEvent {
             batch_number,
-            batch_size: messages.len(),
+            batch_size: messages_len,
             total_synced: total_synced as usize,
             newly_saved: result.saved_count,
             status_message: format!(
@@ -1023,11 +1052,11 @@ pub async fn sync_gmail_incremental(
             error: None,
         };
         if let Err(e) = app_handle.emit("sync-progress", progress) {
-            update_sync_error_status(pool).await;
+            let _ = email_repo.update_sync_error_status().await;
             return Err(format!("Failed to emit progress: {e}"));
         }
         // Check if we got fewer messages than requested (end of results)
-        if messages.len() < effective_batch_size {
+        if messages_len < effective_batch_size {
             has_more = false;
             log::info!("Received fewer messages than batch size, sync complete");
         }
@@ -1038,17 +1067,9 @@ pub async fn sync_gmail_incremental(
     } else {
         "idle"
     };
-    // Update sync metadata
-    let now = chrono::Utc::now().to_rfc3339();
-    if let Err(e) = sqlx::query(
-        "UPDATE sync_metadata SET sync_status = ?1, last_sync_completed_at = ?2 WHERE id = 1",
-    )
-    .bind(final_status)
-    .bind(&now)
-    .execute(pool)
-    .await
-    {
-        return Err(format!("Failed to update final status: {e}"));
+    // Update sync metadata atomically (via repository)
+    if let Err(e) = email_repo.complete_sync(final_status).await {
+        return Err(format!("Failed to complete sync: {e}"));
     }
 
     // Emit completion event
@@ -1090,85 +1111,9 @@ pub async fn sync_gmail_incremental(
 // ============================================================================
 // Parser Type Routing Functions
 // ============================================================================
-
-/// Extract email address from "From" header
-/// Handles formats like "Name <email@example.com>" or just "email@example.com"
-#[allow(dead_code)]
-fn extract_email_address(from_header: &str) -> Option<String> {
-    // Try to extract email from "Name <email@domain>" format
-    if let Some(start) = from_header.find('<') {
-        if let Some(end) = from_header.find('>') {
-            if start < end {
-                return Some(from_header[start + 1..end].trim().to_lowercase());
-            }
-        }
-    }
-
-    // If no angle brackets, assume the whole string is an email
-    let trimmed = from_header.trim();
-    if trimmed.contains('@') {
-        return Some(trimmed.to_lowercase());
-    }
-
-    None
-}
-
-/// Check if a message should be saved based on shop settings and subject filter
-/// Returns true if the message should be saved, false otherwise
-fn should_save_message(msg: &GmailMessage, shop_settings: &[ShopSettings]) -> bool {
-    // Extract sender email address
-    let sender_email = match &msg.from_address {
-        Some(addr) => match extract_email_address(addr) {
-            Some(email) => email,
-            None => return false,
-        },
-        None => return false,
-    };
-
-    // Find matching shop setting
-    for shop in shop_settings {
-        if shop.sender_address.to_lowercase() == sender_email {
-            // If no subject filter is set, allow the message
-            if shop.subject_filters.is_none() {
-                return true;
-            }
-
-            // If subject filters are set, check if message subject matches any filter
-            let filters = shop.get_subject_filters();
-            if filters.is_empty() {
-                return true;
-            }
-
-            if let Some(subject) = &msg.subject {
-                // Check if subject contains any of the filters
-                return filters.iter().any(|filter| subject.contains(filter));
-            }
-            // If filters are set but message has no subject, reject
-            return false;
-        }
-    }
-
-    // No matching shop setting found
-    false
-}
-
-/// Determine parser type based on sender address
-/// Returns the parser_type if a matching shop setting is found
-#[allow(dead_code)]
-fn get_parser_type_for_sender(
-    sender_address: &str,
-    shop_settings: &[ShopSettings],
-) -> Option<String> {
-    let email = extract_email_address(sender_address)?;
-
-    for shop in shop_settings {
-        if shop.sender_address.to_lowercase() == email {
-            return Some(shop.parser_type.clone());
-        }
-    }
-
-    None
-}
+// NOTE: should_save_message と extract_email_address は
+// crate::logic::sync_logic に統一されました。
+// get_parser_type_for_sender は crate::logic::email_parser::get_candidate_parsers を使用してください。
 
 // ============================================================================
 // Shop Settings Database Functions
@@ -2167,7 +2112,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_sync_error_status() {
+        use crate::repository::{EmailRepository, SqliteEmailRepository};
+
         let pool = create_test_db().await;
+        let email_repo = SqliteEmailRepository::new(pool.clone());
 
         // 初期状態を確認
         let before: (String,) =
@@ -2178,8 +2126,11 @@ mod tests {
 
         assert_eq!(before.0, "idle");
 
-        // エラー状態に更新
-        update_sync_error_status(&pool).await;
+        // エラー状態に更新（リポジトリ経由）
+        email_repo
+            .update_sync_error_status()
+            .await
+            .expect("Failed to update error status");
 
         // エラー状態になったことを確認
         let after: (String, Option<String>) = sqlx::query_as(
