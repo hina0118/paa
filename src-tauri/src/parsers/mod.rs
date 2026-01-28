@@ -22,12 +22,18 @@ pub struct ParseState {
     pub is_running: Arc<Mutex<bool>>,
 }
 
-impl ParseState {
-    pub fn new() -> Self {
+impl Default for ParseState {
+    fn default() -> Self {
         Self {
             should_cancel: Arc::new(Mutex::new(false)),
             is_running: Arc::new(Mutex::new(false)),
         }
+    }
+}
+
+impl ParseState {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn request_cancel(&self) {
