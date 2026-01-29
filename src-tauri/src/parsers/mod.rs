@@ -293,6 +293,9 @@ pub async fn batch_parse_emails(
             batch_email_count
         );
 
+        // OrderRepositoryインスタンスをループの外で作成（効率化のため）
+        let order_repo = SqliteOrderRepository::new(pool.clone());
+
         for (email_id, _message_id, body_plain, from_address_opt, subject_opt) in emails.iter() {
             let from_address = match from_address_opt {
                 Some(addr) => addr,
@@ -391,7 +394,6 @@ pub async fn batch_parse_emails(
                     let shop_domain = from_address.split('@').nth(1).map(|s| s.to_string());
 
                     // データベースに保存
-                    let order_repo = SqliteOrderRepository::new(pool.clone());
                     match order_repo
                         .save_order(&order_info, Some(*email_id), shop_domain)
                         .await
