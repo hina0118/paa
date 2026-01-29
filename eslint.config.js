@@ -97,6 +97,15 @@ export default [
     ...typescript.configs.disableTypeChecked,
   },
 
+  // E2E テスト・wdio 設定: console 出力と any を許可
+  {
+    files: ['tests/e2e/**/*.ts', 'wdio.tauri.conf.ts'],
+    rules: {
+      'no-console': 'off',
+      '@typescript-eslint/no-explicit-any': 'off',
+    },
+  },
+
   // Prettier config (turns off conflicting rules)
   prettierConfig,
 ];
