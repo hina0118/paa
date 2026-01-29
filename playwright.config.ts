@@ -1,6 +1,4 @@
 import { defineConfig, devices } from '@playwright/test';
-import * as fs from 'fs';
-import * as path from 'path';
 
 // NOTE:
 // - Phase 1 ではまず「ブラウザE2Eテストの足場」を用意します。

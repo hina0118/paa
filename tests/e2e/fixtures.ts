@@ -40,14 +40,47 @@ test.afterEach(async ({ page, browserName }) => {
           }
         }
 
-        // URLで重複をチェックしてマージ
+        // 同一URLのカバレッジ ranges をマージするヘルパー
+        const mergeCoverageItems = (existingItem: any, newItem: any): any => {
+          const allRanges = [
+            ...(existingItem.ranges || []),
+            ...(newItem.ranges || []),
+          ];
+          if (allRanges.length === 0) {
+            return existingItem;
+          }
+          allRanges.sort((a, b) => (a.startOffset ?? 0) - (b.startOffset ?? 0));
+          const mergedRanges: any[] = [];
+          let current = { ...allRanges[0] };
+          for (let i = 1; i < allRanges.length; i++) {
+            const next = allRanges[i];
+            const currentEnd = current.endOffset ?? 0;
+            const nextStart = next.startOffset ?? 0;
+            const nextEnd = next.endOffset ?? 0;
+            if (nextStart <= currentEnd) {
+              current.endOffset = Math.max(currentEnd, nextEnd);
+              if (current.count !== undefined || next.count !== undefined) {
+                current.count = Math.max(current.count ?? 0, next.count ?? 0);
+              }
+            } else {
+              mergedRanges.push(current);
+              current = { ...next };
+            }
+          }
+          mergedRanges.push(current);
+          return { ...existingItem, ranges: mergedRanges };
+        };
+
         const urlMap = new Map<string, any>();
         existingData.forEach((item) => {
           urlMap.set(item.url, item);
         });
 
         coverage.forEach((item) => {
-          if (!urlMap.has(item.url)) {
+          const existingItem = urlMap.get(item.url);
+          if (existingItem) {
+            urlMap.set(item.url, mergeCoverageItems(existingItem, item));
+          } else {
             urlMap.set(item.url, item);
           }
         });

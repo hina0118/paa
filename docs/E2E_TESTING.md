@@ -290,10 +290,14 @@ npm run test:e2e:coverage
 
 ### 統合カバレッジ（JS + Rust）
 
-E2EテストのJSカバレッジと、Rustのユニット/統合テストのカバレッジを併せて計測できます。
+E2EテストのJSカバレッジと、Rustのユニット/統合テストのカバレッジを併せて計測できます。OS によって実行するコマンドが異なります。
 
 ```bash
+# Windows（PowerShell スクリプトを実行）
 npm run test:e2e:rust-coverage
+
+# macOS / Linux（bash スクリプトを実行）
+npm run test:e2e:rust-coverage:sh
 ```
 
 **前提条件**: `cargo-llvm-cov` がインストールされていること

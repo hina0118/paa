@@ -28,10 +28,12 @@ export async function expectSidebarVisible(page: Page) {
 
 /**
  * 成功メッセージが表示されることを確認する
+ * data-testid="success-message" または role="status" で識別
  */
 export async function expectSuccessMessage(page: Page, message?: string) {
-  // 成功メッセージのコンテナを待機（bg-green-50クラスを持つ要素）
-  const successElement = page.locator('.bg-green-50').first();
+  const successElement = page
+    .locator('[data-testid="success-message"], [role="status"]')
+    .first();
   await expect(successElement).toBeVisible({ timeout: 10000 });
   if (message) {
     await expect(successElement).toContainText(message, { timeout: 5000 });
@@ -40,10 +42,12 @@ export async function expectSuccessMessage(page: Page, message?: string) {
 
 /**
  * エラーメッセージが表示されることを確認する
+ * data-testid="error-message" または role="alert" で識別
  */
 export async function expectErrorMessage(page: Page, message?: string) {
-  // エラーメッセージのコンテナを待機（bg-red-50クラスを持つ要素）
-  const errorElement = page.locator('.bg-red-50').first();
+  const errorElement = page
+    .locator('[data-testid="error-message"], [role="alert"]')
+    .first();
   await expect(errorElement).toBeVisible({ timeout: 10000 });
   if (message) {
     await expect(errorElement).toContainText(message, { timeout: 5000 });

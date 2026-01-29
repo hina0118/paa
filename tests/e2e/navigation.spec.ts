@@ -69,20 +69,16 @@ test.describe('ナビゲーション', () => {
   });
 
   test('アクティブな画面のボタンがハイライトされる', async ({ page }) => {
-    // 初期状態はOrdersがアクティブ
+    // 初期状態はOrdersがアクティブ（aria-current で判定）
     const ordersButton = page.getByRole('button', { name: 'Orders' });
-    // variant="secondary"のボタンは`bg-secondary`クラスを持つ
-    const ordersButtonClasses = await ordersButton.getAttribute('class');
-    expect(ordersButtonClasses).toContain('bg-secondary');
+    await expect(ordersButton).toHaveAttribute('aria-current', 'page');
 
     // Dashboardに遷移
     await navigateToScreen(page, 'Dashboard');
     const dashboardButton = page.getByRole('button', { name: 'Dashboard' });
-    const dashboardButtonClasses = await dashboardButton.getAttribute('class');
-    expect(dashboardButtonClasses).toContain('bg-secondary');
+    await expect(dashboardButton).toHaveAttribute('aria-current', 'page');
 
-    // Ordersは非アクティブになる（ghost variantは`bg-secondary`を持たない）
-    const ordersButtonClassesAfter = await ordersButton.getAttribute('class');
-    expect(ordersButtonClassesAfter).not.toContain('bg-secondary');
+    // Ordersは非アクティブになる（aria-current が付かない）
+    await expect(ordersButton).not.toHaveAttribute('aria-current');
   });
 });
