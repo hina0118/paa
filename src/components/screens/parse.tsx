@@ -215,7 +215,11 @@ export function Parse() {
                 </div>
 
                 {progress.is_complete && !progress.error && (
-                  <div className="p-3 bg-green-50 border border-green-200 rounded text-sm text-green-800">
+                  <div
+                    className="p-3 bg-green-50 border border-green-200 rounded text-sm text-green-800"
+                    data-testid="success-message"
+                    role="status"
+                  >
                     パースが完了しました
                   </div>
                 )}
@@ -266,7 +270,11 @@ export function Parse() {
 
       {/* Error Display */}
       {(error || progress?.error || metadata?.last_error_message) && (
-        <Card className="border-red-200 bg-red-50">
+        <Card
+          className="border-red-200 bg-red-50"
+          data-testid="error-message"
+          role="alert"
+        >
           <CardHeader>
             <CardTitle className="text-red-800">エラー</CardTitle>
           </CardHeader>
