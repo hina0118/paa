@@ -35,6 +35,20 @@ type SchemaColumn = {
   pk: number;
 };
 
+const IMAGES_COLUMN_LABELS: Record<string, string> = {
+  id: 'ID',
+  item_id: '商品ID',
+  file_name: 'ファイル名',
+  created_at: '作成日時',
+};
+
+function getColumnLabel(tableName: string, column: string): string {
+  if (tableName === 'images' && column in IMAGES_COLUMN_LABELS) {
+    return IMAGES_COLUMN_LABELS[column];
+  }
+  return column;
+}
+
 export function TableViewer({ tableName, title }: TableViewerProps) {
   const [data, setData] = useState<TableData[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
@@ -206,7 +220,7 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
               <TableRow>
                 {columns.map((column) => (
                   <TableHead key={column} className="font-semibold">
-                    {column}
+                    {getColumnLabel(tableName, column)}
                   </TableHead>
                 ))}
               </TableRow>
@@ -282,7 +296,9 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
       >
         <DialogContent className="max-w-3xl max-h-[80vh]">
           <DialogHeader>
-            <DialogTitle>{selectedCell?.column}</DialogTitle>
+            <DialogTitle>
+              {selectedCell && getColumnLabel(tableName, selectedCell.column)}
+            </DialogTitle>
             <DialogDescription>セルの全内容</DialogDescription>
           </DialogHeader>
           <div className="mt-4 overflow-auto max-h-[60vh]">
