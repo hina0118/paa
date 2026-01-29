@@ -429,6 +429,12 @@ pub fn run() {
             sql: include_str!("../migrations/019_add_subject_to_emails.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 20,
+            description: "images: blob to file_name",
+            sql: include_str!("../migrations/020_images_blob_to_file_storage.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
