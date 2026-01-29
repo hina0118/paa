@@ -110,10 +110,16 @@ client_secret.json
 
 # Test coverage
 coverage/
+coverage-e2e/
 *.profraw
 *.profdata
 .nyc_output/
 src-tauri/target/llvm-cov/
+
+# Playwright
+test-results/
+playwright-report/
+playwright/.cache/
 
 # sample file
 sample/
