@@ -220,13 +220,21 @@ export function ShopSettings() {
       <h1 className="text-3xl font-bold">店舗設定</h1>
 
       {successMessage && (
-        <div className="p-3 bg-green-50 border border-green-200 rounded text-sm text-green-800">
+        <div
+          className="p-3 bg-green-50 border border-green-200 rounded text-sm text-green-800"
+          data-testid="success-message"
+          role="status"
+        >
           {successMessage}
         </div>
       )}
 
       {error && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-800">
+        <div
+          className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-800"
+          data-testid="error-message"
+          role="alert"
+        >
           {error}
         </div>
       )}

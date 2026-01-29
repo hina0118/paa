@@ -113,13 +113,21 @@ export function Sync() {
       <h1 className="text-3xl font-bold">Gmail同期</h1>
 
       {successMessage && (
-        <div className="p-3 bg-green-50 border border-green-200 rounded text-sm text-green-800">
+        <div
+          className="p-3 bg-green-50 border border-green-200 rounded text-sm text-green-800"
+          data-testid="success-message"
+          role="status"
+        >
           {successMessage}
         </div>
       )}
 
       {error && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-800">
+        <div
+          className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-800"
+          data-testid="error-message"
+          role="alert"
+        >
           {error}
         </div>
       )}
@@ -193,7 +201,11 @@ export function Sync() {
                 </div>
 
                 {progress.is_complete && !progress.error && (
-                  <div className="p-3 bg-green-50 border border-green-200 rounded text-sm text-green-800">
+                  <div
+                    className="p-3 bg-green-50 border border-green-200 rounded text-sm text-green-800"
+                    data-testid="success-message"
+                    role="status"
+                  >
                     同期が完了しました
                   </div>
                 )}
@@ -250,7 +262,11 @@ export function Sync() {
 
       {/* Error Display */}
       {(error || progress?.error) && (
-        <Card className="border-red-200 bg-red-50">
+        <Card
+          className="border-red-200 bg-red-50"
+          data-testid="error-message"
+          role="alert"
+        >
           <CardHeader>
             <CardTitle className="text-red-800">エラー</CardTitle>
           </CardHeader>
