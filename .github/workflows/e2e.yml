@@ -41,7 +41,7 @@ jobs:
         run: npm run test:e2e
         env:
           CI: true
-          # E2E 目標カバレッジ 85% 未達で失敗（coverage-reporter.ts で判定）
+          # E2E 目標カバレッジ 25% 未達で失敗（coverage-reporter.ts で判定）
 
       - name: Upload test results
         if: always()

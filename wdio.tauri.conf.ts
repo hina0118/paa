@@ -49,16 +49,22 @@ function onShutdown(fn: () => void) {
   const cleanup = () => {
     try {
       fn();
-    } finally {
-      process.exit();
+    } catch {
+      // ignore cleanup errors on shutdown
     }
   };
+
+  const cleanupAndExit = () => {
+    cleanup();
+    process.exit();
+  };
+
   process.on('exit', cleanup);
-  process.on('SIGINT', cleanup);
-  process.on('SIGTERM', cleanup);
-  process.on('SIGHUP', cleanup);
+  process.on('SIGINT', cleanupAndExit);
+  process.on('SIGTERM', cleanupAndExit);
+  process.on('SIGHUP', cleanupAndExit);
   if (process.platform === 'win32') {
-    process.on('SIGBREAK', cleanup);
+    process.on('SIGBREAK', cleanupAndExit);
   }
 }
 

@@ -86,6 +86,7 @@ export function Sidebar() {
                 <Button
                   variant={isActive ? 'secondary' : 'ghost'}
                   className="w-full justify-start"
+                  aria-current={isActive ? 'page' : undefined}
                   onClick={() => setCurrentScreen(item.id)}
                 >
                   <Icon className="mr-2 h-4 w-4" />
@@ -116,6 +117,7 @@ export function Sidebar() {
                     <Button
                       variant={isActive ? 'secondary' : 'ghost'}
                       className="w-full justify-start text-sm"
+                      aria-current={isActive ? 'page' : undefined}
                       onClick={() => setCurrentScreen(item.id)}
                     >
                       {item.name}

@@ -25,8 +25,8 @@ describe('設定画面 (Tauri)', () => {
     const saveBtn = await $('button=保存');
     await saveBtn.click();
 
-    // Tauri アプリなので invoke が動き、成功メッセージが出る
-    const success = await $('.bg-green-50');
+    // Tauri アプリなので invoke が動き、成功メッセージが出る（テキストで識別）
+    const success = await $('div*=バッチサイズを更新しました');
     await expect(success).toBeDisplayed({ wait: 10000 });
     await expect(success).toHaveTextContaining('バッチサイズを更新しました');
   });

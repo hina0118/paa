@@ -39,8 +39,7 @@ test.describe('設定画面', () => {
     // 保存ボタンをクリック（バッチサイズのセクション内の保存ボタン）
     const saveButton = page
       .locator('#batch-size')
-      .locator('..')
-      .locator('..')
+      .locator('xpath=ancestor::div[contains(@class, "card")]')
       .getByRole('button', { name: '保存' })
       .first();
 
@@ -71,8 +70,7 @@ test.describe('設定画面', () => {
 
     const saveButton = page
       .locator('#batch-size')
-      .locator('..')
-      .locator('..')
+      .locator('xpath=ancestor::div[contains(@class, "card")]')
       .getByRole('button', { name: '保存' })
       .first();
     await saveButton.click();
@@ -95,8 +93,7 @@ test.describe('設定画面', () => {
 
     const saveButton = page
       .locator('#max-iterations')
-      .locator('..')
-      .locator('..')
+      .locator('xpath=ancestor::div[contains(@class, "card")]')
       .getByRole('button', { name: '保存' })
       .first();
     await saveButton.waitFor({ state: 'visible', timeout: 5000 });
@@ -122,8 +119,7 @@ test.describe('設定画面', () => {
 
     const saveButton = page
       .locator('#parse-batch-size')
-      .locator('..')
-      .locator('..')
+      .locator('xpath=ancestor::div[contains(@class, "card")]')
       .getByRole('button', { name: '保存' })
       .first();
     await saveButton.waitFor({ state: 'visible', timeout: 5000 });
@@ -136,34 +132,5 @@ test.describe('設定画面', () => {
         'Tauri APIが利用できないため、成功メッセージの確認をスキップ'
       );
     }
-  });
-
-  test('保存中はボタンが無効化される', async ({ page }) => {
-    const batchSizeInput = page.locator('#batch-size');
-    await batchSizeInput.waitFor({ state: 'visible', timeout: 10000 });
-    await batchSizeInput.clear();
-    await batchSizeInput.fill('50');
-
-    const saveButton = page
-      .locator('#batch-size')
-      .locator('..')
-      .locator('..')
-      .getByRole('button', { name: '保存' })
-      .first();
-
-    // 保存ボタンをクリック
-    await saveButton.click();
-
-    // 保存中はボタンが無効化される（短時間のみ）
-    // 注意: 保存が非常に速い場合、このテストは失敗する可能性があります
-    // ボタンの状態を即座に確認（クリック直後）
-    const buttonState = await Promise.race([
-      saveButton.isDisabled().then(() => 'disabled'),
-      page.waitForTimeout(50).then(() => 'enabled'),
-    ]);
-
-    // ボタンが無効化されているか、または既に有効化されている（保存が完了）
-    // Tauri APIが動作しない場合は、ボタンが無効化されない可能性がある
-    expect(['disabled', 'enabled']).toContain(buttonState);
   });
 });

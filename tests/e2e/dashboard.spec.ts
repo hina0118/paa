@@ -35,37 +35,17 @@ test.describe('ダッシュボード画面', () => {
   });
 
   test('統計情報カードが表示される', async ({ page }) => {
-    // 統計情報が読み込まれるまで待機
-    await page.waitForTimeout(2000);
-
-    // 総メール数カードが表示される可能性がある
+    // 総メール数カード、読み込み中、またはエラーのいずれかが表示されるまで待機
     const totalEmailsCard = page.getByText('総メール数');
-    const cardsExist = (await totalEmailsCard.count()) > 0;
-
-    if (cardsExist) {
-      await expect(totalEmailsCard).toBeVisible();
-    } else {
-      // データがない場合や読み込み中の場合は「データを読み込んでいます...」が表示される
-      // またはエラーが表示される可能性もある
-      const loadingText = page.getByText('データを読み込んでいます...');
-      const errorCard = page.locator('.border-red-500');
-
-      // いずれかが表示されることを確認
-      const loadingExists = (await loadingText.count()) > 0;
-      const errorExists = (await errorCard.count()) > 0;
-
-      expect(loadingExists || errorExists).toBeTruthy();
-    }
+    const loadingText = page.getByText('データを読み込んでいます...');
+    const errorCard = page.locator('.border-red-500');
+    await expect(
+      totalEmailsCard.or(loadingText).or(errorCard).first()
+    ).toBeVisible({ timeout: 5000 });
   });
 
   test('パース状況カードが表示される', async ({ page }) => {
-    await page.waitForTimeout(1000);
-
     const parseStatusCard = page.getByText('パース状況');
-    const cardExists = (await parseStatusCard.count()) > 0;
-
-    if (cardExists) {
-      await expect(parseStatusCard).toBeVisible();
-    }
+    await expect(parseStatusCard).toBeVisible({ timeout: 5000 });
   });
 });
