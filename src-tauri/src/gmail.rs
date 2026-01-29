@@ -2738,6 +2738,14 @@ mod tests {
         assert!(json.contains("\"total_synced\":100"));
     }
 
+    // ==================== sync_gmail_incremental_with_client Error Handling Tests ====================
+    //
+    // sync_gmail_incremental_with_client関数のテストは、AppHandleを必要とするため、
+    // 統合テストとして実装する必要があります。
+    // 統合テストは tests/command_tests.rs に実装されています。
+    //
+    // 単体テストでは、AppHandleに依存しない部分のみをテストします。
+
     #[test]
     fn test_sync_metadata_serialization() {
         let metadata = SyncMetadata {

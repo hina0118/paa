@@ -1,10 +1,15 @@
+use crate::repository::{
+    OrderRepository, ParseMetadataRepository, ParseRepository, ShopSettingsRepository,
+    SqliteOrderRepository, SqliteParseMetadataRepository, SqliteParseRepository,
+    SqliteShopSettingsRepository,
+};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use std::sync::{Arc, Mutex};
 use tauri::Emitter;
 
 // 型エイリアス：パース対象メールの情報
-type EmailRow = (i64, String, String, Option<String>, Option<String>);
+pub type EmailRow = (i64, String, String, Option<String>, Option<String>);
 
 // ホビーサーチ用の共通パースユーティリティ関数
 mod hobbysearch_common;
@@ -174,212 +179,6 @@ pub struct ParseProgressEvent {
     pub error: Option<String>,
 }
 
-/// パース結果をデータベースに保存する
-pub async fn save_order_to_db(
-    pool: &SqlitePool,
-    order_info: &OrderInfo,
-    email_id: Option<i64>,
-    shop_domain: Option<&str>,
-) -> Result<i64, String> {
-    // トランザクション開始
-    let mut tx = pool
-        .begin()
-        .await
-        .map_err(|e| format!("Failed to start transaction: {}", e))?;
-
-    // 1. 既存の注文を検索（同じorder_numberとshop_domainの組み合わせ）
-    let existing_order: Option<(i64,)> = sqlx::query_as(
-        r#"
-        SELECT id FROM orders
-        WHERE order_number = ? AND shop_domain = ?
-        LIMIT 1
-        "#,
-    )
-    .bind(&order_info.order_number)
-    .bind(shop_domain)
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(|e| format!("Failed to check existing order: {}", e))?;
-
-    let order_id = if let Some((existing_id,)) = existing_order {
-        // 既存の注文が見つかった場合、そのIDを使用
-        log::debug!("Found existing order with id: {}", existing_id);
-        existing_id
-    } else {
-        // 新規注文を作成
-        let new_order_id = sqlx::query(
-            r#"
-            INSERT INTO orders (order_number, order_date, shop_domain)
-            VALUES (?, ?, ?)
-            "#,
-        )
-        .bind(&order_info.order_number)
-        .bind(&order_info.order_date)
-        .bind(shop_domain)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| format!("Failed to insert order: {}", e))?
-        .last_insert_rowid();
-
-        log::debug!("Created new order with id: {}", new_order_id);
-        new_order_id
-    };
-
-    // 2. 既存注文の場合は注文日を更新（より新しい情報で更新）
-    if existing_order.is_some() && order_info.order_date.is_some() {
-        sqlx::query(
-            r#"
-            UPDATE orders
-            SET order_date = COALESCE(?, order_date)
-            WHERE id = ?
-            "#,
-        )
-        .bind(&order_info.order_date)
-        .bind(order_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| format!("Failed to update order date: {}", e))?;
-
-        log::debug!("Updated order {} with new date info", order_id);
-    }
-
-    // 3. itemsテーブルに商品を保存（重複チェック付き）
-    for item in &order_info.items {
-        // 同じitem_nameとbrandの商品が既に存在するかチェック
-        let existing_item: Option<(i64,)> = sqlx::query_as(
-            r#"
-            SELECT id FROM items
-            WHERE order_id = ? AND item_name = ? AND COALESCE(brand, '') = COALESCE(?, '')
-            LIMIT 1
-            "#,
-        )
-        .bind(order_id)
-        .bind(&item.name)
-        .bind(&item.manufacturer)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(|e| format!("Failed to check existing item: {}", e))?;
-
-        if existing_item.is_none() {
-            // 新しい商品を追加
-            sqlx::query(
-                r#"
-                INSERT INTO items (order_id, item_name, brand, price, quantity)
-                VALUES (?, ?, ?, ?, ?)
-                "#,
-            )
-            .bind(order_id)
-            .bind(&item.name)
-            .bind(&item.manufacturer)
-            .bind(item.unit_price)
-            .bind(item.quantity)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| format!("Failed to insert item: {}", e))?;
-
-            log::debug!("Added new item '{}' to order {}", item.name, order_id);
-        } else {
-            log::debug!("Item '{}' already exists for order {}", item.name, order_id);
-        }
-    }
-
-    // 4. deliveriesテーブルに配送情報を保存（重複チェック・更新付き）
-    if let Some(delivery_info) = &order_info.delivery_info {
-        // 同じtracking_numberの配送情報が既に存在するかチェック
-        let existing_delivery: Option<(i64,)> = sqlx::query_as(
-            r#"
-            SELECT id FROM deliveries
-            WHERE order_id = ? AND tracking_number = ?
-            LIMIT 1
-            "#,
-        )
-        .bind(order_id)
-        .bind(&delivery_info.tracking_number)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(|e| format!("Failed to check existing delivery: {}", e))?;
-
-        if existing_delivery.is_none() {
-            // 新しい配送情報を追加
-            sqlx::query(
-                r#"
-                INSERT INTO deliveries (order_id, tracking_number, carrier, delivery_status)
-                VALUES (?, ?, ?, 'shipped')
-                "#,
-            )
-            .bind(order_id)
-            .bind(&delivery_info.tracking_number)
-            .bind(&delivery_info.carrier)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| format!("Failed to insert delivery: {}", e))?;
-
-            log::debug!("Added new delivery info for order {}", order_id);
-        } else {
-            // 既存の配送情報を更新（より詳細な情報で上書き）
-            sqlx::query(
-                r#"
-                UPDATE deliveries
-                SET carrier = COALESCE(?, carrier),
-                    delivery_status = 'shipped'
-                WHERE order_id = ? AND tracking_number = ?
-                "#,
-            )
-            .bind(&delivery_info.carrier)
-            .bind(order_id)
-            .bind(&delivery_info.tracking_number)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| format!("Failed to update delivery: {}", e))?;
-
-            log::debug!("Updated delivery info for order {}", order_id);
-        }
-    }
-
-    // 5. order_emailsテーブルにメールとの関連を保存（重複チェック）
-    if let Some(email_id) = email_id {
-        // 既に同じ関連が存在するかチェック
-        let existing_link: Option<(i64,)> = sqlx::query_as(
-            r#"
-            SELECT order_id FROM order_emails
-            WHERE order_id = ? AND email_id = ?
-            LIMIT 1
-            "#,
-        )
-        .bind(order_id)
-        .bind(email_id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(|e| format!("Failed to check existing order_email link: {}", e))?;
-
-        if existing_link.is_none() {
-            // 新しい関連を作成
-            sqlx::query(
-                r#"
-                INSERT INTO order_emails (order_id, email_id)
-                VALUES (?, ?)
-                "#,
-            )
-            .bind(order_id)
-            .bind(email_id)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| format!("Failed to link order to email: {}", e))?;
-
-            log::debug!("Linked order {} to email {}", order_id, email_id);
-        } else {
-            log::debug!("Order {} is already linked to email {}", order_id, email_id);
-        }
-    }
-
-    // トランザクションをコミット
-    tx.commit()
-        .await
-        .map_err(|e| format!("Failed to commit transaction: {}", e))?;
-
-    Ok(order_id)
-}
-
 /// バッチパース処理
 pub async fn batch_parse_emails(
     app_handle: &tauri::AppHandle,
@@ -395,64 +194,45 @@ pub async fn batch_parse_emails(
     parse_state.start()?;
 
     // パース状態を「実行中」に更新
-    sqlx::query(
-        "UPDATE parse_metadata SET parse_status = 'running', last_parse_started_at = ?1 WHERE id = 1"
-    )
-    .bind(Utc::now().to_rfc3339())
-    .execute(pool)
-    .await
-    .map_err(|e| format!("Failed to update parse status: {}", e))?;
+    let parse_metadata_repo = SqliteParseMetadataRepository::new(pool.clone());
+    parse_metadata_repo
+        .update_parse_status("running", Some(Utc::now().to_rfc3339()), None, None, None)
+        .await
+        .map_err(|e| format!("Failed to update parse status: {e}"))?;
 
     // order_emails, deliveries, items, orders テーブルをクリア（パースやり直しのため）
     // 外部キー制約により、order_emails -> deliveries -> items -> orders の順でクリア
     // NOTE: ユーザーには事前にUI（Parse画面）で警告と確認ダイアログを表示済み
     log::info!("Clearing order_emails, deliveries, items, and orders tables for fresh parse...");
 
-    sqlx::query("DELETE FROM order_emails")
-        .execute(pool)
+    let parse_repo = SqliteParseRepository::new(pool.clone());
+    parse_repo
+        .clear_order_tables()
         .await
-        .map_err(|e| format!("Failed to clear order_emails table: {}", e))?;
-
-    sqlx::query("DELETE FROM deliveries")
-        .execute(pool)
-        .await
-        .map_err(|e| format!("Failed to clear deliveries table: {}", e))?;
-
-    sqlx::query("DELETE FROM items")
-        .execute(pool)
-        .await
-        .map_err(|e| format!("Failed to clear items table: {}", e))?;
-
-    sqlx::query("DELETE FROM orders")
-        .execute(pool)
-        .await
-        .map_err(|e| format!("Failed to clear orders table: {}", e))?;
+        .map_err(|e| format!("Failed to clear order tables: {e}"))?;
 
     // shop_settingsから有効な店舗とパーサータイプ、件名フィルターを取得
-    let shop_settings: Vec<(String, String, Option<String>)> = sqlx::query_as(
-        "SELECT sender_address, parser_type, subject_filters FROM shop_settings WHERE is_enabled = 1"
-    )
-    .fetch_all(pool)
-    .await
-    .map_err(|e| format!("Failed to fetch shop settings: {}", e))?;
+    let shop_settings_repo = SqliteShopSettingsRepository::new(pool.clone());
+    let enabled_settings = shop_settings_repo
+        .get_enabled()
+        .await
+        .map_err(|e| format!("Failed to fetch shop settings: {e}"))?;
 
-    if shop_settings.is_empty() {
+    if enabled_settings.is_empty() {
         log::warn!("No enabled shop settings found");
         return Err("No enabled shop settings found".to_string());
     }
 
+    let shop_settings: Vec<(String, String, Option<String>)> = enabled_settings
+        .into_iter()
+        .map(|s| (s.sender_address, s.parser_type, s.subject_filters))
+        .collect();
+
     // パース対象の全メール数を取得
-    let total_email_count: i64 = sqlx::query_scalar(
-        r#"
-        SELECT COUNT(*)
-        FROM emails
-        WHERE body_plain IS NOT NULL
-        AND from_address IS NOT NULL
-        "#,
-    )
-    .fetch_one(pool)
-    .await
-    .map_err(|e| format!("Failed to count emails: {}", e))?;
+    let total_email_count = parse_repo
+        .get_total_email_count()
+        .await
+        .map_err(|e| format!("Failed to count emails: {e}"))?;
 
     log::info!("Total emails to parse: {}", total_email_count);
 
@@ -482,9 +262,8 @@ pub async fn batch_parse_emails(
             let _ = app_handle.emit("parse-progress", cancel_event);
 
             // ステータスをidleに戻す
-            let _ = sqlx::query("UPDATE parse_metadata SET parse_status = 'idle' WHERE id = 1")
-                .execute(pool)
-                .await;
+            let parse_metadata_repo = SqliteParseMetadataRepository::new(pool.clone());
+            let _ = parse_metadata_repo.reset_parse_status().await;
 
             return Ok(());
         }
@@ -494,22 +273,10 @@ pub async fn batch_parse_emails(
         // パース対象のメールを取得（既にパース済みのものを除外）
         // order_emailsテーブルにemail_idが存在しないメールのみ取得
         // メール送信日時（internal_date）の古い順（ASC）でパースすることで、時系列に沿って注文情報が更新される
-        let emails: Vec<EmailRow> = sqlx::query_as(
-            r#"
-            SELECT e.id, e.message_id, e.body_plain, e.from_address, e.subject
-            FROM emails e
-            LEFT JOIN order_emails oe ON e.id = oe.email_id
-            WHERE e.body_plain IS NOT NULL
-            AND e.from_address IS NOT NULL
-            AND oe.email_id IS NULL
-            ORDER BY e.internal_date ASC
-            LIMIT ?
-            "#,
-        )
-        .bind(batch_size as i64)
-        .fetch_all(pool)
-        .await
-        .map_err(|e| format!("Failed to fetch emails: {}", e))?;
+        let emails = parse_repo
+            .get_unparsed_emails(batch_size)
+            .await
+            .map_err(|e| format!("Failed to fetch emails: {e}"))?;
 
         if emails.is_empty() {
             log::info!("No more emails to parse");
@@ -525,6 +292,9 @@ pub async fn batch_parse_emails(
             iteration,
             batch_email_count
         );
+
+        // OrderRepositoryインスタンスをループの外で作成（効率化のため）
+        let order_repo = SqliteOrderRepository::new(pool.clone());
 
         for (email_id, _message_id, body_plain, from_address_opt, subject_opt) in emails.iter() {
             let from_address = match from_address_opt {
@@ -621,10 +391,13 @@ pub async fn batch_parse_emails(
             match parse_result {
                 Ok(order_info) => {
                     // ドメインを抽出
-                    let shop_domain = from_address.split('@').nth(1);
+                    let shop_domain = from_address.split('@').nth(1).map(|s| s.to_string());
 
                     // データベースに保存
-                    match save_order_to_db(pool, &order_info, Some(*email_id), shop_domain).await {
+                    match order_repo
+                        .save_order(&order_info, Some(*email_id), shop_domain)
+                        .await
+                    {
                         Ok(order_id) => {
                             log::info!("Successfully parsed and saved order: {}", order_id);
                             success_count += 1;
@@ -690,20 +463,16 @@ pub async fn batch_parse_emails(
     let _ = app_handle.emit("parse-progress", final_progress);
 
     // メタデータを更新
-    sqlx::query(
-        r#"
-        UPDATE parse_metadata
-        SET parse_status = 'completed',
-            last_parse_completed_at = ?1,
-            total_parsed_count = ?2
-        WHERE id = 1
-        "#,
-    )
-    .bind(Utc::now().to_rfc3339())
-    .bind(overall_success_count as i64)
-    .execute(pool)
-    .await
-    .map_err(|e| format!("Failed to update parse metadata: {}", e))?;
+    parse_metadata_repo
+        .update_parse_status(
+            "completed",
+            None,
+            Some(Utc::now().to_rfc3339()),
+            Some(overall_success_count as i64),
+            None,
+        )
+        .await
+        .map_err(|e| format!("Failed to update parse metadata: {e}"))?;
 
     log::info!(
         "Batch parse completed: success={}, failed={}",
@@ -1113,4 +882,10 @@ mod tests {
         assert_eq!(cloned.order_number, "ORD-CLONE");
         assert_eq!(cloned.items.len(), 1);
     }
+
+    // ==================== batch_parse_emails Tests ====================
+    //
+    // batch_parse_emails関数のテストは、AppHandleを必要とするため、
+    // 統合テストとして実装する必要があります。
+    // 統合テストは tests/parser_integration_tests.rs に実装されています。
 }
