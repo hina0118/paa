@@ -833,26 +833,37 @@ impl ParseRepository for SqliteParseRepository {
     }
 
     async fn clear_order_tables(&self) -> Result<(), String> {
+        // トランザクション内で全てのDELETE操作を実行してアトミック性を確保
         // 外部キー制約により、order_emails -> deliveries -> items -> orders の順でクリア
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| format!("Failed to begin transaction: {e}"))?;
+
         sqlx::query("DELETE FROM order_emails")
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| format!("Failed to clear order_emails table: {e}"))?;
 
         sqlx::query("DELETE FROM deliveries")
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| format!("Failed to clear deliveries table: {e}"))?;
 
         sqlx::query("DELETE FROM items")
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| format!("Failed to clear items table: {e}"))?;
 
         sqlx::query("DELETE FROM orders")
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| format!("Failed to clear orders table: {e}"))?;
+
+        tx.commit()
+            .await
+            .map_err(|e| format!("Failed to commit transaction: {e}"))?;
 
         Ok(())
     }
