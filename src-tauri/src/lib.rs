@@ -16,10 +16,11 @@ pub mod repository;
 
 use crate::logic::email_parser::get_candidate_parsers;
 use crate::repository::{
-    EmailStatsRepository, OrderRepository, ParseMetadataRepository, ShopSettingsRepository,
-    SyncMetadataRepository, WindowSettingsRepository, EmailStats, SqliteEmailStatsRepository,
-    SqliteOrderRepository, SqliteParseMetadataRepository, SqliteShopSettingsRepository,
-    SqliteSyncMetadataRepository, SqliteWindowSettingsRepository, WindowSettings,
+    EmailStats, EmailStatsRepository, OrderRepository, ParseMetadataRepository,
+    ShopSettingsRepository, SqliteEmailStatsRepository, SqliteOrderRepository,
+    SqliteParseMetadataRepository, SqliteShopSettingsRepository, SqliteSyncMetadataRepository,
+    SqliteWindowSettingsRepository, SyncMetadataRepository, WindowSettings,
+    WindowSettingsRepository,
 };
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -559,7 +560,11 @@ pub fn run() {
                         let _ = window.maximize();
                     }
 
-                    log::info!("Window settings restored: {}x{}", settings.width, settings.height);
+                    log::info!(
+                        "Window settings restored: {}x{}",
+                        settings.width,
+                        settings.height
+                    );
                 }
             });
 
@@ -776,7 +781,9 @@ async fn parse_and_save_email(
 
     // データベースに保存（非同期処理）
     let order_repo = SqliteOrderRepository::new(pool.inner().clone());
-    order_repo.save_order(&order_info, email_id, shop_domain).await
+    order_repo
+        .save_order(&order_info, email_id, shop_domain)
+        .await
 }
 
 #[tauri::command]
@@ -822,7 +829,9 @@ async fn start_batch_parse(
 
             // データベースのステータスをエラーに更新
             let repo = SqliteParseMetadataRepository::new(pool_clone.clone());
-            let _ = repo.update_parse_status("error", None, None, None, Some(e.clone())).await;
+            let _ = repo
+                .update_parse_status("error", None, None, None, Some(e.clone()))
+                .await;
         }
     });
 

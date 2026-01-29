@@ -781,7 +781,11 @@ impl OrderRepository for SqliteOrderRepository {
 
                 log::debug!("Linked order {} to email {}", order_id, email_id_val);
             } else {
-                log::debug!("Order {} is already linked to email {}", order_id, email_id_val);
+                log::debug!(
+                    "Order {} is already linked to email {}",
+                    order_id,
+                    email_id_val
+                );
             }
         }
 
@@ -1364,10 +1368,12 @@ mod tests {
         .await
         .expect("Failed to create window_settings table");
 
-        sqlx::query("INSERT OR IGNORE INTO window_settings (id, width, height) VALUES (1, 800, 600)")
-            .execute(&pool)
-            .await
-            .expect("Failed to insert default window settings");
+        sqlx::query(
+            "INSERT OR IGNORE INTO window_settings (id, width, height) VALUES (1, 800, 600)",
+        )
+        .execute(&pool)
+        .await
+        .expect("Failed to insert default window settings");
 
         // orders テーブル (003 に対応)
         sqlx::query(
@@ -1612,10 +1618,7 @@ mod tests {
             .expect("failed to set oldest_fetched_date");
 
         let metadata = repo.get_sync_metadata().await.unwrap();
-        assert_eq!(
-            metadata.oldest_fetched_date,
-            Some("2024-01-01".to_string())
-        );
+        assert_eq!(metadata.oldest_fetched_date, Some("2024-01-01".to_string()));
 
         // リセットで NULL になる
         repo.reset_sync_date().await.unwrap();
@@ -1658,7 +1661,7 @@ mod tests {
         assert_eq!(settings.height, 600);
         assert_eq!(settings.x, None);
         assert_eq!(settings.y, None);
-        assert_eq!(settings.maximized, false);
+        assert!(!settings.maximized);
 
         // 設定を更新
         let new_settings = WindowSettings {
@@ -1668,7 +1671,9 @@ mod tests {
             y: Some(200),
             maximized: true,
         };
-        repo.save_window_settings(new_settings.clone()).await.unwrap();
+        repo.save_window_settings(new_settings.clone())
+            .await
+            .unwrap();
 
         // 更新結果を検証
         let settings = repo.get_window_settings().await.unwrap();
@@ -1676,7 +1681,7 @@ mod tests {
         assert_eq!(settings.height, 768);
         assert_eq!(settings.x, Some(100));
         assert_eq!(settings.y, Some(200));
-        assert_eq!(settings.maximized, true);
+        assert!(settings.maximized);
     }
 
     #[tokio::test]
@@ -1729,13 +1734,14 @@ mod tests {
             .await
             .expect("Failed to insert test email");
 
-        let email_id: (i64,) = sqlx::query_as("SELECT id FROM emails WHERE message_id = 'test-email-1'")
-            .fetch_one(&pool)
-            .await
-            .expect("Failed to get email id");
+        let email_id: (i64,) =
+            sqlx::query_as("SELECT id FROM emails WHERE message_id = 'test-email-1'")
+                .fetch_one(&pool)
+                .await
+                .expect("Failed to get email id");
 
         // 新しい注文情報を作成
-        use crate::parsers::{OrderInfo, OrderItem, DeliveryInfo};
+        use crate::parsers::{DeliveryInfo, OrderInfo, OrderItem};
         let order_info = OrderInfo {
             order_number: "ORD-001".to_string(),
             order_date: Some("2024-01-01".to_string()),
@@ -1772,18 +1778,21 @@ mod tests {
 
         // 注文を保存
         let order_id = repo
-            .save_order(&order_info, Some(email_id.0), Some("example.com".to_string()))
+            .save_order(
+                &order_info,
+                Some(email_id.0),
+                Some("example.com".to_string()),
+            )
             .await
             .unwrap();
 
         // 検証: ordersテーブル
-        let order: (String, Option<String>, Option<String>) = sqlx::query_as(
-            "SELECT order_number, order_date, shop_domain FROM orders WHERE id = ?",
-        )
-        .bind(order_id)
-        .fetch_one(&pool)
-        .await
-        .expect("Failed to fetch order");
+        let order: (String, Option<String>, Option<String>) =
+            sqlx::query_as("SELECT order_number, order_date, shop_domain FROM orders WHERE id = ?")
+                .bind(order_id)
+                .fetch_one(&pool)
+                .await
+                .expect("Failed to fetch order");
         assert_eq!(order.0, "ORD-001");
         assert_eq!(order.1, Some("2024-01-01".to_string()));
         assert_eq!(order.2, Some("example.com".to_string()));
@@ -1851,15 +1860,18 @@ mod tests {
         assert_eq!(emails.len(), 3);
 
         // 注文を作成してemail1をパース済みにする
-        sqlx::query("INSERT INTO orders (order_number, shop_domain) VALUES ('ORD-001', 'example.com')")
-            .execute(&pool)
-            .await
-            .expect("Failed to insert order");
+        sqlx::query(
+            "INSERT INTO orders (order_number, shop_domain) VALUES ('ORD-001', 'example.com')",
+        )
+        .execute(&pool)
+        .await
+        .expect("Failed to insert order");
 
-        let order_id: (i64,) = sqlx::query_as("SELECT id FROM orders WHERE order_number = 'ORD-001'")
-            .fetch_one(&pool)
-            .await
-            .expect("Failed to get order id");
+        let order_id: (i64,) =
+            sqlx::query_as("SELECT id FROM orders WHERE order_number = 'ORD-001'")
+                .fetch_one(&pool)
+                .await
+                .expect("Failed to get order id");
 
         let email_id: (i64,) = sqlx::query_as("SELECT id FROM emails WHERE message_id = 'email1'")
             .fetch_one(&pool)
