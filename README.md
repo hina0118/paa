@@ -57,7 +57,7 @@ This template should help get you started developing with Tauri, React and Types
 
 ### `images` (画像データ)
 
-- `item_id` (FK), `image_data` (BLOB), `source_url`
+- `item_id` (FK), `file_name` (TEXT)
 
 ## 4. UI/UX 仕様
 

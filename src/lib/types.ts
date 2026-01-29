@@ -47,7 +47,7 @@ export type Item = {
 export type ItemImage = {
   id: number;
   itemId: number;
-  imageData?: string;
+  fileName?: string;
   createdAt: Date;
 };
 

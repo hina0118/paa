@@ -1,2 +1,0 @@
--- Initial migration placeholder
--- This file is kept for migration versioning purposes
