@@ -256,7 +256,7 @@ impl SyncMetadataRepository for SqliteSyncMetadataRepository {
         })
     }
 
-    async fn update_batch_size(&self, _batch_size: i64) -> Result<(), String> {
+    async fn update_batch_size(&self, batch_size: i64) -> Result<(), String> {
         sqlx::query(
             r#"
             UPDATE sync_metadata
@@ -264,7 +264,7 @@ impl SyncMetadataRepository for SqliteSyncMetadataRepository {
             WHERE id = 1
             "#,
         )
-        .bind(_batch_size)
+        .bind(batch_size)
         .execute(&self.pool)
         .await
         .map_err(|e| format!("Failed to update batch size: {e}"))?;
@@ -272,7 +272,7 @@ impl SyncMetadataRepository for SqliteSyncMetadataRepository {
         Ok(())
     }
 
-    async fn update_max_iterations(&self, _max_iterations: i64) -> Result<(), String> {
+    async fn update_max_iterations(&self, max_iterations: i64) -> Result<(), String> {
         sqlx::query(
             r#"
             UPDATE sync_metadata
@@ -280,7 +280,7 @@ impl SyncMetadataRepository for SqliteSyncMetadataRepository {
             WHERE id = 1
             "#,
         )
-        .bind(_max_iterations)
+        .bind(max_iterations)
         .execute(&self.pool)
         .await
         .map_err(|e| format!("Failed to update max iterations: {e}"))?;
@@ -318,7 +318,7 @@ impl SyncMetadataRepository for SqliteSyncMetadataRepository {
         Ok(())
     }
 
-    async fn update_error_status(&self, _error_message: &str) -> Result<(), String> {
+    async fn update_error_status(&self, error_message: &str) -> Result<(), String> {
         let now = Utc::now().to_rfc3339();
         sqlx::query(
             r#"
@@ -329,7 +329,7 @@ impl SyncMetadataRepository for SqliteSyncMetadataRepository {
             WHERE id = 1
             "#,
         )
-        .bind(_error_message)
+        .bind(error_message)
         .bind(&now)
         .execute(&self.pool)
         .await
@@ -402,7 +402,7 @@ impl ParseMetadataRepository for SqliteParseMetadataRepository {
         Ok(row.0)
     }
 
-    async fn update_batch_size(&self, _batch_size: i64) -> Result<(), String> {
+    async fn update_batch_size(&self, batch_size: i64) -> Result<(), String> {
         sqlx::query(
             r#"
             UPDATE parse_metadata
@@ -410,7 +410,7 @@ impl ParseMetadataRepository for SqliteParseMetadataRepository {
             WHERE id = 1
             "#,
         )
-        .bind(_batch_size)
+        .bind(batch_size)
         .execute(&self.pool)
         .await
         .map_err(|e| format!("Failed to update parse batch size: {e}"))?;
