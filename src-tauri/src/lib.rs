@@ -15,6 +15,13 @@ pub mod parsers;
 pub mod repository;
 
 use crate::logic::email_parser::get_candidate_parsers;
+use crate::repository::{
+    EmailStats, EmailStatsRepository, OrderRepository, ParseMetadataRepository,
+    ShopSettingsRepository, SqliteEmailStatsRepository, SqliteOrderRepository,
+    SqliteParseMetadataRepository, SqliteShopSettingsRepository, SqliteSyncMetadataRepository,
+    SqliteWindowSettingsRepository, SyncMetadataRepository, WindowSettings,
+    WindowSettingsRepository,
+};
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -56,12 +63,8 @@ async fn start_sync(
             let _ = app_clone.emit("sync-progress", error_event);
 
             // Update database status to error
-            let _ = sqlx::query(
-                "UPDATE sync_metadata SET sync_status = 'error', last_error_message = ?1 WHERE id = 1"
-            )
-            .bind(&e)
-            .execute(&pool_clone)
-            .await;
+            let repo = SqliteSyncMetadataRepository::new(pool_clone.clone());
+            let _ = repo.update_error_status(&e).await;
         }
     });
 
@@ -79,54 +82,23 @@ async fn cancel_sync(sync_state: tauri::State<'_, gmail::SyncState>) -> Result<(
 async fn get_sync_status(
     pool: tauri::State<'_, SqlitePool>,
 ) -> Result<gmail::SyncMetadata, String> {
-    let row: (String, Option<String>, i64, i64, Option<String>, Option<String>, i64) = sqlx::query_as(
-        "SELECT sync_status, oldest_fetched_date, total_synced_count, batch_size, last_sync_started_at, last_sync_completed_at, max_iterations FROM sync_metadata WHERE id = 1"
-    )
-    .fetch_one(pool.inner())
-    .await
-    .map_err(|e| format!("Failed to fetch sync status: {e}"))?;
-
-    Ok(gmail::SyncMetadata {
-        sync_status: row.0,
-        oldest_fetched_date: row.1,
-        total_synced_count: row.2,
-        batch_size: row.3,
-        last_sync_started_at: row.4,
-        last_sync_completed_at: row.5,
-        max_iterations: row.6,
-    })
+    let repo = SqliteSyncMetadataRepository::new(pool.inner().clone());
+    let metadata = repo.get_sync_metadata().await?;
+    Ok(metadata)
 }
 
 #[tauri::command]
 async fn reset_sync_status(pool: tauri::State<'_, SqlitePool>) -> Result<(), String> {
     log::info!("Resetting stuck sync status to 'idle'");
-
-    sqlx::query(
-        "UPDATE sync_metadata
-         SET sync_status = 'idle'
-         WHERE id = 1 AND sync_status = 'syncing'",
-    )
-    .execute(pool.inner())
-    .await
-    .map_err(|e| format!("Failed to reset sync status: {e}"))?;
-
-    Ok(())
+    let repo = SqliteSyncMetadataRepository::new(pool.inner().clone());
+    repo.reset_sync_status().await
 }
 
 #[tauri::command]
 async fn reset_sync_date(pool: tauri::State<'_, SqlitePool>) -> Result<(), String> {
     log::info!("Resetting oldest_fetched_date to allow re-sync from latest emails");
-
-    sqlx::query(
-        "UPDATE sync_metadata
-         SET oldest_fetched_date = NULL
-         WHERE id = 1",
-    )
-    .execute(pool.inner())
-    .await
-    .map_err(|e| format!("Failed to reset sync date: {e}"))?;
-
-    Ok(())
+    let repo = SqliteSyncMetadataRepository::new(pool.inner().clone());
+    repo.reset_sync_date().await
 }
 
 #[tauri::command]
@@ -135,14 +107,8 @@ async fn update_batch_size(
     batch_size: i64,
 ) -> Result<(), String> {
     log::info!("Updating batch size to: {batch_size}");
-
-    sqlx::query("UPDATE sync_metadata SET batch_size = ?1 WHERE id = 1")
-        .bind(batch_size)
-        .execute(pool.inner())
-        .await
-        .map_err(|e| format!("Failed to update batch size: {e}"))?;
-
-    Ok(())
+    let repo = SqliteSyncMetadataRepository::new(pool.inner().clone());
+    repo.update_batch_size(batch_size).await
 }
 
 #[tauri::command]
@@ -155,40 +121,14 @@ async fn update_max_iterations(
     }
 
     log::info!("Updating max iterations to: {max_iterations}");
-
-    sqlx::query("UPDATE sync_metadata SET max_iterations = ?1 WHERE id = 1")
-        .bind(max_iterations)
-        .execute(pool.inner())
-        .await
-        .map_err(|e| format!("Failed to update max iterations: {e}"))?;
-
-    Ok(())
-}
-
-#[derive(serde::Serialize, serde::Deserialize)]
-struct WindowSettings {
-    width: i64,
-    height: i64,
-    x: Option<i64>,
-    y: Option<i64>,
-    maximized: bool,
+    let repo = SqliteSyncMetadataRepository::new(pool.inner().clone());
+    repo.update_max_iterations(max_iterations).await
 }
 
 #[tauri::command]
 async fn get_window_settings(pool: tauri::State<'_, SqlitePool>) -> Result<WindowSettings, String> {
-    let row: (i64, i64, Option<i64>, Option<i64>, i64) =
-        sqlx::query_as("SELECT width, height, x, y, maximized FROM window_settings WHERE id = 1")
-            .fetch_one(pool.inner())
-            .await
-            .map_err(|e| format!("Failed to fetch window settings: {e}"))?;
-
-    Ok(WindowSettings {
-        width: row.0,
-        height: row.1,
-        x: row.2,
-        y: row.3,
-        maximized: row.4 != 0,
-    })
+    let repo = SqliteWindowSettingsRepository::new(pool.inner().clone());
+    repo.get_window_settings().await
 }
 
 #[tauri::command]
@@ -215,19 +155,15 @@ async fn save_window_settings(
         ));
     }
 
-    sqlx::query(
-        "UPDATE window_settings SET width = ?1, height = ?2, x = ?3, y = ?4, maximized = ?5 WHERE id = 1"
-    )
-    .bind(width)
-    .bind(height)
-    .bind(x)
-    .bind(y)
-    .bind(i32::from(maximized))
-    .execute(pool.inner())
-    .await
-    .map_err(|e| format!("Failed to save window settings: {e}"))?;
-
-    Ok(())
+    let repo = SqliteWindowSettingsRepository::new(pool.inner().clone());
+    let settings = WindowSettings {
+        width,
+        height,
+        x,
+        y,
+        maximized,
+    };
+    repo.save_window_settings(settings).await
 }
 
 #[tauri::command]
@@ -250,53 +186,11 @@ async fn fetch_gmail_emails(
     })
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct EmailStats {
-    pub total_emails: i64,
-    pub with_body_plain: i64,
-    pub with_body_html: i64,
-    pub without_body: i64,
-    pub avg_plain_length: f64,
-    pub avg_html_length: f64,
-}
-
 /// メール統計情報を取得
-///
-/// CTEを使用してLENGTH計算を一度だけ実行し、パフォーマンスを最適化
 #[tauri::command]
 async fn get_email_stats(pool: tauri::State<'_, SqlitePool>) -> Result<EmailStats, String> {
-    let stats: (i64, i64, i64, i64, Option<f64>, Option<f64>) = sqlx::query_as(
-        r"
-        WITH email_lengths AS (
-            SELECT
-                body_plain,
-                body_html,
-                CASE WHEN body_plain IS NOT NULL THEN LENGTH(body_plain) ELSE 0 END AS plain_length,
-                CASE WHEN body_html IS NOT NULL THEN LENGTH(body_html) ELSE 0 END AS html_length
-            FROM emails
-        )
-        SELECT
-            COUNT(*) AS total,
-            COUNT(CASE WHEN body_plain IS NOT NULL AND plain_length > 0 THEN 1 END) AS with_plain,
-            COUNT(CASE WHEN body_html IS NOT NULL AND html_length > 0 THEN 1 END) AS with_html,
-            COUNT(CASE WHEN (body_plain IS NULL OR plain_length = 0) AND (body_html IS NULL OR html_length = 0) THEN 1 END) AS without_body,
-            AVG(CASE WHEN body_plain IS NOT NULL AND plain_length > 0 THEN plain_length END) AS avg_plain,
-            AVG(CASE WHEN body_html IS NOT NULL AND html_length > 0 THEN html_length END) AS avg_html
-        FROM email_lengths
-        "
-    )
-    .fetch_one(pool.inner())
-    .await
-    .map_err(|e| format!("Failed to fetch email stats: {e}"))?;
-
-    Ok(EmailStats {
-        total_emails: stats.0,
-        with_body_plain: stats.1,
-        with_body_html: stats.2,
-        without_body: stats.3,
-        avg_plain_length: stats.4.unwrap_or(0.0),
-        avg_html_length: stats.5.unwrap_or(0.0),
-    })
+    let repo = SqliteEmailStatsRepository::new(pool.inner().clone());
+    repo.get_email_stats().await
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -644,23 +538,16 @@ pub fn run() {
 
             let pool_for_window = pool;
             tauri::async_runtime::spawn(async move {
-                if let Ok(settings) =
-                    sqlx::query_as::<_, (i64, i64, Option<i64>, Option<i64>, i64)>(
-                        "SELECT width, height, x, y, maximized FROM window_settings WHERE id = 1",
-                    )
-                    .fetch_one(&pool_for_window)
-                    .await
-                {
-                    let (width, height, x, y, maximized) = settings;
-
+                let repo = SqliteWindowSettingsRepository::new(pool_for_window.clone());
+                if let Ok(settings) = repo.get_window_settings().await {
                     // Set window size
                     let _ = window.set_size(tauri::LogicalSize {
-                        width: width as u32,
-                        height: height as u32,
+                        width: settings.width as u32,
+                        height: settings.height as u32,
                     });
 
                     // Set window position if available
-                    if let (Some(x_pos), Some(y_pos)) = (x, y) {
+                    if let (Some(x_pos), Some(y_pos)) = (settings.x, settings.y) {
                         #[allow(clippy::cast_possible_truncation)]
                         let _ = window.set_position(tauri::LogicalPosition {
                             x: x_pos as i32,
@@ -669,11 +556,15 @@ pub fn run() {
                     }
 
                     // Set maximized state
-                    if maximized != 0 {
+                    if settings.maximized {
                         let _ = window.maximize();
                     }
 
-                    log::info!("Window settings restored: {width}x{height}");
+                    log::info!(
+                        "Window settings restored: {}x{}",
+                        settings.width,
+                        settings.height
+                    );
                 }
             });
 
@@ -834,12 +725,12 @@ async fn parse_and_save_email(
     subject: Option<String>,
 ) -> Result<i64, String> {
     // shop_settingsから有効な設定を取得
-    let shop_settings: Vec<(String, String, Option<String>)> = sqlx::query_as(
-        "SELECT sender_address, parser_type, subject_filters FROM shop_settings WHERE is_enabled = 1"
-    )
-    .fetch_all(pool.inner())
-    .await
-    .map_err(|e| format!("Failed to fetch shop settings: {}", e))?;
+    let shop_settings_repo = SqliteShopSettingsRepository::new(pool.inner().clone());
+    let enabled_settings = shop_settings_repo.get_enabled().await?;
+    let shop_settings: Vec<(String, String, Option<String>)> = enabled_settings
+        .into_iter()
+        .map(|s| (s.sender_address, s.parser_type, s.subject_filters))
+        .collect();
 
     // 送信元アドレスと件名フィルターから候補のパーサータイプを取得（extract_email_address + 完全一致）
     let candidate_parsers =
@@ -889,7 +780,10 @@ async fn parse_and_save_email(
     };
 
     // データベースに保存（非同期処理）
-    parsers::save_order_to_db(pool.inner(), &order_info, email_id, shop_domain.as_deref()).await
+    let order_repo = SqliteOrderRepository::new(pool.inner().clone());
+    order_repo
+        .save_order(&order_info, email_id, shop_domain)
+        .await
 }
 
 #[tauri::command]
@@ -905,11 +799,9 @@ async fn start_batch_parse(
     let size = if let Some(size) = batch_size {
         size
     } else {
-        let row: (i64,) = sqlx::query_as("SELECT batch_size FROM parse_metadata WHERE id = 1")
-            .fetch_one(pool.inner())
-            .await
-            .map_err(|e| format!("Failed to fetch batch size: {}", e))?;
-        row.0 as usize
+        let repo = SqliteParseMetadataRepository::new(pool.inner().clone());
+        let batch_size = repo.get_batch_size().await?;
+        batch_size as usize
     };
 
     let pool_clone = pool.inner().clone();
@@ -936,12 +828,10 @@ async fn start_batch_parse(
             let _ = app_handle.emit("parse-progress", error_event);
 
             // データベースのステータスをエラーに更新
-            let _ = sqlx::query(
-                "UPDATE parse_metadata SET parse_status = 'error', last_error_message = ?1 WHERE id = 1"
-            )
-            .bind(&e)
-            .execute(&pool_clone)
-            .await;
+            let repo = SqliteParseMetadataRepository::new(pool_clone.clone());
+            let _ = repo
+                .update_parse_status("error", None, None, None, Some(e.clone()))
+                .await;
         }
     });
 
@@ -959,21 +849,8 @@ async fn cancel_parse(parse_state: tauri::State<'_, parsers::ParseState>) -> Res
 async fn get_parse_status(
     pool: tauri::State<'_, SqlitePool>,
 ) -> Result<parsers::ParseMetadata, String> {
-    let row: (String, Option<String>, Option<String>, i64, Option<String>, i64) = sqlx::query_as(
-        "SELECT parse_status, last_parse_started_at, last_parse_completed_at, total_parsed_count, last_error_message, batch_size FROM parse_metadata WHERE id = 1"
-    )
-    .fetch_one(pool.inner())
-    .await
-    .map_err(|e| format!("Failed to fetch parse status: {}", e))?;
-
-    Ok(parsers::ParseMetadata {
-        parse_status: row.0,
-        last_parse_started_at: row.1,
-        last_parse_completed_at: row.2,
-        total_parsed_count: row.3,
-        last_error_message: row.4,
-        batch_size: row.5,
-    })
+    let repo = SqliteParseMetadataRepository::new(pool.inner().clone());
+    repo.get_parse_metadata().await
 }
 
 #[tauri::command]
@@ -982,14 +859,8 @@ async fn update_parse_batch_size(
     batch_size: i64,
 ) -> Result<(), String> {
     log::info!("Updating parse batch size to: {batch_size}");
-
-    sqlx::query("UPDATE parse_metadata SET batch_size = ?1 WHERE id = 1")
-        .bind(batch_size)
-        .execute(pool.inner())
-        .await
-        .map_err(|e| format!("Failed to update parse batch size: {}", e))?;
-
-    Ok(())
+    let repo = SqliteParseMetadataRepository::new(pool.inner().clone());
+    repo.update_batch_size(batch_size).await
 }
 
 #[cfg(test)]
