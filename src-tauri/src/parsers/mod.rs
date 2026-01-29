@@ -510,8 +510,8 @@ mod tests {
     #[test]
     fn test_parse_state_start_success() {
         let state = ParseState::new();
-        let _result = state.start();
-        // assert!(_result.is_ok());
+        let result = state.start();
+        assert!(result.is_ok());
         assert!(*state.is_running.lock().unwrap());
     }
 
@@ -520,8 +520,8 @@ mod tests {
         let state = ParseState::new();
 
         // 最初のstart
-        let _result = state.start();
-        // assert!(_result.is_ok());
+        let result = state.start();
+        assert!(result.is_ok());
 
         // 2回目のstartはエラー
         let result = state.start();
@@ -535,8 +535,8 @@ mod tests {
         state.request_cancel();
         assert!(state.is_cancelled());
 
-        let _result = state.start();
-        // assert!(_result.is_ok());
+        let result = state.start();
+        assert!(result.is_ok());
         assert!(!state.is_cancelled());
     }
 
@@ -883,10 +883,6 @@ mod tests {
 
     // ==================== batch_parse_emails Tests ====================
     //
-    // batch_parse_emails関数のテストは、AppHandleを必要とするため、
-    // 統合テストとして実装する必要があります。
-    // 統合テストは tests/parser_integration_tests.rs に実装されています。
-
     // batch_parse_emails関数のテストは、AppHandleを必要とするため、
     // 統合テストとして実装する必要があります。
     // 統合テストは tests/parser_integration_tests.rs に実装されています。
