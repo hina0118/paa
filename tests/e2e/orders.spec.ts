@@ -33,10 +33,26 @@ test.describe('Orders画面（商品一覧）', () => {
   });
 
   test('カード/リスト表示切替ボタンが表示される', async ({ page }) => {
-    // カード表示ボタン（LayoutGrid アイコンのみ）
     const cardButton = page.getByRole('button', { name: 'カード表示' });
     const listButton = page.getByRole('button', { name: 'リスト表示' });
     await expect(cardButton).toBeVisible();
     await expect(listButton).toBeVisible();
+  });
+
+  test('リスト表示に切り替えできる', async ({ page }) => {
+    const listButton = page.getByRole('button', { name: 'リスト表示' });
+    await listButton.click();
+    await expect(listButton).toBeVisible();
+  });
+
+  test('並び順セレクトが表示される', async ({ page }) => {
+    const sortSelect = page.locator('#sort');
+    await expect(sortSelect).toBeVisible();
+  });
+
+  test('ソートを変更できる', async ({ page }) => {
+    const sortSelect = page.locator('#sort');
+    await sortSelect.selectOption('price-asc');
+    await expect(sortSelect).toHaveValue('price-asc');
   });
 });

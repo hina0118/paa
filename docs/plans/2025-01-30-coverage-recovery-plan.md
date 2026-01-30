@@ -72,6 +72,18 @@ Phase 1 の結果に基づき、以下を実施する。
    - ローカルで `npm run test:frontend:coverage` と `npm run test:e2e` を実行
    - 閾値を満たすことを確認してから CI にマージ
 
+## Phase 1 分析結果（2025-01-30 実施）
+
+### フロントエンド
+
+- **主因**: Orders 関連の新規ファイルが未テスト（order-item-card, order-item-row, order-item-drawer, status-badge, orders-queries, useImageUrl）
+- **対策**: 上記コンポーネント・モジュールのユニットテストを追加済み
+
+### E2E
+
+- **主因**: Orders 画面の総関数数増加に対し、E2E で実行されるフローが限定的
+- **対策**: 検索入力・リスト切替・ソート変更などの E2E テストを追加済み
+
 ## 関連
 
 - Issue #51: E2E カバレッジ目標 25% への復旧

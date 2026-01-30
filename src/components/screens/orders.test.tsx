@@ -22,7 +22,7 @@ vi.mock('@tauri-apps/api/path', () => ({
 }));
 
 const mockDb = {
-  select: vi.fn().mockResolvedValue([]),
+  select: vi.fn(),
 };
 
 const renderOrders = () => {
@@ -37,7 +37,15 @@ describe('Orders', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetDb.mockResolvedValue(mockDb);
-    mockDb.select.mockResolvedValue([]);
+    mockDb.select.mockImplementation((sql: string) => {
+      if (sql.includes('shop_domain')) {
+        return Promise.resolve([]);
+      }
+      if (sql.includes('strftime')) {
+        return Promise.resolve([]);
+      }
+      return Promise.resolve([]);
+    });
   });
 
   it('renders 商品一覧 heading', async () => {
@@ -59,5 +67,46 @@ describe('Orders', () => {
     expect(
       screen.getByRole('button', { name: 'フィルタクリア' })
     ).toBeInTheDocument();
+  });
+
+  it('renders card and list view toggle buttons', () => {
+    renderOrders();
+    expect(
+      screen.getByRole('button', { name: 'カード表示' })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'リスト表示' })
+    ).toBeInTheDocument();
+  });
+
+  it('displays item count when loaded', async () => {
+    vi.mocked(mockDb.select).mockImplementation((sql: string) => {
+      if (sql.includes('shop_domain')) {
+        return Promise.resolve([{ shop_domain: 'shop.com' }]);
+      }
+      if (sql.includes('strftime')) {
+        return Promise.resolve([{ yr: '2024' }]);
+      }
+      return Promise.resolve([
+        {
+          id: 1,
+          orderId: 1,
+          itemName: 'Test Item',
+          itemNameNormalized: null,
+          price: 1000,
+          quantity: 1,
+          category: null,
+          brand: null,
+          createdAt: '2024-01-01',
+          shopDomain: 'shop.com',
+          orderNumber: 'ORD-1',
+          orderDate: '2024-01-01',
+          fileName: null,
+          deliveryStatus: 'delivered',
+        },
+      ]);
+    });
+    renderOrders();
+    expect(await screen.findByText(/1件の商品/)).toBeInTheDocument();
   });
 });
