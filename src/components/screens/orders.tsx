@@ -39,6 +39,7 @@ export function Orders() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [selectedItem, setSelectedItem] = useState<OrderItemRow | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const loadItemsRequestId = useRef(0);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -58,6 +59,7 @@ export function Orders() {
   }, [getDb]);
 
   const loadItems = useCallback(async () => {
+    const requestId = (loadItemsRequestId.current += 1);
     setLoading(true);
     try {
       const db = await getDb();
@@ -70,12 +72,18 @@ export function Orders() {
         sortBy,
         sortOrder,
       });
-      setItems(rows);
+      if (requestId === loadItemsRequestId.current) {
+        setItems(rows);
+      }
     } catch (err) {
-      console.error('Failed to load order items:', err);
-      setItems([]);
+      if (requestId === loadItemsRequestId.current) {
+        console.error('Failed to load order items:', err);
+        setItems([]);
+      }
     } finally {
-      setLoading(false);
+      if (requestId === loadItemsRequestId.current) {
+        setLoading(false);
+      }
     }
   }, [
     getDb,

@@ -21,9 +21,11 @@ export function formatDate(s: string | null | undefined): string {
   }
 }
 
+const priceFormatter = new Intl.NumberFormat('ja-JP');
+
 /** 価格を円表示でフォーマット */
 export function formatPrice(price: number): string {
-  return new Intl.NumberFormat('ja-JP').format(price) + '円';
+  return priceFormatter.format(price) + '円';
 }
 
 /**

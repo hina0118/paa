@@ -11,6 +11,17 @@ type OrderItemCardProps = {
   className?: string;
 };
 
+function handleCardKeyDown(
+  e: React.KeyboardEvent,
+  onClick: (() => void) | undefined
+) {
+  if (!onClick) return;
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault();
+    onClick();
+  }
+}
+
 export function OrderItemCard({
   item,
   onClick,
@@ -21,11 +32,14 @@ export function OrderItemCard({
 
   return (
     <Card
+      role="button"
+      tabIndex={onClick ? 0 : undefined}
       className={cn(
         'cursor-pointer transition-colors hover:bg-muted/50 overflow-hidden',
         className
       )}
       onClick={onClick}
+      onKeyDown={(e) => handleCardKeyDown(e, onClick)}
     >
       <div className="aspect-square bg-muted/50 flex items-center justify-center overflow-hidden">
         {imageSrc ? (

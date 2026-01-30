@@ -40,9 +40,12 @@ export function useImageUrl() {
   const getImageUrl = useCallback(
     (fileName: string | null | undefined): string | null => {
       if (!fileName?.trim() || !basePath) return null;
+      // パストラバーサル防止: 区切り文字や '..' を含む場合は拒否
+      const sanitized = fileName.trim();
+      if (/[/\\]|\.\./.test(sanitized)) return null;
       try {
         const separator = basePath.includes('\\') ? '\\' : '/';
-        const fullPath = `${basePath.replace(/[/\\]$/, '')}${separator}${fileName}`;
+        const fullPath = `${basePath.replace(/[/\\]$/, '')}${separator}${sanitized}`;
         return convertFileSrc(fullPath);
       } catch {
         return null;
