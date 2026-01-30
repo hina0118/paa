@@ -11,7 +11,7 @@ const coverageFile = path.join(
 /**
  * E2E 目標カバレッジ率（関数カバレッジ）。CI で未達の場合は失敗する。
  * Issue #18 で Orders 画面追加により総関数数が増えたため一時的に 20% に設定。
- * Orders 向け E2E テスト拡充後に 25% へ戻す予定。
+ * 25% 復旧の追跡: Issue #51
  */
 const E2E_COVERAGE_TARGET_PERCENT = 20;
 
