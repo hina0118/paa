@@ -38,10 +38,10 @@ describe('Orders', () => {
     vi.clearAllMocks();
     mockGetDb.mockResolvedValue(mockDb);
     mockDb.select.mockImplementation((sql: string) => {
-      if (sql.includes('shop_domain')) {
+      if (sql.includes('SELECT DISTINCT shop_domain')) {
         return Promise.resolve([]);
       }
-      if (sql.includes('strftime')) {
+      if (sql.includes("strftime('%Y'")) {
         return Promise.resolve([]);
       }
       return Promise.resolve([]);
@@ -97,10 +97,10 @@ describe('Orders', () => {
       deliveryStatus: 'delivered' as const,
     };
     vi.mocked(mockDb.select).mockImplementation((sql: string) => {
-      if (sql.includes('shop_domain')) {
+      if (sql.includes('SELECT DISTINCT shop_domain')) {
         return Promise.resolve([{ shop_domain: 'shop.com' }]);
       }
-      if (sql.includes('strftime')) {
+      if (sql.includes("strftime('%Y'")) {
         return Promise.resolve([{ yr: '2024' }]);
       }
       return Promise.resolve([mockItem]);
