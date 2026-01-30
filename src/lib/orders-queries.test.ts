@@ -60,6 +60,26 @@ describe('loadOrderItems', () => {
     expect(args).toContain(100);
     expect(args).toContain(5000);
   });
+
+  it('applies sortBy price and sortOrder asc', async () => {
+    const mockDb = { select: vi.fn().mockResolvedValue([]) };
+    await loadOrderItems(mockDb as never, {
+      sortBy: 'price',
+      sortOrder: 'asc',
+    });
+    const [sql] = (mockDb.select as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(sql).toContain('i.price');
+    expect(sql).toContain('ASC');
+  });
+
+  it('uses DESC when sortOrder is invalid', async () => {
+    const mockDb = { select: vi.fn().mockResolvedValue([]) };
+    await loadOrderItems(mockDb as never, {
+      sortOrder: 'invalid' as 'asc',
+    });
+    const [sql] = (mockDb.select as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(sql).toContain('DESC');
+  });
 });
 
 describe('getOrderItemFilterOptions', () => {

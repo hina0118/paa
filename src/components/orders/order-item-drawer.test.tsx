@@ -73,4 +73,27 @@ describe('OrderItemDrawer', () => {
     );
     expect(screen.getByText(/出版社X|書籍/)).toBeInTheDocument();
   });
+
+  it('renders 画像なし when no image', () => {
+    render(
+      <OrderItemDrawer item={mockItem} open={true} onOpenChange={vi.fn()} />
+    );
+    expect(screen.getByText('画像なし')).toBeInTheDocument();
+  });
+
+  it('does not render brand/category section when both are null', () => {
+    const itemWithoutBrandCategory: OrderItemRow = {
+      ...mockItem,
+      brand: null,
+      category: null,
+    };
+    render(
+      <OrderItemDrawer
+        item={itemWithoutBrandCategory}
+        open={true}
+        onOpenChange={vi.fn()}
+      />
+    );
+    expect(screen.queryByText('メーカー / 作品名')).not.toBeInTheDocument();
+  });
 });

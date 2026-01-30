@@ -167,6 +167,10 @@ describe('formatDate', () => {
   it('returns "-" for empty string', () => {
     expect(formatDate('')).toBe('-');
   });
+
+  it('returns original string for invalid date', () => {
+    expect(formatDate('invalid-date')).toBe('invalid-date');
+  });
 });
 
 describe('formatPrice', () => {

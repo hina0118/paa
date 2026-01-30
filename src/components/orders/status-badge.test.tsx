@@ -27,4 +27,29 @@ describe('StatusBadge', () => {
     render(<StatusBadge status="cancelled" />);
     expect(screen.getByText('キャンセル')).toBeInTheDocument();
   });
+
+  it('renders 準備中 for preparing', () => {
+    render(<StatusBadge status="preparing" />);
+    expect(screen.getByText('準備中')).toBeInTheDocument();
+  });
+
+  it('renders 配送中 for in_transit', () => {
+    render(<StatusBadge status="in_transit" />);
+    expect(screen.getByText('配送中')).toBeInTheDocument();
+  });
+
+  it('renders 配達中 for out_for_delivery', () => {
+    render(<StatusBadge status="out_for_delivery" />);
+    expect(screen.getByText('配達中')).toBeInTheDocument();
+  });
+
+  it('renders 配達失敗 for failed', () => {
+    render(<StatusBadge status="failed" />);
+    expect(screen.getByText('配達失敗')).toBeInTheDocument();
+  });
+
+  it('renders 返送 for returned', () => {
+    render(<StatusBadge status="returned" />);
+    expect(screen.getByText('返送')).toBeInTheDocument();
+  });
 });
