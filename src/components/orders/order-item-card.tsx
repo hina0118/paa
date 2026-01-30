@@ -1,6 +1,7 @@
 import { Package } from 'lucide-react';
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { StatusBadge } from './status-badge';
+import { useImageUrl } from '@/hooks/useImageUrl';
 import type { OrderItemRow } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
@@ -29,6 +30,9 @@ export function OrderItemCard({
   onClick,
   className,
 }: OrderItemCardProps) {
+  const getImageUrl = useImageUrl();
+  const imageSrc = getImageUrl(item.fileName);
+
   return (
     <Card
       className={cn(
@@ -37,8 +41,17 @@ export function OrderItemCard({
       )}
       onClick={onClick}
     >
-      <div className="aspect-square bg-muted/50 flex items-center justify-center">
-        <Package className="h-16 w-16 text-muted-foreground" />
+      <div className="aspect-square bg-muted/50 flex items-center justify-center overflow-hidden">
+        {imageSrc ? (
+          <img
+            src={imageSrc}
+            alt={item.itemName}
+            className="w-full h-full object-cover"
+            loading="lazy"
+          />
+        ) : (
+          <Package className="h-16 w-16 text-muted-foreground" />
+        )}
       </div>
       <CardContent className="p-3 space-y-1">
         <div className="flex items-start justify-between gap-2">
