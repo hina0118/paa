@@ -80,6 +80,22 @@ describe('Orders', () => {
   });
 
   it('displays item count when loaded', async () => {
+    const mockItem = {
+      id: 1,
+      orderId: 1,
+      itemName: 'Test Item',
+      itemNameNormalized: null,
+      price: 1000,
+      quantity: 1,
+      category: null,
+      brand: null,
+      createdAt: '2024-01-01',
+      shopDomain: 'shop.com',
+      orderNumber: 'ORD-1',
+      orderDate: '2024-01-01',
+      fileName: null,
+      deliveryStatus: 'delivered' as const,
+    };
     vi.mocked(mockDb.select).mockImplementation((sql: string) => {
       if (sql.includes('shop_domain')) {
         return Promise.resolve([{ shop_domain: 'shop.com' }]);
@@ -87,26 +103,9 @@ describe('Orders', () => {
       if (sql.includes('strftime')) {
         return Promise.resolve([{ yr: '2024' }]);
       }
-      return Promise.resolve([
-        {
-          id: 1,
-          orderId: 1,
-          itemName: 'Test Item',
-          itemNameNormalized: null,
-          price: 1000,
-          quantity: 1,
-          category: null,
-          brand: null,
-          createdAt: '2024-01-01',
-          shopDomain: 'shop.com',
-          orderNumber: 'ORD-1',
-          orderDate: '2024-01-01',
-          fileName: null,
-          deliveryStatus: 'delivered',
-        },
-      ]);
+      return Promise.resolve([mockItem]);
     });
     renderOrders();
-    expect(await screen.findByText(/1件の商品/)).toBeInTheDocument();
+    await expect(screen.findByText(/1件の商品/)).resolves.toBeInTheDocument();
   });
 });
