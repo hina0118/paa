@@ -103,6 +103,94 @@ describe('SyncContext', () => {
     );
   });
 
+  it('handles reset_sync_status failure when stuck', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    let callCount = 0;
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_sync_status') {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve({
+            sync_status: 'syncing' as const,
+            total_synced_count: 0,
+            batch_size: 50,
+          });
+        }
+        return Promise.resolve({
+          sync_status: 'idle' as const,
+          total_synced_count: 0,
+          batch_size: 50,
+        });
+      }
+      if (cmd === 'reset_sync_status') {
+        return Promise.reject(new Error('Reset failed'));
+      }
+      return Promise.resolve(undefined);
+    });
+
+    renderHook(() => useSync(), { wrapper });
+
+    await waitFor(
+      () => {
+        expect(consoleSpy).toHaveBeenCalledWith(
+          'Failed to reset sync status:',
+          expect.any(Error)
+        );
+      },
+      { timeout: 3000 }
+    );
+
+    consoleSpy.mockRestore();
+  });
+
+  it('handles sync-progress event with is_complete', async () => {
+    let progressCallback:
+      | ((e: { payload: { is_complete: boolean } }) => void)
+      | null = null;
+    mockListen.mockImplementation((event: string, cb: (e: unknown) => void) => {
+      if (event === 'sync-progress') {
+        progressCallback = cb as (e: {
+          payload: { is_complete: boolean };
+        }) => void;
+      }
+      return Promise.resolve(() => {});
+    });
+
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_sync_status') {
+        return Promise.resolve({
+          sync_status: 'idle' as const,
+          total_synced_count: 100,
+          batch_size: 50,
+        });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    const { result } = renderHook(() => useSync(), { wrapper });
+
+    await waitFor(() => expect(progressCallback).not.toBeNull());
+
+    await act(async () => {
+      progressCallback?.({
+        payload: {
+          batch_number: 1,
+          batch_size: 50,
+          total_synced: 50,
+          newly_saved: 45,
+          status_message: 'Complete',
+          is_complete: true,
+        },
+      });
+    });
+
+    expect(mockInvoke).toHaveBeenCalledWith('get_sync_status');
+    await waitFor(() => {
+      expect(result.current.isSyncing).toBe(false);
+    });
+  });
+
   it('starts sync successfully', async () => {
     mockInvoke.mockResolvedValue(undefined);
 
