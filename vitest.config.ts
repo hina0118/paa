@@ -29,12 +29,12 @@ export default defineConfig({
         '**/*.d.ts',
         '**/vite-env.d.ts',
       ],
-      // カバレッジ閾値（Issue #18 Orders画面追加により一時引き下げ。lines:75, functions:55, branches:60, statements:73）
+      // カバレッジ閾値 85%
       thresholds: {
-        lines: 75,
-        functions: 55,
-        branches: 60,
-        statements: 73,
+        lines: 85,
+        functions: 85,
+        branches: 85,
+        statements: 85,
       },
     },
   },
