@@ -32,14 +32,15 @@ export function OrderItemCard({
 
   return (
     <Card
-      role="button"
+      role={onClick ? 'button' : undefined}
       tabIndex={onClick ? 0 : undefined}
       className={cn(
-        'cursor-pointer transition-colors hover:bg-muted/50 overflow-hidden',
+        onClick && 'cursor-pointer transition-colors hover:bg-muted/50',
+        'overflow-hidden',
         className
       )}
       onClick={onClick}
-      onKeyDown={(e) => handleCardKeyDown(e, onClick)}
+      onKeyDown={onClick ? (e) => handleCardKeyDown(e, onClick) : undefined}
     >
       <div className="aspect-square bg-muted/50 flex items-center justify-center overflow-hidden">
         {imageSrc ? (

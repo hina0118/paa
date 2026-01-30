@@ -17,19 +17,25 @@ export function OrderItemRowView({
 }: OrderItemRowViewProps) {
   const getImageUrl = useImageUrl();
   const imageSrc = getImageUrl(item.fileName);
+  const isInteractive = Boolean(onClick);
 
   return (
     <div
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onClick?.();
-        }
-      }}
+      role={isInteractive ? 'button' : undefined}
+      tabIndex={isInteractive ? 0 : undefined}
+      onKeyDown={
+        isInteractive
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onClick?.();
+              }
+            }
+          : undefined
+      }
       className={cn(
-        'flex items-center gap-4 p-3 border-b cursor-pointer transition-colors hover:bg-muted/50',
+        'flex items-center gap-4 p-3 border-b',
+        isInteractive && 'cursor-pointer transition-colors hover:bg-muted/50',
         className
       )}
       onClick={onClick}
