@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ShoppingCart, Search } from 'lucide-react';
+import { ShoppingCart, Search, LayoutGrid, List } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useDatabase } from '@/hooks/useDatabase';
@@ -9,11 +9,13 @@ import {
   getOrderItemFilterOptions,
 } from '@/lib/orders-queries';
 import { OrderItemCard } from '@/components/orders/order-item-card';
+import { OrderItemRowView } from '@/components/orders/order-item-row';
 import type { OrderItemRow } from '@/lib/types';
 
 const SEARCH_DEBOUNCE_MS = 300;
 const CARD_MIN_WIDTH = 200;
-const ROW_HEIGHT = 320;
+const CARD_ROW_HEIGHT = 320;
+const LIST_ROW_HEIGHT = 80;
 
 export function Orders() {
   const { getDb } = useDatabase();
@@ -30,6 +32,7 @@ export function Orders() {
     years: number[];
   }>({ shopDomains: [], years: [] });
   const [columnCount, setColumnCount] = useState(4);
+  const [viewMode, setViewMode] = useState<'card' | 'list'>('card');
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -115,6 +118,26 @@ export function Orders() {
           <Button variant="outline" onClick={handleClearFilters}>
             フィルタクリア
           </Button>
+          <div className="flex border rounded-md">
+            <Button
+              variant={viewMode === 'card' ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => setViewMode('card')}
+              aria-pressed={viewMode === 'card'}
+              aria-label="カード表示"
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </Button>
+            <Button
+              variant={viewMode === 'list' ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => setViewMode('list')}
+              aria-pressed={viewMode === 'list'}
+              aria-label="リスト表示"
+            >
+              <List className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
 
         <div className="flex flex-wrap gap-4 items-center">
@@ -200,7 +223,8 @@ export function Orders() {
       ) : (
         <OrderItemGrid
           items={items}
-          columnCount={columnCount}
+          viewMode={viewMode}
+          columnCount={viewMode === 'list' ? 1 : columnCount}
           onColumnCountChange={setColumnCount}
           onItemClick={() => {}}
         />
@@ -211,6 +235,7 @@ export function Orders() {
 
 type OrderItemGridProps = {
   items: OrderItemRow[];
+  viewMode: 'card' | 'list';
   columnCount: number;
   onColumnCountChange: (n: number) => void;
   onItemClick: (item: OrderItemRow) => void;
@@ -218,6 +243,7 @@ type OrderItemGridProps = {
 
 function OrderItemGrid({
   items,
+  viewMode,
   columnCount,
   onColumnCountChange,
   onItemClick,
@@ -239,11 +265,12 @@ function OrderItemGrid({
     return () => observer.disconnect();
   }, [onColumnCountChange]);
 
+  const rowHeight = viewMode === 'list' ? LIST_ROW_HEIGHT : CARD_ROW_HEIGHT;
   const rowCount = Math.ceil(items.length / columnCount);
   const virtualizer = useVirtualizer({
     count: rowCount,
     getScrollElement: () => scrollContainerRef.current,
-    estimateSize: () => ROW_HEIGHT,
+    estimateSize: () => rowHeight,
     overscan: 2,
   });
 
@@ -273,19 +300,30 @@ function OrderItemGrid({
                 left: 0,
                 width: '100%',
                 transform: `translateY(${virtualRow.start}px)`,
-                display: 'grid',
-                gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))`,
-                gap: '1rem',
-                padding: '0.5rem',
+                display: viewMode === 'list' ? 'block' : 'grid',
+                gridTemplateColumns:
+                  viewMode === 'card'
+                    ? `repeat(${columnCount}, minmax(0, 1fr))`
+                    : undefined,
+                gap: viewMode === 'card' ? '1rem' : undefined,
+                padding: viewMode === 'card' ? '0.5rem' : 0,
               }}
             >
-              {rowItems.map((item) => (
-                <OrderItemCard
-                  key={item.id}
-                  item={item}
-                  onClick={() => onItemClick(item)}
-                />
-              ))}
+              {rowItems.map((item) =>
+                viewMode === 'list' ? (
+                  <OrderItemRowView
+                    key={item.id}
+                    item={item}
+                    onClick={() => onItemClick(item)}
+                  />
+                ) : (
+                  <OrderItemCard
+                    key={item.id}
+                    item={item}
+                    onClick={() => onItemClick(item)}
+                  />
+                )
+              )}
             </div>
           );
         })}
