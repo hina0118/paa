@@ -15,7 +15,8 @@ import type { OrderItemRow } from '@/lib/types';
 
 const SEARCH_DEBOUNCE_MS = 300;
 const CARD_MIN_WIDTH = 200;
-const CARD_ROW_HEIGHT = 320;
+// カードは aspect-square のため、列幅に応じて高さが変わる。4列時の最大高さを考慮
+const CARD_ROW_HEIGHT = 400;
 const LIST_ROW_HEIGHT = 80;
 
 export function Orders() {

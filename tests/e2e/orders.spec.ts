@@ -1,0 +1,42 @@
+import { test, expect } from './fixtures';
+import {
+  navigateToScreen,
+  expectScreenTitle,
+  expectSidebarVisible,
+} from './helpers';
+
+test.describe('Orders画面（商品一覧）', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/');
+    await expectSidebarVisible(page);
+    await navigateToScreen(page, 'Orders');
+    await expectScreenTitle(page, '商品一覧');
+  });
+
+  test('検索ボックスが表示される', async ({ page }) => {
+    await expect(
+      page.getByPlaceholder('商品名・ショップ名・注文番号で検索')
+    ).toBeVisible();
+  });
+
+  test('フィルタクリアボタンが表示される', async ({ page }) => {
+    await expect(
+      page.getByRole('button', { name: 'フィルタクリア' })
+    ).toBeVisible();
+  });
+
+  test('検索ボックスに入力できる', async ({ page }) => {
+    const searchInput =
+      page.getByPlaceholder('商品名・ショップ名・注文番号で検索');
+    await searchInput.fill('test');
+    await expect(searchInput).toHaveValue('test');
+  });
+
+  test('カード/リスト表示切替ボタンが表示される', async ({ page }) => {
+    // カード表示ボタン（LayoutGrid アイコンのみ）
+    const cardButton = page.getByRole('button', { name: 'カード表示' });
+    const listButton = page.getByRole('button', { name: 'リスト表示' });
+    await expect(cardButton).toBeVisible();
+    await expect(listButton).toBeVisible();
+  });
+});

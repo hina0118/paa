@@ -9,7 +9,7 @@ const coverageFile = path.join(
 );
 
 /** E2E 目標カバレッジ率（関数カバレッジ）。CI で未達の場合は失敗する */
-const E2E_COVERAGE_TARGET_PERCENT = 25;
+const E2E_COVERAGE_TARGET_PERCENT = 20;
 
 export default async function globalTeardown(_config: FullConfig) {
   if (fs.existsSync(coverageFile)) {

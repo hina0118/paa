@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { cn, notify } from './utils';
+import { cn, notify, formatDate, formatPrice } from './utils';
 
 // Tauri Notification APIをモック
 const mockIsPermissionGranted = vi.fn();
@@ -146,5 +146,35 @@ describe('notify utility', () => {
       title: longTitle,
       body: longBody,
     });
+  });
+});
+
+describe('formatDate', () => {
+  it('formats ISO date string to ja-JP', () => {
+    expect(formatDate('2024-01-15T00:00:00')).toMatch(
+      /\d{4}\/\d{1,2}\/\d{1,2}/
+    );
+  });
+
+  it('returns "-" for null', () => {
+    expect(formatDate(null)).toBe('-');
+  });
+
+  it('returns "-" for undefined', () => {
+    expect(formatDate(undefined)).toBe('-');
+  });
+
+  it('returns "-" for empty string', () => {
+    expect(formatDate('')).toBe('-');
+  });
+});
+
+describe('formatPrice', () => {
+  it('formats price with yen', () => {
+    expect(formatPrice(1000)).toBe('1,000円');
+  });
+
+  it('formats zero', () => {
+    expect(formatPrice(0)).toBe('0円');
   });
 });
