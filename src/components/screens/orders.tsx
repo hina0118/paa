@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { ShoppingCart, Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -7,9 +8,12 @@ import {
   loadOrderItems,
   getOrderItemFilterOptions,
 } from '@/lib/orders-queries';
+import { OrderItemCard } from '@/components/orders/order-item-card';
 import type { OrderItemRow } from '@/lib/types';
 
 const SEARCH_DEBOUNCE_MS = 300;
+const CARD_MIN_WIDTH = 200;
+const ROW_HEIGHT = 320;
 
 export function Orders() {
   const { getDb } = useDatabase();
@@ -25,6 +29,7 @@ export function Orders() {
     shopDomains: string[];
     years: number[];
   }>({ shopDomains: [], years: [] });
+  const [columnCount, setColumnCount] = useState(4);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -184,12 +189,106 @@ export function Orders() {
         </div>
       </div>
 
-      <div className="text-muted-foreground py-12 text-center">
-        {loading
-          ? '読み込み中...'
-          : items.length === 0
-            ? 'データがありません'
-            : '（一覧表示は次のタスクで実装）'}
+      {loading ? (
+        <div className="text-muted-foreground py-12 text-center">
+          読み込み中...
+        </div>
+      ) : items.length === 0 ? (
+        <div className="text-muted-foreground py-12 text-center">
+          データがありません
+        </div>
+      ) : (
+        <OrderItemGrid
+          items={items}
+          columnCount={columnCount}
+          onColumnCountChange={setColumnCount}
+          onItemClick={() => {}}
+        />
+      )}
+    </div>
+  );
+}
+
+type OrderItemGridProps = {
+  items: OrderItemRow[];
+  columnCount: number;
+  onColumnCountChange: (n: number) => void;
+  onItemClick: (item: OrderItemRow) => void;
+};
+
+function OrderItemGrid({
+  items,
+  columnCount,
+  onColumnCountChange,
+  onItemClick,
+}: OrderItemGridProps) {
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const updateColumns = () => {
+      const w = el.clientWidth;
+      onColumnCountChange(
+        Math.max(2, Math.min(4, Math.floor(w / CARD_MIN_WIDTH)))
+      );
+    };
+    const observer = new ResizeObserver(updateColumns);
+    observer.observe(el);
+    updateColumns();
+    return () => observer.disconnect();
+  }, [onColumnCountChange]);
+
+  const rowCount = Math.ceil(items.length / columnCount);
+  const virtualizer = useVirtualizer({
+    count: rowCount,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 2,
+  });
+
+  return (
+    <div
+      ref={scrollContainerRef}
+      className="h-[calc(100vh-20rem)] overflow-auto rounded-lg border"
+      style={{ contain: 'strict' }}
+    >
+      <div
+        style={{
+          height: virtualizer.getTotalSize(),
+          width: '100%',
+          position: 'relative',
+        }}
+      >
+        {virtualizer.getVirtualItems().map((virtualRow) => {
+          const startIndex = virtualRow.index * columnCount;
+          const rowItems = items.slice(startIndex, startIndex + columnCount);
+          return (
+            <div
+              key={virtualRow.key}
+              data-index={virtualRow.index}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                transform: `translateY(${virtualRow.start}px)`,
+                display: 'grid',
+                gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))`,
+                gap: '1rem',
+                padding: '0.5rem',
+              }}
+            >
+              {rowItems.map((item) => (
+                <OrderItemCard
+                  key={item.id}
+                  item={item}
+                  onClick={() => onItemClick(item)}
+                />
+              ))}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
