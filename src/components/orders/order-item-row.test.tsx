@@ -37,7 +37,7 @@ describe('OrderItemRowView', () => {
 
   it('renders shop domain', () => {
     render(<OrderItemRowView item={mockItem} />);
-    expect(screen.getByText('another-shop.com')).toBeInTheDocument();
+    expect(screen.getByText(/another-shop\.com/)).toBeInTheDocument();
   });
 
   it('renders status badge', () => {
