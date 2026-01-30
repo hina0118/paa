@@ -98,3 +98,21 @@ export type OrderWithSources = Order & {
   items: (Item & { image?: ItemImage })[];
   deliveries: Delivery[];
 };
+
+/** 商品一覧 1 件分（items + order + image + delivery） */
+export type OrderItemRow = {
+  id: number;
+  orderId: number;
+  itemName: string;
+  itemNameNormalized: string | null;
+  price: number;
+  quantity: number;
+  category: string | null;
+  brand: string | null;
+  createdAt: string;
+  shopDomain: string | null;
+  orderNumber: string | null;
+  orderDate: string | null;
+  fileName: string | null;
+  deliveryStatus: DeliveryStatus | null;
+};
