@@ -10,6 +10,7 @@ import {
 } from '@/lib/orders-queries';
 import { OrderItemCard } from '@/components/orders/order-item-card';
 import { OrderItemRowView } from '@/components/orders/order-item-row';
+import { OrderItemDrawer } from '@/components/orders/order-item-drawer';
 import type { OrderItemRow } from '@/lib/types';
 
 const SEARCH_DEBOUNCE_MS = 300;
@@ -33,6 +34,10 @@ export function Orders() {
   }>({ shopDomains: [], years: [] });
   const [columnCount, setColumnCount] = useState(4);
   const [viewMode, setViewMode] = useState<'card' | 'list'>('card');
+  const [sortBy, setSortBy] = useState<'order_date' | 'price'>('order_date');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [selectedItem, setSelectedItem] = useState<OrderItemRow | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -61,6 +66,8 @@ export function Orders() {
         year: year ? parseInt(year, 10) : undefined,
         priceMin: priceMin ? parseInt(priceMin, 10) : undefined,
         priceMax: priceMax ? parseInt(priceMax, 10) : undefined,
+        sortBy,
+        sortOrder,
       });
       setItems(rows);
     } catch (err) {
@@ -69,7 +76,16 @@ export function Orders() {
     } finally {
       setLoading(false);
     }
-  }, [getDb, searchDebounced, shopDomain, year, priceMin, priceMax]);
+  }, [
+    getDb,
+    searchDebounced,
+    shopDomain,
+    year,
+    priceMin,
+    priceMax,
+    sortBy,
+    sortOrder,
+  ]);
 
   useEffect(() => {
     loadFilters();
@@ -185,6 +201,32 @@ export function Orders() {
           </div>
           <div className="flex items-center gap-2">
             <label
+              htmlFor="sort"
+              className="text-sm text-muted-foreground whitespace-nowrap"
+            >
+              並び順:
+            </label>
+            <select
+              id="sort"
+              value={`${sortBy}-${sortOrder}`}
+              onChange={(e) => {
+                const [by, order] = e.target.value.split('-') as [
+                  'order_date' | 'price',
+                  'asc' | 'desc',
+                ];
+                setSortBy(by);
+                setSortOrder(order);
+              }}
+              className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+            >
+              <option value="order_date-desc">購入日が新しい順</option>
+              <option value="order_date-asc">購入日が古い順</option>
+              <option value="price-desc">価格が高い順</option>
+              <option value="price-asc">価格が安い順</option>
+            </select>
+          </div>
+          <div className="flex items-center gap-2">
+            <label
               htmlFor="filter-price-min"
               className="text-sm text-muted-foreground whitespace-nowrap"
             >
@@ -226,9 +268,17 @@ export function Orders() {
           viewMode={viewMode}
           columnCount={viewMode === 'list' ? 1 : columnCount}
           onColumnCountChange={setColumnCount}
-          onItemClick={() => {}}
+          onItemClick={(item) => {
+            setSelectedItem(item);
+            setDrawerOpen(true);
+          }}
         />
       )}
+      <OrderItemDrawer
+        item={selectedItem}
+        open={drawerOpen}
+        onOpenChange={setDrawerOpen}
+      />
     </div>
   );
 }
