@@ -2,27 +2,13 @@ import { Package } from 'lucide-react';
 import { StatusBadge } from './status-badge';
 import { useImageUrl } from '@/hooks/useImageUrl';
 import type { OrderItemRow } from '@/lib/types';
-import { cn } from '@/lib/utils';
+import { cn, formatDate, formatPrice } from '@/lib/utils';
 
 type OrderItemRowViewProps = {
   item: OrderItemRow;
   onClick?: () => void;
   className?: string;
 };
-
-function formatDate(s: string | null): string {
-  if (!s) return '-';
-  try {
-    const d = new Date(s);
-    return isNaN(d.getTime()) ? s : d.toLocaleDateString('ja-JP');
-  } catch {
-    return s;
-  }
-}
-
-function formatPrice(price: number): string {
-  return new Intl.NumberFormat('ja-JP').format(price) + '円';
-}
 
 export function OrderItemRowView({
   item,

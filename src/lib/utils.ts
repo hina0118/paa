@@ -10,6 +10,22 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/** ISO日付文字列を ja-JP 形式でフォーマット */
+export function formatDate(s: string | null | undefined): string {
+  if (!s) return '-';
+  try {
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? s : d.toLocaleDateString('ja-JP');
+  } catch {
+    return s;
+  }
+}
+
+/** 価格を円表示でフォーマット */
+export function formatPrice(price: number): string {
+  return new Intl.NumberFormat('ja-JP').format(price) + '円';
+}
+
 /**
  * Send a desktop notification
  * @param title - Notification title

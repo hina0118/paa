@@ -83,7 +83,7 @@ export async function loadOrderItems(
     ORDER BY ${orderCol} ${orderDir}
   `;
 
-  const rows = await db.select<OrderItemRow[]>(sql, args);
+  const rows = await db.select<OrderItemRow>(sql, args);
   return rows;
 }
 
@@ -91,10 +91,10 @@ export async function getOrderItemFilterOptions(db: {
   select: <T>(sql: string, args?: unknown[]) => Promise<T[]>;
 }): Promise<{ shopDomains: string[]; years: number[] }> {
   const [shops, years] = await Promise.all([
-    db.select<{ shop_domain: string }[]>(
+    db.select<{ shop_domain: string }>(
       'SELECT DISTINCT shop_domain FROM orders WHERE shop_domain IS NOT NULL ORDER BY shop_domain'
     ),
-    db.select<{ yr: string }[]>(
+    db.select<{ yr: string }>(
       "SELECT DISTINCT strftime('%Y', order_date) AS yr FROM orders WHERE order_date IS NOT NULL AND trim(strftime('%Y', order_date)) != '' ORDER BY yr DESC"
     ),
   ]);
