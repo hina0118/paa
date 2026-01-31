@@ -228,7 +228,13 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
             <TableBody>
               {data.length > 0 ? (
                 data.map((row, index) => (
-                  <TableRow key={index}>
+                  <TableRow
+                    key={
+                      columns.includes('id') && row.id != null
+                        ? String(row.id)
+                        : index
+                    }
+                  >
                     {columns.map((column) => (
                       <TableCell
                         key={column}

@@ -144,6 +144,54 @@ describe('SyncContext', () => {
     consoleSpy.mockRestore();
   });
 
+  it('handles sync-progress event without is_complete (no refresh)', async () => {
+    let progressCallback:
+      | ((e: { payload: { is_complete: boolean } }) => void)
+      | null = null;
+    mockListen.mockImplementation((event: string, cb: (e: unknown) => void) => {
+      if (event === 'sync-progress') {
+        progressCallback = cb as (e: {
+          payload: { is_complete: boolean };
+        }) => void;
+      }
+      return Promise.resolve(() => {});
+    });
+
+    let getSyncStatusCallCount = 0;
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_sync_status') {
+        getSyncStatusCallCount++;
+        return Promise.resolve({
+          sync_status: 'idle' as const,
+          total_synced_count: 100,
+          batch_size: 50,
+        });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    renderHook(() => useSync(), { wrapper });
+
+    await waitFor(() => expect(progressCallback).not.toBeNull());
+
+    const countBefore = getSyncStatusCallCount;
+    await act(async () => {
+      progressCallback?.({
+        payload: {
+          batch_number: 1,
+          batch_size: 50,
+          total_synced: 50,
+          newly_saved: 45,
+          status_message: 'In progress',
+          is_complete: false,
+        },
+      });
+    });
+
+    // is_complete=false なので refreshStatus (get_sync_status) は呼ばれない
+    expect(getSyncStatusCallCount).toBe(countBefore);
+  });
+
   it('handles sync-progress event with is_complete', async () => {
     let progressCallback:
       | ((e: { payload: { is_complete: boolean } }) => void)
@@ -340,6 +388,74 @@ describe('SyncContext', () => {
     await waitFor(() => {
       expect(result.current.isSyncing).toBe(true);
     });
+  });
+
+  it('updates max iterations', async () => {
+    const { result } = renderHook(() => useSync(), { wrapper });
+
+    await act(async () => {
+      await result.current.updateMaxIterations(200);
+    });
+
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith('update_max_iterations', {
+        maxIterations: 200,
+      });
+    });
+  });
+
+  it('handles update max iterations error', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_sync_status') {
+        return Promise.resolve(mockSyncMetadata);
+      }
+      if (cmd === 'update_max_iterations') {
+        return Promise.reject(new Error('Update failed'));
+      }
+      return Promise.resolve(undefined);
+    });
+
+    const { result } = renderHook(() => useSync(), { wrapper });
+
+    await act(async () => {
+      try {
+        await result.current.updateMaxIterations(200);
+      } catch {
+        // エラーは期待される
+      }
+    });
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      'Failed to update max iterations:',
+      expect.any(Error)
+    );
+    consoleSpy.mockRestore();
+  });
+
+  it('handles cancel sync error and rethrows', async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_sync_status') {
+        return Promise.resolve(mockSyncMetadata);
+      }
+      if (cmd === 'cancel_sync') {
+        return Promise.reject(new Error('Cancel failed'));
+      }
+      return Promise.resolve(undefined);
+    });
+
+    const { result } = renderHook(() => useSync(), { wrapper });
+
+    await act(async () => {
+      await result.current.startSync();
+    });
+
+    await expect(
+      act(async () => {
+        await result.current.cancelSync();
+      })
+    ).rejects.toThrow('Cancel failed');
   });
 
   it('updates metadata after successful operations', async () => {

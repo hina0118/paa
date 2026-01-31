@@ -8,6 +8,12 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',
+    // afterEach が setupFiles で実行される際の「failed to find the runner」を回避
+    // https://github.com/vitest-dev/vitest/issues/7465
+    sequence: {
+      hooks: 'list',
+      setupFiles: 'list',
+    },
     include: ['src/**/*.{test,spec}.{js,ts,jsx,tsx}'],
     exclude: [
       'node_modules',

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Sync } from './sync';
 import { SyncProvider } from '@/contexts/sync-context';
@@ -293,6 +293,47 @@ describe('Sync', () => {
       // エラーメッセージが表示されることを確認（複数要素が存在する可能性があるためgetAllByTextを使用）
       const errorElements = screen.getAllByText(errorMessage);
       expect(errorElements.length).toBeGreaterThan(0);
+    });
+  });
+
+  it('displays completion message when progress is complete without error', async () => {
+    let progressCallback: ((e: { payload: unknown }) => void) | null = null;
+    mockListen.mockImplementation((event: string, cb: (e: unknown) => void) => {
+      if (event === 'sync-progress') {
+        progressCallback = cb as (e: { payload: unknown }) => void;
+      }
+      return Promise.resolve(() => {});
+    });
+
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_sync_status') {
+        return Promise.resolve({
+          sync_status: 'syncing' as const,
+          total_synced_count: 100,
+          batch_size: 50,
+        });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    await renderWithProvider();
+
+    await act(async () => {
+      progressCallback?.({
+        payload: {
+          batch_number: 1,
+          batch_size: 50,
+          total_synced: 100,
+          newly_saved: 95,
+          status_message: 'Complete',
+          is_complete: true,
+          error: undefined,
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('同期が完了しました')).toBeInTheDocument();
     });
   });
 

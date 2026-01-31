@@ -314,12 +314,20 @@ fn get_logs(level_filter: Option<String>, limit: Option<usize>) -> Result<Vec<Lo
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let migrations = vec![Migration {
-        version: 1,
-        description: "init",
-        sql: include_str!("../migrations/001_init.sql"),
-        kind: MigrationKind::Up,
-    }];
+    let migrations = vec![
+        Migration {
+            version: 1,
+            description: "init",
+            sql: include_str!("../migrations/001_init.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 2,
+            description: "deliveries_order_updated_index",
+            sql: include_str!("../migrations/002_deliveries_order_updated_index.sql"),
+            kind: MigrationKind::Up,
+        },
+    ];
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
