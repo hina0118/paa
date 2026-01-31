@@ -454,7 +454,12 @@ impl GmailClient {
                 payload.body.is_some(),
                 payload.parts.as_ref().map_or(0, std::vec::Vec::len)
             );
-            Self::extract_body_from_part(payload, &mut body_plain, &mut body_html, Some(message_id));
+            Self::extract_body_from_part(
+                payload,
+                &mut body_plain,
+                &mut body_html,
+                Some(message_id),
+            );
         } else {
             log::warn!("Message {message_id} has no payload");
         }
@@ -502,15 +507,20 @@ impl GmailClient {
         } else {
             // 3. 日本語メールでよく使われるエンコーディングをフォールバックで試行
             for enc in [encoding_rs::ISO_2022_JP, encoding_rs::SHIFT_JIS] {
-                let (decoded, _, _) = enc.decode(data);
-                if !decoded.is_empty() {
+                let (decoded, _, had_replacements) = enc.decode(data);
+                // 不正シーケンスが置換された場合は None（パース不能なゴミデータとみなす）
+                if !decoded.is_empty() && !had_replacements {
                     return Some(decoded.into_owned());
                 }
             }
             return None;
         };
 
-        let (decoded, _, _) = encoding.decode(data);
+        let (decoded, _, had_replacements) = encoding.decode(data);
+        // 不正シーケンスが置換された場合は None
+        if had_replacements {
+            return None;
+        }
         Some(decoded.into_owned())
     }
 
@@ -602,14 +612,18 @@ impl GmailClient {
                             log::info!(
                                 "Found text/plain body: {} chars{}",
                                 content.len(),
-                                message_id.map(|id| format!(" (message_id={})", id)).unwrap_or_default()
+                                message_id
+                                    .map(|id| format!(" (message_id={})", id))
+                                    .unwrap_or_default()
                             );
                             *body_plain = Some(content);
                         } else if mime.starts_with("text/html") && body_html.is_none() {
                             log::info!(
                                 "Found text/html body: {} chars{}",
                                 content.len(),
-                                message_id.map(|id| format!(" (message_id={})", id)).unwrap_or_default()
+                                message_id
+                                    .map(|id| format!(" (message_id={})", id))
+                                    .unwrap_or_default()
                             );
                             *body_html = Some(content);
                         } else {
@@ -645,7 +659,7 @@ impl GmailClientTrait for GmailClient {
         &self,
         query: &str,
         max_results: u32,
-        page_token: Option<&str>,
+        page_token: Option<String>,
     ) -> Result<(Vec<String>, Option<String>), String> {
         let mut req = self
             .hub
@@ -655,7 +669,7 @@ impl GmailClientTrait for GmailClient {
             .max_results(max_results)
             .include_spam_trash(true);
 
-        if let Some(token) = page_token {
+        if let Some(ref token) = page_token {
             req = req.page_token(token);
         }
 
@@ -965,21 +979,20 @@ pub async fn sync_gmail_incremental_with_client(
             break;
         }
         log::info!("Batch {batch_number}: Fetching up to {effective_batch_size} messages");
-        let (messages, fetched_next_token) =
-            match fetch_batch(
-                client,
-                &query,
-                effective_batch_size,
-                next_page_token.as_deref(),
-            )
-            .await
-            {
-                Ok(r) => r,
-                Err(e) => {
-                    let _ = email_repo.update_sync_error_status().await;
-                    return Err(e);
-                }
-            };
+        let (messages, fetched_next_token) = match fetch_batch(
+            client,
+            &query,
+            effective_batch_size,
+            next_page_token.as_deref(),
+        )
+        .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                let _ = email_repo.update_sync_error_status().await;
+                return Err(e);
+            }
+        };
         if messages.is_empty() {
             log::info!("No more messages to fetch");
             break;
@@ -1511,13 +1524,13 @@ mod tests {
         assert_eq!(result1.saved_count, 1);
         assert_eq!(result1.skipped_count, 0);
 
-        // Save second time (should skip duplicate)
+        // Save second time: ON CONFLICT DO UPDATE により UPDATE が実行され、saved としてカウントされる
         let result2 = save_messages_to_db(&pool, &[message], &shop_settings)
             .await
             .expect("Failed to save message second time");
 
-        assert_eq!(result2.saved_count, 0);
-        assert_eq!(result2.skipped_count, 1);
+        assert_eq!(result2.saved_count, 1);
+        assert_eq!(result2.skipped_count, 0);
     }
 
     #[tokio::test]
@@ -1650,8 +1663,9 @@ mod tests {
             .expect("Failed to save second batch");
 
         assert_eq!(result.fetched_count, 2);
-        assert_eq!(result.saved_count, 1);
-        assert_eq!(result.skipped_count, 1);
+        // 重複(msg007)も新規(msg008)も ON CONFLICT DO UPDATE で rows_affected=1 のため saved としてカウント
+        assert_eq!(result.saved_count, 2);
+        assert_eq!(result.skipped_count, 0);
     }
 
     #[test]
@@ -1726,14 +1740,13 @@ mod tests {
 
         assert_eq!(result1.saved_count, 1);
 
-        // 同じmessage_idで再度保存しようとする（UNIQUE制約違反）
+        // 同じmessage_idで再度保存: ON CONFLICT DO UPDATE により UPDATE が実行され、saved としてカウントされる
         let result2 = save_messages_to_db(&pool, &[message], &shop_settings)
             .await
             .expect("Should handle duplicate gracefully");
 
-        // 重複はスキップされる
-        assert_eq!(result2.skipped_count, 1);
-        assert_eq!(result2.saved_count, 0);
+        assert_eq!(result2.saved_count, 1);
+        assert_eq!(result2.skipped_count, 0);
     }
 
     #[tokio::test]

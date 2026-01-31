@@ -1567,10 +1567,10 @@ mod tests {
         assert_eq!(saved, 2);
         assert_eq!(skipped, 0);
 
-        // 重複保存
+        // 重複保存: ON CONFLICT DO UPDATE により UPDATE が実行され、saved としてカウントされる
         let (saved, skipped) = repo.save_messages(&messages).await.unwrap();
-        assert_eq!(saved, 0);
-        assert_eq!(skipped, 2);
+        assert_eq!(saved, 2);
+        assert_eq!(skipped, 0);
 
         // カウント確認
         let count = repo.get_message_count().await.unwrap();
@@ -1851,10 +1851,10 @@ mod tests {
         let order: (String, Option<String>, Option<String>, Option<String>) = sqlx::query_as(
             "SELECT order_number, order_date, shop_domain, shop_name FROM orders WHERE id = ?",
         )
-                .bind(order_id)
-                .fetch_one(&pool)
-                .await
-                .expect("Failed to fetch order");
+        .bind(order_id)
+        .fetch_one(&pool)
+        .await
+        .expect("Failed to fetch order");
         assert_eq!(order.0, "ORD-001");
         assert_eq!(order.1, Some("2024-01-01".to_string()));
         assert_eq!(order.2, Some("example.com".to_string()));

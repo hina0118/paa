@@ -1,5 +1,5 @@
-use crate::logic::sync_logic::extract_email_address;
 use crate::logic::email_parser::extract_domain;
+use crate::logic::sync_logic::extract_email_address;
 use crate::repository::{
     OrderRepository, ParseMetadataRepository, ParseRepository, ShopSettingsRepository,
     SqliteOrderRepository, SqliteParseMetadataRepository, SqliteParseRepository,
@@ -12,7 +12,14 @@ use std::sync::{Arc, Mutex};
 use tauri::Emitter;
 
 // 型エイリアス：パース対象メールの情報 (email_id, message_id, body_plain, from_address, subject, internal_date)
-pub type EmailRow = (i64, String, String, Option<String>, Option<String>, Option<i64>);
+pub type EmailRow = (
+    i64,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<i64>,
+);
 
 // ホビーサーチ用の共通パースユーティリティ関数
 mod hobbysearch_common;
@@ -146,6 +153,43 @@ pub trait EmailParser {
     fn parse(&self, email_body: &str) -> Result<OrderInfo, String>;
 }
 
+/// バッチパース用: 送信元アドレスと件名から候補パーサー(parser_type, shop_name)を取得
+///
+/// # Arguments
+/// * `shop_settings` - (sender_address, parser_type, subject_filters_json, shop_name) のタプルリスト
+/// * `from_address` - メールの送信元アドレス
+/// * `subject_opt` - メールの件名（オプション）
+pub fn get_candidate_parsers_for_batch(
+    shop_settings: &[(String, String, Option<String>, String)],
+    from_address: &str,
+    subject_opt: Option<&str>,
+) -> Vec<(String, String)> {
+    shop_settings
+        .iter()
+        .filter_map(|(addr, parser_type, subject_filters_json, shop_name)| {
+            if !from_address.contains(addr) {
+                return None;
+            }
+
+            let Some(filters_json) = subject_filters_json else {
+                return Some((parser_type.clone(), shop_name.clone()));
+            };
+
+            let Ok(filters) = serde_json::from_str::<Vec<String>>(filters_json) else {
+                return Some((parser_type.clone(), shop_name.clone()));
+            };
+
+            let subject = subject_opt?;
+
+            if filters.iter().any(|filter| subject.contains(filter)) {
+                Some((parser_type.clone(), shop_name.clone()))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
 /// パーサータイプから適切なパーサーを取得する
 pub fn get_parser(parser_type: &str) -> Option<Box<dyn EmailParser>> {
     match parser_type {
@@ -154,9 +198,9 @@ pub fn get_parser(parser_type: &str) -> Option<Box<dyn EmailParser>> {
             hobbysearch_confirm_yoyaku::HobbySearchConfirmYoyakuParser,
         )),
         "hobbysearch_change" => Some(Box::new(hobbysearch_change::HobbySearchChangeParser)),
-        "hobbysearch_change_yoyaku" => {
-            Some(Box::new(hobbysearch_change_yoyaku::HobbySearchChangeYoyakuParser))
-        }
+        "hobbysearch_change_yoyaku" => Some(Box::new(
+            hobbysearch_change_yoyaku::HobbySearchChangeYoyakuParser,
+        )),
         "hobbysearch_send" => Some(Box::new(hobbysearch_send::HobbySearchSendParser)),
         _ => None,
     }
@@ -232,7 +276,14 @@ pub async fn batch_parse_emails(
 
     let shop_settings: Vec<(String, String, Option<String>, String)> = enabled_settings
         .into_iter()
-        .map(|s| (s.sender_address, s.parser_type, s.subject_filters, s.shop_name))
+        .map(|s| {
+            (
+                s.sender_address,
+                s.parser_type,
+                s.subject_filters,
+                s.shop_name,
+            )
+        })
         .collect();
 
     // パース対象の全メール数を取得
@@ -321,37 +372,11 @@ pub async fn batch_parse_emails(
             };
 
             // 送信元アドレスと件名フィルターから候補のパーサー(parser_type, shop_name)を全て取得
-            let candidate_parsers: Vec<(String, String)> = shop_settings
-                .iter()
-                .filter_map(|(addr, parser_type, subject_filters_json, shop_name)| {
-                    // 送信元アドレスが一致するか確認
-                    if !from_address.contains(addr) {
-                        return None;
-                    }
-
-                    // 件名フィルターがない場合は、アドレス一致だけでOK
-                    let Some(filters_json) = subject_filters_json else {
-                        return Some((parser_type.clone(), shop_name.clone()));
-                    };
-
-                    // 件名フィルターがある場合は、件名も確認
-                    let Ok(filters) = serde_json::from_str::<Vec<String>>(filters_json) else {
-                        return Some((parser_type.clone(), shop_name.clone()));
-                    };
-
-                    // 件名がない場合は除外
-                    let Some(subject) = subject_opt else {
-                        return None;
-                    };
-
-                    // いずれかのフィルターに一致すればOK
-                    if filters.iter().any(|filter| subject.contains(filter)) {
-                        Some((parser_type.clone(), shop_name.clone()))
-                    } else {
-                        None
-                    }
-                })
-                .collect();
+            let candidate_parsers = get_candidate_parsers_for_batch(
+                &shop_settings,
+                from_address,
+                subject_opt.as_deref(),
+            );
 
             if candidate_parsers.is_empty() {
                 log::debug!(
@@ -399,7 +424,7 @@ pub async fn batch_parse_emails(
                         {
                             if let Some(ts_ms) = internal_date {
                                 let dt = DateTime::from_timestamp_millis(*ts_ms)
-                                    .unwrap_or_else(|| chrono::Utc::now());
+                                    .unwrap_or_else(chrono::Utc::now);
                                 order_info.order_date =
                                     Some(dt.format("%Y-%m-%d %H:%M:%S").to_string());
                             }
@@ -445,9 +470,8 @@ pub async fn batch_parse_emails(
                         }
                         Err(e) => {
                             log::error!("Failed to save order: {}", e);
-                            if let Err(mark_err) = parse_repo
-                                .mark_parse_skipped(*email_id, &e)
-                                .await
+                            if let Err(mark_err) =
+                                parse_repo.mark_parse_skipped(*email_id, &e).await
                             {
                                 log::warn!(
                                     "Failed to mark email {} as skipped: {}",
@@ -461,10 +485,7 @@ pub async fn batch_parse_emails(
                 }
                 Err(e) => {
                     log::error!("Failed to parse email {}: {}", email_id, e);
-                    if let Err(mark_err) = parse_repo
-                        .mark_parse_skipped(*email_id, &e)
-                        .await
-                    {
+                    if let Err(mark_err) = parse_repo.mark_parse_skipped(*email_id, &e).await {
                         log::warn!("Failed to mark email {} as skipped: {}", email_id, mark_err);
                     }
                     failed_count += 1;
@@ -944,6 +965,141 @@ mod tests {
         let cloned = order.clone();
         assert_eq!(cloned.order_number, "ORD-CLONE");
         assert_eq!(cloned.items.len(), 1);
+    }
+
+    // ==================== get_candidate_parsers_for_batch Tests ====================
+
+    fn make_shop_setting(
+        addr: &str,
+        parser_type: &str,
+        subject_filters: Option<Vec<String>>,
+        shop_name: &str,
+    ) -> (String, String, Option<String>, String) {
+        let filters_json = subject_filters.map(|f| serde_json::to_string(&f).unwrap());
+        (
+            addr.to_string(),
+            parser_type.to_string(),
+            filters_json,
+            shop_name.to_string(),
+        )
+    }
+
+    #[test]
+    fn test_get_candidate_parsers_for_batch_address_match_no_filter() {
+        let settings = vec![make_shop_setting(
+            "order@hobbysearch.co.jp",
+            "hobbysearch_confirm",
+            None,
+            "ホビーサーチ",
+        )];
+        let result =
+            get_candidate_parsers_for_batch(&settings, "order@hobbysearch.co.jp", Some("件名"));
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].0, "hobbysearch_confirm");
+        assert_eq!(result[0].1, "ホビーサーチ");
+    }
+
+    #[test]
+    fn test_get_candidate_parsers_for_batch_address_no_match() {
+        let settings = vec![make_shop_setting(
+            "order@hobbysearch.co.jp",
+            "hobbysearch_confirm",
+            None,
+            "ホビーサーチ",
+        )];
+        let result = get_candidate_parsers_for_batch(&settings, "other@example.com", Some("件名"));
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_get_candidate_parsers_for_batch_address_contains_match() {
+        // from_address.contains(addr) なので部分一致でOK
+        let settings = vec![make_shop_setting(
+            "hobbysearch",
+            "hobbysearch_confirm",
+            None,
+            "ホビーサーチ",
+        )];
+        let result =
+            get_candidate_parsers_for_batch(&settings, "order@hobbysearch.co.jp", Some("件名"));
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn test_get_candidate_parsers_for_batch_subject_filter_match() {
+        let settings = vec![make_shop_setting(
+            "order@hobbysearch.co.jp",
+            "hobbysearch_confirm",
+            Some(vec!["注文確認".to_string()]),
+            "ホビーサーチ",
+        )];
+        let result = get_candidate_parsers_for_batch(
+            &settings,
+            "order@hobbysearch.co.jp",
+            Some("【ホビーサーチ】注文確認メール"),
+        );
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn test_get_candidate_parsers_for_batch_subject_filter_no_match() {
+        let settings = vec![make_shop_setting(
+            "order@hobbysearch.co.jp",
+            "hobbysearch_confirm",
+            Some(vec!["注文確認".to_string()]),
+            "ホビーサーチ",
+        )];
+        let result = get_candidate_parsers_for_batch(
+            &settings,
+            "order@hobbysearch.co.jp",
+            Some("【ホビーサーチ】発送通知"),
+        );
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_get_candidate_parsers_for_batch_subject_filter_no_subject_excluded() {
+        let settings = vec![make_shop_setting(
+            "order@hobbysearch.co.jp",
+            "hobbysearch_confirm",
+            Some(vec!["注文確認".to_string()]),
+            "ホビーサーチ",
+        )];
+        let result = get_candidate_parsers_for_batch(&settings, "order@hobbysearch.co.jp", None);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_get_candidate_parsers_for_batch_invalid_json_ignores_filter() {
+        let settings = vec![(
+            "order@hobbysearch.co.jp".to_string(),
+            "hobbysearch_confirm".to_string(),
+            Some("invalid json".to_string()),
+            "ホビーサーチ".to_string(),
+        )];
+        // JSONパース失敗時はフィルターを無視してパーサーを返す
+        let result = get_candidate_parsers_for_batch(
+            &settings,
+            "order@hobbysearch.co.jp",
+            Some("任意の件名"),
+        );
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn test_get_candidate_parsers_for_batch_multiple_matches() {
+        let settings = vec![
+            make_shop_setting(
+                "order@hobbysearch.co.jp",
+                "hobbysearch_confirm",
+                None,
+                "店1",
+            ),
+            make_shop_setting("order@hobbysearch.co.jp", "hobbysearch_send", None, "店2"),
+        ];
+        let result =
+            get_candidate_parsers_for_batch(&settings, "order@hobbysearch.co.jp", Some("件名"));
+        assert_eq!(result.len(), 2);
     }
 
     // ==================== batch_parse_emails Tests ====================
