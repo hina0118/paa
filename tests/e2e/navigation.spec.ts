@@ -36,8 +36,7 @@ test.describe('ナビゲーション', () => {
 
   test('Orders画面に遷移できる', async ({ page }) => {
     await navigateToScreen(page, 'Orders');
-    // Orders画面のタイトルを確認（EmailListコンポーネントのタイトル）
-    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    await expectScreenTitle(page, '商品一覧');
   });
 
   test('Sync画面に遷移できる', async ({ page }) => {
@@ -68,8 +67,20 @@ test.describe('ナビゲーション', () => {
     await expectScreenTitle(page, '設定');
   });
 
+  test('Tablesセクションを展開して閉じることができる', async ({ page }) => {
+    const tablesButton = page.getByRole('button', { name: /Tables/ });
+    await tablesButton.click();
+    await expect(
+      page.getByRole('button', { name: 'Emails', exact: true })
+    ).toBeVisible();
+    await tablesButton.click();
+    await expect(
+      page.getByRole('button', { name: 'Emails', exact: true })
+    ).not.toBeVisible();
+  });
+
   test('アクティブな画面のボタンがハイライトされる', async ({ page }) => {
-    // 初期状態はOrdersがアクティブ（aria-current で判定）
+    // 初期状態はOrdersがアクティブ（デフォルト画面）
     const ordersButton = page.getByRole('button', { name: 'Orders' });
     await expect(ordersButton).toHaveAttribute('aria-current', 'page');
 

@@ -60,6 +60,44 @@ test.describe('設定画面', () => {
     }
   });
 
+  test('無効な最大繰り返し回数（0以下）を入力するとエラーが表示される', async ({
+    page,
+  }) => {
+    const maxIterationsInput = page.locator('#max-iterations');
+    await maxIterationsInput.waitFor({ state: 'visible', timeout: 10000 });
+    await maxIterationsInput.clear();
+    await maxIterationsInput.fill('0');
+
+    const saveButton = maxIterationsInput
+      .locator('..')
+      .getByRole('button', { name: '保存' });
+    await saveButton.click();
+
+    await expectErrorMessage(
+      page,
+      '最大繰り返し回数は1以上の整数を入力してください'
+    );
+  });
+
+  test('無効なパースバッチサイズ（0以下）を入力するとエラーが表示される', async ({
+    page,
+  }) => {
+    const parseBatchSizeInput = page.locator('#parse-batch-size');
+    await parseBatchSizeInput.waitFor({ state: 'visible', timeout: 10000 });
+    await parseBatchSizeInput.clear();
+    await parseBatchSizeInput.fill('0');
+
+    const saveButton = parseBatchSizeInput
+      .locator('..')
+      .getByRole('button', { name: '保存' });
+    await saveButton.click();
+
+    await expectErrorMessage(
+      page,
+      'パースバッチサイズは1以上の整数を入力してください'
+    );
+  });
+
   test('無効なバッチサイズ（0以下）を入力するとエラーが表示される', async ({
     page,
   }) => {
