@@ -34,7 +34,7 @@ describe('useImageUrl', () => {
     expect(result.current(null)).toBeNull();
   });
 
-  it('returns URL when in Tauri and fileName is valid', async () => {
+  it('returns URL when in Tauri and fileName is valid (backslash path)', async () => {
     vi.mocked(tauriCore.isTauri).mockReturnValue(true);
     vi.mocked(tauriPath.join).mockResolvedValue('C:\\app\\data\\images');
 
@@ -48,6 +48,24 @@ describe('useImageUrl', () => {
     );
     expect(tauriCore.convertFileSrc).toHaveBeenCalledWith(
       'C:\\app\\data\\images\\image.jpg'
+    );
+  });
+
+  it('returns URL when in Tauri with forward slash path', async () => {
+    resetImageUrlCacheForTests();
+    vi.mocked(tauriCore.isTauri).mockReturnValue(true);
+    vi.mocked(tauriPath.join).mockResolvedValue('/app/data/images');
+
+    const { result } = renderHook(() => useImageUrl());
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    expect(result.current('photo.png')).toBe(
+      'asset:///app/data/images/photo.png'
+    );
+    expect(tauriCore.convertFileSrc).toHaveBeenCalledWith(
+      '/app/data/images/photo.png'
     );
   });
 
