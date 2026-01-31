@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
-import { SyncProvider, useSync } from './sync-context';
+import { SyncProvider } from './sync-provider';
+import { useSync } from './use-sync';
 import { mockInvoke, mockListen } from '@/test/setup';
 import { ReactNode } from 'react';
 

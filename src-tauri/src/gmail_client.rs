@@ -21,7 +21,7 @@ pub trait GmailClientTrait: Send + Sync {
         &self,
         query: &str,
         max_results: u32,
-        page_token: Option<&str>,
+        page_token: Option<String>,
     ) -> Result<(Vec<String>, Option<String>), String>;
 
     /// 単一メッセージを取得
@@ -37,15 +37,17 @@ mod tests {
         let mut mock = MockGmailClientTrait::new();
 
         mock.expect_list_message_ids()
-            .withf(|query, max_results| query == "from:test@example.com" && *max_results == 10)
-            .returning(|_, _| Ok(vec!["msg1".to_string(), "msg2".to_string()]));
+            .withf(|query, max_results, page_token| {
+                query == "from:test@example.com" && *max_results == 10 && page_token.is_none()
+            })
+            .returning(|_, _, _| Ok((vec!["msg1".to_string(), "msg2".to_string()], None)));
 
         let result = mock
-            .list_message_ids("from:test@example.com", 10)
+            .list_message_ids("from:test@example.com", 10, None)
             .await
             .unwrap();
-        assert_eq!(result.len(), 2);
-        assert_eq!(result[0], "msg1");
+        assert_eq!(result.0.len(), 2);
+        assert_eq!(result.0[0], "msg1");
     }
 
     #[tokio::test]
@@ -78,7 +80,7 @@ mod tests {
         mock.expect_list_message_ids()
             .returning(|_, _, _| Err("API error".to_string()));
 
-        let result = mock.list_message_ids("query", 10, None).await;
+        let result = mock.list_message_ids("query", 10, None::<String>).await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), "API error");
     }

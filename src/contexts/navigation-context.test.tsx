@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { NavigationProvider, useNavigation } from './navigation-context';
+import { NavigationProvider } from './navigation-provider';
+import { useNavigation } from './use-navigation';
 import { ReactNode } from 'react';
 
 describe('NavigationContext', () => {

@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Settings } from './settings';
-import { SyncProvider } from '@/contexts/sync-context';
-import { ParseProvider } from '@/contexts/parse-context';
+import { SyncProvider } from '@/contexts/sync-provider';
+import { ParseProvider } from '@/contexts/parse-provider';
 import { mockInvoke, mockListen } from '@/test/setup';
 
 const renderWithProviders = (ui: React.ReactElement) => {

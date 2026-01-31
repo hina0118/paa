@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Sync } from './sync';
-import { SyncProvider } from '@/contexts/sync-context';
+import { SyncProvider } from '@/contexts/sync-provider';
 import { mockInvoke, mockListen } from '@/test/setup';
 
 const mockSyncMetadata = {

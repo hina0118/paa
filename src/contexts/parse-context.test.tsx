@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
-import { ParseProvider, useParse } from './parse-context';
+import { ParseProvider } from './parse-provider';
+import { useParse } from './use-parse';
 import { mockInvoke, mockListen } from '@/test/setup';
 import { ReactNode } from 'react';
 
