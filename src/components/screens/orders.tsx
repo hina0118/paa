@@ -17,9 +17,11 @@ import type { OrderItemRow } from '@/lib/types';
 const SEARCH_DEBOUNCE_MS = 300;
 const CARD_MIN_WIDTH = 200;
 // カードは aspect-square のため、列幅に応じて高さが変わる。フォールバック用
-const CARD_ROW_HEIGHT_FALLBACK = 400;
+const CARD_ROW_HEIGHT_FALLBACK = 450;
 // カード本体の高さオフセット（aspect-square 画像以外: Content + Footer + 余白）
-const CARD_CONTENT_HEIGHT_OFFSET = 120;
+const CARD_CONTENT_HEIGHT_OFFSET = 140;
+// 行パディング(0.5rem*2) + グリッド行間ギャップ(1rem)
+const CARD_ROW_PADDING_AND_GAP = 16 + 16;
 const LIST_ROW_HEIGHT = 80;
 
 export function Orders() {
@@ -337,7 +339,7 @@ function OrderItemGrid({
     const gap = 16;
     const gapTotal = gap * (columnCount - 1);
     const columnWidth = (containerWidth - rowPadding - gapTotal) / columnCount;
-    return columnWidth + CARD_CONTENT_HEIGHT_OFFSET;
+    return columnWidth + CARD_CONTENT_HEIGHT_OFFSET + CARD_ROW_PADDING_AND_GAP;
   }, [containerWidth, columnCount]);
 
   const rowHeight = viewMode === 'list' ? LIST_ROW_HEIGHT : getCardRowHeight();

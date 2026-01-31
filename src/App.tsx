@@ -21,6 +21,7 @@ import {
   SyncMetadataTable,
   WindowSettingsTable,
   ParseMetadataTable,
+  ParseSkippedTable,
 } from '@/components/screens/tables';
 import {
   NavigationProvider,
@@ -66,6 +67,8 @@ function AppContent() {
         return <HtmlsTable />;
       case 'table-order-emails':
         return <OrderEmailsTable />;
+      case 'table-parse-skipped':
+        return <ParseSkippedTable />;
       case 'table-order-htmls':
         return <OrderHtmlsTable />;
       case 'table-shop-settings':

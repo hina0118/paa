@@ -14,6 +14,7 @@ export const VALID_TABLES = [
   'htmls',
   'order_emails',
   'order_htmls',
+  'parse_skipped',
   'shop_settings',
   'sync_metadata',
   'window_settings',

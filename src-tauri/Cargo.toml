@@ -30,6 +30,7 @@ google-gmail1 = "7"
 yup-oauth2 = "12"
 chrono = "0.4"
 base64 = "0.22"
+encoding_rs = "0.8"
 hyper = { version = "1", features = ["client", "http1", "http2"] }
 hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "native-tokio", "ring", "rustls-native-certs", "tls12"] }
 hyper-util = { version = "0.1", features = ["client", "client-legacy", "http1", "http2", "tokio"] }

@@ -19,6 +19,7 @@ pub fn is_valid_parser_type(parser_type: &str) -> bool {
         "hobbysearch_confirm"
             | "hobbysearch_confirm_yoyaku"
             | "hobbysearch_change"
+            | "hobbysearch_change_yoyaku"
             | "hobbysearch_send"
     )
 }
@@ -144,6 +145,11 @@ mod tests {
     #[test]
     fn test_is_valid_parser_type_hobbysearch_change() {
         assert!(is_valid_parser_type("hobbysearch_change"));
+    }
+
+    #[test]
+    fn test_is_valid_parser_type_hobbysearch_change_yoyaku() {
+        assert!(is_valid_parser_type("hobbysearch_change_yoyaku"));
     }
 
     #[test]
