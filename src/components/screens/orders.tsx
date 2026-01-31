@@ -8,6 +8,7 @@ import {
   loadOrderItems,
   getOrderItemFilterOptions,
 } from '@/lib/orders-queries';
+import { parseNumericFilter } from '@/lib/utils';
 import { OrderItemCard } from '@/components/orders/order-item-card';
 import { OrderItemRowView } from '@/components/orders/order-item-row';
 import { OrderItemDrawer } from '@/components/orders/order-item-drawer';
@@ -68,9 +69,9 @@ export function Orders() {
       const rows = await loadOrderItems(db, {
         search: searchDebounced || undefined,
         shopDomain: shopDomain || undefined,
-        year: year ? parseInt(year, 10) : undefined,
-        priceMin: priceMin ? parseInt(priceMin, 10) : undefined,
-        priceMax: priceMax ? parseInt(priceMax, 10) : undefined,
+        year: parseNumericFilter(year),
+        priceMin: parseNumericFilter(priceMin),
+        priceMax: parseNumericFilter(priceMax),
         sortBy,
         sortOrder,
       });

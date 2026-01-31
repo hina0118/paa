@@ -122,7 +122,9 @@ describe('Settings', () => {
       renderWithProviders(<Settings />);
 
       await waitFor(() => {
-        expect(document.getElementById('batch-size')).toBeInTheDocument();
+        const input = document.getElementById('batch-size');
+        expect(input).toBeInTheDocument();
+        expect(input).toHaveValue(75);
       });
 
       const saveButtons = screen.getAllByRole('button', { name: '保存' });

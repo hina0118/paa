@@ -27,6 +27,20 @@ export function formatDate(s: string | null | undefined): string {
   }
 }
 
+/**
+ * Parses numeric filter input; returns undefined for empty/invalid (e.g. "-", "e", "1e5").
+ * Prevents NaN from being passed to queries.
+ * Rejects scientific notation since parseInt("1e5", 10) returns 1 (surprising).
+ */
+export function parseNumericFilter(
+  val: string | undefined
+): number | undefined {
+  if (val == null || val === '') return undefined;
+  if (/e/i.test(val)) return undefined;
+  const parsed = parseInt(val, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 const priceFormatter = new Intl.NumberFormat('ja-JP');
 
 /** 価格を円表示でフォーマット */

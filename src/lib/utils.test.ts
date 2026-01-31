@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { cn, notify, formatDate, formatPrice } from './utils';
+import {
+  cn,
+  notify,
+  formatDate,
+  formatPrice,
+  parseNumericFilter,
+} from './utils';
 
 // Tauri Notification APIをモック
 const mockIsPermissionGranted = vi.fn();
@@ -186,5 +192,53 @@ describe('formatPrice', () => {
 
   it('formats zero', () => {
     expect(formatPrice(0)).toBe('0円');
+  });
+});
+
+describe('parseNumericFilter', () => {
+  it('returns undefined for empty string', () => {
+    expect(parseNumericFilter('')).toBeUndefined();
+  });
+
+  it('returns undefined for null and undefined', () => {
+    expect(parseNumericFilter(null as unknown as string)).toBeUndefined();
+    expect(parseNumericFilter(undefined)).toBeUndefined();
+  });
+
+  it('returns undefined for invalid inputs like "-" and "e"', () => {
+    expect(parseNumericFilter('-')).toBeUndefined();
+    expect(parseNumericFilter('e')).toBeUndefined();
+  });
+
+  it('returns undefined for scientific notation "1e5"', () => {
+    expect(parseNumericFilter('1e5')).toBeUndefined();
+  });
+
+  it('returns undefined for non-numeric strings', () => {
+    expect(parseNumericFilter('abc')).toBeUndefined();
+    expect(parseNumericFilter('  ')).toBeUndefined();
+  });
+
+  it('parses valid integers', () => {
+    expect(parseNumericFilter('100')).toBe(100);
+    expect(parseNumericFilter('0')).toBe(0);
+    expect(parseNumericFilter('5000')).toBe(5000);
+  });
+
+  it('truncates floating point to integer', () => {
+    expect(parseNumericFilter('1.5')).toBe(1);
+    expect(parseNumericFilter('99.99')).toBe(99);
+  });
+
+  it('parses negative numbers', () => {
+    expect(parseNumericFilter('-10')).toBe(-10);
+  });
+
+  it('handles large numbers', () => {
+    expect(parseNumericFilter('999999999')).toBe(999999999);
+  });
+
+  it('ignores leading/trailing spaces for valid numbers', () => {
+    expect(parseNumericFilter('  42  ')).toBe(42);
   });
 });
