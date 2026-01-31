@@ -44,8 +44,13 @@ describe('OrderItemRowView', () => {
     expect(screen.getByText('1,500円')).toBeInTheDocument();
   });
 
-  it('renders shop domain', () => {
-    render(<OrderItemRowView item={mockItem} />);
+  it('renders shop domain when shopName is null', () => {
+    const itemWithDomainOnly = {
+      ...mockItem,
+      shopName: null,
+      shopDomain: 'another-shop.com',
+    };
+    render(<OrderItemRowView item={itemWithDomainOnly} />);
     expect(screen.getByText(/another-shop\.com/)).toBeInTheDocument();
   });
 

@@ -41,8 +41,13 @@ describe('OrderItemCard', () => {
     expect(screen.getByText('3,000円')).toBeInTheDocument();
   });
 
-  it('renders shop domain', () => {
-    render(<OrderItemCard item={mockItem} />);
+  it('renders shop domain when shopName is null', () => {
+    const itemWithDomainOnly = {
+      ...mockItem,
+      shopName: null,
+      shopDomain: 'shop.example.com',
+    };
+    render(<OrderItemCard item={itemWithDomainOnly} />);
     expect(screen.getByText('shop.example.com')).toBeInTheDocument();
   });
 
