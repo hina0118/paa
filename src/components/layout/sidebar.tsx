@@ -9,7 +9,7 @@ import {
   FileText,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useNavigation } from '@/contexts/navigation-context';
+import { useNavigation } from '@/contexts/use-navigation';
 import { useState } from 'react';
 
 type NavigationItem = {

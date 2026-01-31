@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { useParse } from '@/contexts/parse-context';
+import { useParse } from '@/contexts/use-parse';
 import { formatDateTime } from '@/lib/utils';
 import {
   Card,

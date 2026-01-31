@@ -1,46 +1,11 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useState,
-  useEffect,
-  ReactNode,
-} from 'react';
+import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
-
-export interface SyncProgress {
-  batch_number: number;
-  batch_size: number;
-  total_synced: number;
-  newly_saved: number;
-  status_message: string;
-  is_complete: boolean;
-  error?: string;
-}
-
-export interface SyncMetadata {
-  sync_status: 'idle' | 'syncing' | 'paused' | 'error';
-  oldest_fetched_date?: string;
-  total_synced_count: number;
-  batch_size: number;
-  last_sync_started_at?: string;
-  last_sync_completed_at?: string;
-  max_iterations: number;
-}
-
-interface SyncContextType {
-  isSyncing: boolean;
-  progress: SyncProgress | null;
-  metadata: SyncMetadata | null;
-  startSync: () => Promise<void>;
-  cancelSync: () => Promise<void>;
-  refreshStatus: () => Promise<void>;
-  updateBatchSize: (size: number) => Promise<void>;
-  updateMaxIterations: (maxIterations: number) => Promise<void>;
-}
-
-const SyncContext = createContext<SyncContextType | undefined>(undefined);
+import {
+  type SyncProgress,
+  type SyncMetadata,
+  SyncContext,
+} from './sync-context-value';
 
 export function SyncProvider({ children }: { children: ReactNode }) {
   const [isSyncing, setIsSyncing] = useState(false);
@@ -57,7 +22,6 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Listen for sync progress events
   useEffect(() => {
     const unlisten = listen<SyncProgress>('sync-progress', (event) => {
       const data = event.payload;
@@ -65,7 +29,6 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 
       if (data.is_complete) {
         setIsSyncing(false);
-        // Refresh metadata after completion
         refreshStatus();
       }
     });
@@ -75,14 +38,11 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     };
   }, [refreshStatus]);
 
-  // Load initial sync status and reset stuck "syncing" state
   useEffect(() => {
     const initializeSync = async () => {
       try {
-        // まず現在の状態を取得
         const status = await invoke<SyncMetadata>('get_sync_status');
 
-        // "syncing"状態で固まっている場合はリセット
         if (status.sync_status === 'syncing') {
           console.warn(
             "Detected stuck 'syncing' state on app startup, resetting to 'idle'"
@@ -95,7 +55,6 @@ export function SyncProvider({ children }: { children: ReactNode }) {
           }
         }
 
-        // 最新の状態を取得して表示
         await refreshStatus();
       } catch (error) {
         console.error('Failed to initialize sync state:', error);
@@ -119,7 +78,6 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const cancelSync = async () => {
     try {
       await invoke('cancel_sync');
-      // Status will update via event listener
     } catch (error) {
       console.error('Failed to cancel sync:', error);
       throw error;
@@ -162,12 +120,4 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       {children}
     </SyncContext.Provider>
   );
-}
-
-export function useSync() {
-  const context = useContext(SyncContext);
-  if (!context) {
-    throw new Error('useSync must be used within SyncProvider');
-  }
-  return context;
 }

@@ -35,7 +35,7 @@ pub fn build_sync_query(sender_addresses: &[String], oldest_date: &Option<String
     let base_query = if sender_addresses.is_empty() {
         // Fallback to keyword search if no sender addresses configured
         log::warn!("No enabled shop settings found, falling back to keyword search");
-        format!(r"in:anywhere subject:(注文 OR 予約 OR ありがとうございます)")
+        r"in:anywhere subject:(注文 OR 予約 OR ありがとうございます)".to_string()
     } else {
         // Build "in:anywhere (from:addr1 OR from:addr2 OR ...)" query
         let from_clauses: Vec<String> = sender_addresses
@@ -272,10 +272,9 @@ pub async fn fetch_batch_with_client(
 ) -> Result<(Vec<GmailMessage>, Option<String>), String> {
     let max_results_u32 =
         u32::try_from(max_results).map_err(|_| "max_results exceeds u32::MAX".to_string())?;
-    let (message_ids, next_page_token) =
-        client
-            .list_message_ids(query, max_results_u32, page_token)
-            .await?;
+    let (message_ids, next_page_token) = client
+        .list_message_ids(query, max_results_u32, page_token.map(String::from))
+        .await?;
 
     let mut messages = Vec::new();
     for id in message_ids {
@@ -399,6 +398,30 @@ mod tests {
         // 表示名に '>' が含まれる場合、start+1 以降の '>' を終端として正しく抽出
         let result = extract_email_address("Name > tag <user@example.com>");
         assert_eq!(result, Some("user@example.com".to_string()));
+    }
+
+    #[test]
+    fn test_extract_email_address_user_at_only() {
+        let result = extract_email_address("user@");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_extract_email_address_multiple_at() {
+        let result = extract_email_address("a@b@c");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_extract_email_address_angle_brackets_invalid_email() {
+        let result = extract_email_address("Name <invalid>");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_extract_email_address_whitespace_only() {
+        let result = extract_email_address("   ");
+        assert_eq!(result, None);
     }
 
     // ==================== should_save_message Tests ====================
@@ -665,9 +688,7 @@ mod tests {
 
         mock.expect_list_message_ids()
             .withf(|q, m, t| q == "from:shop@example.com" && *m == 10 && t.is_none())
-            .returning(|_, _, _| {
-                Ok((vec!["msg1".to_string(), "msg2".to_string()], None))
-            });
+            .returning(|_, _, _| Ok((vec!["msg1".to_string(), "msg2".to_string()], None)));
 
         // get_messageのモック設定
         mock.expect_get_message()
@@ -698,8 +719,7 @@ mod tests {
                 })
             });
 
-        let result =
-            super::fetch_batch_with_client(&mock, "from:shop@example.com", 10, None).await;
+        let result = super::fetch_batch_with_client(&mock, "from:shop@example.com", 10, None).await;
 
         assert!(result.is_ok());
         let (messages, _) = result.unwrap();
@@ -726,9 +746,7 @@ mod tests {
         let mut mock = MockGmailClientTrait::new();
 
         mock.expect_list_message_ids()
-            .returning(|_, _, _| {
-                Ok((vec!["msg1".to_string(), "msg2".to_string()], None))
-            });
+            .returning(|_, _, _| Ok((vec!["msg1".to_string(), "msg2".to_string()], None)));
 
         // msg1は成功、msg2は失敗
         mock.expect_get_message()

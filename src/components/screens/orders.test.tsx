@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Orders } from './orders';
-import { NavigationProvider } from '@/contexts/navigation-context';
+import { NavigationProvider } from '@/contexts/navigation-provider';
 
 const mockGetDb = vi.fn();
 

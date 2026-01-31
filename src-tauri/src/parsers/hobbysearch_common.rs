@@ -367,4 +367,53 @@ mod tests {
         let lines = vec!["商品合計　8,096円", "送料　500円"];
         assert_eq!(extract_yoyaku_total(&lines), None);
     }
+
+    #[test]
+    fn test_extract_delivery_address_empty_section() {
+        let lines = vec!["[商品お届け先]", ""];
+        let result = extract_delivery_address(&lines);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_extract_delivery_address_section_with_postal_and_name() {
+        let lines = vec!["[商品お届け先]", "山田 太郎 様", "〒100-0001"];
+        let result = extract_delivery_address(&lines);
+        assert!(result.is_some());
+        let addr = result.unwrap();
+        assert_eq!(addr.name, "山田 太郎");
+        assert_eq!(addr.postal_code, Some("100-0001".to_string()));
+    }
+
+    #[test]
+    fn test_extract_delivery_address_postal_only_line() {
+        let lines = vec!["[商品お届け先]  山田 太郎 様", "〒100-0001"];
+        let result = extract_delivery_address(&lines);
+        assert!(result.is_some());
+        let addr = result.unwrap();
+        assert_eq!(addr.name, "山田 太郎");
+        assert_eq!(addr.postal_code, Some("100-0001".to_string()));
+        assert_eq!(addr.address, None);
+    }
+
+    #[test]
+    fn test_parse_item_line_empty() {
+        let (name, manufacturer, model_number) = parse_item_line("");
+        assert_eq!(name, "");
+        assert_eq!(manufacturer, None);
+        assert_eq!(model_number, None);
+    }
+
+    #[test]
+    fn test_parse_item_line_single_word() {
+        let (name, manufacturer, model_number) = parse_item_line("商品名");
+        assert_eq!(name, "商品名");
+        assert_eq!(manufacturer, Some("商品名".to_string()));
+        assert_eq!(model_number, None);
+    }
+
+    #[test]
+    fn test_extract_amount_from_line_multiple_commas() {
+        assert_eq!(extract_amount_from_line("合計 1,234,567円"), Some(1234567));
+    }
 }
