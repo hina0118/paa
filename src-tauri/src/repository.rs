@@ -41,8 +41,13 @@ pub trait EmailRepository: Send + Sync {
     /// メッセージをDBに保存
     ///
     /// # Returns
-    /// `(saved, skipped)` - saved: rows_affected>0、skipped: rows_affected=0。
-    /// ON CONFLICT DO UPDATE では SQLite の changes() がマッチ行数を返すため、COALESCE で値が変わらなくても saved になる。
+    /// `(saved, skipped)` - saved: rows_affected>0（INSERT または ON CONFLICT DO UPDATE）、
+    /// skipped: rows_affected=0。
+    ///
+    /// # セマンティクス（ON CONFLICT DO UPDATE 使用時）
+    /// 重複（既存 message_id）の場合も UPDATE が実行されるため、saved にカウントされる。
+    /// skipped は rows_affected=0 のときのみ（SQLite の changes() は UPDATE でマッチ行数を返すため、通常は 0）。
+    /// ログ／メトリクスで saved を「新規のみ」と解釈しないこと。
     async fn save_messages(&self, messages: &[GmailMessage]) -> Result<(usize, usize), String>;
 
     /// 既存のメッセージIDを取得
