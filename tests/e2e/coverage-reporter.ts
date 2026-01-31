@@ -19,8 +19,8 @@ export default async function globalTeardown(_config: FullConfig) {
     try {
       const coverageData = JSON.parse(fs.readFileSync(coverageFile, 'utf-8'));
       const summary = generateCoverageSummary(coverageData);
-      console.log('\n📊 E2Eテストカバレッジサマリー:');
-      console.log(`   総ファイル数: ${summary.totalFiles}`);
+      console.log('\n📊 E2Eテストカバレッジサマリー (src/ 対象):');
+      console.log(`   対象ファイル数: ${summary.totalFiles}`);
       console.log(`   総関数数: ${summary.totalFunctions}`);
       console.log(`   カバーされた関数数: ${summary.coveredFunctions}`);
       console.log(`   カバレッジ: ${summary.coveragePercentage}%`);
@@ -51,25 +51,37 @@ function generateCoverageSummary(coverageData: any[]): {
   let coveredFunctions = 0;
 
   coverageData.forEach((file: any) => {
-    if (file.functions && Array.isArray(file.functions)) {
-      file.functions.forEach((func: any) => {
-        totalFunctions++;
-        const hasCoverage =
-          func.ranges &&
-          Array.isArray(func.ranges) &&
-          func.ranges.some((range: any) => range.count > 0);
-        if (hasCoverage) {
-          coveredFunctions++;
-        }
-      });
+    const url = file.url || '';
+    if (
+      !url.includes('/src/') ||
+      url.includes('node_modules') ||
+      !file.functions ||
+      !Array.isArray(file.functions)
+    ) {
+      return;
     }
+    file.functions.forEach((func: any) => {
+      totalFunctions++;
+      const hasCoverage =
+        func.ranges &&
+        Array.isArray(func.ranges) &&
+        func.ranges.some((range: any) => range.count > 0);
+      if (hasCoverage) {
+        coveredFunctions++;
+      }
+    });
   });
 
   const coveragePercentage =
     totalFunctions > 0 ? (coveredFunctions / totalFunctions) * 100 : 0;
 
+  const srcFiles = coverageData.filter(
+    (f: any) =>
+      (f.url || '').includes('/src/') && !(f.url || '').includes('node_modules')
+  );
+
   return {
-    totalFiles: coverageData.length,
+    totalFiles: srcFiles.length,
     totalFunctions,
     coveredFunctions,
     coveragePercentage: Math.round(coveragePercentage * 100) / 100,
