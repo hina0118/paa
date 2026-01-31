@@ -260,18 +260,22 @@ pub fn filter_messages_by_shop_settings<'a>(
 /// * `client` - GmailClientTraitを実装したクライアント
 /// * `query` - Gmail検索クエリ
 /// * `max_results` - 最大取得数
+/// * `page_token` - 前回の nextPageToken（次のページ取得用）
 ///
 /// # Returns
-/// 取得したGmailMessageのVec、またはエラー
+/// (取得したGmailMessageのVec, 次のページ用 nextPageToken)、またはエラー
 pub async fn fetch_batch_with_client(
     client: &dyn GmailClientTrait,
     query: &str,
     max_results: usize,
-) -> Result<Vec<GmailMessage>, String> {
-    // メッセージIDリストを取得（Gmail API は u32 を要求するため検証）
+    page_token: Option<&str>,
+) -> Result<(Vec<GmailMessage>, Option<String>), String> {
     let max_results_u32 =
         u32::try_from(max_results).map_err(|_| "max_results exceeds u32::MAX".to_string())?;
-    let message_ids = client.list_message_ids(query, max_results_u32).await?;
+    let (message_ids, next_page_token) =
+        client
+            .list_message_ids(query, max_results_u32, page_token)
+            .await?;
 
     let mut messages = Vec::new();
     for id in message_ids {
@@ -281,7 +285,7 @@ pub async fn fetch_batch_with_client(
         }
     }
 
-    Ok(messages)
+    Ok((messages, next_page_token))
 }
 
 #[cfg(test)]
@@ -659,10 +663,11 @@ mod tests {
     async fn test_fetch_batch_with_client_success() {
         let mut mock = MockGmailClientTrait::new();
 
-        // list_message_idsのモック設定
         mock.expect_list_message_ids()
-            .withf(|query, max_results| query == "from:shop@example.com" && *max_results == 10)
-            .returning(|_, _| Ok(vec!["msg1".to_string(), "msg2".to_string()]));
+            .withf(|q, m, t| q == "from:shop@example.com" && *m == 10 && t.is_none())
+            .returning(|_, _, _| {
+                Ok((vec!["msg1".to_string(), "msg2".to_string()], None))
+            });
 
         // get_messageのモック設定
         mock.expect_get_message()
@@ -693,10 +698,11 @@ mod tests {
                 })
             });
 
-        let result = super::fetch_batch_with_client(&mock, "from:shop@example.com", 10).await;
+        let result =
+            super::fetch_batch_with_client(&mock, "from:shop@example.com", 10, None).await;
 
         assert!(result.is_ok());
-        let messages = result.unwrap();
+        let (messages, _) = result.unwrap();
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0].message_id, "msg1");
         assert_eq!(messages[1].message_id, "msg2");
@@ -707,9 +713,9 @@ mod tests {
         let mut mock = MockGmailClientTrait::new();
 
         mock.expect_list_message_ids()
-            .returning(|_, _| Err("API error".to_string()));
+            .returning(|_, _, _| Err("API error".to_string()));
 
-        let result = super::fetch_batch_with_client(&mock, "query", 10).await;
+        let result = super::fetch_batch_with_client(&mock, "query", 10, None).await;
 
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), "API error");
@@ -720,7 +726,9 @@ mod tests {
         let mut mock = MockGmailClientTrait::new();
 
         mock.expect_list_message_ids()
-            .returning(|_, _| Ok(vec!["msg1".to_string(), "msg2".to_string()]));
+            .returning(|_, _, _| {
+                Ok((vec!["msg1".to_string(), "msg2".to_string()], None))
+            });
 
         // msg1は成功、msg2は失敗
         mock.expect_get_message()
@@ -741,11 +749,11 @@ mod tests {
             .withf(|id| id == "msg2")
             .returning(|_| Err("Fetch error".to_string()));
 
-        let result = super::fetch_batch_with_client(&mock, "query", 10).await;
+        let result = super::fetch_batch_with_client(&mock, "query", 10, None).await;
 
         // 部分的な失敗はワーニングログのみで、成功したメッセージは返される
         assert!(result.is_ok());
-        let messages = result.unwrap();
+        let (messages, _) = result.unwrap();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].message_id, "msg1");
     }
@@ -754,11 +762,13 @@ mod tests {
     async fn test_fetch_batch_with_client_empty_result() {
         let mut mock = MockGmailClientTrait::new();
 
-        mock.expect_list_message_ids().returning(|_, _| Ok(vec![]));
+        mock.expect_list_message_ids()
+            .returning(|_, _, _| Ok((vec![], None)));
 
-        let result = super::fetch_batch_with_client(&mock, "query", 10).await;
+        let result = super::fetch_batch_with_client(&mock, "query", 10, None).await;
 
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        let (messages, _) = result.unwrap();
+        assert!(messages.is_empty());
     }
 }

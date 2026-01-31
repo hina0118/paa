@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useLayoutEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import {
   Card,
@@ -25,14 +25,6 @@ export function Logs() {
   const [filterLevel, setFilterLevel] = useState<LogLevel>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [autoRefresh, setAutoRefresh] = useState(false);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-
-  const scrollToBottom = () => {
-    if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTop =
-        scrollContainerRef.current.scrollHeight;
-    }
-  };
 
   const loadLogs = async (level?: string) => {
     try {
@@ -65,12 +57,7 @@ export function Logs() {
     }
   }, [autoRefresh, filterLevel]);
 
-  // 自動更新時にログが更新されたらスクロール
-  useLayoutEffect(() => {
-    if (autoRefresh && logs.length > 0) {
-      scrollToBottom();
-    }
-  }, [logs, autoRefresh]);
+  // ログは降順（最新が上）のため、自動更新時にスクロールしない
 
   const getLevelColor = (level: string) => {
     switch (level) {
@@ -211,7 +198,6 @@ export function Logs() {
           </CardHeader>
           <CardContent className="flex-1 overflow-hidden flex flex-col">
             <div
-              ref={scrollContainerRef}
               className="space-y-2 overflow-y-auto flex-1"
               role="log"
               aria-live={autoRefresh ? 'polite' : 'off'}

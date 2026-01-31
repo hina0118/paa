@@ -641,14 +641,23 @@ impl GmailClient {
 /// これにより GmailClient をモックに置き換えてテストできます。
 #[async_trait]
 impl GmailClientTrait for GmailClient {
-    async fn list_message_ids(&self, query: &str, max_results: u32) -> Result<Vec<String>, String> {
-        let req = self
+    async fn list_message_ids(
+        &self,
+        query: &str,
+        max_results: u32,
+        page_token: Option<&str>,
+    ) -> Result<(Vec<String>, Option<String>), String> {
+        let mut req = self
             .hub
             .users()
             .messages_list("me")
             .q(query)
             .max_results(max_results)
             .include_spam_trash(true);
+
+        if let Some(token) = page_token {
+            req = req.page_token(token);
+        }
 
         let (_, result) = req
             .doit()
@@ -662,7 +671,7 @@ impl GmailClientTrait for GmailClient {
             .filter_map(|msg| msg.id)
             .collect();
 
-        Ok(message_ids)
+        Ok((message_ids, result.next_page_token))
     }
 
     async fn get_message(&self, message_id: &str) -> Result<GmailMessage, String> {
@@ -787,8 +796,9 @@ async fn fetch_batch(
     client: &dyn GmailClientTrait,
     query: &str,
     max_results: usize,
-) -> Result<Vec<GmailMessage>, String> {
-    crate::logic::sync_logic::fetch_batch_with_client(client, query, max_results).await
+    page_token: Option<&str>,
+) -> Result<(Vec<GmailMessage>, Option<String>), String> {
+    crate::logic::sync_logic::fetch_batch_with_client(client, query, max_results, page_token).await
 }
 
 // Helper function to format timestamp as RFC3339
@@ -922,7 +932,6 @@ pub async fn sync_gmail_incremental_with_client(
         }
     };
 
-    let mut oldest_date = metadata.oldest_fetched_date;
     let mut total_synced = metadata.total_synced_count;
     let db_batch_size = metadata.batch_size;
     let db_max_iterations = metadata.max_iterations;
@@ -938,45 +947,39 @@ pub async fn sync_gmail_incremental_with_client(
     };
 
     let mut batch_number = 0;
-    #[allow(unused_assignments)]
     let mut has_more = true;
     let sync_start_time = chrono::Utc::now();
-    let mut previous_message_ids: Option<Vec<String>> = None;
+    let query = build_sync_query(&sender_addresses, &None);
+    let mut next_page_token: Option<String> = None;
     while has_more && !sync_state.should_stop() {
         batch_number += 1;
-        // Check iteration limit to prevent infinite loops
         if batch_number > effective_max_iterations {
             log::warn!(
                 "Reached maximum iteration limit ({effective_max_iterations}), stopping sync"
             );
             break;
         }
-        // Check timeout to prevent indefinite sync
         let elapsed = chrono::Utc::now().signed_duration_since(sync_start_time);
         if elapsed.num_minutes() > SYNC_TIMEOUT_MINUTES {
             log::warn!("Sync timeout reached ({SYNC_TIMEOUT_MINUTES} minutes), stopping sync");
             break;
         }
-        // Store the oldest_date before this fetch to detect infinite loop conditions
-        let oldest_date_before_fetch = oldest_date.clone();
-        // 各同期の1バッチ目は常に最新メールを取得（1か月後など再同期時に届いた新着メールを取り込む）
-        // 2バッチ目以降は before: で古いメールを取得
-        let query_date = if batch_number == 1 {
-            None
-        } else {
-            oldest_date.clone()
-        };
-        let query = build_sync_query(&sender_addresses, &query_date);
-        // Do not log the query itself to avoid exposing sender/recipient information
         log::info!("Batch {batch_number}: Fetching up to {effective_batch_size} messages");
-        // Fetch batch of messages
-        let messages = match fetch_batch(client, &query, effective_batch_size).await {
-            Ok(m) => m,
-            Err(e) => {
-                let _ = email_repo.update_sync_error_status().await;
-                return Err(e);
-            }
-        };
+        let (messages, fetched_next_token) =
+            match fetch_batch(
+                client,
+                &query,
+                effective_batch_size,
+                next_page_token.as_deref(),
+            )
+            .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    let _ = email_repo.update_sync_error_status().await;
+                    return Err(e);
+                }
+            };
         if messages.is_empty() {
             log::info!("No more messages to fetch");
             break;
@@ -987,9 +990,6 @@ pub async fn sync_gmail_incremental_with_client(
             messages.len()
         );
 
-        // Extract message IDs and oldest date BEFORE passing ownership to save function
-        let current_message_ids: Vec<String> =
-            messages.iter().map(|m| m.message_id.clone()).collect();
         let messages_len = messages.len();
         let new_oldest = if let Some(ts) = messages
             .iter()
@@ -1043,36 +1043,7 @@ pub async fn sync_gmail_incremental_with_client(
             }
         }
 
-        // Detect infinite loop BEFORE updating database: same messages being returned repeatedly
-        // This can happen when multiple messages have identical timestamps (common in batch imports)
-        // For performance on large message sets, avoid full Vec equality and instead compare
-        // length plus first/middle/last IDs as a heuristic for "same batch".
-        // NOTE: This heuristic may produce false positives if different batches have the same
-        // boundary IDs, but combined with the timestamp check this is extremely unlikely in practice.
-        if let Some(ref prev_ids) = previous_message_ids {
-            // Compare the new_oldest timestamp value with the timestamp from oldest_date_before_fetch
-            let same_boundaries = !current_message_ids.is_empty()
-                && current_message_ids.len() == prev_ids.len()
-                && current_message_ids.first() == prev_ids.first()
-                && current_message_ids.last() == prev_ids.last();
-
-            // Also check middle element to reduce false positives
-            let same_middle = if current_message_ids.len() > 2 {
-                let mid = current_message_ids.len() / 2;
-                current_message_ids.get(mid) == prev_ids.get(mid)
-            } else {
-                true // For small batches, boundary check is sufficient
-            };
-
-            if Some(&new_oldest) == oldest_date_before_fetch.as_ref()
-                && same_boundaries
-                && same_middle
-            {
-                log::warn!("Same message IDs returned despite fetching messages, stopping to prevent infinite loop");
-                has_more = false;
-            }
-        }
-        previous_message_ids = Some(current_message_ids);
+        // nextPageToken によりページングするため、日付境界での抜け漏れや無限ループの心配はない
 
         // All validations passed - now safe to update database (via repository)
         if let Err(e) = email_repo
@@ -1083,8 +1054,7 @@ pub async fn sync_gmail_incremental_with_client(
             return Err(format!("Failed to update metadata: {e}"));
         }
 
-        // Update the oldest_date variable for the next iteration
-        oldest_date = Some(new_oldest.clone());
+        next_page_token = fetched_next_token;
         // Emit progress event
         let progress = SyncProgressEvent {
             batch_number,
@@ -1102,10 +1072,10 @@ pub async fn sync_gmail_incremental_with_client(
             let _ = email_repo.update_sync_error_status().await;
             return Err(format!("Failed to emit progress: {e}"));
         }
-        // Check if we got fewer messages than requested (end of results)
-        if messages_len < effective_batch_size {
+        // nextPageToken がなければ全ページ取得済み
+        if next_page_token.is_none() {
             has_more = false;
-            log::info!("Received fewer messages than batch size, sync complete");
+            log::info!("No more pages, sync complete");
         }
     }
     // Determine final status

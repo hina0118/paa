@@ -15,7 +15,14 @@ use mockall::automock;
 #[async_trait]
 pub trait GmailClientTrait: Send + Sync {
     /// 指定されたクエリに基づいてメッセージIDリストを取得
-    async fn list_message_ids(&self, query: &str, max_results: u32) -> Result<Vec<String>, String>;
+    /// page_token に前回の nextPageToken を渡すと次のページを取得
+    /// Returns (message_ids, next_page_token)
+    async fn list_message_ids(
+        &self,
+        query: &str,
+        max_results: u32,
+        page_token: Option<&str>,
+    ) -> Result<(Vec<String>, Option<String>), String>;
 
     /// 単一メッセージを取得
     async fn get_message(&self, message_id: &str) -> Result<GmailMessage, String>;
@@ -69,9 +76,9 @@ mod tests {
         let mut mock = MockGmailClientTrait::new();
 
         mock.expect_list_message_ids()
-            .returning(|_, _| Err("API error".to_string()));
+            .returning(|_, _, _| Err("API error".to_string()));
 
-        let result = mock.list_message_ids("query", 10).await;
+        let result = mock.list_message_ids("query", 10, None).await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), "API error");
     }
