@@ -146,7 +146,9 @@ function App() {
       if (!isActiveRef.current) fn();
       else windowCleanupRef.current = fn;
     };
-    setupWindowListeners();
+    setupWindowListeners().catch((error) => {
+      console.error('Failed to set up window listeners:', error);
+    });
 
     return () => {
       isActiveRef.current = false;
