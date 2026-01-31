@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useParse } from '@/contexts/parse-context';
+import { formatDateTime } from '@/lib/utils';
 import {
   Card,
   CardContent,
@@ -348,9 +349,7 @@ export function Dashboard() {
                   {parseMetadata?.last_parse_completed_at && (
                     <p className="text-xs text-muted-foreground">
                       最終完了:{' '}
-                      {new Date(
-                        parseMetadata.last_parse_completed_at
-                      ).toLocaleString('ja-JP')}
+                      {formatDateTime(parseMetadata.last_parse_completed_at)}
                     </p>
                   )}
                   {parseMetadata?.last_error_message && (
