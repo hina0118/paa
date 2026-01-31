@@ -67,6 +67,18 @@ test.describe('ナビゲーション', () => {
     await expectScreenTitle(page, '設定');
   });
 
+  test('Tablesセクションを展開して閉じることができる', async ({ page }) => {
+    const tablesButton = page.getByRole('button', { name: /Tables/ });
+    await tablesButton.click();
+    await expect(
+      page.getByRole('button', { name: 'Emails', exact: true })
+    ).toBeVisible();
+    await tablesButton.click();
+    await expect(
+      page.getByRole('button', { name: 'Emails', exact: true })
+    ).not.toBeVisible();
+  });
+
   test('アクティブな画面のボタンがハイライトされる', async ({ page }) => {
     // 初期状態はOrdersがアクティブ（デフォルト画面）
     const ordersButton = page.getByRole('button', { name: 'Orders' });

@@ -16,12 +16,17 @@ Write-Host "Loading E2E test coverage results..." -ForegroundColor Cyan
 try {
     $coverageData = Get-Content $CoverageFile -Encoding UTF8 | ConvertFrom-Json
     
-    $totalFiles = $coverageData.Count
+    $totalFiles = 0
     $totalFunctions = 0
     $coveredFunctions = 0
     
     foreach ($file in $coverageData) {
+        $url = if ($file.url) { $file.url } else { "" }
+        if (-not $url.Contains("/src/") -or $url.Contains("node_modules")) {
+            continue
+        }
         if ($file.functions -and $file.functions.Count -gt 0) {
+            $totalFiles++
             foreach ($func in $file.functions) {
                 $totalFunctions++
                 $hasCoverage = $false
@@ -47,7 +52,7 @@ try {
     }
     
     Write-Host ""
-    Write-Host "E2E Test Coverage Summary:" -ForegroundColor Green
+    Write-Host "E2E Test Coverage Summary (src/ only):" -ForegroundColor Green
     Write-Host ""
     Write-Host "  Total Files: $totalFiles" -ForegroundColor Cyan
     Write-Host "  Total Functions: $totalFunctions" -ForegroundColor Cyan
@@ -55,12 +60,16 @@ try {
     Write-Host "  Coverage: $coveragePercentage%" -ForegroundColor $(if ($coveragePercentage -ge 50) { "Green" } else { "Yellow" })
     Write-Host ""
     
-    # File-by-file coverage
+    # File-by-file coverage (src/ only)
     if ($totalFiles -gt 0) {
         Write-Host "File-by-file Coverage:" -ForegroundColor Cyan
         Write-Host ""
         $fileCount = 0
         foreach ($file in $coverageData) {
+            $furl = if ($file.url) { $file.url } else { "" }
+            if (-not $furl.Contains("/src/") -or $furl.Contains("node_modules")) {
+                continue
+            }
             $fileCount++
             if ($fileCount -gt 20) {
                 Write-Host "  ... and $($totalFiles - 20) more files" -ForegroundColor Gray

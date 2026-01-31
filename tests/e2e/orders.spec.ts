@@ -45,6 +45,14 @@ test.describe('Orders画面（商品一覧）', () => {
     await expect(listButton).toBeVisible();
   });
 
+  test('カード表示に切り替えできる', async ({ page }) => {
+    const listButton = page.getByRole('button', { name: 'リスト表示' });
+    await listButton.click();
+    const cardButton = page.getByRole('button', { name: 'カード表示' });
+    await cardButton.click();
+    await expect(cardButton).toBeVisible();
+  });
+
   test('並び順セレクトが表示される', async ({ page }) => {
     const sortSelect = page.locator('#sort');
     await expect(sortSelect).toBeVisible();
@@ -89,5 +97,35 @@ test.describe('Orders画面（商品一覧）', () => {
     await searchInput.fill('query');
     await page.waitForTimeout(500);
     await expect(searchInput).toHaveValue('query');
+  });
+
+  test('商品一覧の状態が表示される', async ({ page }) => {
+    await expect(
+      page.getByText(/データがありません|件の商品|読み込み中/).first()
+    ).toBeVisible({ timeout: 15000 });
+  });
+
+  test('カード表示で商品をクリックするとドロワーが開く', async ({ page }) => {
+    const itemCard = page.getByText('E2Eテスト商品').first();
+    await expect(itemCard).toBeVisible({ timeout: 10000 });
+    await itemCard.click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'E2Eテスト商品' })
+    ).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).not.toBeVisible();
+  });
+
+  test('リスト表示で商品をクリックするとドロワーが開く', async ({ page }) => {
+    const listButton = page.getByRole('button', { name: 'リスト表示' });
+    await listButton.click();
+    const itemRow = page.getByText('E2Eテスト商品').first();
+    await expect(itemRow).toBeVisible({ timeout: 10000 });
+    await itemRow.click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'E2Eテスト商品' })
+    ).toBeVisible();
   });
 });

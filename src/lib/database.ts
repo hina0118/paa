@@ -1,5 +1,17 @@
 import Database from '@tauri-apps/plugin-sql';
 import { appDataDir, join } from '@tauri-apps/api/path';
+import { createE2EMockDb } from './e2e-mock-db';
+
+/**
+ * Tauri 環境かどうか（E2E テストはブラウザ単体で Tauri 非稼働）
+ * @see docs/plans/2025-01-30-db-mock-for-e2e.md
+ */
+export function isTauriEnv(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    !!(window as Window & { __TAURI__?: unknown }).__TAURI__
+  );
+}
 
 // Valid table names - used to prevent SQL injection
 export const VALID_TABLES = [
@@ -128,6 +140,10 @@ export class DatabaseManager {
 
     // Initialize database
     this.initPromise = (async () => {
+      if (!isTauriEnv()) {
+        return createE2EMockDb() as unknown as Database;
+      }
+
       const appDataDirPath = await appDataDir();
       const dbPath = await join(appDataDirPath, 'paa_data.db');
       const db = await Database.load(`sqlite:${dbPath}`);
