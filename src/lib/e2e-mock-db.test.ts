@@ -35,9 +35,10 @@ describe('createE2EMockDb', () => {
       const result = await db.select<{ name: string }>(
         'PRAGMA table_info(orders)'
       );
-      expect(result).toHaveLength(6);
+      expect(result).toHaveLength(7);
       expect(result.map((r) => r.name)).toContain('order_number');
       expect(result.map((r) => r.name)).toContain('shop_domain');
+      expect(result.map((r) => r.name)).toContain('shop_name');
     });
 
     it('returns shop_settings schema for shop_settings table', async () => {
