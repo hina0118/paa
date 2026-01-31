@@ -337,6 +337,55 @@ describe('ParseContext', () => {
     );
   });
 
+  it('handles parse-progress event without is_complete (no refresh)', async () => {
+    let progressCallback:
+      | ((e: { payload: { is_complete: boolean } }) => void)
+      | null = null;
+    mockListen.mockImplementation((event: string, cb: (e: unknown) => void) => {
+      if (event === 'parse-progress') {
+        progressCallback = cb as (e: {
+          payload: { is_complete: boolean };
+        }) => void;
+      }
+      return Promise.resolve(() => {});
+    });
+
+    let getParseStatusCallCount = 0;
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_parse_status') {
+        getParseStatusCallCount++;
+        return Promise.resolve({
+          parse_status: 'idle' as const,
+          total_parsed_count: 100,
+          batch_size: 100,
+        });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    renderHook(() => useParse(), { wrapper });
+
+    await waitFor(() => expect(progressCallback).not.toBeNull());
+
+    const countBefore = getParseStatusCallCount;
+    await act(async () => {
+      progressCallback?.({
+        payload: {
+          batch_number: 1,
+          total_emails: 100,
+          parsed_count: 50,
+          success_count: 48,
+          failed_count: 2,
+          status_message: 'In progress',
+          is_complete: false,
+        },
+      });
+    });
+
+    // is_complete=false なので refreshStatus は呼ばれない
+    expect(getParseStatusCallCount).toBe(countBefore);
+  });
+
   it('handles parse-progress event with is_complete', async () => {
     let progressCallback:
       | ((e: { payload: { is_complete: boolean } }) => void)

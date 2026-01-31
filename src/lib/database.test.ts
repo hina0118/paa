@@ -76,3 +76,46 @@ describe('isTauriEnv', () => {
     (window as Window & { __TAURI__?: unknown }).__TAURI__ = original;
   });
 });
+
+describe('DatabaseManager - cleanupAsync', () => {
+  beforeEach(async () => {
+    await DatabaseManager.resetAsync();
+  });
+
+  afterEach(async () => {
+    await DatabaseManager.resetAsync();
+  });
+
+  it('resetAsync completes when db is initialized', async () => {
+    const manager = DatabaseManager.getInstance();
+    await manager.getDatabase();
+    await expect(DatabaseManager.resetAsync()).resolves.toBeUndefined();
+  });
+
+  it('getDatabase throws when called during cleanup', async () => {
+    const manager = DatabaseManager.getInstance();
+    manager.cleanup();
+    await expect(manager.getDatabase()).rejects.toThrow(
+      'DatabaseManager is closing, cannot get database connection'
+    );
+  });
+});
+
+describe('DatabaseManager - reset', () => {
+  beforeEach(async () => {
+    await DatabaseManager.resetAsync();
+  });
+
+  it('reset clears instance when it exists', async () => {
+    const manager = DatabaseManager.getInstance();
+    await manager.getDatabase();
+    DatabaseManager.reset();
+    const manager2 = DatabaseManager.getInstance();
+    expect(manager2).not.toBe(manager);
+  });
+
+  it('reset does nothing when instance is null', () => {
+    DatabaseManager.reset();
+    expect(() => DatabaseManager.reset()).not.toThrow();
+  });
+});

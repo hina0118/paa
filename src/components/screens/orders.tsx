@@ -8,6 +8,7 @@ import {
   loadOrderItems,
   getOrderItemFilterOptions,
 } from '@/lib/orders-queries';
+import { parseNumericFilter } from '@/lib/utils';
 import { OrderItemCard } from '@/components/orders/order-item-card';
 import { OrderItemRowView } from '@/components/orders/order-item-row';
 import { OrderItemDrawer } from '@/components/orders/order-item-drawer';
@@ -15,13 +16,6 @@ import type { OrderItemRow } from '@/lib/types';
 
 const SEARCH_DEBOUNCE_MS = 300;
 const CARD_MIN_WIDTH = 200;
-
-/** Parses numeric filter input; returns undefined for empty/invalid (e.g. "-", "e"). */
-function parseNumericFilter(val: string | undefined): number | undefined {
-  if (val == null || val === '') return undefined;
-  const parsed = parseInt(val, 10);
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
 // カードは aspect-square のため、列幅に応じて高さが変わる。フォールバック用
 const CARD_ROW_HEIGHT_FALLBACK = 400;
 // カード本体の高さオフセット（aspect-square 画像以外: Content + Footer + 余白）
