@@ -75,13 +75,17 @@ function generateCoverageSummary(coverageData: any[]): {
   const coveragePercentage =
     totalFunctions > 0 ? (coveredFunctions / totalFunctions) * 100 : 0;
 
-  const srcFiles = coverageData.filter(
+  const srcFilesWithFunctions = coverageData.filter(
     (f: any) =>
-      (f.url || '').includes('/src/') && !(f.url || '').includes('node_modules')
+      (f.url || '').includes('/src/') &&
+      !(f.url || '').includes('node_modules') &&
+      f.functions &&
+      Array.isArray(f.functions) &&
+      f.functions.length > 0
   );
 
   return {
-    totalFiles: srcFiles.length,
+    totalFiles: srcFilesWithFunctions.length,
     totalFunctions,
     coveredFunctions,
     coveragePercentage: Math.round(coveragePercentage * 100) / 100,

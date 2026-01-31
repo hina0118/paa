@@ -53,6 +53,51 @@ const IMAGES_SCHEMA: SchemaColumn[] = [
   },
 ];
 
+/** orders 用スキーマ（Tables 画面の orders テーブル表示用） */
+const ORDERS_SCHEMA: SchemaColumn[] = [
+  { cid: 0, name: 'id', type: 'INTEGER', notnull: 0, dflt_value: null, pk: 1 },
+  {
+    cid: 1,
+    name: 'shop_domain',
+    type: 'TEXT',
+    notnull: 0,
+    dflt_value: null,
+    pk: 0,
+  },
+  {
+    cid: 2,
+    name: 'order_number',
+    type: 'TEXT',
+    notnull: 0,
+    dflt_value: null,
+    pk: 0,
+  },
+  {
+    cid: 3,
+    name: 'order_date',
+    type: 'DATETIME',
+    notnull: 0,
+    dflt_value: null,
+    pk: 0,
+  },
+  {
+    cid: 4,
+    name: 'created_at',
+    type: 'TEXT',
+    notnull: 1,
+    dflt_value: null,
+    pk: 0,
+  },
+  {
+    cid: 5,
+    name: 'updated_at',
+    type: 'TEXT',
+    notnull: 1,
+    dflt_value: null,
+    pk: 0,
+  },
+];
+
 /** shop_settings 用スキーマ（E2E セルクリックテスト用） */
 const SHOP_SETTINGS_SCHEMA: SchemaColumn[] = [
   { cid: 0, name: 'id', type: 'INTEGER', notnull: 0, dflt_value: null, pk: 1 },
@@ -126,6 +171,18 @@ const SHOP_SETTINGS_ROWS = Array.from({ length: 55 }, (_, i) => ({
   updated_at: '2024-01-01',
 }));
 
+/** E2E 用シード: orders（Tables 画面の orders テーブル表示用） */
+const MOCK_ORDERS_ROWS = [
+  {
+    id: 1,
+    shop_domain: 'example.com',
+    order_number: 'ORD-E2E-001',
+    order_date: '2024-01-15',
+    created_at: '2024-01-15',
+    updated_at: '2024-01-15',
+  },
+];
+
 /** E2E 用シード: orders + items + images（Orders ドロワー用） */
 const MOCK_ORDER_ITEMS = [
   {
@@ -153,6 +210,7 @@ export type E2EMockDb = {
 
 function getSchemaForTable(tableName: string): SchemaColumn[] {
   if (tableName === 'images') return IMAGES_SCHEMA;
+  if (tableName === 'orders') return ORDERS_SCHEMA;
   if (tableName === 'shop_settings') return SHOP_SETTINGS_SCHEMA;
   return MINIMAL_SCHEMA;
 }
@@ -196,6 +254,20 @@ export function createE2EMockDb(): E2EMockDb {
         const limit = args?.[0] as number | undefined;
         const offset = (args?.[1] as number | undefined) ?? 0;
         const slice = SHOP_SETTINGS_ROWS.slice(
+          offset,
+          limit != null ? offset + limit : undefined
+        );
+        return slice as unknown as T[];
+      }
+
+      if (
+        normalized.includes('SELECT *') &&
+        normalized.includes('FROM orders') &&
+        (normalized.includes('LIMIT') || normalized.includes('OFFSET'))
+      ) {
+        const limit = args?.[0] as number | undefined;
+        const offset = (args?.[1] as number | undefined) ?? 0;
+        const slice = MOCK_ORDERS_ROWS.slice(
           offset,
           limit != null ? offset + limit : undefined
         );

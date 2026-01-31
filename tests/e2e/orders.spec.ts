@@ -95,8 +95,11 @@ test.describe('Orders画面（商品一覧）', () => {
     const searchInput =
       page.getByPlaceholder('商品名・ショップ名・注文番号で検索');
     await searchInput.fill('query');
-    await page.waitForTimeout(500);
     await expect(searchInput).toHaveValue('query');
+    // 再取得完了を待つ（読み込み中→結果表示の遷移を検証）
+    await expect(
+      page.getByText(/読み込み中|件の商品|データがありません/).first()
+    ).toBeVisible({ timeout: 5000 });
   });
 
   test('商品一覧の状態が表示される', async ({ page }) => {
