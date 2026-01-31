@@ -499,7 +499,9 @@ impl GmailClient {
             let (decoded, _, had_replacements) = encoding_rs::ISO_2022_JP.decode(data);
             if !decoded.is_empty() {
                 if had_replacements {
-                    log::warn!("ISO-2022-JP decode had replacement chars; returning partial content");
+                    log::warn!(
+                        "ISO-2022-JP decode had replacement chars; returning partial content"
+                    );
                 }
                 return Some(decoded.into_owned());
             }
@@ -511,7 +513,9 @@ impl GmailClient {
             let (decoded, _, had_replacements) = encoding_rs::SHIFT_JIS.decode(data);
             if !decoded.is_empty() {
                 if had_replacements {
-                    log::warn!("Shift_JIS decode had replacement chars; returning partial content");
+                    log::warn!(
+                        "Shift_JIS decode had replacement chars; returning partial content"
+                    );
                 }
                 return Some(decoded.into_owned());
             }
@@ -531,7 +535,9 @@ impl GmailClient {
             let (decoded, _, had_replacements) = enc.decode(data);
             if !decoded.is_empty() {
                 if had_replacements {
-                    log::warn!("Fallback encoding decode had replacement chars; returning partial content");
+                    log::warn!(
+                        "Fallback encoding decode had replacement chars; returning partial content"
+                    );
                 }
                 return Some(decoded.into_owned());
             }
