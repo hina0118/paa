@@ -15,8 +15,10 @@ import type { OrderItemRow } from '@/lib/types';
 
 const SEARCH_DEBOUNCE_MS = 300;
 const CARD_MIN_WIDTH = 200;
-// カードは aspect-square のため、列幅に応じて高さが変わる。4列時の最大高さを考慮
-const CARD_ROW_HEIGHT = 400;
+// カードは aspect-square のため、列幅に応じて高さが変わる。フォールバック用
+const CARD_ROW_HEIGHT_FALLBACK = 400;
+// カード本体の高さオフセット（aspect-square 画像以外: Content + Footer + 余白）
+const CARD_CONTENT_HEIGHT_OFFSET = 120;
 const LIST_ROW_HEIGHT = 80;
 
 export function Orders() {
@@ -308,23 +310,36 @@ function OrderItemGrid({
   onItemClick,
 }: OrderItemGridProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
 
   useEffect(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
-    const updateColumns = () => {
+    const updateLayout = () => {
       const w = el.clientWidth;
+      setContainerWidth(w);
       onColumnCountChange(
         Math.max(2, Math.min(4, Math.floor(w / CARD_MIN_WIDTH)))
       );
     };
-    const observer = new ResizeObserver(updateColumns);
+    const observer = new ResizeObserver(updateLayout);
     observer.observe(el);
-    updateColumns();
+    updateLayout();
     return () => observer.disconnect();
   }, [onColumnCountChange]);
 
-  const rowHeight = viewMode === 'list' ? LIST_ROW_HEIGHT : CARD_ROW_HEIGHT;
+  const getCardRowHeight = useCallback(() => {
+    if (containerWidth <= 0 || columnCount <= 0) {
+      return CARD_ROW_HEIGHT_FALLBACK;
+    }
+    const rowPadding = 8 * 2;
+    const gap = 16;
+    const gapTotal = gap * (columnCount - 1);
+    const columnWidth = (containerWidth - rowPadding - gapTotal) / columnCount;
+    return columnWidth + CARD_CONTENT_HEIGHT_OFFSET;
+  }, [containerWidth, columnCount]);
+
+  const rowHeight = viewMode === 'list' ? LIST_ROW_HEIGHT : getCardRowHeight();
   const rowCount = Math.ceil(items.length / columnCount);
   const virtualizer = useVirtualizer({
     count: rowCount,
