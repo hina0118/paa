@@ -24,10 +24,18 @@ afterEach(() => {
 const mockInvoke = vi.fn();
 const mockListen = vi.fn();
 const mockEmit = vi.fn();
+const mockConvertFileSrc = vi.fn((path: string) => `asset://${path}`);
+const mockIsTauri = vi.fn(() => false);
 
-vi.mock('@tauri-apps/api/core', () => ({
-  invoke: mockInvoke,
-}));
+vi.mock('@tauri-apps/api/core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tauri-apps/api/core')>();
+  return {
+    ...actual,
+    invoke: mockInvoke,
+    convertFileSrc: mockConvertFileSrc,
+    isTauri: mockIsTauri,
+  };
+});
 
 vi.mock('@tauri-apps/api/event', () => ({
   listen: mockListen,
