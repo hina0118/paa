@@ -69,6 +69,7 @@ fn test_build_sync_query_integration() {
     ];
 
     let query = build_sync_query(&addresses, &None);
+    assert!(query.contains("in:anywhere"));
     assert!(query.contains("from:order@hobbysearch.co.jp"));
     assert!(query.contains("from:info@anotherstore.com"));
     assert!(query.contains(" OR "));
@@ -140,6 +141,7 @@ fn test_is_valid_parser_type_integration() {
         "hobbysearch_confirm",
         "hobbysearch_confirm_yoyaku",
         "hobbysearch_change",
+        "hobbysearch_change_yoyaku",
         "hobbysearch_send",
     ];
 

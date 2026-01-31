@@ -327,6 +327,18 @@ pub fn run() {
             sql: include_str!("../migrations/002_deliveries_order_updated_index.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 3,
+            description: "orders_shop_name",
+            sql: include_str!("../migrations/003_orders_shop_name.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 4,
+            description: "parse_skipped",
+            sql: include_str!("../migrations/004_parse_skipped.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
@@ -680,7 +692,7 @@ async fn parse_and_save_email(
     // データベースに保存（非同期処理）
     let order_repo = SqliteOrderRepository::new(pool.inner().clone());
     order_repo
-        .save_order(&order_info, email_id, shop_domain)
+        .save_order(&order_info, email_id, shop_domain, None)
         .await
 }
 

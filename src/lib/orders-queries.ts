@@ -29,7 +29,7 @@ export async function loadOrderItems(
 
   if (search.trim()) {
     conditions.push(
-      '(i.item_name LIKE ? OR i.brand LIKE ? OR o.order_number LIKE ? OR o.shop_domain LIKE ?)'
+      '(i.item_name LIKE ? OR i.brand LIKE ? OR o.order_number LIKE ? OR o.shop_domain LIKE ? OR o.shop_name LIKE ?)'
     );
     const pattern = `%${search.trim()}%`;
     args.push(pattern, pattern, pattern, pattern);
@@ -78,6 +78,7 @@ export async function loadOrderItems(
       i.category,
       i.brand,
       i.created_at AS createdAt,
+      o.shop_name AS shopName,
       o.shop_domain AS shopDomain,
       o.order_number AS orderNumber,
       o.order_date AS orderDate,
@@ -99,15 +100,15 @@ export async function getOrderItemFilterOptions(db: {
   select: <T>(sql: string, args?: unknown[]) => Promise<T[]>;
 }): Promise<{ shopDomains: string[]; years: number[] }> {
   const [shops, years] = await Promise.all([
-    db.select<{ shop_domain: string }>(
-      'SELECT DISTINCT shop_domain FROM orders WHERE shop_domain IS NOT NULL ORDER BY shop_domain'
+    db.select<{ shop_display: string }>(
+      'SELECT DISTINCT COALESCE(shop_name, shop_domain) AS shop_display FROM orders WHERE shop_domain IS NOT NULL OR shop_name IS NOT NULL ORDER BY shop_display'
     ),
     db.select<{ yr: string }>(
       "SELECT DISTINCT strftime('%Y', order_date) AS yr FROM orders WHERE order_date IS NOT NULL AND trim(strftime('%Y', order_date)) != '' ORDER BY yr DESC"
     ),
   ]);
   return {
-    shopDomains: shops.map((r) => r.shop_domain),
+    shopDomains: shops.map((r) => r.shop_display),
     years: years.map((r) => parseInt(r.yr, 10)).filter((n) => !isNaN(n)),
   };
 }

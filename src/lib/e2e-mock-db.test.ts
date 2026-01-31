@@ -153,13 +153,13 @@ describe('createE2EMockDb', () => {
     });
   });
 
-  describe('select - SELECT DISTINCT shop_domain', () => {
-    it('returns distinct shop domains', async () => {
+  describe('select - SELECT DISTINCT COALESCE(shop_name, shop_domain)', () => {
+    it('returns distinct shop display values for filter options', async () => {
       const db = createE2EMockDb();
-      const result = await db.select<{ shop_domain: string }>(
-        'SELECT DISTINCT shop_domain FROM orders'
+      const result = await db.select<{ shop_display: string }>(
+        'SELECT DISTINCT COALESCE(shop_name, shop_domain) AS shop_display FROM orders WHERE shop_domain IS NOT NULL OR shop_name IS NOT NULL ORDER BY shop_display'
       );
-      expect(result).toEqual([{ shop_domain: 'example.com' }]);
+      expect(result).toEqual([{ shop_display: 'example.com' }]);
     });
   });
 

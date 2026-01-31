@@ -233,6 +233,9 @@ CREATE INDEX IF NOT EXISTS idx_shop_settings_is_enabled ON shop_settings(is_enab
 INSERT INTO shop_settings (shop_name, sender_address, parser_type, subject_filters, is_enabled) VALUES
     ('ホビーサーチ', 'hs-support@1999.co.jp', 'hobbysearch_send', '["【ホビーサーチ】ご注文の発送が完了しました"]', 1),
     ('ホビーサーチ', 'hs-support@1999.co.jp', 'hobbysearch_change', '["【ホビーサーチ】ご注文が組み替えられました"]', 1),
+    ('ホビーサーチ', 'hs-support@1999.co.jp', 'hobbysearch_change_yoyaku', '["【ホビーサーチ】ご注文が組み替えられました"]', 1),
+    ('ホビーサーチ', 'hs-order@1999.co.jp', 'hobbysearch_change', '["【ホビーサーチ】ご注文が組み替えられました"]', 1),
+    ('ホビーサーチ', 'hs-order@1999.co.jp', 'hobbysearch_change_yoyaku', '["【ホビーサーチ】ご注文が組み替えられました"]', 1),
     ('ホビーサーチ', 'hs-order@1999.co.jp', 'hobbysearch_confirm_yoyaku', '["【ホビーサーチ】注文確認メール"]', 1),
     ('ホビーサーチ', 'hs-order@1999.co.jp', 'hobbysearch_confirm', '["【ホビーサーチ】注文確認メール"]', 1);
 

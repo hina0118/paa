@@ -361,7 +361,12 @@ impl GmailClient {
         let mut page_token: Option<String> = None;
 
         loop {
-            let mut req = self.hub.users().messages_list("me").q(query);
+            let mut req = self
+                .hub
+                .users()
+                .messages_list("me")
+                .q(query)
+                .include_spam_trash(true);
 
             if let Some(token) = page_token {
                 req = req.page_token(&token);
@@ -449,7 +454,7 @@ impl GmailClient {
                 payload.body.is_some(),
                 payload.parts.as_ref().map_or(0, std::vec::Vec::len)
             );
-            Self::extract_body_from_part(payload, &mut body_plain, &mut body_html);
+            Self::extract_body_from_part(payload, &mut body_plain, &mut body_html, Some(message_id));
         } else {
             log::warn!("Message {message_id} has no payload");
         }
@@ -470,6 +475,43 @@ impl GmailClient {
             internal_date,
             from_address,
         })
+    }
+
+    /// body.data のバイト列を文字列にデコードする
+    /// UTF-8、Base64、ISO-2022-JP、Shift_JIS の順で試行
+    fn decode_body_to_string(data: &[u8], mime_type: &str) -> Option<String> {
+        // 1. UTF-8 として解釈を試みる
+        if let Ok(data_str) = std::str::from_utf8(data) {
+            // Base64 形式の場合はデコードして再試行（Gmail API の body.data が base64 の場合）
+            if let Some(decoded) = Self::try_decode_base64(data_str) {
+                return Some(decoded);
+            }
+            return Some(data_str.to_string());
+        }
+
+        // 2. mime_type から charset を抽出して試行
+        let mime_lower = mime_type.to_lowercase();
+        let encoding = if mime_lower.contains("iso-2022-jp") || mime_lower.contains("iso_2022_jp") {
+            encoding_rs::ISO_2022_JP
+        } else if mime_lower.contains("shift_jis")
+            || mime_lower.contains("shift-jis")
+            || mime_lower.contains("windows-31j")
+            || mime_lower.contains("cp932")
+        {
+            encoding_rs::SHIFT_JIS
+        } else {
+            // 3. 日本語メールでよく使われるエンコーディングをフォールバックで試行
+            for enc in [encoding_rs::ISO_2022_JP, encoding_rs::SHIFT_JIS] {
+                let (decoded, _, _) = enc.decode(data);
+                if !decoded.is_empty() {
+                    return Some(decoded.into_owned());
+                }
+            }
+            return None;
+        };
+
+        let (decoded, _, _) = encoding.decode(data);
+        Some(decoded.into_owned())
     }
 
     /// `Base64URL形式の文字列かどうかを検証する`
@@ -534,10 +576,12 @@ impl GmailClient {
     }
 
     // 再帰的にMIMEパートを解析する
+    // message_id はトップレベル呼び出し時のみ渡し、ログのトレース用に使用
     fn extract_body_from_part(
         part: &google_gmail1::api::MessagePart,
         body_plain: &mut Option<String>,
         body_html: &mut Option<String>,
+        message_id: Option<&str>,
     ) {
         // 現在のパートのbodyをチェック
         if let Some(mime_type) = &part.mime_type {
@@ -547,41 +591,32 @@ impl GmailClient {
                 if let Some(data) = &body.data {
                     log::debug!("  Data present, length: {} bytes", data.len());
 
-                    // dataは既にデコード済みのバイト列として返されることがある
-                    // まずUTF-8として解釈を試みる
-                    if let Ok(data_str) = std::str::from_utf8(data) {
-                        log::debug!("  Data as UTF-8 string length: {} chars", data_str.len());
+                    // 文字列として解釈（UTF-8 → ISO-2022-JP/Shift_JIS のフォールバック）
+                    let content = Self::decode_body_to_string(data, mime_type);
 
-                        // Base64形式かどうかを検証してからデコードを試みる
-                        let content = if let Some(decoded) = Self::try_decode_base64(data_str) {
-                            log::debug!(
-                                "  Successfully decoded from base64: {} chars",
-                                decoded.len()
-                            );
-                            decoded
-                        } else {
-                            // Base64形式でない、またはデコード失敗
-                            // 元のデータをそのまま使用（Gmail APIが既にデコード済みの可能性）
-                            log::debug!("  Using raw data as-is: {} chars", data_str.len());
-                            data_str.to_string()
-                        };
-
+                    if let Some(content) = content {
                         log::debug!("  Final content length: {} chars", content.len());
-                        match mime_type.as_ref() {
-                            "text/plain" if body_plain.is_none() => {
-                                log::info!("Found text/plain body: {} chars", content.len());
-                                *body_plain = Some(content);
-                            }
-                            "text/html" if body_html.is_none() => {
-                                log::info!("Found text/html body: {} chars", content.len());
-                                *body_html = Some(content);
-                            }
-                            _ => {
-                                log::debug!("  Skipping mime_type: {mime_type}");
-                            }
+                        // mimeType は "text/plain; charset=..." のようにパラメータ付きの場合があるため starts_with で判定
+                        let mime = mime_type.trim();
+                        if mime.starts_with("text/plain") && body_plain.is_none() {
+                            log::info!(
+                                "Found text/plain body: {} chars{}",
+                                content.len(),
+                                message_id.map(|id| format!(" (message_id={})", id)).unwrap_or_default()
+                            );
+                            *body_plain = Some(content);
+                        } else if mime.starts_with("text/html") && body_html.is_none() {
+                            log::info!(
+                                "Found text/html body: {} chars{}",
+                                content.len(),
+                                message_id.map(|id| format!(" (message_id={})", id)).unwrap_or_default()
+                            );
+                            *body_html = Some(content);
+                        } else {
+                            log::debug!("  Skipping mime_type: {mime_type}");
                         }
                     } else {
-                        log::warn!("  Failed to convert data to UTF-8");
+                        log::warn!("  Failed to decode body data to string");
                     }
                 } else {
                     log::debug!("  No data in body");
@@ -591,11 +626,11 @@ impl GmailClient {
             }
         }
 
-        // 子パートを再帰的に処理
+        // 子パートを再帰的に処理（再帰時は message_id を渡さない）
         if let Some(parts) = &part.parts {
             log::debug!("Processing {} child parts", parts.len());
             for child_part in parts {
-                Self::extract_body_from_part(child_part, body_plain, body_html);
+                Self::extract_body_from_part(child_part, body_plain, body_html, None);
             }
         }
     }
@@ -612,7 +647,8 @@ impl GmailClientTrait for GmailClient {
             .users()
             .messages_list("me")
             .q(query)
-            .max_results(max_results);
+            .max_results(max_results)
+            .include_spam_trash(true);
 
         let (_, result) = req
             .doit()
@@ -668,7 +704,12 @@ pub async fn save_messages_to_db(
             r"
             INSERT INTO emails (message_id, body_plain, body_html, internal_date, from_address, subject)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-            ON CONFLICT(message_id) DO NOTHING
+            ON CONFLICT(message_id) DO UPDATE SET
+                body_plain = COALESCE(excluded.body_plain, body_plain),
+                body_html = COALESCE(excluded.body_html, body_html),
+                internal_date = COALESCE(excluded.internal_date, internal_date),
+                from_address = COALESCE(excluded.from_address, from_address),
+                subject = COALESCE(excluded.subject, subject)
             ",
         )
         .bind(&msg.message_id)
@@ -918,8 +959,14 @@ pub async fn sync_gmail_incremental_with_client(
         }
         // Store the oldest_date before this fetch to detect infinite loop conditions
         let oldest_date_before_fetch = oldest_date.clone();
-        // Build query with sender addresses and date constraint
-        let query = build_sync_query(&sender_addresses, &oldest_date);
+        // 各同期の1バッチ目は常に最新メールを取得（1か月後など再同期時に届いた新着メールを取り込む）
+        // 2バッチ目以降は before: で古いメールを取得
+        let query_date = if batch_number == 1 {
+            None
+        } else {
+            oldest_date.clone()
+        };
+        let query = build_sync_query(&sender_addresses, &query_date);
         // Do not log the query itself to avoid exposing sender/recipient information
         log::info!("Batch {batch_number}: Fetching up to {effective_batch_size} messages");
         // Fetch batch of messages
@@ -2011,7 +2058,7 @@ mod tests {
     fn test_build_sync_query_without_date() {
         let addresses = vec!["test@example.com".to_string()];
         let query = build_sync_query(&addresses, &None);
-        assert_eq!(query, "from:test@example.com");
+        assert_eq!(query, "in:anywhere (from:test@example.com)");
     }
 
     #[test]
@@ -2029,7 +2076,7 @@ mod tests {
         let date = Some("invalid-date".to_string());
         let query = build_sync_query(&addresses, &date);
         // 無効な日付の場合、基本クエリのみが返される
-        assert_eq!(query, "from:test@example.com");
+        assert_eq!(query, "in:anywhere (from:test@example.com)");
     }
 
     #[test]
@@ -2060,7 +2107,7 @@ mod tests {
         let query = build_sync_query(&addresses, &None);
         assert_eq!(
             query,
-            "from:test1@example.com OR from:test2@example.com OR from:test3@example.com"
+            "in:anywhere (from:test1@example.com OR from:test2@example.com OR from:test3@example.com)"
         );
     }
 
@@ -2069,7 +2116,10 @@ mod tests {
         let addresses: Vec<String> = vec![];
         let query = build_sync_query(&addresses, &None);
         // Should fallback to keyword search
-        assert_eq!(query, r"subject:(注文 OR 予約 OR ありがとうございます)");
+        assert_eq!(
+            query,
+            r"in:anywhere subject:(注文 OR 予約 OR ありがとうございます)"
+        );
     }
 
     #[test]
@@ -2454,7 +2504,7 @@ mod tests {
         let mut body_plain = None;
         let mut body_html = None;
 
-        GmailClient::extract_body_from_part(&part, &mut body_plain, &mut body_html);
+        GmailClient::extract_body_from_part(&part, &mut body_plain, &mut body_html, None);
 
         assert_eq!(body_plain, Some(plain_text.to_string()));
         assert_eq!(body_html, None);
@@ -2480,7 +2530,7 @@ mod tests {
         let mut body_plain = None;
         let mut body_html = None;
 
-        GmailClient::extract_body_from_part(&part, &mut body_plain, &mut body_html);
+        GmailClient::extract_body_from_part(&part, &mut body_plain, &mut body_html, None);
 
         assert_eq!(body_plain, None);
         assert_eq!(body_html, Some(html_text.to_string()));
@@ -2523,7 +2573,7 @@ mod tests {
         let mut body_plain = None;
         let mut body_html = None;
 
-        GmailClient::extract_body_from_part(&part, &mut body_plain, &mut body_html);
+        GmailClient::extract_body_from_part(&part, &mut body_plain, &mut body_html, None);
 
         assert_eq!(body_plain, Some(plain_text.to_string()));
         assert_eq!(body_html, Some(html_text.to_string()));
@@ -2543,7 +2593,7 @@ mod tests {
         let mut body_plain = None;
         let mut body_html = None;
 
-        GmailClient::extract_body_from_part(&part, &mut body_plain, &mut body_html);
+        GmailClient::extract_body_from_part(&part, &mut body_plain, &mut body_html, None);
 
         assert_eq!(body_plain, None);
         assert_eq!(body_html, None);
@@ -2586,7 +2636,7 @@ mod tests {
         let mut body_plain = None;
         let mut body_html = None;
 
-        GmailClient::extract_body_from_part(&part, &mut body_plain, &mut body_html);
+        GmailClient::extract_body_from_part(&part, &mut body_plain, &mut body_html, None);
 
         // 最初のtext/plainのみが採用される
         assert_eq!(body_plain, Some(first_text.to_string()));
@@ -2713,7 +2763,7 @@ mod tests {
         let mut body_html = None;
 
         // 無効なUTF-8の場合、from_utf8が失敗するため何も抽出されない
-        GmailClient::extract_body_from_part(&part, &mut body_plain, &mut body_html);
+        GmailClient::extract_body_from_part(&part, &mut body_plain, &mut body_html, None);
 
         // UTF-8変換に失敗するため、抽出されない
         assert_eq!(body_plain, None);

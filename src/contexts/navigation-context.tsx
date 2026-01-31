@@ -16,6 +16,7 @@ type Screen =
   | 'table-htmls'
   | 'table-order-emails'
   | 'table-order-htmls'
+  | 'table-parse-skipped'
   | 'table-shop-settings'
   | 'table-sync-metadata'
   | 'table-window-settings'

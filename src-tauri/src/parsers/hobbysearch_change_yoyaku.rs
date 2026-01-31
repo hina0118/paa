@@ -1,13 +1,13 @@
-use super::hobbysearch_common::{extract_amounts, extract_delivery_address, parse_item_line};
+use super::hobbysearch_common::{extract_delivery_address, extract_yoyaku_total, parse_item_line};
 use super::{EmailParser, OrderInfo, OrderItem};
 use regex::Regex;
 
-/// 組み換え（購入分）メール用パーサー
+/// 組み換え（予約）メール用パーサー
 /// 注: このパーサーは既存の注文番号に対して商品を完全に置き換えます
-/// [ご購入内容]セクションを持つ組み替えメールを処理
-pub struct HobbySearchChangeParser;
+/// 元の注文（統合元）との紐付けは将来的に実装予定
+pub struct HobbySearchChangeYoyakuParser;
 
-impl EmailParser for HobbySearchChangeParser {
+impl EmailParser for HobbySearchChangeYoyakuParser {
     fn parse(&self, email_body: &str) -> Result<OrderInfo, String> {
         let lines: Vec<&str> = email_body.lines().collect();
 
@@ -17,11 +17,11 @@ impl EmailParser for HobbySearchChangeParser {
         // 配送先情報を抽出
         let delivery_address = extract_delivery_address(&lines);
 
-        // 商品情報を抽出（[ご購入内容]セクション）
-        let items = extract_purchase_items(&lines)?;
+        // 組み換え後の商品情報を抽出（[ご予約内容]セクション）
+        let items = extract_yoyaku_items(&lines)?;
 
-        // 金額情報を抽出（小計・送料・合計）
-        let (subtotal, shipping_fee, total_amount) = extract_amounts(&lines);
+        // 予約商品合計を抽出
+        let subtotal = extract_yoyaku_total(&lines);
 
         Ok(OrderInfo {
             order_number,
@@ -30,8 +30,8 @@ impl EmailParser for HobbySearchChangeParser {
             delivery_info: None,
             items,
             subtotal,
-            shipping_fee,
-            total_amount,
+            shipping_fee: None,
+            total_amount: None,
         })
     }
 }
@@ -52,10 +52,10 @@ fn extract_order_number(lines: &[&str]) -> Result<String, String> {
     Err("Order number not found".to_string())
 }
 
-/// 商品情報を抽出（[ご購入内容]セクション）
-fn extract_purchase_items(lines: &[&str]) -> Result<Vec<OrderItem>, String> {
+/// 組み換え後の商品情報を抽出（[ご予約内容]セクション）
+fn extract_yoyaku_items(lines: &[&str]) -> Result<Vec<OrderItem>, String> {
     let mut items = Vec::new();
-    let mut in_purchase_section = false;
+    let mut in_yoyaku_section = false;
 
     // 商品行のパターン: "メーカー 品番 商品名 (プラモデル) シリーズ"
     // 次の行: "単価：X円 × 個数：Y = Z円"
@@ -66,19 +66,21 @@ fn extract_purchase_items(lines: &[&str]) -> Result<Vec<OrderItem>, String> {
     while i < lines.len() {
         let line = lines[i].trim();
 
-        // [ご購入内容]セクション開始
-        if line == "[ご購入内容]" {
-            in_purchase_section = true;
+        // [ご予約内容]セクション開始
+        if line == "[ご予約内容]" {
+            in_yoyaku_section = true;
             i += 1;
             continue;
         }
 
-        // セクション終了判定（小計または区切り線）
-        if in_purchase_section && (line.starts_with("小計") || line.starts_with("[▼")) {
+        // セクション終了判定（予約商品合計または空行）
+        if in_yoyaku_section
+            && (line.starts_with("予約商品合計") || line.starts_with("一回の発送ごとに"))
+        {
             break;
         }
 
-        if in_purchase_section && !line.is_empty() && !line.starts_with("単価：") {
+        if in_yoyaku_section && !line.is_empty() && !line.starts_with("単価：") {
             // 次の行に価格情報があるか確認
             if i + 1 < lines.len() {
                 let next_line = lines[i + 1].trim();
@@ -132,32 +134,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_hobbysearch_change() {
-        let sample_email = include_str!("../../../sample/hobbysearch_mail_change.txt");
-        let parser = HobbySearchChangeParser;
+    fn test_parse_hobbysearch_change_yoyaku() {
+        let sample_email = include_str!("../../../sample/hobbysearch_mail_change_yoyaku.txt");
+        let parser = HobbySearchChangeYoyakuParser;
         let result = parser.parse(sample_email);
 
         assert!(result.is_ok());
         let order_info = result.unwrap();
 
         // 注文番号の確認
-        assert_eq!(order_info.order_number, "25-0918-1710");
+        assert_eq!(order_info.order_number, "25-1015-1825");
 
-        // 商品数の確認（組み換え後・購入分）
-        assert_eq!(order_info.items.len(), 3);
+        // 商品数の確認（組み換え後）
+        assert_eq!(order_info.items.len(), 4);
 
         // 最初の商品の確認
         assert_eq!(
             order_info.items[0].name,
-            "バンダイ 2707666 30MS オプションパーツセット17(エイダーコスチューム)[カラーA]"
+            "グッドスマイルカンパニー 189270 PLAMATEA ストレイト・クーガー"
         );
-        assert_eq!(order_info.items[0].unit_price, 1650);
+        assert_eq!(order_info.items[0].unit_price, 7912);
         assert_eq!(order_info.items[0].quantity, 1);
 
-        // 金額情報の確認
-        assert_eq!(order_info.subtotal, Some(5280));
-        assert_eq!(order_info.shipping_fee, Some(660));
-        assert_eq!(order_info.total_amount, Some(5940));
+        // 予約商品合計の確認
+        assert_eq!(order_info.subtotal, Some(28024));
 
         // 配送先の確認
         assert!(order_info.delivery_address.is_some());

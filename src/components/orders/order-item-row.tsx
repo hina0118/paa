@@ -66,7 +66,8 @@ export function OrderItemRowView({
       <div className="text-right shrink-0">
         <p className="text-sm font-semibold">{formatPrice(item.price)}</p>
         <p className="text-xs text-muted-foreground">
-          {item.shopDomain ?? '-'} ・ {formatDate(item.orderDate)}
+          {item.shopName ?? item.shopDomain ?? '-'} ・{' '}
+          {formatDate(item.orderDate)}
         </p>
       </div>
     </div>

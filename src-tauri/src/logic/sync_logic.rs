@@ -21,7 +21,7 @@ use crate::gmail_client::GmailClientTrait;
 /// use paa_lib::logic::sync_logic::build_sync_query;
 ///
 /// let query = build_sync_query(&["shop@example.com".to_string()], &None);
-/// assert_eq!(query, "from:shop@example.com");
+/// assert_eq!(query, "in:anywhere (from:shop@example.com)");
 ///
 /// let query = build_sync_query(
 ///     &["shop@example.com".to_string()],
@@ -31,17 +31,18 @@ use crate::gmail_client::GmailClientTrait;
 /// ```
 pub fn build_sync_query(sender_addresses: &[String], oldest_date: &Option<String>) -> String {
     // Build query based on sender addresses
+    // in:anywhere で受信トレイ・スパム・ゴミ箱・アーカイブを含む全メールを検索
     let base_query = if sender_addresses.is_empty() {
         // Fallback to keyword search if no sender addresses configured
         log::warn!("No enabled shop settings found, falling back to keyword search");
-        r"subject:(注文 OR 予約 OR ありがとうございます)".to_string()
+        format!(r"in:anywhere subject:(注文 OR 予約 OR ありがとうございます)")
     } else {
-        // Build "from:addr1 OR from:addr2 OR ..." query
+        // Build "in:anywhere (from:addr1 OR from:addr2 OR ...)" query
         let from_clauses: Vec<String> = sender_addresses
             .iter()
             .map(|addr| format!("from:{addr}"))
             .collect();
-        from_clauses.join(" OR ")
+        format!("in:anywhere ({})", from_clauses.join(" OR "))
     };
 
     if let Some(date) = oldest_date {
@@ -133,6 +134,9 @@ fn is_valid_simple_email(email: &str) -> bool {
     true
 }
 
+/// 件名フィルターを一時無効化するフラグ（true = 送信元のみで判定、件名は見ない）
+const SKIP_SUBJECT_FILTER: bool = false;
+
 /// メッセージをショップ設定と件名フィルターに基づいて保存すべきかを判定する
 ///
 /// # Arguments
@@ -157,6 +161,11 @@ pub fn should_save_message(msg: &GmailMessage, shop_settings: &[ShopSettings]) -
     for shop in shop_settings {
         if !shop.sender_address.eq_ignore_ascii_case(&sender_email) {
             continue;
+        }
+
+        // 件名フィルターを一時無効化している場合は送信元一致で即許可
+        if SKIP_SUBJECT_FILTER {
+            return true;
         }
 
         // If no subject filter is set, allow the message
@@ -284,7 +293,7 @@ mod tests {
     #[test]
     fn test_build_sync_query_single_address() {
         let query = build_sync_query(&["shop@example.com".to_string()], &None);
-        assert_eq!(query, "from:shop@example.com");
+        assert_eq!(query, "in:anywhere (from:shop@example.com)");
     }
 
     #[test]
@@ -294,12 +303,16 @@ mod tests {
             "shop2@example.com".to_string(),
         ];
         let query = build_sync_query(&addresses, &None);
-        assert_eq!(query, "from:shop1@example.com OR from:shop2@example.com");
+        assert_eq!(
+            query,
+            "in:anywhere (from:shop1@example.com OR from:shop2@example.com)"
+        );
     }
 
     #[test]
     fn test_build_sync_query_empty_addresses() {
         let query = build_sync_query(&[], &None);
+        assert!(query.contains("in:anywhere"));
         assert!(query.contains("subject:"));
     }
 
@@ -320,7 +333,7 @@ mod tests {
             &Some("invalid-date".to_string()),
         );
         // Invalid date should be ignored
-        assert_eq!(query, "from:shop@example.com");
+        assert_eq!(query, "in:anywhere (from:shop@example.com)");
     }
 
     #[test]
@@ -329,6 +342,7 @@ mod tests {
             &["shop@example.com".to_string()],
             &Some("2024-06-01T00:00:00Z".to_string()),
         );
+        assert!(query.contains("in:anywhere"));
         assert!(query.contains("before:2024/06/01"));
     }
 

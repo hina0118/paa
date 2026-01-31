@@ -59,7 +59,7 @@ export function OrderItemDrawer({
             <h4 className="text-sm font-medium text-muted-foreground mb-1">
               ショップ
             </h4>
-            <p>{item.shopDomain ?? '-'}</p>
+            <p>{item.shopName ?? item.shopDomain ?? '-'}</p>
           </div>
           <div>
             <h4 className="text-sm font-medium text-muted-foreground mb-1">
