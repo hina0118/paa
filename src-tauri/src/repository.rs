@@ -39,6 +39,10 @@ pub struct EmailStats {
 #[async_trait]
 pub trait EmailRepository: Send + Sync {
     /// メッセージをDBに保存
+    ///
+    /// # Returns
+    /// `(saved, skipped)` - saved: rows_affected>0、skipped: rows_affected=0。
+    /// ON CONFLICT DO UPDATE では SQLite の changes() がマッチ行数を返すため、COALESCE で値が変わらなくても saved になる。
     async fn save_messages(&self, messages: &[GmailMessage]) -> Result<(usize, usize), String>;
 
     /// 既存のメッセージIDを取得
@@ -919,6 +923,10 @@ impl EmailRepository for SqliteEmailRepository {
         let mut saved = 0;
         let mut skipped = 0;
 
+        // rows_affected の解釈: SQLite の changes() は UPDATE でマッチした行数を返す。
+        // COALESCE で値が実質変わらなくても、ON CONFLICT DO UPDATE の UPDATE は行にマッチするため rows_affected=1 となる。
+        // 参考: https://www.sqlite.org/c3ref/changes.html
+
         // トランザクションを使用してバッチ処理
         let mut tx = self
             .pool
@@ -1182,7 +1190,7 @@ impl ShopSettingsRepository for SqliteShopSettingsRepository {
             SELECT id, shop_name, sender_address, parser_type, is_enabled, subject_filters, created_at, updated_at
             FROM shop_settings
             WHERE is_enabled = 1
-            ORDER BY shop_name
+            ORDER BY shop_name, id
             "#,
         )
         .fetch_all(&self.pool)

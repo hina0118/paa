@@ -483,9 +483,32 @@ impl GmailClient {
     }
 
     /// body.data のバイト列を文字列にデコードする
-    /// UTF-8、Base64、ISO-2022-JP、Shift_JIS の順で試行
+    ///
+    /// mime_type に charset が指定されている場合はそれを優先し、Shift_JIS/ISO-2022-JP の
+    /// バイト列がたまたま UTF-8 としても解釈可能な場合の文字化けを防ぐ。
+    /// 未指定時は UTF-8 → Base64 → ISO-2022-JP/Shift_JIS の順で試行。
     fn decode_body_to_string(data: &[u8], mime_type: &str) -> Option<String> {
-        // 1. UTF-8 として解釈を試みる
+        let mime_lower = mime_type.to_lowercase();
+
+        // 1. mime_type で charset が明示されている場合はそれを優先
+        //    （Shift_JIS 等が valid UTF-8 と誤判定される文字化けを防ぐ）
+        if mime_lower.contains("iso-2022-jp") || mime_lower.contains("iso_2022_jp") {
+            let (decoded, _, had_replacements) = encoding_rs::ISO_2022_JP.decode(data);
+            if !had_replacements {
+                return Some(decoded.into_owned());
+            }
+        } else if mime_lower.contains("shift_jis")
+            || mime_lower.contains("shift-jis")
+            || mime_lower.contains("windows-31j")
+            || mime_lower.contains("cp932")
+        {
+            let (decoded, _, had_replacements) = encoding_rs::SHIFT_JIS.decode(data);
+            if !had_replacements {
+                return Some(decoded.into_owned());
+            }
+        }
+
+        // 2. UTF-8 として解釈を試みる
         if let Ok(data_str) = std::str::from_utf8(data) {
             // Base64 形式の場合はデコードして再試行（Gmail API の body.data が base64 の場合）
             if let Some(decoded) = Self::try_decode_base64(data_str) {
@@ -494,34 +517,14 @@ impl GmailClient {
             return Some(data_str.to_string());
         }
 
-        // 2. mime_type から charset を抽出して試行
-        let mime_lower = mime_type.to_lowercase();
-        let encoding = if mime_lower.contains("iso-2022-jp") || mime_lower.contains("iso_2022_jp") {
-            encoding_rs::ISO_2022_JP
-        } else if mime_lower.contains("shift_jis")
-            || mime_lower.contains("shift-jis")
-            || mime_lower.contains("windows-31j")
-            || mime_lower.contains("cp932")
-        {
-            encoding_rs::SHIFT_JIS
-        } else {
-            // 3. 日本語メールでよく使われるエンコーディングをフォールバックで試行
-            for enc in [encoding_rs::ISO_2022_JP, encoding_rs::SHIFT_JIS] {
-                let (decoded, _, had_replacements) = enc.decode(data);
-                // 不正シーケンスが置換された場合は None（パース不能なゴミデータとみなす）
-                if !decoded.is_empty() && !had_replacements {
-                    return Some(decoded.into_owned());
-                }
+        // 3. charset 未指定時のフォールバック: 日本語メールでよく使われるエンコーディングを試行
+        for enc in [encoding_rs::ISO_2022_JP, encoding_rs::SHIFT_JIS] {
+            let (decoded, _, had_replacements) = enc.decode(data);
+            if !decoded.is_empty() && !had_replacements {
+                return Some(decoded.into_owned());
             }
-            return None;
-        };
-
-        let (decoded, _, had_replacements) = encoding.decode(data);
-        // 不正シーケンスが置換された場合は None
-        if had_replacements {
-            return None;
         }
-        Some(decoded.into_owned())
+        None
     }
 
     /// `Base64URL形式の文字列かどうかを検証する`

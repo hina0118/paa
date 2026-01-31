@@ -155,6 +155,11 @@ pub trait EmailParser {
 
 /// バッチパース用: 送信元アドレスと件名から候補パーサー(parser_type, shop_name)を取得
 ///
+/// 同一の送信元・件名に複数パーサーがマッチする場合がある（例: hobbysearch_change と hobbysearch_change_yoyaku）。
+/// これらは本文構造が異なり（[ご購入内容] vs [ご予約内容]）、1通のメールに対してはどちらか一方のみが成功する。
+/// shop_settings の ORDER BY shop_name, id により試行順序は一意に決まり、
+/// 最初に成功したパーサーの結果が採用される。
+///
 /// # Arguments
 /// * `shop_settings` - (sender_address, parser_type, subject_filters_json, shop_name) のタプルリスト
 /// * `from_address` - メールの送信元アドレス
