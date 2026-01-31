@@ -166,6 +166,57 @@ describe('Sync', () => {
     });
   });
 
+  it('displays 一時停止 when sync_status is paused', async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_sync_status') {
+        return Promise.resolve({
+          sync_status: 'paused' as const,
+          total_synced_count: 0,
+          batch_size: 50,
+        });
+      }
+      return Promise.resolve(undefined);
+    });
+    await renderWithProvider();
+    await waitFor(() => {
+      expect(screen.getByText('一時停止')).toBeInTheDocument();
+    });
+  });
+
+  it('displays エラー when sync_status is error', async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_sync_status') {
+        return Promise.resolve({
+          sync_status: 'error' as const,
+          total_synced_count: 0,
+          batch_size: 50,
+        });
+      }
+      return Promise.resolve(undefined);
+    });
+    await renderWithProvider();
+    await waitFor(() => {
+      expect(screen.getByText('エラー')).toBeInTheDocument();
+    });
+  });
+
+  it('displays 不明 when sync_status is unknown', async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_sync_status') {
+        return Promise.resolve({
+          sync_status: 'unknown' as never,
+          total_synced_count: 0,
+          batch_size: 50,
+        });
+      }
+      return Promise.resolve(undefined);
+    });
+    await renderWithProvider();
+    await waitFor(() => {
+      expect(screen.getByText('不明')).toBeInTheDocument();
+    });
+  });
+
   it('shows cancel button when syncing', async () => {
     mockInvoke.mockImplementation((cmd: string) => {
       if (cmd === 'get_sync_status') {

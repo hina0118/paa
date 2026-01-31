@@ -118,6 +118,11 @@ describe('OrderItemRowView', () => {
     expect(screen.getByText('TestCategory')).toBeInTheDocument();
   });
 
+  it('does not render brand/category when both are null', () => {
+    render(<OrderItemRowView item={mockItem} />);
+    expect(screen.queryByText(/Brand|Category| \/ /)).not.toBeInTheDocument();
+  });
+
   it('renders brand and category joined with slash', () => {
     const itemWithBoth: OrderItemRow = {
       ...mockItem,

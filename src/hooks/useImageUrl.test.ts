@@ -51,6 +51,19 @@ describe('useImageUrl', () => {
     );
   });
 
+  it('returns null for whitespace-only fileName', async () => {
+    vi.mocked(tauriCore.isTauri).mockReturnValue(true);
+    vi.mocked(tauriPath.join).mockResolvedValue('/app/data/images');
+
+    const { result } = renderHook(() => useImageUrl());
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    expect(result.current('   ')).toBeNull();
+    expect(result.current('\t')).toBeNull();
+  });
+
   it('returns null for path traversal attempts', async () => {
     vi.mocked(tauriCore.isTauri).mockReturnValue(true);
     vi.mocked(tauriPath.join).mockResolvedValue('/app/data/images');

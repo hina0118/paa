@@ -7,9 +7,34 @@ expect.extend(matchers);
 
 // Mock ResizeObserver (used by TanStack Virtual in Orders)
 // コンストラクタとして new されるため、通常の function を使用
-global.ResizeObserver = vi.fn().mockImplementation(function () {
+// 仮想スクロールが項目を描画するよう、observe 時にコールバックを実行
+global.ResizeObserver = vi.fn().mockImplementation(function (
+  this: ResizeObserver,
+  callback: ResizeObserverCallback
+) {
   return {
-    observe: vi.fn(),
+    observe: vi.fn((target: Element) => {
+      Object.defineProperty(target, 'clientWidth', {
+        value: 600,
+        configurable: true,
+      });
+      Object.defineProperty(target, 'clientHeight', {
+        value: 400,
+        configurable: true,
+      });
+      callback(
+        [
+          {
+            target,
+            contentRect: { width: 600, height: 400 } as DOMRectReadOnly,
+            borderBoxSize: [],
+            contentBoxSize: [],
+            devicePixelContentBoxSize: [],
+          },
+        ],
+        this
+      );
+    }),
     unobserve: vi.fn(),
     disconnect: vi.fn(),
   };

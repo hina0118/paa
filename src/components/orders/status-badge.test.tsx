@@ -52,4 +52,17 @@ describe('StatusBadge', () => {
     render(<StatusBadge status="returned" />);
     expect(screen.getByText('返送')).toBeInTheDocument();
   });
+
+  it('returns null for unknown status', () => {
+    const { container } = render(
+      <StatusBadge status={'unknown_status' as never} />
+    );
+    expect(container.firstChild).toBeNull();
+  });
+
+  it('applies custom className', () => {
+    render(<StatusBadge status="delivered" className="custom-class" />);
+    const badge = screen.getByText('到着済み');
+    expect(badge).toHaveClass('custom-class');
+  });
 });
