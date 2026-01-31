@@ -8,7 +8,7 @@
  * @see docs/plans/2025-01-30-db-mock-for-e2e.md
  */
 
-import { sanitizeTableName } from './database';
+import { sanitizeTableName } from './table-utils';
 
 type SchemaColumn = {
   cid: number;

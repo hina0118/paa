@@ -2,6 +2,14 @@ import Database from '@tauri-apps/plugin-sql';
 import { appDataDir, join } from '@tauri-apps/api/path';
 import { createE2EMockDb } from './e2e-mock-db';
 
+// Re-export for backward compatibility (table-viewer, etc.)
+export {
+  VALID_TABLES,
+  isValidTableName,
+  sanitizeTableName,
+  type ValidTableName,
+} from './table-utils';
+
 /**
  * Tauri 環境かどうか（E2E テストはブラウザ単体で Tauri 非稼働）
  * @see docs/plans/2025-01-30-db-mock-for-e2e.md
@@ -11,41 +19,6 @@ export function isTauriEnv(): boolean {
     typeof window !== 'undefined' &&
     !!(window as Window & { __TAURI__?: unknown }).__TAURI__
   );
-}
-
-// Valid table names - used to prevent SQL injection
-export const VALID_TABLES = [
-  'emails',
-  'orders',
-  'items',
-  'images',
-  'deliveries',
-  'htmls',
-  'order_emails',
-  'order_htmls',
-  'shop_settings',
-  'sync_metadata',
-  'window_settings',
-  'parse_metadata',
-] as const;
-
-export type ValidTableName = (typeof VALID_TABLES)[number];
-
-export function isValidTableName(name: string): name is ValidTableName {
-  return VALID_TABLES.includes(name as ValidTableName);
-}
-
-export function sanitizeTableName(tableName: string): string {
-  if (!isValidTableName(tableName)) {
-    throw new Error(
-      `Table "${tableName}" is not allowed. ` +
-        `Allowed tables are: ${VALID_TABLES.join(', ')}. ` +
-        `This may indicate a configuration issue or a bug in the calling code.`
-    );
-  }
-  // The whitelist check above is sufficient since VALID_TABLES is a const array
-  // containing only safe, pre-validated table names
-  return tableName;
 }
 
 // Error messages for DatabaseManager
@@ -141,7 +114,9 @@ export class DatabaseManager {
     // Initialize database
     this.initPromise = (async () => {
       if (!isTauriEnv()) {
-        return createE2EMockDb() as unknown as Database;
+        const mockDb = createE2EMockDb() as unknown as Database;
+        this.db = mockDb;
+        return mockDb;
       }
 
       const appDataDirPath = await appDataDir();
