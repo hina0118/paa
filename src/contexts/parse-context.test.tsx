@@ -57,6 +57,29 @@ describe('ParseContext', () => {
     );
   });
 
+  it('sets isParsing true when backend returns running status', async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_parse_status') {
+        return Promise.resolve({
+          parse_status: 'running' as const,
+          total_parsed_count: 0,
+          batch_size: 100,
+        });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    const { result } = renderHook(() => useParse(), { wrapper });
+
+    await waitFor(
+      () => {
+        expect(result.current.isParsing).toBe(true);
+        expect(result.current.metadata?.parse_status).toBe('running');
+      },
+      { timeout: 3000 }
+    );
+  });
+
   it('starts parse successfully', async () => {
     mockInvoke.mockResolvedValue(undefined);
 

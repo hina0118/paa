@@ -1,10 +1,11 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { OrderItemDrawer } from './order-item-drawer';
 import type { OrderItemRow } from '@/lib/types';
 
+const mockGetImageUrl = vi.fn(() => null);
 vi.mock('@/hooks/useImageUrl', () => ({
-  useImageUrl: () => () => null,
+  useImageUrl: () => mockGetImageUrl,
 }));
 
 const mockItem: OrderItemRow = {
@@ -25,6 +26,10 @@ const mockItem: OrderItemRow = {
 };
 
 describe('OrderItemDrawer', () => {
+  beforeEach(() => {
+    mockGetImageUrl.mockImplementation(() => null);
+  });
+
   it('returns null when item is null', () => {
     const { container } = render(
       <OrderItemDrawer item={null} open={true} onOpenChange={vi.fn()} />
@@ -79,6 +84,23 @@ describe('OrderItemDrawer', () => {
       <OrderItemDrawer item={mockItem} open={true} onOpenChange={vi.fn()} />
     );
     expect(screen.getByText('画像なし')).toBeInTheDocument();
+  });
+
+  it('renders image when useImageUrl returns URL', () => {
+    mockGetImageUrl.mockImplementation(
+      (fileName: string | null) =>
+        (fileName ? 'asset:///drawer-img.jpg' : null) as string | null
+    );
+    render(
+      <OrderItemDrawer
+        item={{ ...mockItem, fileName: 'drawer.jpg' }}
+        open={true}
+        onOpenChange={vi.fn()}
+      />
+    );
+    const img = document.querySelector('img[alt="ドロワー表示テスト"]');
+    expect(img).toBeInTheDocument();
+    expect(img).toHaveAttribute('src', 'asset:///drawer-img.jpg');
   });
 
   it('does not render brand/category section when both are null', () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Orders } from './orders';
 import { NavigationProvider } from '@/contexts/navigation-context';
@@ -20,6 +20,30 @@ vi.mock('@tauri-apps/api/core', () => ({
 vi.mock('@tauri-apps/api/path', () => ({
   appDataDir: () => Promise.resolve('/mock/app/data'),
   join: (_a: string, _b: string) => Promise.resolve('/mock/app/data/images'),
+}));
+
+// 仮想スクロールを無効化して全項目を描画（jsdom でテスト可能にする）
+vi.mock('@tanstack/react-virtual', () => ({
+  useVirtualizer: ({
+    count,
+    estimateSize,
+  }: {
+    count: number;
+    estimateSize: () => number;
+  }) => {
+    const size = estimateSize();
+    return {
+      getVirtualItems: () =>
+        Array.from({ length: count }, (_, i) => ({
+          key: i,
+          index: i,
+          start: i * size,
+          size,
+          end: (i + 1) * size,
+        })),
+      getTotalSize: () => count * size,
+    };
+  },
 }));
 
 const mockDb = {
@@ -252,5 +276,39 @@ describe('Orders', () => {
     await user.type(searchInput, 'test query');
 
     expect(searchInput).toHaveValue('test query');
+  });
+
+  it('opens drawer when item is clicked', async () => {
+    const user = userEvent.setup();
+    setMockWithItems();
+    renderOrders();
+    await screen.findByText(/1件の商品/);
+
+    const itemButton = screen.getByRole('button', { name: /Test Item/i });
+    await user.click(itemButton);
+
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toBeInTheDocument();
+    expect(within(dialog).getByText(/Test Item/)).toBeInTheDocument();
+  });
+
+  it('handles loadFilters failure gracefully', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(mockDb.select).mockImplementation((sql: string) => {
+      if (
+        sql.includes('SELECT DISTINCT shop_domain') ||
+        sql.includes("strftime('%Y'")
+      ) {
+        return Promise.reject(new Error('filter options error'));
+      }
+      return Promise.resolve([]);
+    });
+    renderOrders();
+
+    await expect(
+      screen.findByText('データがありません')
+    ).resolves.toBeInTheDocument();
+
+    consoleSpy.mockRestore();
   });
 });
