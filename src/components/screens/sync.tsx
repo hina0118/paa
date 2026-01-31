@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useSync } from '@/contexts/sync-context';
+import { formatDateTime } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import {
@@ -239,9 +240,7 @@ export function Sync() {
                 <div className="col-span-2">
                   <span className="text-muted-foreground">最古メール日付:</span>
                   <div className="text-sm font-mono">
-                    {new Date(metadata.oldest_fetched_date).toLocaleString(
-                      'ja-JP'
-                    )}
+                    {formatDateTime(metadata.oldest_fetched_date)}
                   </div>
                 </div>
               )}
@@ -249,9 +248,7 @@ export function Sync() {
                 <div className="col-span-2">
                   <span className="text-muted-foreground">最終同期:</span>
                   <div className="text-sm">
-                    {new Date(metadata.last_sync_completed_at).toLocaleString(
-                      'ja-JP'
-                    )}
+                    {formatDateTime(metadata.last_sync_completed_at)}
                   </div>
                 </div>
               )}

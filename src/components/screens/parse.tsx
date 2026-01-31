@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParse } from '@/contexts/parse-context';
+import { formatDateTime } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import {
@@ -247,9 +248,7 @@ export function Parse() {
                 <div>
                   <span className="text-muted-foreground">開始日時:</span>
                   <div className="text-sm">
-                    {new Date(metadata.last_parse_started_at).toLocaleString(
-                      'ja-JP'
-                    )}
+                    {formatDateTime(metadata.last_parse_started_at)}
                   </div>
                 </div>
               )}
@@ -257,9 +256,7 @@ export function Parse() {
                 <div className="col-span-2">
                   <span className="text-muted-foreground">最終完了:</span>
                   <div className="text-sm">
-                    {new Date(metadata.last_parse_completed_at).toLocaleString(
-                      'ja-JP'
-                    )}
+                    {formatDateTime(metadata.last_parse_completed_at)}
                   </div>
                 </div>
               )}

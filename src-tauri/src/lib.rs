@@ -245,7 +245,8 @@ pub fn add_log_entry(level: &str, message: &str) {
         Ok(mut buffer) => {
             if let Some(ref mut logs) = *buffer {
                 let entry = LogEntry {
-                    timestamp: chrono::Local::now()
+                    timestamp: chrono::Utc::now()
+                        .with_timezone(&chrono_tz::Asia::Tokyo)
                         .format("%Y-%m-%d %H:%M:%S%.3f")
                         .to_string(),
                     level: level.to_string(),
@@ -371,11 +372,13 @@ pub fn run() {
                     // メモリにログを保存
                     add_log_entry(&record.level().to_string(), &format!("{}", record.args()));
 
-                    // コンソールにも出力
+                    // コンソールにも出力（JST）
                     writeln!(
                         buf,
                         "[{} {:5} {}] {}",
-                        chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+                        chrono::Utc::now()
+                            .with_timezone(&chrono_tz::Asia::Tokyo)
+                            .format("%Y-%m-%d %H:%M:%S"),
                         record.level(),
                         record.target(),
                         record.args()

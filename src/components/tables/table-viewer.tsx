@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { sanitizeTableName } from '@/lib/database';
+import { formatDateTime } from '@/lib/utils';
 import { useDatabase } from '@/hooks/useDatabase';
 
 type TableViewerProps = {
@@ -224,7 +225,11 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
     if (typeof value === 'boolean') {
       return value ? 'true' : 'false';
     }
-    return String(value);
+    const s = String(value);
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+      return formatDateTime(s);
+    }
+    return s;
   };
 
   const handleCellClick = (column: string, value: unknown) => {

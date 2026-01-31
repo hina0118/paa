@@ -10,8 +10,11 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/** アプリ全体で使用するタイムゾーン（日本標準時） */
+const JST = 'Asia/Tokyo';
+
 /**
- * ISO日付文字列を ja-JP 形式でフォーマット。
+ * ISO日付文字列を ja-JP 形式でフォーマット（日付のみ、JST）。
  * SQLite の "YYYY-MM-DD HH:MM:SS" 形式は WebKit で Invalid Date になることがあるため、
  * スペースを "T" に置換して ISO8601 形式に正規化してからパースする。
  */
@@ -21,7 +24,27 @@ export function formatDate(s: string | null | undefined): string {
     const normalized =
       s.includes(' ') && !s.includes('T') ? s.replace(' ', 'T') : s;
     const d = new Date(normalized);
-    return isNaN(d.getTime()) ? s : d.toLocaleDateString('ja-JP');
+    return isNaN(d.getTime())
+      ? s
+      : d.toLocaleDateString('ja-JP', { timeZone: JST });
+  } catch {
+    return s;
+  }
+}
+
+/**
+ * 日時文字列を ja-JP 形式でフォーマット（日付+時刻、JST）。
+ * バックエンドの UTC 日時を JST で表示するために使用する。
+ */
+export function formatDateTime(s: string | null | undefined): string {
+  if (!s) return '-';
+  try {
+    const normalized =
+      s.includes(' ') && !s.includes('T') ? s.replace(' ', 'T') : s;
+    const d = new Date(normalized);
+    return isNaN(d.getTime())
+      ? s
+      : d.toLocaleString('ja-JP', { timeZone: JST });
   } catch {
     return s;
   }

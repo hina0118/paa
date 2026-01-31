@@ -3,6 +3,7 @@ import {
   cn,
   notify,
   formatDate,
+  formatDateTime,
   formatPrice,
   parseNumericFilter,
 } from './utils';
@@ -182,6 +183,29 @@ describe('formatDate', () => {
 
   it('returns original string for invalid date', () => {
     expect(formatDate('invalid-date')).toBe('invalid-date');
+  });
+});
+
+describe('formatDateTime', () => {
+  it('formats UTC ISO string to JST', () => {
+    // 2024-01-15 00:00:00 UTC = 2024-01-15 09:00:00 JST
+    expect(formatDateTime('2024-01-15T00:00:00Z')).toMatch(
+      /\d{4}\/\d{1,2}\/\d{1,2}/
+    );
+  });
+
+  it('formats SQLite datetime format', () => {
+    expect(formatDateTime('2024-01-15 12:30:45')).toMatch(
+      /\d{4}\/\d{1,2}\/\d{1,2}/
+    );
+  });
+
+  it('returns "-" for null', () => {
+    expect(formatDateTime(null)).toBe('-');
+  });
+
+  it('returns "-" for undefined', () => {
+    expect(formatDateTime(undefined)).toBe('-');
   });
 });
 
