@@ -1,7 +1,8 @@
 import { test, expect } from './fixtures';
+import type { Page } from '@playwright/test';
 import { expectSidebarVisible } from './helpers';
 
-function expandTablesAndNavigate(page: any, tableName: string) {
+function expandTablesAndNavigate(page: Page, tableName: string) {
   return async () => {
     const tablesButton = page.getByRole('button', { name: /Tables/ });
     await tablesButton.click();
