@@ -14,16 +14,28 @@ export function cn(...inputs: ClassValue[]) {
 const JST = 'Asia/Tokyo';
 
 /**
+ * タイムゾーン未指定の日付文字列を UTC としてパースする。
+ * SQLite などバックエンドは UTC で保存しているため、Z やオフセットがない場合は UTC として解釈する。
+ */
+function parseAsUtcIfNeeded(s: string): Date {
+  let normalized =
+    s.includes(' ') && !s.includes('T') ? s.replace(' ', 'T') : s;
+  if (!/Z|[+-]\d{2}:?\d{2}$/.test(normalized)) {
+    normalized += 'Z';
+  }
+  return new Date(normalized);
+}
+
+/**
  * ISO日付文字列を ja-JP 形式でフォーマット（日付のみ、JST）。
  * SQLite の "YYYY-MM-DD HH:MM:SS" 形式は WebKit で Invalid Date になることがあるため、
  * スペースを "T" に置換して ISO8601 形式に正規化してからパースする。
+ * バックエンドは UTC で保存しているため、タイムゾーン未指定の場合は UTC として解釈する。
  */
 export function formatDate(s: string | null | undefined): string {
   if (!s) return '-';
   try {
-    const normalized =
-      s.includes(' ') && !s.includes('T') ? s.replace(' ', 'T') : s;
-    const d = new Date(normalized);
+    const d = parseAsUtcIfNeeded(s);
     return isNaN(d.getTime())
       ? s
       : d.toLocaleDateString('ja-JP', { timeZone: JST });
@@ -39,9 +51,7 @@ export function formatDate(s: string | null | undefined): string {
 export function formatDateTime(s: string | null | undefined): string {
   if (!s) return '-';
   try {
-    const normalized =
-      s.includes(' ') && !s.includes('T') ? s.replace(' ', 'T') : s;
-    const d = new Date(normalized);
+    const d = parseAsUtcIfNeeded(s);
     return isNaN(d.getTime())
       ? s
       : d.toLocaleString('ja-JP', { timeZone: JST });

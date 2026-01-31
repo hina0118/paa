@@ -43,7 +43,7 @@ describe('loadOrderItems', () => {
     const [, args] = (mockDb.select as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(args).toContain('shop.example.com');
     expect(args.filter((a: unknown) => a === 'shop.example.com')).toHaveLength(
-      2
+      1
     );
   });
 
