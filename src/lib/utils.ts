@@ -10,17 +10,25 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-/** アプリ全体で使用するタイムゾーン（日本標準時） */
+/**
+ * アプリ全体で使用するタイムゾーン（日本標準時）。
+ * バックエンドは chrono_tz::Asia::Tokyo、DB は UTC。規約: README §4。
+ */
 const JST = 'Asia/Tokyo';
 
 /**
  * タイムゾーン未指定の日付文字列を UTC としてパースする。
  * SQLite などバックエンドは UTC で保存しているため、Z やオフセットがない場合は UTC として解釈する。
+ *
+ * タイムゾーン判定: 日付のみ（"2024-01-01"）では "01-01" が誤って [+-]XX:XX とマッチするため、
+ * 時刻部分（T と :）が含まれる場合のみ正規表現で判定する。
  */
 function parseAsUtcIfNeeded(s: string): Date {
   let normalized =
     s.includes(' ') && !s.includes('T') ? s.replace(' ', 'T') : s;
-  if (!/Z|[+-]\d{2}:?\d{2}$/.test(normalized)) {
+  const hasTimePart = normalized.includes('T') && normalized.includes(':');
+  const hasTimezone = hasTimePart && /Z|[+-]\d{2}:?\d{2}$/.test(normalized);
+  if (!hasTimezone) {
     normalized += 'Z';
   }
   return new Date(normalized);

@@ -389,7 +389,7 @@ pub fn run() {
                     // メモリにログを保存
                     add_log_entry(&record.level().to_string(), &format!("{}", record.args()));
 
-                    // コンソールにも出力（JST）
+                    // コンソールにも出力（JST）。タイムゾーン規約: README §4 参照
                     writeln!(
                         buf,
                         "[{} {:5} {}] {}",

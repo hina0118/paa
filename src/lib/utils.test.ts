@@ -214,6 +214,14 @@ describe('formatDateTime', () => {
   it('returns "-" for undefined', () => {
     expect(formatDateTime(undefined)).toBe('-');
   });
+
+  it('returns "-" for empty string', () => {
+    expect(formatDateTime('')).toBe('-');
+  });
+
+  it('returns original string for invalid date', () => {
+    expect(formatDateTime('invalid-date')).toBe('invalid-date');
+  });
 });
 
 describe('formatPrice', () => {

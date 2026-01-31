@@ -67,6 +67,8 @@ pub struct GmailMessage {
     pub from_address: Option<String>,
 }
 
+/// Gmail 同期の保存結果。saved_count は INSERT または ON CONFLICT DO UPDATE で rows_affected>0 の件数
+/// （重複も更新されるため「新規のみ」ではない）。skipped_count は rows_affected=0 の件数（通常は 0）。
 #[derive(Debug, Serialize, Deserialize)]
 #[allow(clippy::struct_field_names)]
 pub struct FetchResult {
@@ -487,6 +489,7 @@ impl GmailClient {
     /// mime_type に charset が指定されている場合はそれを優先し、Shift_JIS/ISO-2022-JP の
     /// バイト列がたまたま UTF-8 としても解釈可能な場合の文字化けを防ぐ。
     /// 未指定時は UTF-8 → Base64 → ISO-2022-JP/Shift_JIS の順で試行。
+    /// 不正シーケンスが含まれる場合（had_replacements）は警告を出しつつ部分的なデコード結果を返す。
     fn decode_body_to_string(data: &[u8], mime_type: &str) -> Option<String> {
         let mime_lower = mime_type.to_lowercase();
 
@@ -494,7 +497,10 @@ impl GmailClient {
         //    （Shift_JIS 等が valid UTF-8 と誤判定される文字化けを防ぐ）
         if mime_lower.contains("iso-2022-jp") || mime_lower.contains("iso_2022_jp") {
             let (decoded, _, had_replacements) = encoding_rs::ISO_2022_JP.decode(data);
-            if !had_replacements {
+            if !decoded.is_empty() {
+                if had_replacements {
+                    log::warn!("ISO-2022-JP decode had replacement chars; returning partial content");
+                }
                 return Some(decoded.into_owned());
             }
         } else if mime_lower.contains("shift_jis")
@@ -503,7 +509,10 @@ impl GmailClient {
             || mime_lower.contains("cp932")
         {
             let (decoded, _, had_replacements) = encoding_rs::SHIFT_JIS.decode(data);
-            if !had_replacements {
+            if !decoded.is_empty() {
+                if had_replacements {
+                    log::warn!("Shift_JIS decode had replacement chars; returning partial content");
+                }
                 return Some(decoded.into_owned());
             }
         }
@@ -520,7 +529,10 @@ impl GmailClient {
         // 3. charset 未指定時のフォールバック: 日本語メールでよく使われるエンコーディングを試行
         for enc in [encoding_rs::ISO_2022_JP, encoding_rs::SHIFT_JIS] {
             let (decoded, _, had_replacements) = enc.decode(data);
-            if !decoded.is_empty() && !had_replacements {
+            if !decoded.is_empty() {
+                if had_replacements {
+                    log::warn!("Fallback encoding decode had replacement chars; returning partial content");
+                }
                 return Some(decoded.into_owned());
             }
         }
@@ -760,7 +772,7 @@ pub async fn save_messages_to_db(
         .map_err(|e| format!("Failed to commit transaction: {e}"))?;
 
     log::info!(
-        "Saved {saved_count} messages, skipped {skipped_count} duplicates, filtered {filtered_count} by subject"
+        "Saved {saved_count} messages (inserted or updated), skipped {skipped_count}, filtered {filtered_count} by subject"
     );
 
     Ok(FetchResult {
@@ -798,7 +810,7 @@ pub async fn save_messages_to_db_with_repo(
     let (saved_count, skipped_count) = repo.save_messages(&messages).await?;
 
     log::info!(
-        "Saved {saved_count} messages, skipped {skipped_count} duplicates, filtered {filtered_count} by subject"
+        "Saved {saved_count} messages (inserted or updated), skipped {skipped_count}, filtered {filtered_count} by subject"
     );
 
     Ok(FetchResult {
@@ -2738,7 +2750,7 @@ mod tests {
         let part = MessagePart {
             mime_type: Some("text/plain".to_string()),
             body: Some(MessagePartBody {
-                // 無効なUTF-8バイトシーケンス（実際にはbase64エンコードが必要だが、テストのため）
+                // 無効なUTF-8バイトシーケンス
                 data: Some(vec![0xFF, 0xFE, 0xFD]),
                 ..Default::default()
             }),
@@ -2748,11 +2760,11 @@ mod tests {
         let mut body_plain = None;
         let mut body_html = None;
 
-        // 無効なUTF-8の場合、from_utf8が失敗するため何も抽出されない
         GmailClient::extract_body_from_part(&part, &mut body_plain, &mut body_html, None);
 
-        // UTF-8変換に失敗するため、抽出されない
-        assert_eq!(body_plain, None);
+        // UTF-8 失敗後、フォールバック（ISO-2022-JP/Shift_JIS）で置換文字付きの部分結果を返す
+        assert!(body_plain.is_some());
+        assert!(body_plain.as_ref().unwrap().contains('\u{FFFD}'));
         assert_eq!(body_html, None);
     }
 
