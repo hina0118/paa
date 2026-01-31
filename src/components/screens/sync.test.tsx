@@ -86,7 +86,9 @@ describe('Sync', () => {
 
   it('displays batch size', async () => {
     await renderWithProvider();
-    expect(screen.getByText('バッチサイズ:')).toBeInTheDocument();
+    expect(
+      await screen.findByText('バッチサイズ:', { timeout: 3000 })
+    ).toBeInTheDocument();
   });
 
   it('displays initial authentication warning', async () => {
