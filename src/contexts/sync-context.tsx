@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useState,
   useEffect,
@@ -46,6 +47,16 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const [progress, setProgress] = useState<SyncProgress | null>(null);
   const [metadata, setMetadata] = useState<SyncMetadata | null>(null);
 
+  const refreshStatus = useCallback(async () => {
+    try {
+      const status = await invoke<SyncMetadata>('get_sync_status');
+      setMetadata(status);
+      setIsSyncing(status.sync_status === 'syncing');
+    } catch (error) {
+      console.error('Failed to fetch sync status:', error);
+    }
+  }, []);
+
   // Listen for sync progress events
   useEffect(() => {
     const unlisten = listen<SyncProgress>('sync-progress', (event) => {
@@ -62,7 +73,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, []);
+  }, [refreshStatus]);
 
   // Load initial sync status and reset stuck "syncing" state
   useEffect(() => {
@@ -92,17 +103,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     };
 
     initializeSync();
-  }, []);
-
-  const refreshStatus = async () => {
-    try {
-      const status = await invoke<SyncMetadata>('get_sync_status');
-      setMetadata(status);
-      setIsSyncing(status.sync_status === 'syncing');
-    } catch (error) {
-      console.error('Failed to fetch sync status:', error);
-    }
-  };
+  }, [refreshStatus]);
 
   const startSync = async () => {
     try {

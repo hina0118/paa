@@ -91,31 +91,30 @@ function AppContent() {
 }
 
 function App() {
+  // 関心ごとに useEffect を分割（可読性・テスト性の向上）
+
+  // 1. DB 初期化・マイグレーション
   useEffect(() => {
-    // アプリ起動時にDBを初期化してマイグレーションを実行
     const initDb = async () => {
       try {
-        // フロントエンド(tauri-plugin-sql)のDB接続を初期化してマイグレーション実行
         const manager = DatabaseManager.getInstance();
         const db = await manager.getDatabase();
-
-        // 簡単なクエリでマイグレーション実行を確実にする
         await db.select('SELECT 1');
       } catch (error) {
         console.error('Failed to initialize database:', error);
       }
     };
-
     initDb();
+  }, []);
 
-    // ウィンドウサイズ・位置変更時に設定を保存
+  // 2. ウィンドウサイズ・位置変更時の設定保存
+  useEffect(() => {
     const saveWindowSettings = async () => {
       try {
         const window = getCurrentWindow();
         const size = await window.innerSize();
         const position = await window.outerPosition();
         const maximized = await window.isMaximized();
-
         await invoke('save_window_settings', {
           width: size.width,
           height: size.height,
@@ -128,52 +127,56 @@ function App() {
       }
     };
 
-    // デバウンス処理（頻繁な保存を避ける）
     let saveTimeout: ReturnType<typeof setTimeout> | undefined;
     const debouncedSave = () => {
-      if (saveTimeout) {
-        clearTimeout(saveTimeout);
-      }
+      if (saveTimeout) clearTimeout(saveTimeout);
       saveTimeout = setTimeout(saveWindowSettings, 500);
     };
 
-    // ウィンドウイベントリスナーを設定
+    const isActiveRef = { current: true };
+    const windowCleanupRef = { current: null as (() => void) | null };
     const setupWindowListeners = async () => {
       const window = getCurrentWindow();
       const unlistenResize = await window.onResized(debouncedSave);
       const unlistenMove = await window.onMoved(debouncedSave);
-
-      return () => {
+      const fn = () => {
         unlistenResize();
         unlistenMove();
       };
+      if (!isActiveRef.current) fn();
+      else windowCleanupRef.current = fn;
     };
+    setupWindowListeners();
 
-    let cleanup: (() => void) | undefined;
-    setupWindowListeners().then((fn) => {
-      cleanup = fn;
-    });
+    return () => {
+      isActiveRef.current = false;
+      windowCleanupRef.current?.();
+      windowCleanupRef.current = null;
+      if (saveTimeout) clearTimeout(saveTimeout);
+    };
+  }, []);
 
-    // 通知アクションイベントリスナーを設定
-    let unlistenNotification: (() => void) | undefined;
+  // 3. 通知アクション（トレイからウィンドウを前面に）
+  useEffect(() => {
+    const isActiveRef = { current: true };
+    const notificationCleanupRef = { current: null as (() => void) | null };
     listen('notification-action', async () => {
       const window = getCurrentWindow();
       await window.show();
       await window.setFocus();
     })
       .then((unlisten) => {
-        unlistenNotification = unlisten;
+        if (!isActiveRef.current) unlisten();
+        else notificationCleanupRef.current = unlisten;
       })
       .catch((error) => {
         console.error('Failed to set up notification action listener:', error);
       });
 
     return () => {
-      if (cleanup) cleanup();
-      if (unlistenNotification) unlistenNotification();
-      if (saveTimeout) {
-        clearTimeout(saveTimeout);
-      }
+      isActiveRef.current = false;
+      notificationCleanupRef.current?.();
+      notificationCleanupRef.current = null;
     };
   }, []);
 

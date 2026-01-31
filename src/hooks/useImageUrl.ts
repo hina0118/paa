@@ -5,6 +5,12 @@ import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 let cachedBasePath: string | null = null;
 let cachedPromise: Promise<string> | null = null;
 
+/** @internal Test-only: resets module cache so tests can simulate fresh state (e.g. appDataDir rejection). */
+export function resetImageUrlCacheForTests(): void {
+  cachedBasePath = null;
+  cachedPromise = null;
+}
+
 function getImagesBasePath(): Promise<string> {
   if (cachedBasePath !== null) {
     return Promise.resolve(cachedBasePath);
