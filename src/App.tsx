@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { DatabaseManager } from '@/lib/database';
-import { EmailList } from '@/components/emails/email-list';
+import { Orders } from '@/components/screens/orders';
 import { Sidebar } from '@/components/layout/sidebar';
 import { Dashboard } from '@/components/screens/dashboard';
 import { Sync } from '@/components/screens/sync';
@@ -41,7 +41,7 @@ function AppContent() {
       case 'dashboard':
         return <Dashboard />;
       case 'orders':
-        return <EmailList />;
+        return <Orders />;
       case 'sync':
         return <Sync />;
       case 'parse':
@@ -77,7 +77,7 @@ function AppContent() {
       case 'table-parse-metadata':
         return <ParseMetadataTable />;
       default:
-        return <EmailList />;
+        return <Orders />;
     }
   };
 

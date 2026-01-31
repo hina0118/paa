@@ -57,6 +57,29 @@ describe('ParseContext', () => {
     );
   });
 
+  it('sets isParsing true when backend returns running status', async () => {
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_parse_status') {
+        return Promise.resolve({
+          parse_status: 'running' as const,
+          total_parsed_count: 0,
+          batch_size: 100,
+        });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    const { result } = renderHook(() => useParse(), { wrapper });
+
+    await waitFor(
+      () => {
+        expect(result.current.isParsing).toBe(true);
+        expect(result.current.metadata?.parse_status).toBe('running');
+      },
+      { timeout: 3000 }
+    );
+  });
+
   it('starts parse successfully', async () => {
     mockInvoke.mockResolvedValue(undefined);
 
@@ -312,5 +335,50 @@ describe('ParseContext', () => {
       },
       { timeout: 3000 }
     );
+  });
+
+  it('handles parse-progress event with is_complete', async () => {
+    let progressCallback:
+      | ((e: { payload: { is_complete: boolean } }) => void)
+      | null = null;
+    mockListen.mockImplementation((event: string, cb: (e: unknown) => void) => {
+      if (event === 'parse-progress') {
+        progressCallback = cb as (e: {
+          payload: { is_complete: boolean };
+        }) => void;
+      }
+      return Promise.resolve(() => {});
+    });
+
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_parse_status') {
+        return Promise.resolve({
+          parse_status: 'idle' as const,
+          total_parsed_count: 100,
+          batch_size: 100,
+        });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    renderHook(() => useParse(), { wrapper });
+
+    await waitFor(() => expect(progressCallback).not.toBeNull());
+
+    await act(async () => {
+      progressCallback?.({
+        payload: {
+          batch_number: 1,
+          total_emails: 100,
+          parsed_count: 100,
+          success_count: 98,
+          failed_count: 2,
+          status_message: 'Done',
+          is_complete: true,
+        },
+      });
+    });
+
+    expect(mockInvoke).toHaveBeenCalledWith('get_parse_status');
   });
 });
