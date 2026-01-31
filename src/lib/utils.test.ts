@@ -156,6 +156,12 @@ describe('formatDate', () => {
     );
   });
 
+  it('formats SQLite datetime format (YYYY-MM-DD HH:MM:SS) by normalizing to ISO8601', () => {
+    expect(formatDate('2024-01-15 12:30:45')).toMatch(
+      /\d{4}\/\d{1,2}\/\d{1,2}/
+    );
+  });
+
   it('returns "-" for null', () => {
     expect(formatDate(null)).toBe('-');
   });

@@ -2,13 +2,23 @@ import { useCallback, useEffect, useState } from 'react';
 import { appDataDir, join } from '@tauri-apps/api/path';
 import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 
+let cachedBasePath: string | null = null;
 let cachedPromise: Promise<string> | null = null;
 
 function getImagesBasePath(): Promise<string> {
+  if (cachedBasePath !== null) {
+    return Promise.resolve(cachedBasePath);
+  }
   if (!cachedPromise) {
     cachedPromise = (async () => {
-      const appData = await appDataDir();
-      return join(appData, 'images');
+      try {
+        const appData = await appDataDir();
+        const basePath = await join(appData, 'images');
+        cachedBasePath = basePath;
+        return basePath;
+      } finally {
+        cachedPromise = null;
+      }
     })();
   }
   return cachedPromise;
