@@ -10,11 +10,17 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-/** ISO日付文字列を ja-JP 形式でフォーマット */
+/**
+ * ISO日付文字列を ja-JP 形式でフォーマット。
+ * SQLite の "YYYY-MM-DD HH:MM:SS" 形式は WebKit で Invalid Date になることがあるため、
+ * スペースを "T" に置換して ISO8601 形式に正規化してからパースする。
+ */
 export function formatDate(s: string | null | undefined): string {
   if (!s) return '-';
   try {
-    const d = new Date(s);
+    const normalized =
+      s.includes(' ') && !s.includes('T') ? s.replace(' ', 'T') : s;
+    const d = new Date(normalized);
     return isNaN(d.getTime()) ? s : d.toLocaleDateString('ja-JP');
   } catch {
     return s;

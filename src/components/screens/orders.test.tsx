@@ -85,31 +85,31 @@ describe('Orders', () => {
   it('renders 商品一覧 heading', async () => {
     renderOrders();
     expect(
-      screen.getByRole('heading', { name: '商品一覧' })
+      await screen.findByRole('heading', { name: '商品一覧' })
     ).toBeInTheDocument();
   });
 
-  it('renders search input', () => {
+  it('renders search input', async () => {
     renderOrders();
     expect(
-      screen.getByPlaceholderText('商品名・ショップ名・注文番号で検索')
+      await screen.findByPlaceholderText('商品名・ショップ名・注文番号で検索')
     ).toBeInTheDocument();
   });
 
-  it('renders filter clear button', () => {
+  it('renders filter clear button', async () => {
     renderOrders();
     expect(
-      screen.getByRole('button', { name: 'フィルタクリア' })
+      await screen.findByRole('button', { name: 'フィルタクリア' })
     ).toBeInTheDocument();
   });
 
-  it('renders card and list view toggle buttons', () => {
+  it('renders card and list view toggle buttons', async () => {
     renderOrders();
     expect(
-      screen.getByRole('button', { name: 'カード表示' })
+      await screen.findByRole('button', { name: 'カード表示' })
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: 'リスト表示' })
+      await screen.findByRole('button', { name: 'リスト表示' })
     ).toBeInTheDocument();
   });
 
