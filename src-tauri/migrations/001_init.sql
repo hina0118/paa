@@ -230,6 +230,8 @@ CREATE TABLE IF NOT EXISTS shop_settings (
 CREATE INDEX IF NOT EXISTS idx_shop_settings_sender_address ON shop_settings(sender_address);
 CREATE INDEX IF NOT EXISTS idx_shop_settings_is_enabled ON shop_settings(is_enabled);
 
+-- 同一送信元・件名に複数パーサーを登録する場合: change/change_yoyaku, confirm/confirm_yoyaku は
+-- 本文構造が異なり（[ご購入内容] vs [ご予約内容]）、試行順序は shop_name, id で一意に決まる
 INSERT INTO shop_settings (shop_name, sender_address, parser_type, subject_filters, is_enabled) VALUES
     ('ホビーサーチ', 'hs-support@1999.co.jp', 'hobbysearch_send', '["【ホビーサーチ】ご注文の発送が完了しました"]', 1),
     ('ホビーサーチ', 'hs-support@1999.co.jp', 'hobbysearch_change', '["【ホビーサーチ】ご注文が組み替えられました"]', 1),

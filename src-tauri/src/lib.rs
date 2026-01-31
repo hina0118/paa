@@ -351,6 +351,12 @@ pub fn run() {
             sql: include_str!("../migrations/004_parse_skipped.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 5,
+            description: "emails_unparsed_index",
+            sql: include_str!("../migrations/005_emails_unparsed_index.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

@@ -130,7 +130,6 @@ fn extract_purchase_items(lines: &[&str]) -> Result<Vec<OrderItem>, String> {
 #[cfg(all(test, not(ci)))]
 mod tests {
     use super::*;
-    use regex::Regex;
 
     #[test]
     fn test_parse_hobbysearch_change() {

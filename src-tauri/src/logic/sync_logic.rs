@@ -135,6 +135,13 @@ fn is_valid_simple_email(email: &str) -> bool {
 }
 
 /// 件名フィルターを一時無効化するフラグ（true = 送信元のみで判定、件名は見ない）
+///
+/// NOTE: 一時的なデバッグ／検証用途のフラグです。
+/// - 通常の本番運用では必ず false のままとし、件名フィルターを有効にします。
+/// - 件名フィルタリングの動作確認やトラブルシューティングの際にのみ、
+///   一時的に true に設定して利用します。
+/// - 件名フィルタリング機能が十分に安定し、本フラグが不要になった時点で
+///   この定数と関連する if ブロックを削除してください。
 const SKIP_SUBJECT_FILTER: bool = false;
 
 /// メッセージをショップ設定と件名フィルターに基づいて保存すべきかを判定する
@@ -163,7 +170,7 @@ pub fn should_save_message(msg: &GmailMessage, shop_settings: &[ShopSettings]) -
             continue;
         }
 
-        // 件名フィルターを一時無効化している場合は送信元一致で即許可
+        // SKIP_SUBJECT_FILTER が true のときは送信元一致で即許可（デバッグ／検証用）
         if SKIP_SUBJECT_FILTER {
             return true;
         }
