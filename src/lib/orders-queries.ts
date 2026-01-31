@@ -32,7 +32,7 @@ export async function loadOrderItems(
       '(i.item_name LIKE ? OR i.brand LIKE ? OR o.order_number LIKE ? OR o.shop_domain LIKE ? OR o.shop_name LIKE ?)'
     );
     const pattern = `%${search.trim()}%`;
-    args.push(pattern, pattern, pattern, pattern);
+    args.push(pattern, pattern, pattern, pattern, pattern);
   }
   if (shopDomain) {
     conditions.push('o.shop_domain = ?');

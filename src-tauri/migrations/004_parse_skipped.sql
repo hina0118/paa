@@ -6,4 +6,3 @@ CREATE TABLE IF NOT EXISTS parse_skipped (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS idx_parse_skipped_email_id ON parse_skipped(email_id);

@@ -194,6 +194,13 @@ describe('formatDateTime', () => {
     );
   });
 
+  it('treats SQLite datetime (no timezone) as UTC and converts to JST', () => {
+    // 2024-01-15 00:00:00 UTC = 2024/1/15 9:00:00 JST
+    const result = formatDateTime('2024-01-15 00:00:00');
+    expect(result).toContain('2024/1/15');
+    expect(result).toContain('9:00'); // JST = UTC+9
+  });
+
   it('formats SQLite datetime format', () => {
     expect(formatDateTime('2024-01-15 12:30:45')).toMatch(
       /\d{4}\/\d{1,2}\/\d{1,2}/
