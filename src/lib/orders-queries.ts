@@ -59,6 +59,15 @@ export async function loadOrderItems(
       : 'DESC';
 
   const sql = `
+    WITH latest_delivery AS (
+      SELECT order_id, delivery_status
+      FROM (
+        SELECT order_id, delivery_status,
+               ROW_NUMBER() OVER (PARTITION BY order_id ORDER BY updated_at DESC) AS rn
+        FROM deliveries
+      ) t
+      WHERE rn = 1
+    )
     SELECT
       i.id,
       i.order_id AS orderId,
@@ -73,11 +82,10 @@ export async function loadOrderItems(
       o.order_number AS orderNumber,
       o.order_date AS orderDate,
       img.file_name AS fileName,
-      (SELECT d2.delivery_status FROM deliveries d2
-       WHERE d2.order_id = o.id
-       ORDER BY d2.updated_at DESC LIMIT 1) AS deliveryStatus
+      ld.delivery_status AS deliveryStatus
     FROM items i
     JOIN orders o ON i.order_id = o.id
+    LEFT JOIN latest_delivery ld ON ld.order_id = o.id
     LEFT JOIN images img ON img.item_id = i.id
     WHERE ${conditions.join(' AND ')}
     ORDER BY ${orderCol} ${orderDir}

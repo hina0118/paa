@@ -15,6 +15,13 @@ import type { OrderItemRow } from '@/lib/types';
 
 const SEARCH_DEBOUNCE_MS = 300;
 const CARD_MIN_WIDTH = 200;
+
+/** Parses numeric filter input; returns undefined for empty/invalid (e.g. "-", "e"). */
+function parseNumericFilter(val: string | undefined): number | undefined {
+  if (val == null || val === '') return undefined;
+  const parsed = parseInt(val, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
 // カードは aspect-square のため、列幅に応じて高さが変わる。フォールバック用
 const CARD_ROW_HEIGHT_FALLBACK = 400;
 // カード本体の高さオフセット（aspect-square 画像以外: Content + Footer + 余白）
@@ -68,9 +75,9 @@ export function Orders() {
       const rows = await loadOrderItems(db, {
         search: searchDebounced || undefined,
         shopDomain: shopDomain || undefined,
-        year: year ? parseInt(year, 10) : undefined,
-        priceMin: priceMin ? parseInt(priceMin, 10) : undefined,
-        priceMax: priceMax ? parseInt(priceMax, 10) : undefined,
+        year: parseNumericFilter(year),
+        priceMin: parseNumericFilter(priceMin),
+        priceMax: parseNumericFilter(priceMax),
         sortBy,
         sortOrder,
       });

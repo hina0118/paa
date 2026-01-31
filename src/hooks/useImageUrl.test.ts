@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { useImageUrl } from './useImageUrl';
+import { useImageUrl, resetImageUrlCacheForTests } from './useImageUrl';
 import * as tauriCore from '@tauri-apps/api/core';
 import * as tauriPath from '@tauri-apps/api/path';
 
@@ -94,12 +94,11 @@ describe('useImageUrl', () => {
   });
 
   it('returns null when getImagesBasePath rejects', async () => {
-    vi.resetModules();
+    resetImageUrlCacheForTests();
     vi.mocked(tauriCore.isTauri).mockReturnValue(true);
     vi.mocked(tauriPath.appDataDir).mockRejectedValue(new Error('path error'));
 
-    const { useImageUrl: useImageUrlFresh } = await import('./useImageUrl');
-    const { result } = renderHook(() => useImageUrlFresh());
+    const { result } = renderHook(() => useImageUrl());
     await act(async () => {
       await new Promise((r) => setTimeout(r, 10));
     });

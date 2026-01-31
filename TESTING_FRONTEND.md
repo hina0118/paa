@@ -14,16 +14,19 @@
 ### 基本的なテスト実行
 
 ウォッチモード（開発時）:
+
 ```bash
 npm run test:frontend
 ```
 
 一度だけ実行（CI/CD用）:
+
 ```bash
 npm run test:frontend:run
 ```
 
 UIモード（ビジュアルテストランナー）:
+
 ```bash
 npm run test:frontend:ui
 ```
@@ -31,6 +34,7 @@ npm run test:frontend:ui
 ### カバレッジ計測
 
 カバレッジレポート生成:
+
 ```bash
 npm run test:frontend:coverage
 ```
@@ -50,27 +54,29 @@ npm run test:all
 React Componentのテスト例（`button.test.tsx`）:
 
 ```tsx
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
-import { Button } from './button'
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { Button } from './button';
 
 describe('Button', () => {
   it('renders button with text', () => {
-    render(<Button>Click me</Button>)
-    expect(screen.getByRole('button', { name: /click me/i })).toBeInTheDocument()
-  })
+    render(<Button>Click me</Button>);
+    expect(
+      screen.getByRole('button', { name: /click me/i })
+    ).toBeInTheDocument();
+  });
 
   it('handles click events', async () => {
-    const handleClick = vi.fn()
-    const user = userEvent.setup()
+    const handleClick = vi.fn();
+    const user = userEvent.setup();
 
-    render(<Button onClick={handleClick}>Click me</Button>)
+    render(<Button onClick={handleClick}>Click me</Button>);
 
-    await user.click(screen.getByRole('button'))
-    expect(handleClick).toHaveBeenCalledTimes(1)
-  })
-})
+    await user.click(screen.getByRole('button'));
+    expect(handleClick).toHaveBeenCalledTimes(1);
+  });
+});
 ```
 
 ### ユーティリティ関数のテスト
@@ -78,15 +84,15 @@ describe('Button', () => {
 純粋関数のテスト例（`utils.test.ts`）:
 
 ```ts
-import { describe, it, expect } from 'vitest'
-import { cn } from './utils'
+import { describe, it, expect } from 'vitest';
+import { cn } from './utils';
 
 describe('cn utility', () => {
   it('merges class names correctly', () => {
-    const result = cn('text-red-500', 'bg-blue-500')
-    expect(result).toBe('text-red-500 bg-blue-500')
-  })
-})
+    const result = cn('text-red-500', 'bg-blue-500');
+    expect(result).toBe('text-red-500 bg-blue-500');
+  });
+});
 ```
 
 ### Tauri APIのモック
@@ -94,17 +100,17 @@ describe('cn utility', () => {
 Tauri APIは自動的にモック化されます（`src/test/setup.ts`で設定）:
 
 ```tsx
-import { mockInvoke } from '@/test/setup'
+import { mockInvoke } from '@/test/setup';
 
 describe('Component with Tauri API', () => {
   it('calls Tauri command', async () => {
-    mockInvoke.mockResolvedValueOnce({ success: true })
+    mockInvoke.mockResolvedValueOnce({ success: true });
 
     // テストコード
 
-    expect(mockInvoke).toHaveBeenCalledWith('command_name', { param: 'value' })
-  })
-})
+    expect(mockInvoke).toHaveBeenCalledWith('command_name', { param: 'value' });
+  });
+});
 ```
 
 ## テストのベストプラクティス
@@ -114,20 +120,21 @@ describe('Component with Tauri API', () => {
 ```tsx
 it('updates count when button is clicked', async () => {
   // Arrange: テストの準備
-  const user = userEvent.setup()
-  render(<Counter />)
+  const user = userEvent.setup();
+  render(<Counter />);
 
   // Act: アクション実行
-  await user.click(screen.getByRole('button', { name: /increment/i }))
+  await user.click(screen.getByRole('button', { name: /increment/i }));
 
   // Assert: 結果の検証
-  expect(screen.getByText('Count: 1')).toBeInTheDocument()
-})
+  expect(screen.getByText('Count: 1')).toBeInTheDocument();
+});
 ```
 
 ### 2. ユーザー中心のクエリを使用
 
 優先順位:
+
 1. `getByRole` - アクセシビリティを考慮
 2. `getByLabelText` - フォーム要素
 3. `getByPlaceholderText` - 入力フィールド
@@ -136,37 +143,37 @@ it('updates count when button is clicked', async () => {
 
 ```tsx
 // ✅ Good
-screen.getByRole('button', { name: /submit/i })
+screen.getByRole('button', { name: /submit/i });
 
 // ❌ Bad
-screen.getByTestId('submit-button')
+screen.getByTestId('submit-button');
 ```
 
 ### 3. 非同期操作のハンドリング
 
 ```tsx
 it('loads data asynchronously', async () => {
-  render(<DataComponent />)
+  render(<DataComponent />);
 
   // 要素が表示されるまで待機
-  const heading = await screen.findByRole('heading', { name: /data loaded/i })
-  expect(heading).toBeInTheDocument()
-})
+  const heading = await screen.findByRole('heading', { name: /data loaded/i });
+  expect(heading).toBeInTheDocument();
+});
 ```
 
 ### 4. モックの適切な使用
 
 ```tsx
-import { vi } from 'vitest'
+import { vi } from 'vitest';
 
 it('calls API on submit', async () => {
-  const mockFetch = vi.fn().mockResolvedValue({ ok: true })
-  global.fetch = mockFetch
+  const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+  global.fetch = mockFetch;
 
   // テストコード
 
-  expect(mockFetch).toHaveBeenCalledWith('/api/endpoint', expect.any(Object))
-})
+  expect(mockFetch).toHaveBeenCalledWith('/api/endpoint', expect.any(Object));
+});
 ```
 
 ## カバレッジ目標
@@ -176,6 +183,7 @@ it('calls API on submit', async () => {
 - **ユーティリティ関数**: 100%
 
 ### 除外対象
+
 - `src/test/` - テストファイル自体
 - `**/*.config.{js,ts}` - 設定ファイル
 - `**/dist/**` - ビルド成果物
@@ -222,6 +230,28 @@ GitHub Actionsの例:
 
 ## トラブルシューティング
 
+### Windows: 「No test suite found」または「Vitest failed to find the runner」が出る場合
+
+Vitest 4 では、Windows で**ドライブ文字が小文字**（`c:\`）のときにパス解決の不具合が発生することがあります。
+
+**対処法**: プロジェクトディレクトリへ移動する際に**大文字のドライブ文字**を使用してください。
+
+```powershell
+# ❌ 小文字（エラーになる場合あり）
+cd c:\Users\...\paa
+
+# ✅ 大文字
+cd C:\Users\...\paa
+```
+
+または、cmd の場合:
+
+```cmd
+cd /d C:\Users\...\paa
+```
+
+参考: [vitest-dev/vitest#9507](https://github.com/vitest-dev/vitest/issues/9507)
+
 ### jsdomエラーが出る場合
 
 `vitest.config.ts`で環境が正しく設定されているか確認:
@@ -231,7 +261,7 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
   },
-})
+});
 ```
 
 ### Tailwind CSSのクラスが正しくマージされない場合
@@ -245,7 +275,7 @@ export default defineConfig({
 ```ts
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: mockInvoke,
-}))
+}));
 ```
 
 ## リソース
@@ -262,10 +292,12 @@ vi.mock('@tauri-apps/api/core', () => ({
 - **カバレッジ**: 100% ✅
 
 ### テスト済みファイル
+
 - ✅ `src/components/ui/button.tsx` - 9テスト
 - ✅ `src/lib/utils.ts` - 7テスト
 
 ### 今後追加すべきテスト
+
 1. **画面コンポーネント**
    - Dashboard
    - Settings
