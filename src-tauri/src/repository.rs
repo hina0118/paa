@@ -194,7 +194,7 @@ pub trait ShopSettingsRepository: Send + Sync {
     /// 全ショップ設定を取得
     async fn get_all(&self) -> Result<Vec<ShopSettings>, String>;
 
-    /// 有効なショップ設定のみを取得
+    /// 有効なショップ設定のみを取得（ORDER BY shop_name, id で返す。parsers が試行順序に依存）
     async fn get_enabled(&self) -> Result<Vec<ShopSettings>, String>;
 
     /// ショップ設定を作成
@@ -930,6 +930,7 @@ impl EmailRepository for SqliteEmailRepository {
 
         // rows_affected の解釈: SQLite の changes() は UPDATE でマッチした行数を返す。
         // COALESCE で値が実質変わらなくても、ON CONFLICT DO UPDATE の UPDATE は行にマッチするため rows_affected=1 となる。
+        // saved は「新規のみ」ではなく「保存処理された件数」。FetchResult/SyncProgressEvent の saved_count/newly_saved に伝播する。
         // 参考: https://www.sqlite.org/c3ref/changes.html
 
         // トランザクションを使用してバッチ処理
@@ -1195,6 +1196,7 @@ impl ShopSettingsRepository for SqliteShopSettingsRepository {
             SELECT id, shop_name, sender_address, parser_type, is_enabled, subject_filters, created_at, updated_at
             FROM shop_settings
             WHERE is_enabled = 1
+            -- parsers::get_candidate_parsers_for_batch が試行順序を shop_name, id で一意に決めているため変更しないこと
             ORDER BY shop_name, id
             "#,
         )

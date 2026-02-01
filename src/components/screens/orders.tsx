@@ -20,7 +20,7 @@ const CARD_MIN_WIDTH = 200;
 const CARD_ROW_HEIGHT_FALLBACK = 450;
 // カード本体の高さオフセット（aspect-square 画像以外: Content + Footer + 余白）
 const CARD_CONTENT_HEIGHT_OFFSET = 140;
-// 行パディング(0.5rem*2) + グリッド行間ギャップ(1rem)
+// 行パディング(0.5rem×2=16px) + グリッド行間ギャップ(1rem=16px) → 計32px（style の padding/gap に合わせる）
 const CARD_ROW_PADDING_AND_GAP = 16 + 16;
 const LIST_ROW_HEIGHT = 80;
 

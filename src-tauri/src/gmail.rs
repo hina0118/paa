@@ -82,6 +82,7 @@ pub struct SyncProgressEvent {
     pub batch_number: usize,
     pub batch_size: usize,
     pub total_synced: usize,
+    /// INSERT または ON CONFLICT DO UPDATE で保存された件数（重複の更新も含む。「新規のみ」ではない）
     pub newly_saved: usize,
     pub status_message: String,
     pub is_complete: bool,
@@ -494,6 +495,8 @@ impl GmailClient {
     /// 部分結果を返す理由: 注文番号・追跡番号などパーサーが抽出する情報は、U+FFFD 等の置換文字が
     /// 含まれていても読み取り可能な部分から取得できることが多い。None を返すとメール本文全体が
     /// 失われパース自体が失敗するため、利用可能な部分を返す設計とする。
+    /// allow_partial パラメータは設けていない: 呼び出し元はメール本文パース用途に限定され、
+    /// 部分結果からでも注文情報を抽出できる方が有用なため。
     fn decode_body_to_string(data: &[u8], mime_type: &str) -> Option<String> {
         let mime_lower = mime_type.to_lowercase();
 
@@ -1098,7 +1101,7 @@ pub async fn sync_gmail_incremental_with_client(
             total_synced: total_synced as usize,
             newly_saved: result.saved_count,
             status_message: format!(
-                "Batch {} complete: {} new emails",
+                "Batch {} complete: {} emails saved (inserted or updated)",
                 batch_number, result.saved_count
             ),
             is_complete: false,
