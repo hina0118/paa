@@ -25,8 +25,8 @@ fn sanitize_error_for_parse_skipped(msg: &str) -> String {
     let patterns = [
         (r"(?i)[A-Za-z]:\\[^\s]*", "[PATH]"), // Windows: C:\...
         (r"sqlite:file:[^\s]*", "[DB_PATH]"), // sqlite:file:...
-        // Unix: 任意の絶対パス（/root, /etc, /usr/local 等。スペースが \ でエスケープされている場合も含む）
-        (r#"/(?:[^\s"']|\\ )+"#, "[PATH]"),
+        // Unix: 代表的な絶対パスのみマスク（/home, /var, /etc, /usr 等。スペースが \ でエスケープされている場合も含む）
+        (r#"/(?:home|var|etc|usr|opt|tmp|root|srv|mnt|media|run)(?:/[^\s"']+)+"#, "[PATH]"),
     ];
     for (pat, repl) in patterns {
         if let Ok(re) = Regex::new(pat) {
