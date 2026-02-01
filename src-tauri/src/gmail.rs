@@ -505,9 +505,7 @@ impl GmailClient {
         if mime_lower.contains("iso-2022-jp") || mime_lower.contains("iso_2022_jp") {
             let (decoded, _, had_replacements) = encoding_rs::ISO_2022_JP.decode(data);
             if had_replacements {
-                log::warn!(
-                    "ISO-2022-JP decode had replacement chars; returning partial content"
-                );
+                log::warn!("ISO-2022-JP decode had replacement chars; returning partial content");
             }
             return Some(decoded.into_owned());
         } else if mime_lower.contains("shift_jis")
@@ -534,9 +532,7 @@ impl GmailClient {
         // 3. charset 未指定時のフォールバック: ISO-2022-JP を試行（日本語メールで最も一般的）
         let (decoded, _, had_replacements) = encoding_rs::ISO_2022_JP.decode(data);
         if had_replacements {
-            log::warn!(
-                "Fallback encoding decode had replacement chars; returning partial content"
-            );
+            log::warn!("Fallback encoding decode had replacement chars; returning partial content");
         }
         Some(decoded.into_owned())
     }

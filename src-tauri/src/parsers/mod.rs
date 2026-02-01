@@ -176,8 +176,7 @@ pub fn get_candidate_parsers_for_batch(
     shop_settings
         .iter()
         .filter_map(|(addr, parser_type, subject_filters_json, shop_name)| {
-            let normalized_addr =
-                extract_email_address(addr).unwrap_or_else(|| addr.clone());
+            let normalized_addr = extract_email_address(addr).unwrap_or_else(|| addr.clone());
             if !normalized_from.eq_ignore_ascii_case(&normalized_addr) {
                 return None;
             }
@@ -1077,8 +1076,7 @@ mod tests {
             None,
             "ショップ",
         )];
-        let result =
-            get_candidate_parsers_for_batch(&settings, "myshop@example.com", Some("件名"));
+        let result = get_candidate_parsers_for_batch(&settings, "myshop@example.com", Some("件名"));
         assert!(result.is_empty());
     }
 

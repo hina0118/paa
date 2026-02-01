@@ -8,9 +8,9 @@ use crate::gmail::{
 use crate::parsers::{EmailRow, OrderInfo, ParseMetadata as ParserParseMetadata};
 use async_trait::async_trait;
 use chrono::Utc;
-use regex::Regex;
 #[cfg(test)]
 use mockall::automock;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqlitePool;
 
@@ -23,9 +23,9 @@ fn sanitize_error_for_parse_skipped(msg: &str) -> String {
     }
     // パスや接続文字列をマスク（テーブルビューアで機密情報が露出しないよう）
     let patterns = [
-        (r"(?i)[A-Za-z]:\\[^\s]*", "[PATH]"),                  // Windows: C:\...
-        (r"sqlite:file:[^\s]*", "[DB_PATH]"),                  // sqlite:file:...
-        (r"/(?:home|Users|tmp|var|opt)/[^\s]*", "[PATH]"),     // Unix パス
+        (r"(?i)[A-Za-z]:\\[^\s]*", "[PATH]"), // Windows: C:\...
+        (r"sqlite:file:[^\s]*", "[DB_PATH]"), // sqlite:file:...
+        (r"/(?:home|Users|tmp|var|opt)/[^\s]*", "[PATH]"), // Unix パス
     ];
     for (pat, repl) in patterns {
         if let Ok(re) = Regex::new(pat) {
@@ -1357,9 +1357,17 @@ mod tests {
             sanitize_error_for_parse_skipped("Order number not found"),
             "Order number not found"
         );
-        assert!(sanitize_error_for_parse_skipped("Failed: C:\\Users\\john\\AppData\\paa_data.db").contains("[PATH]"));
-        assert!(sanitize_error_for_parse_skipped("sqlite:file:/path/to/db.db").contains("[DB_PATH]"));
-        assert!(sanitize_error_for_parse_skipped("error: /home/user/.config/paa/file").contains("[PATH]"));
+        assert!(
+            sanitize_error_for_parse_skipped("Failed: C:\\Users\\john\\AppData\\paa_data.db")
+                .contains("[PATH]")
+        );
+        assert!(
+            sanitize_error_for_parse_skipped("sqlite:file:/path/to/db.db").contains("[DB_PATH]")
+        );
+        assert!(
+            sanitize_error_for_parse_skipped("error: /home/user/.config/paa/file")
+                .contains("[PATH]")
+        );
     }
 
     async fn setup_test_db() -> SqlitePool {
