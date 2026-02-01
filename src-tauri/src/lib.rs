@@ -357,6 +357,13 @@ pub fn run() {
             #[cfg(not(debug_assertions))]
             let default_level = log::LevelFilter::Warn;
 
+            // リリースビルドではWarnレベル以上、デバッグビルドではInfoレベル以上のログを出力
+            // これにより、本番環境で機密情報を含む可能性のあるデバッグログを防ぐ
+            #[cfg(debug_assertions)]
+            let default_level = log::LevelFilter::Info;
+            #[cfg(not(debug_assertions))]
+            let default_level = log::LevelFilter::Warn;
+
             env_logger::Builder::from_default_env()
                 .filter_level(default_level)
                 .format(|buf, record| {
