@@ -513,9 +513,7 @@ impl GmailClient {
             let (decoded, _, had_replacements) = encoding_rs::SHIFT_JIS.decode(data);
             if !decoded.is_empty() {
                 if had_replacements {
-                    log::warn!(
-                        "Shift_JIS decode had replacement chars; returning partial content"
-                    );
+                    log::warn!("Shift_JIS decode had replacement chars; returning partial content");
                 }
                 return Some(decoded.into_owned());
             }
