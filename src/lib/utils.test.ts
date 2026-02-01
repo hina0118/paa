@@ -199,7 +199,8 @@ describe('formatDateTime', () => {
     const result = formatDateTime('2024-01-15 00:00:00');
     expect(result).toContain('2024/1/15');
     const timePart = result.split(/\s+/)[1];
-    expect(timePart).toMatch(/^0?9:00/); // 9:00 または 09:00 の開始を検証（19:00 に誤マッチしない）
+    // 厳密に 9:00:00 または 09:00:00 であることを検証（タイムゾーン変換が正しいことを保証）
+    expect(timePart).toMatch(/^(9:00|09:00):00$/);
   });
 
   it('formats SQLite datetime format', () => {

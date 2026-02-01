@@ -25,7 +25,8 @@ fn sanitize_error_for_parse_skipped(msg: &str) -> String {
     let patterns = [
         (r"(?i)[A-Za-z]:\\[^\s]*", "[PATH]"), // Windows: C:\...
         (r"sqlite:file:[^\s]*", "[DB_PATH]"), // sqlite:file:...
-        (r"/(?:home|Users|tmp|var|opt)/[^\s]*", "[PATH]"), // Unix パス
+        // Unix: 任意の絶対パス（/root, /etc, /usr/local 等。スペースが \ でエスケープされている場合も含む）
+        (r#"/(?:[^\s"']|\\ )+"#, "[PATH]"),
     ];
     for (pat, repl) in patterns {
         if let Ok(re) = Regex::new(pat) {
@@ -1368,6 +1369,10 @@ mod tests {
             sanitize_error_for_parse_skipped("error: /home/user/.config/paa/file")
                 .contains("[PATH]")
         );
+        // /root, /etc, /usr/local 等の絶対パスもマスクされる
+        assert!(sanitize_error_for_parse_skipped("error: /root/.ssh/id_rsa").contains("[PATH]"));
+        assert!(sanitize_error_for_parse_skipped("error: /etc/passwd").contains("[PATH]"));
+        assert!(sanitize_error_for_parse_skipped("error: /usr/local/bin/app").contains("[PATH]"));
     }
 
     async fn setup_test_db() -> SqlitePool {
