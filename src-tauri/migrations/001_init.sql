@@ -230,7 +230,6 @@ END;
 
 -- -----------------------------------------------------------------------------
 -- shop_settings
--- 注: UNIQUE(sender_address, parser_type) は新規インストール用。既存DB は 006 で追加
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS shop_settings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
