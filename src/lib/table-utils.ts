@@ -3,6 +3,10 @@
  *
  * database.ts と e2e-mock-db.ts の両方から参照するため、
  * 循環依存を避けるために別モジュールとして分離。
+ *
+ * parse_skipped: error_message 列にパース失敗理由が格納される。パーサー/DB エラーを含む場合があり、
+ * テーブルビューアでの参照はデバッグ用途と想定。機密情報（パス・接続文字列等）を含めないよう
+ * mark_parse_skipped 呼び出し元で注意すること。
  */
 
 export const VALID_TABLES = [

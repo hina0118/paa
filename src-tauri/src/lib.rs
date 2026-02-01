@@ -357,6 +357,12 @@ pub fn run() {
             sql: include_str!("../migrations/005_emails_unparsed_index.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 6,
+            description: "shop_settings_unique",
+            sql: include_str!("../migrations/006_shop_settings_unique.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

@@ -7,19 +7,21 @@ use crate::repository::{
 };
 use chrono::DateTime;
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
+use sqlx::{FromRow, SqlitePool};
 use std::sync::{Arc, Mutex};
 use tauri::Emitter;
 
-// 型エイリアス：パース対象メールの情報 (email_id, message_id, body_plain, from_address, subject, internal_date)
-pub type EmailRow = (
-    i64,
-    String,
-    String,
-    Option<String>,
-    Option<String>,
-    Option<i64>,
-);
+/// パース対象メールの情報（get_unparsed_emails の戻り値）
+#[derive(Debug, Clone, FromRow)]
+pub struct EmailRow {
+    #[sqlx(rename = "id")]
+    pub email_id: i64,
+    pub message_id: String,
+    pub body_plain: String,
+    pub from_address: Option<String>,
+    pub subject: Option<String>,
+    pub internal_date: Option<i64>,
+}
 
 // ホビーサーチ用の共通パースユーティリティ関数
 mod hobbysearch_common;
@@ -359,20 +361,18 @@ pub async fn batch_parse_emails(
         // OrderRepositoryインスタンスをループの外で作成（効率化のため）
         let order_repo = SqliteOrderRepository::new(pool.clone());
 
-        for (email_id, _message_id, body_plain, from_address_opt, subject_opt, internal_date) in
-            emails.iter()
-        {
-            let from_address = match from_address_opt {
-                Some(addr) => addr,
+        for row in emails.iter() {
+            let from_address = match &row.from_address {
+                Some(addr) => addr.as_str(),
                 None => {
                     parse_repo
-                        .mark_parse_skipped(*email_id, "from_address is null")
+                        .mark_parse_skipped(row.email_id, "from_address is null")
                         .await
                         .map_err(|e| {
                             parse_state.finish();
                             format!(
                                 "Failed to mark email {} as skipped (DB error): {}. Aborting to prevent infinite parse loop.",
-                                email_id, e
+                                row.email_id, e
                             )
                         })?;
                     failed_count += 1;
@@ -384,23 +384,23 @@ pub async fn batch_parse_emails(
             let candidate_parsers = get_candidate_parsers_for_batch(
                 &shop_settings,
                 from_address,
-                subject_opt.as_deref(),
+                row.subject.as_deref(),
             );
 
             if candidate_parsers.is_empty() {
                 log::debug!(
                     "No parser found for address: {} with subject: {:?}",
                     from_address,
-                    subject_opt
+                    row.subject
                 );
                 parse_repo
-                    .mark_parse_skipped(*email_id, "No matching parser")
+                    .mark_parse_skipped(row.email_id, "No matching parser")
                     .await
                     .map_err(|e| {
                         parse_state.finish();
                         format!(
                             "Failed to mark email {} as skipped (DB error): {}. Aborting to prevent infinite parse loop.",
-                            email_id, e
+                            row.email_id, e
                         )
                     })?;
                 failed_count += 1;
@@ -420,13 +420,13 @@ pub async fn batch_parse_emails(
                     }
                 };
 
-                match parser.parse(body_plain) {
+                match parser.parse(&row.body_plain) {
                     Ok(mut order_info) => {
                         log::debug!("Successfully parsed with parser: {}", parser_type);
 
                         // confirm, confirm_yoyaku, change の場合はメール受信日を order_date に使用
                         if order_info.order_date.is_none()
-                            && internal_date.is_some()
+                            && row.internal_date.is_some()
                             && matches!(
                                 parser_type.as_str(),
                                 "hobbysearch_confirm"
@@ -435,13 +435,13 @@ pub async fn batch_parse_emails(
                                     | "hobbysearch_change_yoyaku"
                             )
                         {
-                            if let Some(ts_ms) = internal_date {
-                                let dt = match DateTime::from_timestamp_millis(*ts_ms) {
+                            if let Some(ts_ms) = row.internal_date {
+                                let dt = match DateTime::from_timestamp_millis(ts_ms) {
                                     Some(d) => d,
                                     None => {
                                         log::warn!(
                                             "Failed to parse internal_date {} for email {} (invalid timestamp), using current time as order_date fallback",
-                                            ts_ms, email_id
+                                            ts_ms, row.email_id
                                         );
                                         chrono::Utc::now()
                                     }
@@ -467,7 +467,7 @@ pub async fn batch_parse_emails(
                 None => {
                     log::error!(
                         "All parsers failed for email {}. Last error: {}",
-                        email_id,
+                        row.email_id,
                         last_error
                     );
                     Err(last_error)
@@ -482,7 +482,7 @@ pub async fn batch_parse_emails(
 
                     // データベースに保存
                     match order_repo
-                        .save_order(&order_info, Some(*email_id), shop_domain, Some(shop_name))
+                        .save_order(&order_info, Some(row.email_id), shop_domain, Some(shop_name))
                         .await
                     {
                         Ok(order_id) => {
@@ -491,29 +491,30 @@ pub async fn batch_parse_emails(
                         }
                         Err(e) => {
                             log::error!("Failed to save order: {}", e);
-                            if let Err(mark_err) =
-                                parse_repo.mark_parse_skipped(*email_id, &e).await
-                            {
-                                log::warn!(
-                                    "Failed to mark email {} as skipped: {}",
-                                    email_id,
-                                    mark_err
-                                );
-                            }
+                            parse_repo
+                                .mark_parse_skipped(row.email_id, &e)
+                                .await
+                                .map_err(|mark_err| {
+                                    parse_state.finish();
+                                    format!(
+                                        "Failed to mark email {} as skipped (DB error): {}. Aborting to prevent infinite parse loop.",
+                                        row.email_id, mark_err
+                                    )
+                                })?;
                             failed_count += 1;
                         }
                     }
                 }
                 Err(e) => {
-                    log::error!("Failed to parse email {}: {}", email_id, e);
+                    log::error!("Failed to parse email {}: {}", row.email_id, e);
                     parse_repo
-                        .mark_parse_skipped(*email_id, &e)
+                        .mark_parse_skipped(row.email_id, &e)
                         .await
                         .map_err(|mark_err| {
                             parse_state.finish();
                             format!(
                                 "Failed to mark email {} as skipped (DB error): {}. Aborting to prevent infinite parse loop.",
-                                email_id, mark_err
+                                row.email_id, mark_err
                             )
                         })?;
                     failed_count += 1;

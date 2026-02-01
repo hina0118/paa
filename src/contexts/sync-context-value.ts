@@ -4,6 +4,7 @@ export interface SyncProgress {
   batch_number: number;
   batch_size: number;
   total_synced: number;
+  /** INSERT または ON CONFLICT DO UPDATE で保存された件数（新規のみではない） */
   newly_saved: number;
   status_message: string;
   is_complete: boolean;
