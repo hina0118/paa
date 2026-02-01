@@ -27,7 +27,7 @@ function parseAsUtcIfNeeded(s: string): Date {
   let normalized =
     s.includes(' ') && !s.includes('T') ? s.replace(' ', 'T') : s;
   const hasTimePart = normalized.includes('T') && normalized.includes(':');
-  const hasTimezone = hasTimePart && /Z|[+-]\d{2}:?\d{2}$/.test(normalized);
+  const hasTimezone = hasTimePart && /Z$|[+-]\d{2}:?\d{2}$/.test(normalized);
   if (!hasTimezone) {
     normalized += 'Z';
   }

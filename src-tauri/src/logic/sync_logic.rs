@@ -170,7 +170,7 @@ pub fn should_save_message(msg: &GmailMessage, shop_settings: &[ShopSettings]) -
             continue;
         }
 
-        // SKIP_SUBJECT_FILTER が true のときは送信元一致で即許可（デバッグ／検証用）
+        #[cfg(debug_assertions)]
         if SKIP_SUBJECT_FILTER {
             return true;
         }
