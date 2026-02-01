@@ -171,10 +171,14 @@ pub fn get_candidate_parsers_for_batch(
     from_address: &str,
     subject_opt: Option<&str>,
 ) -> Vec<(String, String)> {
+    let normalized_from =
+        extract_email_address(from_address).unwrap_or_else(|| from_address.to_string());
     shop_settings
         .iter()
         .filter_map(|(addr, parser_type, subject_filters_json, shop_name)| {
-            if !from_address.contains(addr) {
+            let normalized_addr =
+                extract_email_address(addr).unwrap_or_else(|| addr.clone());
+            if !normalized_from.eq_ignore_ascii_case(&normalized_addr) {
                 return None;
             }
 
@@ -446,6 +450,8 @@ pub async fn batch_parse_emails(
                                         chrono::Utc::now()
                                     }
                                 };
+                                // internal_date は UTC ミリ秒タイムスタンプ。order_date は UTC の日時文字列として DB に保存。
+                                // フロントはタイムゾーン未指定を UTC と解釈し JST で表示（README §4 規約）。
                                 order_info.order_date =
                                     Some(dt.format("%Y-%m-%d %H:%M:%S").to_string());
                             }
@@ -1046,17 +1052,34 @@ mod tests {
     }
 
     #[test]
-    fn test_get_candidate_parsers_for_batch_address_contains_match() {
-        // from_address.contains(addr) なので部分一致でOK
+    fn test_get_candidate_parsers_for_batch_exact_match_angle_bracket() {
+        // "Name <email>" 形式から正規化して完全一致で比較
         let settings = vec![make_shop_setting(
-            "hobbysearch",
+            "order@hobbysearch.co.jp",
             "hobbysearch_confirm",
             None,
             "ホビーサーチ",
         )];
-        let result =
-            get_candidate_parsers_for_batch(&settings, "order@hobbysearch.co.jp", Some("件名"));
+        let result = get_candidate_parsers_for_batch(
+            &settings,
+            "Hobby Search <order@hobbysearch.co.jp>",
+            Some("件名"),
+        );
         assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn test_get_candidate_parsers_for_batch_no_partial_match() {
+        // 部分一致は許可しない（myshop@example.com が shop@example.com にマッチしない）
+        let settings = vec![make_shop_setting(
+            "shop@example.com",
+            "hobbysearch_confirm",
+            None,
+            "ショップ",
+        )];
+        let result =
+            get_candidate_parsers_for_batch(&settings, "myshop@example.com", Some("件名"));
+        assert!(result.is_empty());
     }
 
     #[test]
