@@ -326,44 +326,12 @@ fn get_logs(level_filter: Option<String>, limit: Option<usize>) -> Result<Vec<Lo
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let migrations = vec![
-        Migration {
-            version: 1,
-            description: "init",
-            sql: include_str!("../migrations/001_init.sql"),
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 2,
-            description: "deliveries_order_updated_index",
-            sql: include_str!("../migrations/002_deliveries_order_updated_index.sql"),
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 3,
-            description: "orders_shop_name",
-            sql: include_str!("../migrations/003_orders_shop_name.sql"),
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 4,
-            description: "parse_skipped",
-            sql: include_str!("../migrations/004_parse_skipped.sql"),
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 5,
-            description: "emails_unparsed_index",
-            sql: include_str!("../migrations/005_emails_unparsed_index.sql"),
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 6,
-            description: "shop_settings_unique",
-            sql: include_str!("../migrations/006_shop_settings_unique.sql"),
-            kind: MigrationKind::Up,
-        },
-    ];
+    let migrations = vec![Migration {
+        version: 1,
+        description: "init",
+        sql: include_str!("../migrations/001_init.sql"),
+        kind: MigrationKind::Up,
+    }];
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())

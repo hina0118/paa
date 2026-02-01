@@ -1,4 +1,4 @@
--- 001_init: 統合初期スキーマ (旧 001–020 を反映)
+-- 001_init: 統合スキーマ (旧 001-006 をすべて反映)
 
 -- -----------------------------------------------------------------------------
 -- emails
@@ -20,6 +20,9 @@ CREATE INDEX IF NOT EXISTS idx_emails_analysis_status ON emails(analysis_status)
 CREATE INDEX IF NOT EXISTS idx_emails_internal_date ON emails(internal_date);
 CREATE INDEX IF NOT EXISTS idx_emails_from_address ON emails(from_address);
 CREATE INDEX IF NOT EXISTS idx_emails_subject ON emails(subject);
+-- get_unparsed_emails クエリのパフォーマンス改善（body_plain, from_address が NULL でない行に限定）
+CREATE INDEX IF NOT EXISTS idx_emails_unparsed_filter ON emails(internal_date)
+WHERE body_plain IS NOT NULL AND from_address IS NOT NULL;
 
 -- -----------------------------------------------------------------------------
 -- orders
@@ -27,6 +30,7 @@ CREATE INDEX IF NOT EXISTS idx_emails_subject ON emails(subject);
 CREATE TABLE IF NOT EXISTS orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     shop_domain TEXT,
+    shop_name TEXT,
     order_number TEXT,
     order_date DATETIME,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -117,7 +121,7 @@ CREATE TABLE IF NOT EXISTS deliveries (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS idx_deliveries_order_id ON deliveries(order_id);
+CREATE INDEX IF NOT EXISTS idx_deliveries_order_id_updated_at ON deliveries(order_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_deliveries_tracking_number ON deliveries(tracking_number) WHERE tracking_number IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_deliveries_status ON deliveries(delivery_status);
 CREATE INDEX IF NOT EXISTS idx_deliveries_status_updated ON deliveries(delivery_status, updated_at DESC);
@@ -168,6 +172,16 @@ CREATE TABLE IF NOT EXISTS order_htmls (
 );
 CREATE INDEX IF NOT EXISTS idx_order_htmls_order_id ON order_htmls(order_id);
 CREATE INDEX IF NOT EXISTS idx_order_htmls_html_id ON order_htmls(html_id);
+
+-- -----------------------------------------------------------------------------
+-- parse_skipped（パース失敗メールの記録、無限ループ防止）
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS parse_skipped (
+    email_id INTEGER PRIMARY KEY,
+    error_message TEXT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE
+);
 
 -- -----------------------------------------------------------------------------
 -- sync_metadata

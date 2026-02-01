@@ -504,26 +504,22 @@ impl GmailClient {
         //    （Shift_JIS 等が valid UTF-8 と誤判定される文字化けを防ぐ）
         if mime_lower.contains("iso-2022-jp") || mime_lower.contains("iso_2022_jp") {
             let (decoded, _, had_replacements) = encoding_rs::ISO_2022_JP.decode(data);
-            if !decoded.is_empty() {
-                if had_replacements {
-                    log::warn!(
-                        "ISO-2022-JP decode had replacement chars; returning partial content"
-                    );
-                }
-                return Some(decoded.into_owned());
+            if had_replacements {
+                log::warn!(
+                    "ISO-2022-JP decode had replacement chars; returning partial content"
+                );
             }
+            return Some(decoded.into_owned());
         } else if mime_lower.contains("shift_jis")
             || mime_lower.contains("shift-jis")
             || mime_lower.contains("windows-31j")
             || mime_lower.contains("cp932")
         {
             let (decoded, _, had_replacements) = encoding_rs::SHIFT_JIS.decode(data);
-            if !decoded.is_empty() {
-                if had_replacements {
-                    log::warn!("Shift_JIS decode had replacement chars; returning partial content");
-                }
-                return Some(decoded.into_owned());
+            if had_replacements {
+                log::warn!("Shift_JIS decode had replacement chars; returning partial content");
             }
+            return Some(decoded.into_owned());
         }
 
         // 2. UTF-8 として解釈を試みる
@@ -538,14 +534,12 @@ impl GmailClient {
         // 3. charset 未指定時のフォールバック: 日本語メールでよく使われるエンコーディングを試行
         for enc in [encoding_rs::ISO_2022_JP, encoding_rs::SHIFT_JIS] {
             let (decoded, _, had_replacements) = enc.decode(data);
-            if !decoded.is_empty() {
-                if had_replacements {
-                    log::warn!(
-                        "Fallback encoding decode had replacement chars; returning partial content"
-                    );
-                }
-                return Some(decoded.into_owned());
+            if had_replacements {
+                log::warn!(
+                    "Fallback encoding decode had replacement chars; returning partial content"
+                );
             }
+            return Some(decoded.into_owned());
         }
         None
     }

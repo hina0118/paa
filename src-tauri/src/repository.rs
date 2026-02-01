@@ -8,10 +8,32 @@ use crate::gmail::{
 use crate::parsers::{EmailRow, OrderInfo, ParseMetadata as ParserParseMetadata};
 use async_trait::async_trait;
 use chrono::Utc;
+use regex::Regex;
 #[cfg(test)]
 use mockall::automock;
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqlitePool;
+
+/// parse_skipped に保存する前にエラーメッセージをサニタイズ（パス・接続文字列等をマスク）
+fn sanitize_error_for_parse_skipped(msg: &str) -> String {
+    const MAX_LEN: usize = 500;
+    let mut s = msg.chars().take(MAX_LEN).collect::<String>();
+    if msg.chars().count() > MAX_LEN {
+        s.push_str("...");
+    }
+    // パスや接続文字列をマスク（テーブルビューアで機密情報が露出しないよう）
+    let patterns = [
+        (r"(?i)[A-Za-z]:\\[^\s]*", "[PATH]"),                  // Windows: C:\...
+        (r"sqlite:file:[^\s]*", "[DB_PATH]"),                  // sqlite:file:...
+        (r"/(?:home|Users|tmp|var|opt)/[^\s]*", "[PATH]"),     // Unix パス
+    ];
+    for (pat, repl) in patterns {
+        if let Ok(re) = Regex::new(pat) {
+            s = re.replace_all(&s, repl).into_owned();
+        }
+    }
+    s
+}
 
 /// ウィンドウ設定
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -850,6 +872,7 @@ impl ParseRepository for SqliteParseRepository {
     }
 
     async fn mark_parse_skipped(&self, email_id: i64, error_message: &str) -> Result<(), String> {
+        let sanitized = sanitize_error_for_parse_skipped(error_message);
         sqlx::query(
             r#"
             INSERT OR IGNORE INTO parse_skipped (email_id, error_message)
@@ -857,7 +880,7 @@ impl ParseRepository for SqliteParseRepository {
             "#,
         )
         .bind(email_id)
-        .bind(error_message)
+        .bind(&sanitized)
         .execute(&self.pool)
         .await
         .map_err(|e| format!("Failed to mark parse skipped: {e}"))?;
@@ -1328,6 +1351,17 @@ mod tests {
     use super::*;
     use sqlx::sqlite::SqlitePoolOptions;
 
+    #[test]
+    fn test_sanitize_error_for_parse_skipped() {
+        assert_eq!(
+            sanitize_error_for_parse_skipped("Order number not found"),
+            "Order number not found"
+        );
+        assert!(sanitize_error_for_parse_skipped("Failed: C:\\Users\\john\\AppData\\paa_data.db").contains("[PATH]"));
+        assert!(sanitize_error_for_parse_skipped("sqlite:file:/path/to/db.db").contains("[DB_PATH]"));
+        assert!(sanitize_error_for_parse_skipped("error: /home/user/.config/paa/file").contains("[PATH]"));
+    }
+
     async fn setup_test_db() -> SqlitePool {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
@@ -1514,7 +1548,7 @@ mod tests {
         .await
         .expect("Failed to create order_emails table");
 
-        // parse_skipped テーブル (004 に対応)
+        // parse_skipped テーブル
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS parse_skipped (
