@@ -27,8 +27,9 @@ const JST = 'Asia/Tokyo';
  * 日付のみは「その日の UTC 開始」とみなす設計。formatDate では日付部分のみ表示するため表示上は問題ない。
  */
 function parseAsUtcIfNeeded(s: string): Date {
+  // SQLite "YYYY-MM-DD HH:MM:SS" 形式を ISO8601 に正規化（複数スペース・タブにも対応）
   let normalized =
-    s.includes(' ') && !s.includes('T') ? s.replace(' ', 'T') : s;
+    s.includes(' ') && !s.includes('T') ? s.replace(/\s+/g, 'T') : s;
   const hasTimePart = normalized.includes('T') && normalized.includes(':');
   const hasTimezone = hasTimePart && /Z$|[+-]\d{2}:?\d{2}$/.test(normalized);
   if (!hasTimezone) {
