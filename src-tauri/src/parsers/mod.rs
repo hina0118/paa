@@ -482,7 +482,12 @@ pub async fn batch_parse_emails(
 
                     // データベースに保存
                     match order_repo
-                        .save_order(&order_info, Some(row.email_id), shop_domain, Some(shop_name))
+                        .save_order(
+                            &order_info,
+                            Some(row.email_id),
+                            shop_domain,
+                            Some(shop_name),
+                        )
                         .await
                     {
                         Ok(order_id) => {
