@@ -22,6 +22,9 @@ const JST = 'Asia/Tokyo';
  *
  * タイムゾーン判定: 日付のみ（"2024-01-01"）では "01-01" が誤って [+-]XX:XX とマッチするため、
  * 時刻部分（T と :）が含まれる場合のみ正規表現で判定する。
+ *
+ * 注: 日付のみ（例: "2024-01-01"）も UTC 00:00 として解釈する。本プロジェクトでは DB 保存が UTC であるため、
+ * 日付のみは「その日の UTC 開始」とみなす設計。formatDate では日付部分のみ表示するため表示上は問題ない。
  */
 function parseAsUtcIfNeeded(s: string): Date {
   let normalized =

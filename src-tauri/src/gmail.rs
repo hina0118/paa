@@ -489,7 +489,11 @@ impl GmailClient {
     /// mime_type に charset が指定されている場合はそれを優先し、Shift_JIS/ISO-2022-JP の
     /// バイト列がたまたま UTF-8 としても解釈可能な場合の文字化けを防ぐ。
     /// 未指定時は UTF-8 → Base64 → ISO-2022-JP/Shift_JIS の順で試行。
+    ///
     /// 不正シーケンスが含まれる場合（had_replacements）は警告を出しつつ部分的なデコード結果を返す。
+    /// 部分結果を返す理由: 注文番号・追跡番号などパーサーが抽出する情報は、U+FFFD 等の置換文字が
+    /// 含まれていても読み取り可能な部分から取得できることが多い。None を返すとメール本文全体が
+    /// 失われパース自体が失敗するため、利用可能な部分を返す設計とする。
     fn decode_body_to_string(data: &[u8], mime_type: &str) -> Option<String> {
         let mime_lower = mime_type.to_lowercase();
 

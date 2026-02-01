@@ -365,12 +365,16 @@ pub async fn batch_parse_emails(
             let from_address = match from_address_opt {
                 Some(addr) => addr,
                 None => {
-                    if let Err(e) = parse_repo
+                    parse_repo
                         .mark_parse_skipped(*email_id, "from_address is null")
                         .await
-                    {
-                        log::warn!("Failed to mark email {} as skipped: {}", email_id, e);
-                    }
+                        .map_err(|e| {
+                            parse_state.finish();
+                            format!(
+                                "Failed to mark email {} as skipped (DB error): {}. Aborting to prevent infinite parse loop.",
+                                email_id, e
+                            )
+                        })?;
                     failed_count += 1;
                     continue;
                 }
@@ -389,12 +393,16 @@ pub async fn batch_parse_emails(
                     from_address,
                     subject_opt
                 );
-                if let Err(e) = parse_repo
+                parse_repo
                     .mark_parse_skipped(*email_id, "No matching parser")
                     .await
-                {
-                    log::warn!("Failed to mark email {} as skipped: {}", email_id, e);
-                }
+                    .map_err(|e| {
+                        parse_state.finish();
+                        format!(
+                            "Failed to mark email {} as skipped (DB error): {}. Aborting to prevent infinite parse loop.",
+                            email_id, e
+                        )
+                    })?;
                 failed_count += 1;
                 continue;
             }
@@ -428,8 +436,16 @@ pub async fn batch_parse_emails(
                             )
                         {
                             if let Some(ts_ms) = internal_date {
-                                let dt = DateTime::from_timestamp_millis(*ts_ms)
-                                    .unwrap_or_else(chrono::Utc::now);
+                                let dt = match DateTime::from_timestamp_millis(*ts_ms) {
+                                    Some(d) => d,
+                                    None => {
+                                        log::warn!(
+                                            "Failed to parse internal_date {} for email {} (invalid timestamp), using current time as order_date fallback",
+                                            ts_ms, email_id
+                                        );
+                                        chrono::Utc::now()
+                                    }
+                                };
                                 order_info.order_date =
                                     Some(dt.format("%Y-%m-%d %H:%M:%S").to_string());
                             }
@@ -490,9 +506,16 @@ pub async fn batch_parse_emails(
                 }
                 Err(e) => {
                     log::error!("Failed to parse email {}: {}", email_id, e);
-                    if let Err(mark_err) = parse_repo.mark_parse_skipped(*email_id, &e).await {
-                        log::warn!("Failed to mark email {} as skipped: {}", email_id, mark_err);
-                    }
+                    parse_repo
+                        .mark_parse_skipped(*email_id, &e)
+                        .await
+                        .map_err(|mark_err| {
+                            parse_state.finish();
+                            format!(
+                                "Failed to mark email {} as skipped (DB error): {}. Aborting to prevent infinite parse loop.",
+                                email_id, mark_err
+                            )
+                        })?;
                     failed_count += 1;
                 }
             }

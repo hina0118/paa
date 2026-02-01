@@ -195,10 +195,10 @@ describe('formatDateTime', () => {
   });
 
   it('treats SQLite datetime (no timezone) as UTC and converts to JST', () => {
-    // 2024-01-15 00:00:00 UTC = 2024/1/15 9:00:00 JST
+    // 2024-01-15 00:00:00 UTC = 2024/1/15 9:00:00 JST (UTC+9)
     const result = formatDateTime('2024-01-15 00:00:00');
-    expect(result).toContain('2024/1/15');
-    expect(result).toContain('9:00'); // JST = UTC+9
+    // 9:00 または 09:00 を厳密にマッチ（19:00 に誤マッチしない）
+    expect(result).toMatch(/2024\/1\/15\s+0?9:00/);
   });
 
   it('formats SQLite datetime format', () => {
