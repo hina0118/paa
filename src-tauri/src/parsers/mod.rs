@@ -164,13 +164,17 @@ pub trait EmailParser {
 ///
 /// # Arguments
 /// * `shop_settings` - (sender_address, parser_type, subject_filters_json, shop_name) のタプルリスト
-/// * `from_address` - メールの送信元アドレス
+/// * `from_address_opt` - メールの送信元アドレス（None の場合は空を返す）
 /// * `subject_opt` - メールの件名（オプション）
 pub fn get_candidate_parsers_for_batch(
     shop_settings: &[(String, String, Option<String>, String)],
-    from_address: &str,
+    from_address_opt: Option<&str>,
     subject_opt: Option<&str>,
 ) -> Vec<(String, String)> {
+    let from_address = match from_address_opt {
+        Some(addr) => addr,
+        None => return Vec::new(),
+    };
     let normalized_from =
         extract_email_address(from_address).unwrap_or_else(|| from_address.to_string());
     shop_settings
@@ -365,39 +369,26 @@ pub async fn batch_parse_emails(
         let order_repo = SqliteOrderRepository::new(pool.clone());
 
         for row in emails.iter() {
-            let from_address = match &row.from_address {
-                Some(addr) => addr.as_str(),
-                None => {
-                    parse_repo
-                        .mark_parse_skipped(row.email_id, "from_address is null")
-                        .await
-                        .map_err(|e| {
-                            parse_state.finish();
-                            format!(
-                                "Failed to mark email {} as skipped (DB error): {}. Aborting to prevent infinite parse loop.",
-                                row.email_id, e
-                            )
-                        })?;
-                    failed_count += 1;
-                    continue;
-                }
-            };
-
             // 送信元アドレスと件名フィルターから候補のパーサー(parser_type, shop_name)を全て取得
             let candidate_parsers = get_candidate_parsers_for_batch(
                 &shop_settings,
-                from_address,
+                row.from_address.as_deref(),
                 row.subject.as_deref(),
             );
 
             if candidate_parsers.is_empty() {
+                let skip_reason = row
+                    .from_address
+                    .as_ref()
+                    .map(|_| "No matching parser")
+                    .unwrap_or("from_address is null");
                 log::debug!(
-                    "No parser found for address: {} with subject: {:?}",
-                    from_address,
+                    "No parser found for address: {:?} with subject: {:?}",
+                    row.from_address.as_deref().unwrap_or("(null)"),
                     row.subject
                 );
                 parse_repo
-                    .mark_parse_skipped(row.email_id, "No matching parser")
+                    .mark_parse_skipped(row.email_id, skip_reason)
                     .await
                     .map_err(|e| {
                         parse_state.finish();
@@ -482,6 +473,8 @@ pub async fn batch_parse_emails(
             match parse_result {
                 Ok((order_info, shop_name)) => {
                     // ドメインを抽出（extract_email_address で <> 形式に対応、extract_domain でドメイン部分のみ取得）
+                    // candidate_parsers が空でない限り from_address は Some である
+                    let from_address = row.from_address.as_deref().unwrap_or("");
                     let shop_domain = extract_email_address(from_address)
                         .and_then(|email| extract_domain(&email).map(|s| s.to_string()));
 
@@ -1031,11 +1024,26 @@ mod tests {
             None,
             "ホビーサーチ",
         )];
-        let result =
-            get_candidate_parsers_for_batch(&settings, "order@hobbysearch.co.jp", Some("件名"));
+        let result = get_candidate_parsers_for_batch(
+            &settings,
+            Some("order@hobbysearch.co.jp"),
+            Some("件名"),
+        );
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].0, "hobbysearch_confirm");
         assert_eq!(result[0].1, "ホビーサーチ");
+    }
+
+    #[test]
+    fn test_get_candidate_parsers_for_batch_from_address_none_returns_empty() {
+        let settings = vec![make_shop_setting(
+            "order@hobbysearch.co.jp",
+            "hobbysearch_confirm",
+            None,
+            "ホビーサーチ",
+        )];
+        let result = get_candidate_parsers_for_batch(&settings, None, Some("件名"));
+        assert!(result.is_empty());
     }
 
     #[test]
@@ -1046,7 +1054,8 @@ mod tests {
             None,
             "ホビーサーチ",
         )];
-        let result = get_candidate_parsers_for_batch(&settings, "other@example.com", Some("件名"));
+        let result =
+            get_candidate_parsers_for_batch(&settings, Some("other@example.com"), Some("件名"));
         assert!(result.is_empty());
     }
 
@@ -1061,7 +1070,7 @@ mod tests {
         )];
         let result = get_candidate_parsers_for_batch(
             &settings,
-            "Hobby Search <order@hobbysearch.co.jp>",
+            Some("Hobby Search <order@hobbysearch.co.jp>"),
             Some("件名"),
         );
         assert_eq!(result.len(), 1);
@@ -1076,7 +1085,8 @@ mod tests {
             None,
             "ショップ",
         )];
-        let result = get_candidate_parsers_for_batch(&settings, "myshop@example.com", Some("件名"));
+        let result =
+            get_candidate_parsers_for_batch(&settings, Some("myshop@example.com"), Some("件名"));
         assert!(result.is_empty());
     }
 
@@ -1090,7 +1100,7 @@ mod tests {
         )];
         let result = get_candidate_parsers_for_batch(
             &settings,
-            "order@hobbysearch.co.jp",
+            Some("order@hobbysearch.co.jp"),
             Some("【ホビーサーチ】注文確認メール"),
         );
         assert_eq!(result.len(), 1);
@@ -1106,7 +1116,7 @@ mod tests {
         )];
         let result = get_candidate_parsers_for_batch(
             &settings,
-            "order@hobbysearch.co.jp",
+            Some("order@hobbysearch.co.jp"),
             Some("【ホビーサーチ】発送通知"),
         );
         assert!(result.is_empty());
@@ -1120,7 +1130,8 @@ mod tests {
             Some(vec!["注文確認".to_string()]),
             "ホビーサーチ",
         )];
-        let result = get_candidate_parsers_for_batch(&settings, "order@hobbysearch.co.jp", None);
+        let result =
+            get_candidate_parsers_for_batch(&settings, Some("order@hobbysearch.co.jp"), None);
         assert!(result.is_empty());
     }
 
@@ -1135,7 +1146,7 @@ mod tests {
         // JSONパース失敗時はフィルターを無視してパーサーを返す
         let result = get_candidate_parsers_for_batch(
             &settings,
-            "order@hobbysearch.co.jp",
+            Some("order@hobbysearch.co.jp"),
             Some("任意の件名"),
         );
         assert_eq!(result.len(), 1);
@@ -1152,8 +1163,11 @@ mod tests {
             ),
             make_shop_setting("order@hobbysearch.co.jp", "hobbysearch_send", None, "店2"),
         ];
-        let result =
-            get_candidate_parsers_for_batch(&settings, "order@hobbysearch.co.jp", Some("件名"));
+        let result = get_candidate_parsers_for_batch(
+            &settings,
+            Some("order@hobbysearch.co.jp"),
+            Some("件名"),
+        );
         assert_eq!(result.len(), 2);
     }
 

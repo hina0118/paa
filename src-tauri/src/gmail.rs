@@ -493,11 +493,9 @@ impl GmailClient {
     ///
     /// 不正シーケンスが含まれる場合（had_replacements）は警告を出しつつ部分的なデコード結果を返す。
     /// 部分結果を返す理由: 注文番号・追跡番号などパーサーが抽出する情報は、U+FFFD 等の置換文字が
-    /// 含まれていても読み取り可能な部分から取得できることが多い。None を返すとメール本文全体が
-    /// 失われパース自体が失敗するため、利用可能な部分を返す設計とする。
-    /// allow_partial パラメータは設けていない: 呼び出し元はメール本文パース用途に限定され、
-    /// 部分結果からでも注文情報を抽出できる方が有用なため。
-    fn decode_body_to_string(data: &[u8], mime_type: &str) -> Option<String> {
+    /// 含まれていても読み取り可能な部分から取得できることが多い。利用可能な部分を必ず返す設計
+    /// （呼び出し元はメール本文パース用途に限定され、部分結果からでも注文情報を抽出できる方が有用）。
+    fn decode_body_to_string(data: &[u8], mime_type: &str) -> String {
         let mime_lower = mime_type.to_lowercase();
 
         // 1. mime_type で charset が明示されている場合はそれを優先
@@ -507,7 +505,7 @@ impl GmailClient {
             if had_replacements {
                 log::warn!("ISO-2022-JP decode had replacement chars; returning partial content");
             }
-            return Some(decoded.into_owned());
+            return decoded.into_owned();
         } else if mime_lower.contains("shift_jis")
             || mime_lower.contains("shift-jis")
             || mime_lower.contains("windows-31j")
@@ -517,29 +515,29 @@ impl GmailClient {
             if had_replacements {
                 log::warn!("Shift_JIS decode had replacement chars; returning partial content");
             }
-            return Some(decoded.into_owned());
+            return decoded.into_owned();
         } else if mime_lower.contains("utf-8") || mime_lower.contains("utf8") {
             // charset=utf-8 が明示指定: UTF-8 でデコード。不正バイトは置換文字で処理（ISO-2022-JP にはフォールバックしない）
             if let Ok(data_str) = std::str::from_utf8(data) {
                 if let Some(decoded) = Self::try_decode_base64(data_str) {
-                    return Some(decoded);
+                    return decoded;
                 }
-                return Some(data_str.to_string());
+                return data_str.to_string();
             }
             let (decoded, _, had_replacements) = encoding_rs::UTF_8.decode(data);
             if had_replacements {
                 log::warn!("UTF-8 decode had replacement chars; returning partial content");
             }
-            return Some(decoded.into_owned());
+            return decoded.into_owned();
         }
 
         // 2. charset 未指定: UTF-8 として解釈を試みる
         if let Ok(data_str) = std::str::from_utf8(data) {
             // Base64 形式の場合はデコードして再試行（Gmail API の body.data が base64 の場合）
             if let Some(decoded) = Self::try_decode_base64(data_str) {
-                return Some(decoded);
+                return decoded;
             }
-            return Some(data_str.to_string());
+            return data_str.to_string();
         }
 
         // 3. charset 未指定時のフォールバック: ISO-2022-JP を試行（日本語メールで最も一般的）
@@ -547,7 +545,7 @@ impl GmailClient {
         if had_replacements {
             log::warn!("Fallback encoding decode had replacement chars; returning partial content");
         }
-        Some(decoded.into_owned())
+        decoded.into_owned()
     }
 
     /// `Base64URL形式の文字列かどうかを検証する`
@@ -629,34 +627,29 @@ impl GmailClient {
 
                     // 文字列として解釈（UTF-8 → ISO-2022-JP/Shift_JIS のフォールバック）
                     let content = Self::decode_body_to_string(data, mime_type);
-
-                    if let Some(content) = content {
-                        log::debug!("  Final content length: {} chars", content.len());
-                        // mimeType は "text/plain; charset=..." のようにパラメータ付きの場合があるため starts_with で判定
-                        let mime = mime_type.trim();
-                        if mime.starts_with("text/plain") && body_plain.is_none() {
-                            log::info!(
-                                "Found text/plain body: {} chars{}",
-                                content.len(),
-                                message_id
-                                    .map(|id| format!(" (message_id={})", id))
-                                    .unwrap_or_default()
-                            );
-                            *body_plain = Some(content);
-                        } else if mime.starts_with("text/html") && body_html.is_none() {
-                            log::info!(
-                                "Found text/html body: {} chars{}",
-                                content.len(),
-                                message_id
-                                    .map(|id| format!(" (message_id={})", id))
-                                    .unwrap_or_default()
-                            );
-                            *body_html = Some(content);
-                        } else {
-                            log::debug!("  Skipping mime_type: {mime_type}");
-                        }
+                    log::debug!("  Final content length: {} chars", content.len());
+                    // mimeType は "text/plain; charset=..." のようにパラメータ付きの場合があるため starts_with で判定
+                    let mime = mime_type.trim();
+                    if mime.starts_with("text/plain") && body_plain.is_none() {
+                        log::info!(
+                            "Found text/plain body: {} chars{}",
+                            content.len(),
+                            message_id
+                                .map(|id| format!(" (message_id={})", id))
+                                .unwrap_or_default()
+                        );
+                        *body_plain = Some(content);
+                    } else if mime.starts_with("text/html") && body_html.is_none() {
+                        log::info!(
+                            "Found text/html body: {} chars{}",
+                            content.len(),
+                            message_id
+                                .map(|id| format!(" (message_id={})", id))
+                                .unwrap_or_default()
+                        );
+                        *body_html = Some(content);
                     } else {
-                        log::warn!("  Failed to decode body data to string");
+                        log::debug!("  Skipping mime_type: {mime_type}");
                     }
                 } else {
                     log::debug!("  No data in body");

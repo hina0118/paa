@@ -149,7 +149,8 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
         (col) => columnNames.includes(col) && filters[col]?.trim()
       );
       for (const col of filterColumns) {
-        // ESCAPE '!' により % _ ! のみエスケープ。バックスラッシュはリテラル扱いで問題なし
+        // SQLite LIKE: ESCAPE '!' 指定時はエスケープ文字は ! のみ。
+        // % _ ! を !% !_ !! にエスケープ。バックスラッシュはエスケープ文字でないため常にリテラル（https://sqlite.org/lang_expr.html#like）
         whereParts.push(`${quoteColumn(col)} LIKE ? ESCAPE '!'`);
         const escaped = String(filters[col])
           .replace(/!/g, '!!')
@@ -227,7 +228,8 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
       return value ? 'true' : 'false';
     }
     const s = String(value);
-    if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+    // ISO 8601 日付/日時のみ対象。T/Z/空白/終端のいずれかで区切られる（"2024-01-01-backup" 等は除外）
+    if (/^\d{4}-\d{2}-\d{2}(?:[T\sZ]|$)/.test(s)) {
       return formatDateTime(s);
     }
     return s;
