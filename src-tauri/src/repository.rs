@@ -952,9 +952,13 @@ impl EmailRepository for SqliteEmailRepository {
         let mut saved = 0;
         let mut skipped = 0;
 
-        // rows_affected の解釈: SQLite の changes() は UPDATE でマッチした行数を返す。
-        // COALESCE で値が実質変わらなくても、ON CONFLICT DO UPDATE の UPDATE は行にマッチするため rows_affected=1 となる。
-        // saved は「新規のみ」ではなく「保存処理された件数」。FetchResult/SyncProgressEvent の saved_count/newly_saved に伝播する。
+        // rows_affected の解釈: SQLite の changes() は「UPDATE でマッチした行数」ではなく
+        // 「直近のステートメントによって実際に変更された行数」を返す。
+        // このクエリでは ON CONFLICT DO UPDATE が発生した場合、既存行に対して UPDATE が実行され、
+        // COALESCE により既存値がそのまま再代入されるケースでも、その行は更新されたものとしてカウントされるため
+        // rows_affected は 1 となる想定である。
+        // saved は「新規のみ」ではなく「INSERT/UPDATE が行われた件数」。FetchResult/SyncProgressEvent の
+        // saved_count/newly_saved に伝播する。
         // 参考: https://www.sqlite.org/c3ref/changes.html
 
         // トランザクションを使用してバッチ処理
