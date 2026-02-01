@@ -225,14 +225,16 @@ CREATE TABLE IF NOT EXISTS shop_settings (
     is_enabled INTEGER NOT NULL DEFAULT 1 CHECK(is_enabled IN (0, 1)),
     subject_filters TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (sender_address, parser_type)
 );
 CREATE INDEX IF NOT EXISTS idx_shop_settings_sender_address ON shop_settings(sender_address);
 CREATE INDEX IF NOT EXISTS idx_shop_settings_is_enabled ON shop_settings(is_enabled);
 
 -- 同一送信元・件名に複数パーサーを登録する場合: change/change_yoyaku, confirm/confirm_yoyaku は
 -- 本文構造が異なり（[ご購入内容] vs [ご予約内容]）、試行順序は shop_name, id で一意に決まる
-INSERT INTO shop_settings (shop_name, sender_address, parser_type, subject_filters, is_enabled) VALUES
+-- INSERT OR IGNORE でマイグレーションの冪等性を確保（二重実行時に重複キーエラーを回避）
+INSERT OR IGNORE INTO shop_settings (shop_name, sender_address, parser_type, subject_filters, is_enabled) VALUES
     ('ホビーサーチ', 'hs-support@1999.co.jp', 'hobbysearch_send', '["【ホビーサーチ】ご注文の発送が完了しました"]', 1),
     ('ホビーサーチ', 'hs-support@1999.co.jp', 'hobbysearch_change', '["【ホビーサーチ】ご注文が組み替えられました"]', 1),
     ('ホビーサーチ', 'hs-support@1999.co.jp', 'hobbysearch_change_yoyaku', '["【ホビーサーチ】ご注文が組み替えられました"]', 1),
