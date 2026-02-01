@@ -144,6 +144,7 @@ fn is_valid_simple_email(email: &str) -> bool {
 ///   開発環境や検証環境で `true` に変更して debug ビルドで利用することを想定しています。
 /// - 本定数の値を変更する際は、影響範囲を十分に確認したうえで、リリース手順に従って
 ///   運用するようにしてください。
+#[cfg(debug_assertions)]
 const SKIP_SUBJECT_FILTER: bool = false;
 
 /// メッセージをショップ設定と件名フィルターに基づいて保存すべきかを判定する
