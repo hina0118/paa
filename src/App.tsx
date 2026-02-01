@@ -21,13 +21,12 @@ import {
   SyncMetadataTable,
   WindowSettingsTable,
   ParseMetadataTable,
+  ParseSkippedTable,
 } from '@/components/screens/tables';
-import {
-  NavigationProvider,
-  useNavigation,
-} from '@/contexts/navigation-context';
-import { SyncProvider } from '@/contexts/sync-context';
-import { ParseProvider } from '@/contexts/parse-context';
+import { NavigationProvider } from '@/contexts/navigation-provider';
+import { useNavigation } from '@/contexts/use-navigation';
+import { SyncProvider } from '@/contexts/sync-provider';
+import { ParseProvider } from '@/contexts/parse-provider';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -66,6 +65,8 @@ function AppContent() {
         return <HtmlsTable />;
       case 'table-order-emails':
         return <OrderEmailsTable />;
+      case 'table-parse-skipped':
+        return <ParseSkippedTable />;
       case 'table-order-htmls':
         return <OrderHtmlsTable />;
       case 'table-shop-settings':

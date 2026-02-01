@@ -67,6 +67,8 @@ pub struct GmailMessage {
     pub from_address: Option<String>,
 }
 
+/// Gmail 同期の保存結果。saved_count は INSERT または ON CONFLICT DO UPDATE で rows_affected>0 の件数
+/// （重複も更新されるため「新規のみ」ではない）。skipped_count は rows_affected=0 の件数（通常は 0）。
 #[derive(Debug, Serialize, Deserialize)]
 #[allow(clippy::struct_field_names)]
 pub struct FetchResult {
@@ -80,6 +82,7 @@ pub struct SyncProgressEvent {
     pub batch_number: usize,
     pub batch_size: usize,
     pub total_synced: usize,
+    /// INSERT または ON CONFLICT DO UPDATE で保存された件数（重複の更新も含む。「新規のみ」ではない）
     pub newly_saved: usize,
     pub status_message: String,
     pub is_complete: bool,
@@ -361,7 +364,12 @@ impl GmailClient {
         let mut page_token: Option<String> = None;
 
         loop {
-            let mut req = self.hub.users().messages_list("me").q(query);
+            let mut req = self
+                .hub
+                .users()
+                .messages_list("me")
+                .q(query)
+                .include_spam_trash(true);
 
             if let Some(token) = page_token {
                 req = req.page_token(&token);
@@ -449,7 +457,12 @@ impl GmailClient {
                 payload.body.is_some(),
                 payload.parts.as_ref().map_or(0, std::vec::Vec::len)
             );
-            Self::extract_body_from_part(payload, &mut body_plain, &mut body_html);
+            Self::extract_body_from_part(
+                payload,
+                &mut body_plain,
+                &mut body_html,
+                Some(message_id),
+            );
         } else {
             log::warn!("Message {message_id} has no payload");
         }
@@ -470,6 +483,69 @@ impl GmailClient {
             internal_date,
             from_address,
         })
+    }
+
+    /// body.data のバイト列を文字列にデコードする
+    ///
+    /// mime_type に charset が指定されている場合はそれを優先し、Shift_JIS/ISO-2022-JP の
+    /// バイト列がたまたま UTF-8 としても解釈可能な場合の文字化けを防ぐ。
+    /// 未指定時は UTF-8 → Base64 → ISO-2022-JP/Shift_JIS の順で試行。
+    ///
+    /// 不正シーケンスが含まれる場合（had_replacements）は警告を出しつつ部分的なデコード結果を返す。
+    /// 部分結果を返す理由: 注文番号・追跡番号などパーサーが抽出する情報は、U+FFFD 等の置換文字が
+    /// 含まれていても読み取り可能な部分から取得できることが多い。利用可能な部分を必ず返す設計
+    /// （呼び出し元はメール本文パース用途に限定され、部分結果からでも注文情報を抽出できる方が有用）。
+    fn decode_body_to_string(data: &[u8], mime_type: &str) -> String {
+        let mime_lower = mime_type.to_lowercase();
+
+        // 1. mime_type で charset が明示されている場合はそれを優先
+        //    （Shift_JIS 等が valid UTF-8 と誤判定される文字化けを防ぐ）
+        if mime_lower.contains("iso-2022-jp") || mime_lower.contains("iso_2022_jp") {
+            let (decoded, _, had_replacements) = encoding_rs::ISO_2022_JP.decode(data);
+            if had_replacements {
+                log::warn!("ISO-2022-JP decode had replacement chars; returning partial content");
+            }
+            return decoded.into_owned();
+        } else if mime_lower.contains("shift_jis")
+            || mime_lower.contains("shift-jis")
+            || mime_lower.contains("windows-31j")
+            || mime_lower.contains("cp932")
+        {
+            let (decoded, _, had_replacements) = encoding_rs::SHIFT_JIS.decode(data);
+            if had_replacements {
+                log::warn!("Shift_JIS decode had replacement chars; returning partial content");
+            }
+            return decoded.into_owned();
+        } else if mime_lower.contains("utf-8") || mime_lower.contains("utf8") {
+            // charset=utf-8 が明示指定: UTF-8 でデコード。不正バイトは置換文字で処理（ISO-2022-JP にはフォールバックしない）
+            if let Ok(data_str) = std::str::from_utf8(data) {
+                if let Some(decoded) = Self::try_decode_base64(data_str) {
+                    return decoded;
+                }
+                return data_str.to_string();
+            }
+            let (decoded, _, had_replacements) = encoding_rs::UTF_8.decode(data);
+            if had_replacements {
+                log::warn!("UTF-8 decode had replacement chars; returning partial content");
+            }
+            return decoded.into_owned();
+        }
+
+        // 2. charset 未指定: UTF-8 として解釈を試みる
+        if let Ok(data_str) = std::str::from_utf8(data) {
+            // Base64 形式の場合はデコードして再試行（Gmail API の body.data が base64 の場合）
+            if let Some(decoded) = Self::try_decode_base64(data_str) {
+                return decoded;
+            }
+            return data_str.to_string();
+        }
+
+        // 3. charset 未指定時のフォールバック: ISO-2022-JP を試行（日本語メールで最も一般的）
+        let (decoded, _, had_replacements) = encoding_rs::ISO_2022_JP.decode(data);
+        if had_replacements {
+            log::warn!("Fallback encoding decode had replacement chars; returning partial content");
+        }
+        decoded.into_owned()
     }
 
     /// `Base64URL形式の文字列かどうかを検証する`
@@ -534,10 +610,12 @@ impl GmailClient {
     }
 
     // 再帰的にMIMEパートを解析する
+    // message_id はトップレベル呼び出し時のみ渡し、ログのトレース用に使用
     fn extract_body_from_part(
         part: &google_gmail1::api::MessagePart,
         body_plain: &mut Option<String>,
         body_html: &mut Option<String>,
+        message_id: Option<&str>,
     ) {
         // 現在のパートのbodyをチェック
         if let Some(mime_type) = &part.mime_type {
@@ -547,41 +625,31 @@ impl GmailClient {
                 if let Some(data) = &body.data {
                     log::debug!("  Data present, length: {} bytes", data.len());
 
-                    // dataは既にデコード済みのバイト列として返されることがある
-                    // まずUTF-8として解釈を試みる
-                    if let Ok(data_str) = std::str::from_utf8(data) {
-                        log::debug!("  Data as UTF-8 string length: {} chars", data_str.len());
-
-                        // Base64形式かどうかを検証してからデコードを試みる
-                        let content = if let Some(decoded) = Self::try_decode_base64(data_str) {
-                            log::debug!(
-                                "  Successfully decoded from base64: {} chars",
-                                decoded.len()
-                            );
-                            decoded
-                        } else {
-                            // Base64形式でない、またはデコード失敗
-                            // 元のデータをそのまま使用（Gmail APIが既にデコード済みの可能性）
-                            log::debug!("  Using raw data as-is: {} chars", data_str.len());
-                            data_str.to_string()
-                        };
-
-                        log::debug!("  Final content length: {} chars", content.len());
-                        match mime_type.as_ref() {
-                            "text/plain" if body_plain.is_none() => {
-                                log::info!("Found text/plain body: {} chars", content.len());
-                                *body_plain = Some(content);
-                            }
-                            "text/html" if body_html.is_none() => {
-                                log::info!("Found text/html body: {} chars", content.len());
-                                *body_html = Some(content);
-                            }
-                            _ => {
-                                log::debug!("  Skipping mime_type: {mime_type}");
-                            }
-                        }
+                    // 文字列として解釈（UTF-8 → ISO-2022-JP/Shift_JIS のフォールバック）
+                    let content = Self::decode_body_to_string(data, mime_type);
+                    log::debug!("  Final content length: {} chars", content.len());
+                    // mimeType は "text/plain; charset=..." のようにパラメータ付きの場合があるため starts_with で判定
+                    let mime = mime_type.trim();
+                    if mime.starts_with("text/plain") && body_plain.is_none() {
+                        log::info!(
+                            "Found text/plain body: {} chars{}",
+                            content.len(),
+                            message_id
+                                .map(|id| format!(" (message_id={})", id))
+                                .unwrap_or_default()
+                        );
+                        *body_plain = Some(content);
+                    } else if mime.starts_with("text/html") && body_html.is_none() {
+                        log::info!(
+                            "Found text/html body: {} chars{}",
+                            content.len(),
+                            message_id
+                                .map(|id| format!(" (message_id={})", id))
+                                .unwrap_or_default()
+                        );
+                        *body_html = Some(content);
                     } else {
-                        log::warn!("  Failed to convert data to UTF-8");
+                        log::debug!("  Skipping mime_type: {mime_type}");
                     }
                 } else {
                     log::debug!("  No data in body");
@@ -591,11 +659,11 @@ impl GmailClient {
             }
         }
 
-        // 子パートを再帰的に処理
+        // 子パートを再帰的に処理（再帰時は message_id を渡さない）
         if let Some(parts) = &part.parts {
             log::debug!("Processing {} child parts", parts.len());
             for child_part in parts {
-                Self::extract_body_from_part(child_part, body_plain, body_html);
+                Self::extract_body_from_part(child_part, body_plain, body_html, None);
             }
         }
     }
@@ -606,13 +674,23 @@ impl GmailClient {
 /// これにより GmailClient をモックに置き換えてテストできます。
 #[async_trait]
 impl GmailClientTrait for GmailClient {
-    async fn list_message_ids(&self, query: &str, max_results: u32) -> Result<Vec<String>, String> {
-        let req = self
+    async fn list_message_ids(
+        &self,
+        query: &str,
+        max_results: u32,
+        page_token: Option<String>,
+    ) -> Result<(Vec<String>, Option<String>), String> {
+        let mut req = self
             .hub
             .users()
             .messages_list("me")
             .q(query)
-            .max_results(max_results);
+            .max_results(max_results)
+            .include_spam_trash(true);
+
+        if let Some(ref token) = page_token {
+            req = req.page_token(token);
+        }
 
         let (_, result) = req
             .doit()
@@ -626,7 +704,7 @@ impl GmailClientTrait for GmailClient {
             .filter_map(|msg| msg.id)
             .collect();
 
-        Ok(message_ids)
+        Ok((message_ids, result.next_page_token))
     }
 
     async fn get_message(&self, message_id: &str) -> Result<GmailMessage, String> {
@@ -668,7 +746,12 @@ pub async fn save_messages_to_db(
             r"
             INSERT INTO emails (message_id, body_plain, body_html, internal_date, from_address, subject)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-            ON CONFLICT(message_id) DO NOTHING
+            ON CONFLICT(message_id) DO UPDATE SET
+                body_plain = COALESCE(excluded.body_plain, body_plain),
+                body_html = COALESCE(excluded.body_html, body_html),
+                internal_date = COALESCE(excluded.internal_date, internal_date),
+                from_address = COALESCE(excluded.from_address, from_address),
+                subject = COALESCE(excluded.subject, subject)
             ",
         )
         .bind(&msg.message_id)
@@ -693,7 +776,7 @@ pub async fn save_messages_to_db(
         .map_err(|e| format!("Failed to commit transaction: {e}"))?;
 
     log::info!(
-        "Saved {saved_count} messages, skipped {skipped_count} duplicates, filtered {filtered_count} by subject"
+        "Saved {saved_count} messages (inserted or updated), skipped {skipped_count}, filtered {filtered_count} by subject"
     );
 
     Ok(FetchResult {
@@ -731,7 +814,7 @@ pub async fn save_messages_to_db_with_repo(
     let (saved_count, skipped_count) = repo.save_messages(&messages).await?;
 
     log::info!(
-        "Saved {saved_count} messages, skipped {skipped_count} duplicates, filtered {filtered_count} by subject"
+        "Saved {saved_count} messages (inserted or updated), skipped {skipped_count}, filtered {filtered_count} by subject"
     );
 
     Ok(FetchResult {
@@ -746,8 +829,9 @@ async fn fetch_batch(
     client: &dyn GmailClientTrait,
     query: &str,
     max_results: usize,
-) -> Result<Vec<GmailMessage>, String> {
-    crate::logic::sync_logic::fetch_batch_with_client(client, query, max_results).await
+    page_token: Option<&str>,
+) -> Result<(Vec<GmailMessage>, Option<String>), String> {
+    crate::logic::sync_logic::fetch_batch_with_client(client, query, max_results, page_token).await
 }
 
 // Helper function to format timestamp as RFC3339
@@ -881,7 +965,6 @@ pub async fn sync_gmail_incremental_with_client(
         }
     };
 
-    let mut oldest_date = metadata.oldest_fetched_date;
     let mut total_synced = metadata.total_synced_count;
     let db_batch_size = metadata.batch_size;
     let db_max_iterations = metadata.max_iterations;
@@ -897,34 +980,33 @@ pub async fn sync_gmail_incremental_with_client(
     };
 
     let mut batch_number = 0;
-    #[allow(unused_assignments)]
     let mut has_more = true;
     let sync_start_time = chrono::Utc::now();
-    let mut previous_message_ids: Option<Vec<String>> = None;
+    let query = build_sync_query(&sender_addresses, &None);
+    let mut next_page_token: Option<String> = None;
     while has_more && !sync_state.should_stop() {
         batch_number += 1;
-        // Check iteration limit to prevent infinite loops
         if batch_number > effective_max_iterations {
             log::warn!(
                 "Reached maximum iteration limit ({effective_max_iterations}), stopping sync"
             );
             break;
         }
-        // Check timeout to prevent indefinite sync
         let elapsed = chrono::Utc::now().signed_duration_since(sync_start_time);
         if elapsed.num_minutes() > SYNC_TIMEOUT_MINUTES {
             log::warn!("Sync timeout reached ({SYNC_TIMEOUT_MINUTES} minutes), stopping sync");
             break;
         }
-        // Store the oldest_date before this fetch to detect infinite loop conditions
-        let oldest_date_before_fetch = oldest_date.clone();
-        // Build query with sender addresses and date constraint
-        let query = build_sync_query(&sender_addresses, &oldest_date);
-        // Do not log the query itself to avoid exposing sender/recipient information
         log::info!("Batch {batch_number}: Fetching up to {effective_batch_size} messages");
-        // Fetch batch of messages
-        let messages = match fetch_batch(client, &query, effective_batch_size).await {
-            Ok(m) => m,
+        let (messages, fetched_next_token) = match fetch_batch(
+            client,
+            &query,
+            effective_batch_size,
+            next_page_token.as_deref(),
+        )
+        .await
+        {
+            Ok(r) => r,
             Err(e) => {
                 let _ = email_repo.update_sync_error_status().await;
                 return Err(e);
@@ -940,9 +1022,6 @@ pub async fn sync_gmail_incremental_with_client(
             messages.len()
         );
 
-        // Extract message IDs and oldest date BEFORE passing ownership to save function
-        let current_message_ids: Vec<String> =
-            messages.iter().map(|m| m.message_id.clone()).collect();
         let messages_len = messages.len();
         let new_oldest = if let Some(ts) = messages
             .iter()
@@ -996,36 +1075,7 @@ pub async fn sync_gmail_incremental_with_client(
             }
         }
 
-        // Detect infinite loop BEFORE updating database: same messages being returned repeatedly
-        // This can happen when multiple messages have identical timestamps (common in batch imports)
-        // For performance on large message sets, avoid full Vec equality and instead compare
-        // length plus first/middle/last IDs as a heuristic for "same batch".
-        // NOTE: This heuristic may produce false positives if different batches have the same
-        // boundary IDs, but combined with the timestamp check this is extremely unlikely in practice.
-        if let Some(ref prev_ids) = previous_message_ids {
-            // Compare the new_oldest timestamp value with the timestamp from oldest_date_before_fetch
-            let same_boundaries = !current_message_ids.is_empty()
-                && current_message_ids.len() == prev_ids.len()
-                && current_message_ids.first() == prev_ids.first()
-                && current_message_ids.last() == prev_ids.last();
-
-            // Also check middle element to reduce false positives
-            let same_middle = if current_message_ids.len() > 2 {
-                let mid = current_message_ids.len() / 2;
-                current_message_ids.get(mid) == prev_ids.get(mid)
-            } else {
-                true // For small batches, boundary check is sufficient
-            };
-
-            if Some(&new_oldest) == oldest_date_before_fetch.as_ref()
-                && same_boundaries
-                && same_middle
-            {
-                log::warn!("Same message IDs returned despite fetching messages, stopping to prevent infinite loop");
-                has_more = false;
-            }
-        }
-        previous_message_ids = Some(current_message_ids);
+        // nextPageToken によりページングするため、日付境界での抜け漏れや無限ループの心配はない
 
         // All validations passed - now safe to update database (via repository)
         if let Err(e) = email_repo
@@ -1036,8 +1086,7 @@ pub async fn sync_gmail_incremental_with_client(
             return Err(format!("Failed to update metadata: {e}"));
         }
 
-        // Update the oldest_date variable for the next iteration
-        oldest_date = Some(new_oldest.clone());
+        next_page_token = fetched_next_token;
         // Emit progress event
         let progress = SyncProgressEvent {
             batch_number,
@@ -1045,7 +1094,7 @@ pub async fn sync_gmail_incremental_with_client(
             total_synced: total_synced as usize,
             newly_saved: result.saved_count,
             status_message: format!(
-                "Batch {} complete: {} new emails",
+                "Batch {} complete: {} emails saved (inserted or updated)",
                 batch_number, result.saved_count
             ),
             is_complete: false,
@@ -1055,10 +1104,10 @@ pub async fn sync_gmail_incremental_with_client(
             let _ = email_repo.update_sync_error_status().await;
             return Err(format!("Failed to emit progress: {e}"));
         }
-        // Check if we got fewer messages than requested (end of results)
-        if messages_len < effective_batch_size {
+        // nextPageToken がなければ全ページ取得済み
+        if next_page_token.is_none() {
             has_more = false;
-            log::info!("Received fewer messages than batch size, sync complete");
+            log::info!("No more pages, sync complete");
         }
     }
     // Determine final status
@@ -1494,13 +1543,13 @@ mod tests {
         assert_eq!(result1.saved_count, 1);
         assert_eq!(result1.skipped_count, 0);
 
-        // Save second time (should skip duplicate)
+        // Save second time: ON CONFLICT DO UPDATE により UPDATE が実行され、saved としてカウントされる
         let result2 = save_messages_to_db(&pool, &[message], &shop_settings)
             .await
             .expect("Failed to save message second time");
 
-        assert_eq!(result2.saved_count, 0);
-        assert_eq!(result2.skipped_count, 1);
+        assert_eq!(result2.saved_count, 1);
+        assert_eq!(result2.skipped_count, 0);
     }
 
     #[tokio::test]
@@ -1633,8 +1682,9 @@ mod tests {
             .expect("Failed to save second batch");
 
         assert_eq!(result.fetched_count, 2);
-        assert_eq!(result.saved_count, 1);
-        assert_eq!(result.skipped_count, 1);
+        // 重複(msg007)も新規(msg008)も ON CONFLICT DO UPDATE で rows_affected=1 のため saved としてカウント
+        assert_eq!(result.saved_count, 2);
+        assert_eq!(result.skipped_count, 0);
     }
 
     #[test]
@@ -1709,14 +1759,13 @@ mod tests {
 
         assert_eq!(result1.saved_count, 1);
 
-        // 同じmessage_idで再度保存しようとする（UNIQUE制約違反）
+        // 同じmessage_idで再度保存: ON CONFLICT DO UPDATE により UPDATE が実行され、saved としてカウントされる
         let result2 = save_messages_to_db(&pool, &[message], &shop_settings)
             .await
             .expect("Should handle duplicate gracefully");
 
-        // 重複はスキップされる
-        assert_eq!(result2.skipped_count, 1);
-        assert_eq!(result2.saved_count, 0);
+        assert_eq!(result2.saved_count, 1);
+        assert_eq!(result2.skipped_count, 0);
     }
 
     #[tokio::test]
@@ -2011,7 +2060,7 @@ mod tests {
     fn test_build_sync_query_without_date() {
         let addresses = vec!["test@example.com".to_string()];
         let query = build_sync_query(&addresses, &None);
-        assert_eq!(query, "from:test@example.com");
+        assert_eq!(query, "in:anywhere (from:test@example.com)");
     }
 
     #[test]
@@ -2029,7 +2078,7 @@ mod tests {
         let date = Some("invalid-date".to_string());
         let query = build_sync_query(&addresses, &date);
         // 無効な日付の場合、基本クエリのみが返される
-        assert_eq!(query, "from:test@example.com");
+        assert_eq!(query, "in:anywhere (from:test@example.com)");
     }
 
     #[test]
@@ -2060,7 +2109,7 @@ mod tests {
         let query = build_sync_query(&addresses, &None);
         assert_eq!(
             query,
-            "from:test1@example.com OR from:test2@example.com OR from:test3@example.com"
+            "in:anywhere (from:test1@example.com OR from:test2@example.com OR from:test3@example.com)"
         );
     }
 
@@ -2069,7 +2118,10 @@ mod tests {
         let addresses: Vec<String> = vec![];
         let query = build_sync_query(&addresses, &None);
         // Should fallback to keyword search
-        assert_eq!(query, r"subject:(注文 OR 予約 OR ありがとうございます)");
+        assert_eq!(
+            query,
+            r"in:anywhere subject:(注文 OR 予約 OR ありがとうございます)"
+        );
     }
 
     #[test]
@@ -2454,7 +2506,7 @@ mod tests {
         let mut body_plain = None;
         let mut body_html = None;
 
-        GmailClient::extract_body_from_part(&part, &mut body_plain, &mut body_html);
+        GmailClient::extract_body_from_part(&part, &mut body_plain, &mut body_html, None);
 
         assert_eq!(body_plain, Some(plain_text.to_string()));
         assert_eq!(body_html, None);
@@ -2480,7 +2532,7 @@ mod tests {
         let mut body_plain = None;
         let mut body_html = None;
 
-        GmailClient::extract_body_from_part(&part, &mut body_plain, &mut body_html);
+        GmailClient::extract_body_from_part(&part, &mut body_plain, &mut body_html, None);
 
         assert_eq!(body_plain, None);
         assert_eq!(body_html, Some(html_text.to_string()));
@@ -2523,7 +2575,7 @@ mod tests {
         let mut body_plain = None;
         let mut body_html = None;
 
-        GmailClient::extract_body_from_part(&part, &mut body_plain, &mut body_html);
+        GmailClient::extract_body_from_part(&part, &mut body_plain, &mut body_html, None);
 
         assert_eq!(body_plain, Some(plain_text.to_string()));
         assert_eq!(body_html, Some(html_text.to_string()));
@@ -2543,7 +2595,7 @@ mod tests {
         let mut body_plain = None;
         let mut body_html = None;
 
-        GmailClient::extract_body_from_part(&part, &mut body_plain, &mut body_html);
+        GmailClient::extract_body_from_part(&part, &mut body_plain, &mut body_html, None);
 
         assert_eq!(body_plain, None);
         assert_eq!(body_html, None);
@@ -2586,7 +2638,7 @@ mod tests {
         let mut body_plain = None;
         let mut body_html = None;
 
-        GmailClient::extract_body_from_part(&part, &mut body_plain, &mut body_html);
+        GmailClient::extract_body_from_part(&part, &mut body_plain, &mut body_html, None);
 
         // 最初のtext/plainのみが採用される
         assert_eq!(body_plain, Some(first_text.to_string()));
@@ -2702,7 +2754,7 @@ mod tests {
         let part = MessagePart {
             mime_type: Some("text/plain".to_string()),
             body: Some(MessagePartBody {
-                // 無効なUTF-8バイトシーケンス（実際にはbase64エンコードが必要だが、テストのため）
+                // 無効なUTF-8バイトシーケンス
                 data: Some(vec![0xFF, 0xFE, 0xFD]),
                 ..Default::default()
             }),
@@ -2712,11 +2764,11 @@ mod tests {
         let mut body_plain = None;
         let mut body_html = None;
 
-        // 無効なUTF-8の場合、from_utf8が失敗するため何も抽出されない
-        GmailClient::extract_body_from_part(&part, &mut body_plain, &mut body_html);
+        GmailClient::extract_body_from_part(&part, &mut body_plain, &mut body_html, None);
 
-        // UTF-8変換に失敗するため、抽出されない
-        assert_eq!(body_plain, None);
+        // UTF-8 失敗後、フォールバック（ISO-2022-JP/Shift_JIS）で置換文字付きの部分結果を返す
+        assert!(body_plain.is_some());
+        assert!(body_plain.as_ref().unwrap().contains('\u{FFFD}'));
         assert_eq!(body_html, None);
     }
 

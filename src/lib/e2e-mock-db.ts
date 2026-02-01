@@ -66,7 +66,7 @@ const ORDERS_SCHEMA: SchemaColumn[] = [
   },
   {
     cid: 2,
-    name: 'order_number',
+    name: 'shop_name',
     type: 'TEXT',
     notnull: 0,
     dflt_value: null,
@@ -74,6 +74,14 @@ const ORDERS_SCHEMA: SchemaColumn[] = [
   },
   {
     cid: 3,
+    name: 'order_number',
+    type: 'TEXT',
+    notnull: 0,
+    dflt_value: null,
+    pk: 0,
+  },
+  {
+    cid: 4,
     name: 'order_date',
     type: 'DATETIME',
     notnull: 0,
@@ -81,7 +89,7 @@ const ORDERS_SCHEMA: SchemaColumn[] = [
     pk: 0,
   },
   {
-    cid: 4,
+    cid: 5,
     name: 'created_at',
     type: 'TEXT',
     notnull: 1,
@@ -89,7 +97,7 @@ const ORDERS_SCHEMA: SchemaColumn[] = [
     pk: 0,
   },
   {
-    cid: 5,
+    cid: 6,
     name: 'updated_at',
     type: 'TEXT',
     notnull: 1,
@@ -195,6 +203,7 @@ const MOCK_ORDER_ITEMS = [
     category: null,
     brand: null,
     createdAt: '2024-01-15',
+    shopName: 'Example Shop',
     shopDomain: 'example.com',
     orderNumber: 'ORD-E2E-001',
     orderDate: '2024-01-15',
@@ -208,10 +217,39 @@ export type E2EMockDb = {
   close: () => Promise<void>;
 };
 
+/** parse_skipped 用スキーマ */
+const PARSE_SKIPPED_SCHEMA: SchemaColumn[] = [
+  {
+    cid: 0,
+    name: 'email_id',
+    type: 'INTEGER',
+    notnull: 1,
+    dflt_value: null,
+    pk: 1,
+  },
+  {
+    cid: 1,
+    name: 'error_message',
+    type: 'TEXT',
+    notnull: 0,
+    dflt_value: null,
+    pk: 0,
+  },
+  {
+    cid: 2,
+    name: 'created_at',
+    type: 'DATETIME',
+    notnull: 1,
+    dflt_value: null,
+    pk: 0,
+  },
+];
+
 function getSchemaForTable(tableName: string): SchemaColumn[] {
   if (tableName === 'images') return IMAGES_SCHEMA;
   if (tableName === 'orders') return ORDERS_SCHEMA;
   if (tableName === 'shop_settings') return SHOP_SETTINGS_SCHEMA;
+  if (tableName === 'parse_skipped') return PARSE_SKIPPED_SCHEMA;
   return MINIMAL_SCHEMA;
 }
 
@@ -240,6 +278,7 @@ export function createE2EMockDb(): E2EMockDb {
         let count = 0;
         if (tableName === 'shop_settings') count = SHOP_SETTINGS_ROWS.length;
         else if (tableName === 'orders') count = 1;
+        else if (tableName === 'parse_skipped') count = 0;
         return [{ count }] as unknown as T[];
       }
 
@@ -251,8 +290,9 @@ export function createE2EMockDb(): E2EMockDb {
         normalized.includes('SELECT *') &&
         normalized.includes('FROM shop_settings')
       ) {
-        const limit = args?.[0] as number | undefined;
-        const offset = (args?.[1] as number | undefined) ?? 0;
+        const arr = args ?? [];
+        const limit = (arr[arr.length - 2] as number | undefined) ?? 50;
+        const offset = (arr[arr.length - 1] as number | undefined) ?? 0;
         const slice = SHOP_SETTINGS_ROWS.slice(
           offset,
           limit != null ? offset + limit : undefined
@@ -265,8 +305,9 @@ export function createE2EMockDb(): E2EMockDb {
         normalized.includes('FROM orders') &&
         (normalized.includes('LIMIT') || normalized.includes('OFFSET'))
       ) {
-        const limit = args?.[0] as number | undefined;
-        const offset = (args?.[1] as number | undefined) ?? 0;
+        const arr = args ?? [];
+        const limit = (arr[arr.length - 2] as number | undefined) ?? 50;
+        const offset = (arr[arr.length - 1] as number | undefined) ?? 0;
         const slice = MOCK_ORDERS_ROWS.slice(
           offset,
           limit != null ? offset + limit : undefined
@@ -282,8 +323,8 @@ export function createE2EMockDb(): E2EMockDb {
         return MOCK_ORDER_ITEMS as unknown as T[];
       }
 
-      if (normalized.includes('SELECT DISTINCT shop_domain')) {
-        return [{ shop_domain: 'example.com' }] as unknown as T[];
+      if (normalized.includes('COALESCE(shop_name, shop_domain)')) {
+        return [{ shop_display: 'example.com' }] as unknown as T[];
       }
 
       if (

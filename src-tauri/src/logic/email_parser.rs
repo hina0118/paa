@@ -19,6 +19,7 @@ pub fn is_valid_parser_type(parser_type: &str) -> bool {
         "hobbysearch_confirm"
             | "hobbysearch_confirm_yoyaku"
             | "hobbysearch_change"
+            | "hobbysearch_change_yoyaku"
             | "hobbysearch_send"
     )
 }
@@ -144,6 +145,11 @@ mod tests {
     #[test]
     fn test_is_valid_parser_type_hobbysearch_change() {
         assert!(is_valid_parser_type("hobbysearch_change"));
+    }
+
+    #[test]
+    fn test_is_valid_parser_type_hobbysearch_change_yoyaku() {
+        assert!(is_valid_parser_type("hobbysearch_change_yoyaku"));
     }
 
     #[test]
@@ -310,5 +316,65 @@ mod tests {
     fn test_extract_domain_trailing_at() {
         // "user@" の場合、ドメイン部が空なのでNone
         assert_eq!(extract_domain("user@"), None);
+    }
+
+    // ==================== get_candidate_parsers 追加テスト ====================
+
+    #[test]
+    fn test_get_candidate_parsers_invalid_from_address_returns_empty() {
+        // extract_email_address が None を返す場合（不正な from）は空を返す
+        let settings = vec![(
+            "shop@example.com".to_string(),
+            "hobbysearch_confirm".to_string(),
+            None,
+        )];
+
+        let candidates = get_candidate_parsers("invalid-email", Some("注文確認"), &settings);
+        assert!(candidates.is_empty());
+
+        let candidates = get_candidate_parsers("user@", Some("注文確認"), &settings);
+        assert!(candidates.is_empty());
+
+        let candidates = get_candidate_parsers("a@b@c", Some("注文確認"), &settings);
+        assert!(candidates.is_empty());
+    }
+
+    #[test]
+    fn test_get_candidate_parsers_invalid_json_in_subject_filters_ignores_filter() {
+        // JSON パースエラー時はフィルターを無視してパーサーを返す
+        let settings = vec![(
+            "shop@example.com".to_string(),
+            "hobbysearch_confirm".to_string(),
+            Some(r#"invalid json"#.to_string()),
+        )];
+
+        let candidates = get_candidate_parsers("shop@example.com", Some("任意の件名"), &settings);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0], "hobbysearch_confirm");
+    }
+
+    #[test]
+    fn test_get_candidate_parsers_subject_filter_but_no_subject_excluded() {
+        // 件名フィルターありで件名が None の場合は除外
+        let settings = vec![(
+            "shop@example.com".to_string(),
+            "hobbysearch_confirm".to_string(),
+            Some(r#"["注文確認"]"#.to_string()),
+        )];
+
+        let candidates = get_candidate_parsers("shop@example.com", None, &settings);
+        assert!(candidates.is_empty());
+    }
+
+    #[test]
+    fn test_get_candidate_parsers_case_insensitive_address_match() {
+        let settings = vec![(
+            "Shop@Example.COM".to_string(),
+            "hobbysearch_confirm".to_string(),
+            None,
+        )];
+
+        let candidates = get_candidate_parsers("shop@example.com", Some("注文"), &settings);
+        assert_eq!(candidates.len(), 1);
     }
 }

@@ -35,9 +35,10 @@ describe('createE2EMockDb', () => {
       const result = await db.select<{ name: string }>(
         'PRAGMA table_info(orders)'
       );
-      expect(result).toHaveLength(6);
+      expect(result).toHaveLength(7);
       expect(result.map((r) => r.name)).toContain('order_number');
       expect(result.map((r) => r.name)).toContain('shop_domain');
+      expect(result.map((r) => r.name)).toContain('shop_name');
     });
 
     it('returns shop_settings schema for shop_settings table', async () => {
@@ -153,13 +154,13 @@ describe('createE2EMockDb', () => {
     });
   });
 
-  describe('select - SELECT DISTINCT shop_domain', () => {
-    it('returns distinct shop domains', async () => {
+  describe('select - SELECT DISTINCT COALESCE(shop_name, shop_domain)', () => {
+    it('returns distinct shop display values for filter options', async () => {
       const db = createE2EMockDb();
-      const result = await db.select<{ shop_domain: string }>(
-        'SELECT DISTINCT shop_domain FROM orders'
+      const result = await db.select<{ shop_display: string }>(
+        'SELECT DISTINCT COALESCE(shop_name, shop_domain) AS shop_display FROM orders WHERE shop_domain IS NOT NULL OR shop_name IS NOT NULL ORDER BY shop_display'
       );
-      expect(result).toEqual([{ shop_domain: 'example.com' }]);
+      expect(result).toEqual([{ shop_display: 'example.com' }]);
     });
   });
 

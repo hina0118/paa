@@ -15,8 +15,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  RefreshCw,
+} from 'lucide-react';
+import { Input } from '@/components/ui/input';
 import { sanitizeTableName } from '@/lib/database';
+import { formatDateTime } from '@/lib/utils';
 import { useDatabase } from '@/hooks/useDatabase';
 
 type TableViewerProps = {
@@ -49,6 +57,10 @@ function getColumnLabel(tableName: string, column: string): string {
   return column;
 }
 
+function quoteColumn(name: string): string {
+  return `"${name.replace(/"/g, '""')}"`;
+}
+
 export function TableViewer({ tableName, title }: TableViewerProps) {
   const [data, setData] = useState<TableData[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
@@ -60,10 +72,42 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
     column: string;
     value: unknown;
   } | null>(null);
+  const [filters, setFilters] = useState<Record<string, string>>({});
+  const [sort, setSort] = useState<{
+    column: string | null;
+    direction: 'asc' | 'desc';
+  }>({ column: null, direction: 'asc' });
   // Page size of 50 rows - adequate for most tables
-  // For tables with many columns or large text/blob fields, consider making this configurable
   const pageSize = 50;
   const { getDb } = useDatabase();
+
+  const updateFilter = useCallback((column: string, value: string) => {
+    setFilters((prev) => {
+      const next = { ...prev };
+      if (value.trim() === '') {
+        delete next[column];
+      } else {
+        next[column] = value;
+      }
+      return next;
+    });
+    setPage(0);
+  }, []);
+
+  const handleSort = useCallback((column: string) => {
+    setSort((prev) =>
+      prev.column === column
+        ? { column, direction: prev.direction === 'asc' ? 'desc' : 'asc' }
+        : { column, direction: 'asc' }
+    );
+    setPage(0);
+  }, []);
+
+  const clearFiltersAndSort = useCallback(() => {
+    setFilters({});
+    setSort({ column: null, direction: 'asc' });
+    setPage(0);
+  }, []);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -98,22 +142,45 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
       const columnNames = schemaRows.map((row) => row.name);
       setColumns(columnNames);
 
-      // Get total count for pagination
-      const countResult = await db.select<Array<{ count: number }>>(
-        `SELECT COUNT(*) as count FROM ${safeTableName}`
+      // Build WHERE clause (column names from schema whitelist only)
+      const whereParts: string[] = [];
+      const countArgs: unknown[] = [];
+      const filterColumns = Object.keys(filters).filter(
+        (col) => columnNames.includes(col) && filters[col]?.trim()
       );
+      for (const col of filterColumns) {
+        // SQLite LIKE: ESCAPE '!' 指定時はエスケープ文字は ! のみ。
+        // % _ ! を !% !_ !! にエスケープ。バックスラッシュはエスケープ文字でないため常にリテラル（https://sqlite.org/lang_expr.html#like）
+        whereParts.push(`${quoteColumn(col)} LIKE ? ESCAPE '!'`);
+        const escaped = String(filters[col])
+          .replace(/!/g, '!!')
+          .replace(/%/g, '!%')
+          .replace(/_/g, '!_');
+        countArgs.push(`%${escaped}%`);
+      }
+      const whereClause =
+        whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : '';
+
+      // Get total count for pagination (with filters)
+      const countSql = `SELECT COUNT(*) as count FROM ${safeTableName} ${whereClause}`;
+      const countResult =
+        countArgs.length > 0
+          ? await db.select<Array<{ count: number }>>(countSql, countArgs)
+          : await db.select<Array<{ count: number }>>(countSql);
       const total = countResult[0]?.count || 0;
       setTotalCount(total);
 
+      // Build ORDER BY (column from schema whitelist only)
+      let orderClause = '';
+      if (sort.column && columnNames.includes(sort.column)) {
+        orderClause = `ORDER BY ${quoteColumn(sort.column)} ${sort.direction.toUpperCase()}`;
+      }
+
       // Get table data with pagination
       const offset = page * pageSize;
-
-      // Table name validated by sanitizeTableName() above (see security note)
-      // LIMIT and OFFSET values are properly parameterized
-      const rows = await db.select<TableData[]>(
-        `SELECT * FROM ${safeTableName} LIMIT ? OFFSET ?`,
-        [pageSize, offset]
-      );
+      const dataArgs = [...countArgs, pageSize, offset];
+      const dataSql = `SELECT * FROM ${safeTableName} ${whereClause} ${orderClause} LIMIT ? OFFSET ?`;
+      const rows = await db.select<TableData[]>(dataSql, dataArgs);
 
       setData(rows);
     } catch (err) {
@@ -122,11 +189,20 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
     } finally {
       setLoading(false);
     }
-  }, [tableName, page, pageSize, getDb]);
+  }, [tableName, page, pageSize, filters, sort.column, sort.direction, getDb]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    setFilters({});
+    setSort({ column: null, direction: 'asc' });
+    setPage(0);
+  }, [tableName]);
+
+  const sortColumn = sort.column;
+  const sortDirection = sort.direction;
 
   const formatValue = (value: unknown): string => {
     if (value === null || value === undefined) {
@@ -151,7 +227,12 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
     if (typeof value === 'boolean') {
       return value ? 'true' : 'false';
     }
-    return String(value);
+    const s = String(value);
+    // ISO 8601 日付/日時のみ対象。T/Z/空白/終端のいずれかで区切られる（"2024-01-01-backup" 等は除外）
+    if (/^\d{4}-\d{2}-\d{2}(?:[T\sZ]|$)/.test(s)) {
+      return formatDateTime(s);
+    }
+    return s;
   };
 
   const handleCellClick = (column: string, value: unknown) => {
@@ -200,17 +281,30 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
     <div className="p-8">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-3xl font-bold">{title}</h1>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={loadData}
-          disabled={loading}
-        >
-          <RefreshCw
-            className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`}
-          />
-          更新
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={clearFiltersAndSort}
+            disabled={
+              loading ||
+              (Object.keys(filters).length === 0 && sortColumn === null)
+            }
+          >
+            フィルター・ソートをクリア
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={loadData}
+            disabled={loading}
+          >
+            <RefreshCw
+              className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`}
+            />
+            更新
+          </Button>
+        </div>
       </div>
 
       <div className="rounded-lg border shadow-sm bg-card">
@@ -219,9 +313,36 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
             <TableHeader>
               <TableRow>
                 {columns.map((column) => (
-                  <TableHead key={column} className="font-semibold">
-                    {getColumnLabel(tableName, column)}
+                  <TableHead key={column} className="font-semibold p-1">
+                    <button
+                      type="button"
+                      onClick={() => handleSort(column)}
+                      className="flex items-center gap-1 w-full text-left hover:bg-muted/50 rounded px-1 py-0.5 min-w-0"
+                      title="クリックでソート"
+                    >
+                      {getColumnLabel(tableName, column)}
+                      {sortColumn === column ? (
+                        sortDirection === 'asc' ? (
+                          <ChevronUp className="h-4 w-4 shrink-0" />
+                        ) : (
+                          <ChevronDown className="h-4 w-4 shrink-0" />
+                        )
+                      ) : null}
+                    </button>
                   </TableHead>
+                ))}
+              </TableRow>
+              <TableRow className="border-b bg-muted/30">
+                {columns.map((column) => (
+                  <TableCell key={column} className="p-1">
+                    <Input
+                      placeholder={`${getColumnLabel(tableName, column)}で絞り込み`}
+                      value={filters[column] ?? ''}
+                      onChange={(e) => updateFilter(column, e.target.value)}
+                      className="h-8 text-sm"
+                      type="text"
+                    />
+                  </TableCell>
                 ))}
               </TableRow>
             </TableHeader>

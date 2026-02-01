@@ -9,7 +9,7 @@ import {
   FileText,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useNavigation } from '@/contexts/navigation-context';
+import { useNavigation } from '@/contexts/use-navigation';
 import { useState } from 'react';
 
 type NavigationItem = {
@@ -36,6 +36,7 @@ type TableItem = {
     | 'table-htmls'
     | 'table-order-emails'
     | 'table-order-htmls'
+    | 'table-parse-skipped'
     | 'table-shop-settings'
     | 'table-sync-metadata'
     | 'table-window-settings'
@@ -60,6 +61,7 @@ const tableItems: TableItem[] = [
   { name: 'Deliveries', id: 'table-deliveries' },
   { name: 'HTMLs', id: 'table-htmls' },
   { name: 'Order-Emails', id: 'table-order-emails' },
+  { name: 'Parse Skipped', id: 'table-parse-skipped' },
   { name: 'Order-HTMLs', id: 'table-order-htmls' },
   { name: 'Shop Settings', id: 'table-shop-settings' },
   { name: 'Sync Metadata', id: 'table-sync-metadata' },

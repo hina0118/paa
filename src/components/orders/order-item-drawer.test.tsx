@@ -18,7 +18,8 @@ const mockItem: OrderItemRow = {
   category: '書籍',
   brand: '出版社X',
   createdAt: '2024-03-01T00:00:00',
-  shopDomain: 'bookshop.example.com',
+  shopName: 'ホビーサーチ',
+  shopDomain: '1999.co.jp',
   orderNumber: 'ORD-003',
   orderDate: '2024-02-28',
   fileName: null,
@@ -51,11 +52,11 @@ describe('OrderItemDrawer', () => {
     expect(screen.getByText('5,000円')).toBeInTheDocument();
   });
 
-  it('renders shop domain', () => {
+  it('renders shop name (or domain when no name)', () => {
     render(
       <OrderItemDrawer item={mockItem} open={true} onOpenChange={vi.fn()} />
     );
-    expect(screen.getByText('bookshop.example.com')).toBeInTheDocument();
+    expect(screen.getByText('ホビーサーチ')).toBeInTheDocument();
   });
 
   it('renders order number', () => {

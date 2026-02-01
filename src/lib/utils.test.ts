@@ -3,6 +3,7 @@ import {
   cn,
   notify,
   formatDate,
+  formatDateTime,
   formatPrice,
   parseNumericFilter,
 } from './utils';
@@ -182,6 +183,46 @@ describe('formatDate', () => {
 
   it('returns original string for invalid date', () => {
     expect(formatDate('invalid-date')).toBe('invalid-date');
+  });
+});
+
+describe('formatDateTime', () => {
+  it('formats UTC ISO string to JST', () => {
+    // 2024-01-15 00:00:00 UTC = 2024-01-15 09:00:00 JST
+    expect(formatDateTime('2024-01-15T00:00:00Z')).toMatch(
+      /\d{4}\/\d{1,2}\/\d{1,2}/
+    );
+  });
+
+  it('treats SQLite datetime (no timezone) as UTC and converts to JST', () => {
+    // 2024-01-15 00:00:00 UTC = 2024/1/15 9:00:00 JST (UTC+9)
+    const result = formatDateTime('2024-01-15 00:00:00');
+    expect(result).toContain('2024/1/15');
+    const timePart = result.split(/\s+/)[1];
+    // 厳密に 9:00:00 または 09:00:00 であることを検証（タイムゾーン変換が正しいことを保証）
+    expect(timePart).toMatch(/^(9:00|09:00):00$/);
+  });
+
+  it('formats SQLite datetime format', () => {
+    expect(formatDateTime('2024-01-15 12:30:45')).toMatch(
+      /\d{4}\/\d{1,2}\/\d{1,2}/
+    );
+  });
+
+  it('returns "-" for null', () => {
+    expect(formatDateTime(null)).toBe('-');
+  });
+
+  it('returns "-" for undefined', () => {
+    expect(formatDateTime(undefined)).toBe('-');
+  });
+
+  it('returns "-" for empty string', () => {
+    expect(formatDateTime('')).toBe('-');
+  });
+
+  it('returns original string for invalid date', () => {
+    expect(formatDateTime('invalid-date')).toBe('invalid-date');
   });
 });
 

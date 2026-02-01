@@ -21,7 +21,8 @@ const mockItem: OrderItemRow = {
   category: null,
   brand: null,
   createdAt: '2024-02-01T00:00:00',
-  shopDomain: 'another-shop.com',
+  shopName: 'ホビーサーチ',
+  shopDomain: '1999.co.jp',
   orderNumber: 'ORD-002',
   orderDate: null,
   fileName: null,
@@ -43,8 +44,13 @@ describe('OrderItemRowView', () => {
     expect(screen.getByText('1,500円')).toBeInTheDocument();
   });
 
-  it('renders shop domain', () => {
-    render(<OrderItemRowView item={mockItem} />);
+  it('renders shop domain when shopName is null', () => {
+    const itemWithDomainOnly = {
+      ...mockItem,
+      shopName: null,
+      shopDomain: 'another-shop.com',
+    };
+    render(<OrderItemRowView item={itemWithDomainOnly} />);
     expect(screen.getByText(/another-shop\.com/)).toBeInTheDocument();
   });
 
