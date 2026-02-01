@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Orders } from './orders';
-import { NavigationProvider } from '@/contexts/navigation-context';
+import { NavigationProvider } from '@/contexts/navigation-provider';
 
 const mockGetDb = vi.fn();
 
@@ -60,7 +60,8 @@ const defaultMockItem = {
   category: null,
   brand: null,
   createdAt: '2024-01-01',
-  shopDomain: 'shop.com',
+  shopName: 'ホビーサーチ',
+  shopDomain: '1999.co.jp',
   orderNumber: 'ORD-1',
   orderDate: '2024-01-01',
   fileName: null,
@@ -77,8 +78,8 @@ const renderOrders = () => {
 
 const setMockWithItems = () => {
   vi.mocked(mockDb.select).mockImplementation((sql: string) => {
-    if (sql.includes('SELECT DISTINCT shop_domain')) {
-      return Promise.resolve([{ shop_domain: 'shop.com' }]);
+    if (sql.includes('COALESCE(shop_name, shop_domain)')) {
+      return Promise.resolve([{ shop_display: 'shop.com' }]);
     }
     if (sql.includes("strftime('%Y'")) {
       return Promise.resolve([{ yr: '2024' }]);
@@ -89,7 +90,7 @@ const setMockWithItems = () => {
 
 const setMockEmpty = () => {
   vi.mocked(mockDb.select).mockImplementation((sql: string) => {
-    if (sql.includes('SELECT DISTINCT shop_domain')) {
+    if (sql.includes('COALESCE(shop_name, shop_domain)')) {
       return Promise.resolve([]);
     }
     if (sql.includes("strftime('%Y'")) {
@@ -296,7 +297,7 @@ describe('Orders', () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.mocked(mockDb.select).mockImplementation((sql: string) => {
       if (
-        sql.includes('SELECT DISTINCT shop_domain') ||
+        sql.includes('COALESCE(shop_name, shop_domain)') ||
         sql.includes("strftime('%Y'")
       ) {
         return Promise.reject(new Error('filter options error'));

@@ -10,8 +10,34 @@ use async_trait::async_trait;
 use chrono::Utc;
 #[cfg(test)]
 use mockall::automock;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqlitePool;
+
+/// parse_skipped に保存する前にエラーメッセージをサニタイズ（パス・接続文字列等をマスク）
+fn sanitize_error_for_parse_skipped(msg: &str) -> String {
+    const MAX_LEN: usize = 500;
+    let mut s = msg.chars().take(MAX_LEN).collect::<String>();
+    if msg.chars().count() > MAX_LEN {
+        s.push_str("...");
+    }
+    // パスや接続文字列をマスク（テーブルビューアで機密情報が露出しないよう）
+    let patterns = [
+        (r"(?i)[A-Za-z]:\\[^\s]*", "[PATH]"), // Windows: C:\...
+        (r"sqlite:file:[^\s]*", "[DB_PATH]"), // sqlite:file:...
+        // Unix: 代表的な絶対パスのみマスク（/home, /var, /etc, /usr 等。スペースが \ でエスケープされている場合も含む）
+        (
+            r#"/(?:home|var|etc|usr|opt|tmp|root|srv|mnt|media|run)(?:/[^\s"']+)+"#,
+            "[PATH]",
+        ),
+    ];
+    for (pat, repl) in patterns {
+        if let Ok(re) = Regex::new(pat) {
+            s = re.replace_all(&s, repl).into_owned();
+        }
+    }
+    s
+}
 
 /// ウィンドウ設定
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,6 +65,15 @@ pub struct EmailStats {
 #[async_trait]
 pub trait EmailRepository: Send + Sync {
     /// メッセージをDBに保存
+    ///
+    /// # Returns
+    /// `(saved, skipped)` - saved: rows_affected>0（INSERT または ON CONFLICT DO UPDATE）、
+    /// skipped: rows_affected=0。
+    ///
+    /// # セマンティクス（ON CONFLICT DO UPDATE 使用時）
+    /// 重複（既存 message_id）の場合も UPDATE が実行されるため、saved にカウントされる。
+    /// skipped は rows_affected=0 のときのみ（SQLite の changes() は UPDATE でマッチ行数を返すため、通常は 0）。
+    /// ログ／メトリクスで saved を「新規のみ」と解釈しないこと。
     async fn save_messages(&self, messages: &[GmailMessage]) -> Result<(usize, usize), String>;
 
     /// 既存のメッセージIDを取得
@@ -157,6 +192,7 @@ pub trait OrderRepository: Send + Sync {
         order_info: &OrderInfo,
         email_id: Option<i64>,
         shop_domain: Option<String>,
+        shop_name: Option<String>,
     ) -> Result<i64, String>;
 }
 
@@ -164,10 +200,13 @@ pub trait OrderRepository: Send + Sync {
 #[cfg_attr(test, automock)]
 #[async_trait]
 pub trait ParseRepository: Send + Sync {
-    /// 未パースのメールを取得（order_emailsに存在しないメール）
+    /// 未パースのメールを取得（order_emails・parse_skippedに存在しないメール）
     async fn get_unparsed_emails(&self, batch_size: usize) -> Result<Vec<EmailRow>, String>;
 
-    /// 注文関連テーブルをクリア（order_emails, deliveries, items, orders）
+    /// パース失敗したメールを記録（無限ループ防止）
+    async fn mark_parse_skipped(&self, email_id: i64, error_message: &str) -> Result<(), String>;
+
+    /// 注文関連テーブルをクリア（order_emails, parse_skipped, deliveries, items, orders）
     async fn clear_order_tables(&self) -> Result<(), String>;
 
     /// パース対象の全メール数を取得
@@ -181,7 +220,7 @@ pub trait ShopSettingsRepository: Send + Sync {
     /// 全ショップ設定を取得
     async fn get_all(&self) -> Result<Vec<ShopSettings>, String>;
 
-    /// 有効なショップ設定のみを取得
+    /// 有効なショップ設定のみを取得（ORDER BY shop_name, id で返す。parsers が試行順序に依存）
     async fn get_enabled(&self) -> Result<Vec<ShopSettings>, String>;
 
     /// ショップ設定を作成
@@ -592,6 +631,7 @@ impl OrderRepository for SqliteOrderRepository {
         order_info: &OrderInfo,
         email_id: Option<i64>,
         shop_domain: Option<String>,
+        shop_name: Option<String>,
     ) -> Result<i64, String> {
         // トランザクション開始
         let mut tx = self
@@ -622,13 +662,14 @@ impl OrderRepository for SqliteOrderRepository {
             // 新規注文を作成
             let new_order_id = sqlx::query(
                 r#"
-                INSERT INTO orders (order_number, order_date, shop_domain)
-                VALUES (?, ?, ?)
+                INSERT INTO orders (order_number, order_date, shop_domain, shop_name)
+                VALUES (?, ?, ?, ?)
                 "#,
             )
             .bind(&order_info.order_number)
             .bind(&order_info.order_date)
             .bind(shop_domain.as_deref())
+            .bind(shop_name.as_deref())
             .execute(&mut *tx)
             .await
             .map_err(|e| format!("Failed to insert order: {e}"))?
@@ -814,12 +855,14 @@ impl ParseRepository for SqliteParseRepository {
     async fn get_unparsed_emails(&self, batch_size: usize) -> Result<Vec<EmailRow>, String> {
         let emails: Vec<EmailRow> = sqlx::query_as(
             r#"
-            SELECT e.id, e.message_id, e.body_plain, e.from_address, e.subject
+            SELECT e.id, e.message_id, e.body_plain, e.from_address, e.subject, e.internal_date
             FROM emails e
             LEFT JOIN order_emails oe ON e.id = oe.email_id
+            LEFT JOIN parse_skipped ps ON e.id = ps.email_id
             WHERE e.body_plain IS NOT NULL
             AND e.from_address IS NOT NULL
             AND oe.email_id IS NULL
+            AND ps.email_id IS NULL
             ORDER BY e.internal_date ASC
             LIMIT ?
             "#,
@@ -830,6 +873,22 @@ impl ParseRepository for SqliteParseRepository {
         .map_err(|e| format!("Failed to fetch unparsed emails: {e}"))?;
 
         Ok(emails)
+    }
+
+    async fn mark_parse_skipped(&self, email_id: i64, error_message: &str) -> Result<(), String> {
+        let sanitized = sanitize_error_for_parse_skipped(error_message);
+        sqlx::query(
+            r#"
+            INSERT OR IGNORE INTO parse_skipped (email_id, error_message)
+            VALUES (?, ?)
+            "#,
+        )
+        .bind(email_id)
+        .bind(&sanitized)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to mark parse skipped: {e}"))?;
+        Ok(())
     }
 
     async fn clear_order_tables(&self) -> Result<(), String> {
@@ -845,6 +904,11 @@ impl ParseRepository for SqliteParseRepository {
             .execute(&mut *tx)
             .await
             .map_err(|e| format!("Failed to clear order_emails table: {e}"))?;
+
+        sqlx::query("DELETE FROM parse_skipped")
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| format!("Failed to clear parse_skipped table: {e}"))?;
 
         sqlx::query("DELETE FROM deliveries")
             .execute(&mut *tx)
@@ -891,6 +955,15 @@ impl EmailRepository for SqliteEmailRepository {
         let mut saved = 0;
         let mut skipped = 0;
 
+        // rows_affected の解釈: SQLite の changes() は「UPDATE でマッチした行数」ではなく
+        // 「直近のステートメントによって実際に変更された行数」を返す。
+        // このクエリでは ON CONFLICT DO UPDATE が発生した場合、既存行に対して UPDATE が実行され、
+        // COALESCE により既存値がそのまま再代入されるケースでも、その行は更新されたものとしてカウントされるため
+        // rows_affected は 1 となる想定である。
+        // saved は「新規のみ」ではなく「INSERT/UPDATE が行われた件数」。FetchResult/SyncProgressEvent の
+        // saved_count/newly_saved に伝播する。
+        // 参考: https://www.sqlite.org/c3ref/changes.html
+
         // トランザクションを使用してバッチ処理
         let mut tx = self
             .pool
@@ -899,12 +972,17 @@ impl EmailRepository for SqliteEmailRepository {
             .map_err(|e| format!("Failed to begin transaction: {e}"))?;
 
         for message in messages {
-            // ON CONFLICT で重複をスキップ
+            // ON CONFLICT で既存の場合は body を補完（初回同期時に body_html 等が取れなかった場合の再取得で更新）
             let result = sqlx::query(
                 r#"
                 INSERT INTO emails (message_id, body_plain, body_html, internal_date, from_address, subject)
                 VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(message_id) DO NOTHING
+                ON CONFLICT(message_id) DO UPDATE SET
+                    body_plain = COALESCE(excluded.body_plain, body_plain),
+                    body_html = COALESCE(excluded.body_html, body_html),
+                    internal_date = COALESCE(excluded.internal_date, internal_date),
+                    from_address = COALESCE(excluded.from_address, from_address),
+                    subject = COALESCE(excluded.subject, subject)
                 "#,
             )
             .bind(&message.message_id)
@@ -1149,7 +1227,8 @@ impl ShopSettingsRepository for SqliteShopSettingsRepository {
             SELECT id, shop_name, sender_address, parser_type, is_enabled, subject_filters, created_at, updated_at
             FROM shop_settings
             WHERE is_enabled = 1
-            ORDER BY shop_name
+            -- バッチ処理（例: batch_parse_emails）のパーサ試行順序を shop_name, id で一意に決めているため、この並び順は変更しないこと
+            ORDER BY shop_name, id
             "#,
         )
         .fetch_all(&self.pool)
@@ -1280,6 +1359,29 @@ mod tests {
     use super::*;
     use sqlx::sqlite::SqlitePoolOptions;
 
+    #[test]
+    fn test_sanitize_error_for_parse_skipped() {
+        assert_eq!(
+            sanitize_error_for_parse_skipped("Order number not found"),
+            "Order number not found"
+        );
+        assert!(
+            sanitize_error_for_parse_skipped("Failed: C:\\Users\\john\\AppData\\paa_data.db")
+                .contains("[PATH]")
+        );
+        assert!(
+            sanitize_error_for_parse_skipped("sqlite:file:/path/to/db.db").contains("[DB_PATH]")
+        );
+        assert!(
+            sanitize_error_for_parse_skipped("error: /home/user/.config/paa/file")
+                .contains("[PATH]")
+        );
+        // /root, /etc, /usr/local 等の絶対パスもマスクされる
+        assert!(sanitize_error_for_parse_skipped("error: /root/.ssh/id_rsa").contains("[PATH]"));
+        assert!(sanitize_error_for_parse_skipped("error: /etc/passwd").contains("[PATH]"));
+        assert!(sanitize_error_for_parse_skipped("error: /usr/local/bin/app").contains("[PATH]"));
+    }
+
     async fn setup_test_db() -> SqlitePool {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
@@ -1386,12 +1488,13 @@ mod tests {
         .await
         .expect("Failed to insert default window settings");
 
-        // orders テーブル (003 に対応)
+        // orders テーブル (003 に対応、shop_name 含む)
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS orders (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 shop_domain TEXT,
+                shop_name TEXT,
                 order_number TEXT,
                 order_date DATETIME,
                 created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1465,6 +1568,21 @@ mod tests {
         .await
         .expect("Failed to create order_emails table");
 
+        // parse_skipped テーブル
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS parse_skipped (
+                email_id INTEGER PRIMARY KEY,
+                error_message TEXT,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("Failed to create parse_skipped table");
+
         // shop_settings テーブル (014, 015 に対応)
         sqlx::query(
             r#"
@@ -1518,10 +1636,10 @@ mod tests {
         assert_eq!(saved, 2);
         assert_eq!(skipped, 0);
 
-        // 重複保存
+        // 重複保存: ON CONFLICT DO UPDATE により UPDATE が実行され、saved としてカウントされる
         let (saved, skipped) = repo.save_messages(&messages).await.unwrap();
-        assert_eq!(saved, 0);
-        assert_eq!(skipped, 2);
+        assert_eq!(saved, 2);
+        assert_eq!(skipped, 0);
 
         // カウント確認
         let count = repo.get_message_count().await.unwrap();
@@ -1793,20 +1911,23 @@ mod tests {
                 &order_info,
                 Some(email_id.0),
                 Some("example.com".to_string()),
+                Some("Test Shop".to_string()),
             )
             .await
             .unwrap();
 
         // 検証: ordersテーブル
-        let order: (String, Option<String>, Option<String>) =
-            sqlx::query_as("SELECT order_number, order_date, shop_domain FROM orders WHERE id = ?")
-                .bind(order_id)
-                .fetch_one(&pool)
-                .await
-                .expect("Failed to fetch order");
+        let order: (String, Option<String>, Option<String>, Option<String>) = sqlx::query_as(
+            "SELECT order_number, order_date, shop_domain, shop_name FROM orders WHERE id = ?",
+        )
+        .bind(order_id)
+        .fetch_one(&pool)
+        .await
+        .expect("Failed to fetch order");
         assert_eq!(order.0, "ORD-001");
         assert_eq!(order.1, Some("2024-01-01".to_string()));
         assert_eq!(order.2, Some("example.com".to_string()));
+        assert_eq!(order.3, Some("Test Shop".to_string()));
 
         // 検証: itemsテーブル
         let items: Vec<(String, Option<String>, i64, i64)> = sqlx::query_as(

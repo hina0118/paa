@@ -11,17 +11,62 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
- * ISO日付文字列を ja-JP 形式でフォーマット。
+ * アプリ全体で使用するタイムゾーン（日本標準時）。
+ * バックエンドは chrono_tz::Asia::Tokyo、DB は UTC。規約: README §4。
+ */
+const JST = 'Asia/Tokyo';
+
+/**
+ * タイムゾーン未指定の日付文字列を UTC としてパースする。
+ * SQLite などバックエンドは UTC で保存しているため、Z やオフセットがない場合は UTC として解釈する。
+ *
+ * タイムゾーン判定: 日付のみ（"2024-01-01"）では "01-01" が誤って [+-]XX:XX とマッチするため、
+ * 時刻部分（T と :）が含まれる場合のみ正規表現で判定する。
+ *
+ * 注: 日付のみ（例: "2024-01-01"）も UTC 00:00 として解釈する。本プロジェクトでは DB 保存が UTC であるため、
+ * 日付のみは「その日の UTC 開始」とみなす設計。formatDate では日付部分のみ表示するため表示上は問題ない。
+ */
+function parseAsUtcIfNeeded(s: string): Date {
+  // SQLite "YYYY-MM-DD HH:MM:SS" 形式を ISO8601 に正規化（複数スペース・タブにも対応）
+  let normalized =
+    s.includes(' ') && !s.includes('T') ? s.replace(/\s+/g, 'T') : s;
+  const hasTimePart = normalized.includes('T') && normalized.includes(':');
+  const hasTimezone = hasTimePart && /Z$|[+-]\d{2}:?\d{2}$/.test(normalized);
+  if (!hasTimezone) {
+    normalized += 'Z';
+  }
+  return new Date(normalized);
+}
+
+/**
+ * ISO日付文字列を ja-JP 形式でフォーマット（日付のみ、JST）。
  * SQLite の "YYYY-MM-DD HH:MM:SS" 形式は WebKit で Invalid Date になることがあるため、
  * スペースを "T" に置換して ISO8601 形式に正規化してからパースする。
+ * バックエンドは UTC で保存しているため、タイムゾーン未指定の場合は UTC として解釈する。
  */
 export function formatDate(s: string | null | undefined): string {
   if (!s) return '-';
   try {
-    const normalized =
-      s.includes(' ') && !s.includes('T') ? s.replace(' ', 'T') : s;
-    const d = new Date(normalized);
-    return isNaN(d.getTime()) ? s : d.toLocaleDateString('ja-JP');
+    const d = parseAsUtcIfNeeded(s);
+    return isNaN(d.getTime())
+      ? s
+      : d.toLocaleDateString('ja-JP', { timeZone: JST });
+  } catch {
+    return s;
+  }
+}
+
+/**
+ * 日時文字列を ja-JP 形式でフォーマット（日付+時刻、JST）。
+ * バックエンドの UTC 日時を JST で表示するために使用する。
+ */
+export function formatDateTime(s: string | null | undefined): string {
+  if (!s) return '-';
+  try {
+    const d = parseAsUtcIfNeeded(s);
+    return isNaN(d.getTime())
+      ? s
+      : d.toLocaleString('ja-JP', { timeZone: JST });
   } catch {
     return s;
   }

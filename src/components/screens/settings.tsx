@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { useSync } from '@/contexts/sync-context';
-import { useParse } from '@/contexts/parse-context';
+import { useSync } from '@/contexts/use-sync';
+import { useParse } from '@/contexts/use-parse';
 import {
   Card,
   CardContent,

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Dashboard } from './dashboard';
-import { ParseProvider } from '@/contexts/parse-context';
+import { ParseProvider } from '@/contexts/parse-provider';
 import { mockInvoke, mockListen } from '@/test/setup';
 
 const renderWithProviders = (ui: React.ReactElement) => {

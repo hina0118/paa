@@ -111,14 +111,20 @@ async fn update_batch_size(
     repo.update_batch_size(batch_size).await
 }
 
+/// 最大繰り返し回数のバリデーション（1以上である必要がある）
+pub fn validate_max_iterations(max_iterations: i64) -> Result<(), String> {
+    if max_iterations <= 0 {
+        return Err("最大繰り返し回数は1以上である必要があります".to_string());
+    }
+    Ok(())
+}
+
 #[tauri::command]
 async fn update_max_iterations(
     pool: tauri::State<'_, SqlitePool>,
     max_iterations: i64,
 ) -> Result<(), String> {
-    if max_iterations <= 0 {
-        return Err("最大繰り返し回数は1以上である必要があります".to_string());
-    }
+    validate_max_iterations(max_iterations)?;
 
     log::info!("Updating max iterations to: {max_iterations}");
     let repo = SqliteSyncMetadataRepository::new(pool.inner().clone());
@@ -131,16 +137,8 @@ async fn get_window_settings(pool: tauri::State<'_, SqlitePool>) -> Result<Windo
     repo.get_window_settings().await
 }
 
-#[tauri::command]
-async fn save_window_settings(
-    pool: tauri::State<'_, SqlitePool>,
-    width: i64,
-    height: i64,
-    x: Option<i64>,
-    y: Option<i64>,
-    maximized: bool,
-) -> Result<(), String> {
-    // Validate window size (minimum 200, maximum 10000)
+/// ウィンドウサイズのバリデーション（最小200、最大10000）
+pub fn validate_window_size(width: i64, height: i64) -> Result<(), String> {
     const MIN_SIZE: i64 = 200;
     const MAX_SIZE: i64 = 10000;
 
@@ -154,6 +152,19 @@ async fn save_window_settings(
             "ウィンドウの高さは{MIN_SIZE}〜{MAX_SIZE}の範囲である必要があります"
         ));
     }
+    Ok(())
+}
+
+#[tauri::command]
+async fn save_window_settings(
+    pool: tauri::State<'_, SqlitePool>,
+    width: i64,
+    height: i64,
+    x: Option<i64>,
+    y: Option<i64>,
+    maximized: bool,
+) -> Result<(), String> {
+    validate_window_size(width, height)?;
 
     let repo = SqliteWindowSettingsRepository::new(pool.inner().clone());
     let settings = WindowSettings {
@@ -245,7 +256,8 @@ pub fn add_log_entry(level: &str, message: &str) {
         Ok(mut buffer) => {
             if let Some(ref mut logs) = *buffer {
                 let entry = LogEntry {
-                    timestamp: chrono::Local::now()
+                    timestamp: chrono::Utc::now()
+                        .with_timezone(&chrono_tz::Asia::Tokyo)
                         .format("%Y-%m-%d %H:%M:%S%.3f")
                         .to_string(),
                     level: level.to_string(),
@@ -314,20 +326,12 @@ fn get_logs(level_filter: Option<String>, limit: Option<usize>) -> Result<Vec<Lo
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let migrations = vec![
-        Migration {
-            version: 1,
-            description: "init",
-            sql: include_str!("../migrations/001_init.sql"),
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 2,
-            description: "deliveries_order_updated_index",
-            sql: include_str!("../migrations/002_deliveries_order_updated_index.sql"),
-            kind: MigrationKind::Up,
-        },
-    ];
+    let migrations = vec![Migration {
+        version: 1,
+        description: "init",
+        sql: include_str!("../migrations/001_init.sql"),
+        kind: MigrationKind::Up,
+    }];
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -359,11 +363,13 @@ pub fn run() {
                     // メモリにログを保存
                     add_log_entry(&record.level().to_string(), &format!("{}", record.args()));
 
-                    // コンソールにも出力
+                    // コンソールにも出力（JST）。タイムゾーン規約: README §4 参照
                     writeln!(
                         buf,
                         "[{} {:5} {}] {}",
-                        chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+                        chrono::Utc::now()
+                            .with_timezone(&chrono_tz::Asia::Tokyo)
+                            .format("%Y-%m-%d %H:%M:%S"),
                         record.level(),
                         record.target(),
                         record.args()
@@ -680,7 +686,7 @@ async fn parse_and_save_email(
     // データベースに保存（非同期処理）
     let order_repo = SqliteOrderRepository::new(pool.inner().clone());
     order_repo
-        .save_order(&order_info, email_id, shop_domain)
+        .save_order(&order_info, email_id, shop_domain, None)
         .await
 }
 
@@ -871,5 +877,117 @@ mod tests {
         );
         // 全てのログが正しいレベルであることを確認
         assert!(logs.iter().all(|log| log.level == "LIMIT_TEST"));
+    }
+
+    // ==================== parse_email Tests ====================
+
+    const SAMPLE_HOBBYSEARCH_CONFIRM: &str = r#"
+[注文番号] 25-0101-1234
+
+[お届け先情報]
+〒100-0001
+東京都千代田区千代田1-1-1
+テスト 太郎 様
+
+[ご購入内容]
+バンダイ 1234567 テスト商品A (プラモデル) HGシリーズ
+単価：1,000円 × 個数：2 = 2,000円
+
+小計：5,000円
+送料：660円
+合計：5,660円
+"#;
+
+    #[test]
+    fn test_parse_email_success() {
+        let result = parse_email(
+            "hobbysearch_confirm".to_string(),
+            SAMPLE_HOBBYSEARCH_CONFIRM.to_string(),
+        );
+        assert!(result.is_ok());
+        let order_info = result.unwrap();
+        assert_eq!(order_info.order_number, "25-0101-1234");
+        assert_eq!(order_info.items.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_email_unknown_parser_type() {
+        let result = parse_email("unknown_parser".to_string(), "body".to_string());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unknown parser type"));
+    }
+
+    #[test]
+    fn test_parse_email_empty_parser_type() {
+        let result = parse_email("".to_string(), SAMPLE_HOBBYSEARCH_CONFIRM.to_string());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_email_invalid_body() {
+        // パーサーは存在するが、本文が不正（注文番号なし）
+        let result = parse_email(
+            "hobbysearch_confirm".to_string(),
+            "invalid body".to_string(),
+        );
+        assert!(result.is_err());
+    }
+
+    // ==================== validate_window_size Tests ====================
+
+    #[test]
+    fn test_validate_window_size_valid() {
+        assert!(validate_window_size(200, 200).is_ok());
+        assert!(validate_window_size(1000, 800).is_ok());
+        assert!(validate_window_size(10000, 10000).is_ok());
+    }
+
+    #[test]
+    fn test_validate_window_size_width_too_small() {
+        let result = validate_window_size(199, 500);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("幅"));
+    }
+
+    #[test]
+    fn test_validate_window_size_width_too_large() {
+        let result = validate_window_size(10001, 500);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("幅"));
+    }
+
+    #[test]
+    fn test_validate_window_size_height_too_small() {
+        let result = validate_window_size(500, 199);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("高さ"));
+    }
+
+    #[test]
+    fn test_validate_window_size_height_too_large() {
+        let result = validate_window_size(500, 10001);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("高さ"));
+    }
+
+    // ==================== validate_max_iterations Tests ====================
+
+    #[test]
+    fn test_validate_max_iterations_valid() {
+        assert!(validate_max_iterations(1).is_ok());
+        assert!(validate_max_iterations(100).is_ok());
+    }
+
+    #[test]
+    fn test_validate_max_iterations_zero() {
+        let result = validate_max_iterations(0);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("1以上"));
+    }
+
+    #[test]
+    fn test_validate_max_iterations_negative() {
+        let result = validate_max_iterations(-1);
+        assert!(result.is_err());
     }
 }

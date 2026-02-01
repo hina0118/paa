@@ -110,6 +110,8 @@ export type OrderItemRow = {
   category: string | null;
   brand: string | null;
   createdAt: string;
+  /** 表示用ショップ名（例: ホビーサーチ）。なければ shopDomain を表示 */
+  shopName: string | null;
   shopDomain: string | null;
   orderNumber: string | null;
   orderDate: string | null;

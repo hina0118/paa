@@ -69,7 +69,7 @@ export function OrderItemCard({
         <p className="text-sm font-semibold">{formatPrice(item.price)}</p>
       </CardContent>
       <CardFooter className="p-3 pt-0 flex flex-wrap gap-x-2 gap-y-0 text-xs text-muted-foreground">
-        <span>{item.shopDomain ?? '-'}</span>
+        <span>{item.shopName ?? item.shopDomain ?? '-'}</span>
         <span>・</span>
         <span>{formatDate(item.orderDate)}</span>
       </CardFooter>

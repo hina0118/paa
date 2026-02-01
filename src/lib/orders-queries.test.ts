@@ -14,7 +14,8 @@ describe('loadOrderItems', () => {
         category: null,
         brand: null,
         createdAt: '2024-01-01',
-        shopDomain: 'shop.com',
+        shopName: 'ホビーサーチ',
+        shopDomain: '1999.co.jp',
         orderNumber: 'ORD-1',
         orderDate: '2024-01-01',
         fileName: null,
@@ -41,6 +42,9 @@ describe('loadOrderItems', () => {
     await loadOrderItems(mockDb as never, { shopDomain: 'shop.example.com' });
     const [, args] = (mockDb.select as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(args).toContain('shop.example.com');
+    expect(args.filter((a: unknown) => a === 'shop.example.com')).toHaveLength(
+      1
+    );
   });
 
   it('applies year filter', async () => {
@@ -88,13 +92,13 @@ describe('getOrderItemFilterOptions', () => {
       select: vi
         .fn()
         .mockResolvedValueOnce([
-          { shop_domain: 'shop1.com' },
-          { shop_domain: 'shop2.com' },
+          { shop_display: 'ホビーサーチ' },
+          { shop_display: 'shop2.com' },
         ])
         .mockResolvedValueOnce([{ yr: '2024' }, { yr: '2023' }]),
     };
     const result = await getOrderItemFilterOptions(mockDb as never);
-    expect(result.shopDomains).toEqual(['shop1.com', 'shop2.com']);
+    expect(result.shopDomains).toEqual(['ホビーサーチ', 'shop2.com']);
     expect(result.years).toEqual([2024, 2023]);
   });
 
