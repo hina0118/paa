@@ -149,11 +149,12 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
         (col) => columnNames.includes(col) && filters[col]?.trim()
       );
       for (const col of filterColumns) {
-        whereParts.push(`${quoteColumn(col)} LIKE ? ESCAPE '\\'`);
+        // ESCAPE '!' により % _ ! のみエスケープ。バックスラッシュはリテラル扱いで問題なし
+        whereParts.push(`${quoteColumn(col)} LIKE ? ESCAPE '!'`);
         const escaped = String(filters[col])
-          .replace(/\\/g, '\\\\')
-          .replace(/%/g, '\\%')
-          .replace(/_/g, '\\_');
+          .replace(/!/g, '!!')
+          .replace(/%/g, '!%')
+          .replace(/_/g, '!_');
         countArgs.push(`%${escaped}%`);
       }
       const whereClause =
