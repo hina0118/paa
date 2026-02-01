@@ -1227,7 +1227,7 @@ impl ShopSettingsRepository for SqliteShopSettingsRepository {
             SELECT id, shop_name, sender_address, parser_type, is_enabled, subject_filters, created_at, updated_at
             FROM shop_settings
             WHERE is_enabled = 1
-            -- parsers::get_candidate_parsers_for_batch が試行順序を shop_name, id で一意に決めているため変更しないこと
+            -- バッチ処理（例: batch_parse_emails）のパーサ試行順序を shop_name, id で一意に決めているため、この並び順は変更しないこと
             ORDER BY shop_name, id
             "#,
         )

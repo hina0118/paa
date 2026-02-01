@@ -175,12 +175,17 @@ pub fn get_candidate_parsers_for_batch(
         Some(addr) => addr,
         None => return Vec::new(),
     };
-    let normalized_from =
-        extract_email_address(from_address).unwrap_or_else(|| from_address.to_string());
+    let normalized_from = match extract_email_address(from_address) {
+        Some(addr) => addr,
+        None => return Vec::new(),
+    };
     shop_settings
         .iter()
         .filter_map(|(addr, parser_type, subject_filters_json, shop_name)| {
-            let normalized_addr = extract_email_address(addr).unwrap_or_else(|| addr.clone());
+            let normalized_addr = match extract_email_address(addr) {
+                Some(addr) => addr,
+                None => return None,
+            };
             if !normalized_from.eq_ignore_ascii_case(&normalized_addr) {
                 return None;
             }
