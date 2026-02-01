@@ -531,17 +531,14 @@ impl GmailClient {
             return Some(data_str.to_string());
         }
 
-        // 3. charset 未指定時のフォールバック: 日本語メールでよく使われるエンコーディングを試行
-        for enc in [encoding_rs::ISO_2022_JP, encoding_rs::SHIFT_JIS] {
-            let (decoded, _, had_replacements) = enc.decode(data);
-            if had_replacements {
-                log::warn!(
-                    "Fallback encoding decode had replacement chars; returning partial content"
-                );
-            }
-            return Some(decoded.into_owned());
+        // 3. charset 未指定時のフォールバック: ISO-2022-JP を試行（日本語メールで最も一般的）
+        let (decoded, _, had_replacements) = encoding_rs::ISO_2022_JP.decode(data);
+        if had_replacements {
+            log::warn!(
+                "Fallback encoding decode had replacement chars; returning partial content"
+            );
         }
-        None
+        Some(decoded.into_owned())
     }
 
     /// `Base64URL形式の文字列かどうかを検証する`
