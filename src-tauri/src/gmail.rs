@@ -518,9 +518,22 @@ impl GmailClient {
                 log::warn!("Shift_JIS decode had replacement chars; returning partial content");
             }
             return Some(decoded.into_owned());
+        } else if mime_lower.contains("utf-8") || mime_lower.contains("utf8") {
+            // charset=utf-8 が明示指定: UTF-8 でデコード。不正バイトは置換文字で処理（ISO-2022-JP にはフォールバックしない）
+            if let Ok(data_str) = std::str::from_utf8(data) {
+                if let Some(decoded) = Self::try_decode_base64(data_str) {
+                    return Some(decoded);
+                }
+                return Some(data_str.to_string());
+            }
+            let (decoded, _, had_replacements) = encoding_rs::UTF_8.decode(data);
+            if had_replacements {
+                log::warn!("UTF-8 decode had replacement chars; returning partial content");
+            }
+            return Some(decoded.into_owned());
         }
 
-        // 2. UTF-8 として解釈を試みる
+        // 2. charset 未指定: UTF-8 として解釈を試みる
         if let Ok(data_str) = std::str::from_utf8(data) {
             // Base64 形式の場合はデコードして再試行（Gmail API の body.data が base64 の場合）
             if let Some(decoded) = Self::try_decode_base64(data_str) {
