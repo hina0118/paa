@@ -1502,39 +1502,49 @@ impl ProductMasterRepository for SqliteProductMasterRepository {
         if raw_names.is_empty() {
             return Ok(std::collections::HashMap::new());
         }
-        let placeholders = raw_names
-            .iter()
-            .map(|_| "?")
-            .collect::<Vec<_>>()
-            .join(", ");
-        let sql = format!(
-            r#"
-            SELECT
-                id,
-                raw_name,
-                normalized_name,
-                maker,
-                series,
-                product_name,
-                scale,
-                is_reissue,
-                platform_hint,
-                created_at,
-                updated_at
-            FROM product_master
-            WHERE raw_name IN ({})
-            "#,
-            placeholders
-        );
-        let mut query = sqlx::query_as::<_, ProductMaster>(&sql);
-        for name in raw_names {
-            query = query.bind(name);
+        // SQLite にはバインド変数の上限（デフォルト999）があるため、チャンクで分割
+        const MAX_PARAMS_PER_QUERY: usize = 900;
+        let mut all_rows: Vec<ProductMaster> = Vec::new();
+
+        for chunk in raw_names.chunks(MAX_PARAMS_PER_QUERY) {
+            let placeholders = chunk
+                .iter()
+                .map(|_| "?")
+                .collect::<Vec<_>>()
+                .join(", ");
+            let sql = format!(
+                r#"
+                SELECT
+                    id,
+                    raw_name,
+                    normalized_name,
+                    maker,
+                    series,
+                    product_name,
+                    scale,
+                    is_reissue,
+                    platform_hint,
+                    created_at,
+                    updated_at
+                FROM product_master
+                WHERE raw_name IN ({})
+                "#,
+                placeholders
+            );
+            let mut query = sqlx::query_as::<_, ProductMaster>(&sql);
+            for name in chunk {
+                query = query.bind(name);
+            }
+            let rows = query
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| format!("Failed to find product masters by raw_names: {e}"))?;
+            all_rows.extend(rows);
         }
-        let rows = query
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| format!("Failed to find product masters by raw_names: {e}"))?;
-        Ok(rows.into_iter().map(|r| (r.raw_name.clone(), r)).collect())
+        Ok(all_rows
+            .into_iter()
+            .map(|r| (r.raw_name.clone(), r))
+            .collect())
     }
 
     async fn find_by_normalized_names(
@@ -1544,39 +1554,49 @@ impl ProductMasterRepository for SqliteProductMasterRepository {
         if normalized_names.is_empty() {
             return Ok(std::collections::HashMap::new());
         }
-        let placeholders = normalized_names
-            .iter()
-            .map(|_| "?")
-            .collect::<Vec<_>>()
-            .join(", ");
-        let sql = format!(
-            r#"
-            SELECT
-                id,
-                raw_name,
-                normalized_name,
-                maker,
-                series,
-                product_name,
-                scale,
-                is_reissue,
-                platform_hint,
-                created_at,
-                updated_at
-            FROM product_master
-            WHERE normalized_name IN ({})
-            "#,
-            placeholders
-        );
-        let mut query = sqlx::query_as::<_, ProductMaster>(&sql);
-        for name in normalized_names {
-            query = query.bind(name);
+        // SQLite にはバインド変数の上限（デフォルト999）があるため、チャンクで分割
+        const MAX_PARAMS_PER_QUERY: usize = 900;
+        let mut all_rows: Vec<ProductMaster> = Vec::new();
+
+        for chunk in normalized_names.chunks(MAX_PARAMS_PER_QUERY) {
+            let placeholders = chunk
+                .iter()
+                .map(|_| "?")
+                .collect::<Vec<_>>()
+                .join(", ");
+            let sql = format!(
+                r#"
+                SELECT
+                    id,
+                    raw_name,
+                    normalized_name,
+                    maker,
+                    series,
+                    product_name,
+                    scale,
+                    is_reissue,
+                    platform_hint,
+                    created_at,
+                    updated_at
+                FROM product_master
+                WHERE normalized_name IN ({})
+                "#,
+                placeholders
+            );
+            let mut query = sqlx::query_as::<_, ProductMaster>(&sql);
+            for name in chunk {
+                query = query.bind(name);
+            }
+            let rows = query
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| format!("Failed to find product masters by normalized_names: {e}"))?;
+            all_rows.extend(rows);
         }
-        let rows = query
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| format!("Failed to find product masters by normalized_names: {e}"))?;
-        Ok(rows.into_iter().map(|r| (r.normalized_name.clone(), r)).collect())
+        Ok(all_rows
+            .into_iter()
+            .map(|r| (r.normalized_name.clone(), r))
+            .collect())
     }
 
     async fn save(

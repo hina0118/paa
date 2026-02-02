@@ -54,19 +54,19 @@ impl<C: GeminiClientTrait, R: ProductMasterRepository> ProductParseService<C, R>
     ) -> Result<ParsedProduct, String> {
         // 1. キャッシュチェック（raw_name で完全一致）
         if let Some(cached) = self.repository.find_by_raw_name(raw_name).await? {
-            log::debug!("Cache hit for product (raw_name): {}", raw_name);
+            log::debug!("Cache hit for product (raw_name)");
             return Ok(cached.into());
         }
 
         // 2. 正規化名でもチェック（表記揺れ対応）
         let normalized = normalize_product_name(raw_name);
         if let Some(cached) = self.repository.find_by_normalized_name(&normalized).await? {
-            log::debug!("Cache hit for product (normalized_name): {}", raw_name);
+            log::debug!("Cache hit for product (normalized_name)");
             return Ok(cached.into());
         }
 
         // 3. API呼び出し
-        log::debug!("Cache miss, calling Gemini API for: {}", raw_name);
+        log::debug!("Cache miss, calling Gemini API");
         let result = self.gemini_client.parse_product_name(raw_name).await?;
 
         // 4. キャッシュ保存
@@ -187,17 +187,59 @@ impl<C: GeminiClientTrait, R: ProductMasterRepository> ProductParseService<C, R>
                                 is_reissue: false,
                             });
                         }
-                        parsed
+                        Some(parsed)
                     }
                     None => {
                         log::warn!(
-                            "Gemini API failed for chunk {}/{}, using fallback for {} items",
+                            "Gemini API failed for chunk {}/{}, using fallback for {} items (not saved to cache)",
                             chunk_idx + 1,
                             total_chunks,
                             chunk.len()
                         );
                         // エラー時はフォールバック（元の商品名をそのまま使用）
-                        names_to_parse
+                        // API成功時のみDB保存するため、フォールバックは保存しない（クォータ回復後に再解析可能にする）
+                        None
+                    }
+                };
+
+                match &api_results {
+                    Some(parsed) => {
+                        log::info!(
+                            "Chunk {}/{}: Gemini API returned {} results, saving to product_master...",
+                            chunk_idx + 1,
+                            total_chunks,
+                            parsed.len()
+                        );
+
+                        // 3. API成功時のみDBに保存（フォールバック結果は保存しない）
+                        for ((i, raw_name, normalized, platform_hint), result) in
+                            chunk.iter().zip(parsed.iter())
+                        {
+                            if let Err(e) = self
+                                .repository
+                                .save(raw_name, normalized, result, platform_hint.clone())
+                                .await
+                            {
+                                log::error!(
+                                    "Failed to save product master cache (index: {}, platform_hint: {:?}): {}",
+                                    i,
+                                    platform_hint,
+                                    e
+                                );
+                            }
+                            results.push((*i, result.clone()));
+                        }
+
+                        log::info!(
+                            "Chunk {}/{}: Saved {} items to product_master",
+                            chunk_idx + 1,
+                            total_chunks,
+                            chunk.len()
+                        );
+                    }
+                    None => {
+                        // フォールバック結果を results に追加（DBには保存しない）
+                        let fallback_results: Vec<ParsedProduct> = names_to_parse
                             .iter()
                             .map(|name| ParsedProduct {
                                 maker: None,
@@ -206,42 +248,12 @@ impl<C: GeminiClientTrait, R: ProductMasterRepository> ProductParseService<C, R>
                                 scale: None,
                                 is_reissue: false,
                             })
-                            .collect()
+                            .collect();
+                        for ((i, _, _, _), result) in chunk.iter().zip(fallback_results.iter()) {
+                            results.push((*i, result.clone()));
+                        }
                     }
-                };
-
-                log::info!(
-                    "Chunk {}/{}: Gemini API returned {} results, saving to product_master...",
-                    chunk_idx + 1,
-                    total_chunks,
-                    api_results.len()
-                );
-
-                // 3. このチャンクの結果を即座にDBに保存
-                for ((i, raw_name, normalized, platform_hint), result) in
-                    chunk.iter().zip(api_results.iter())
-                {
-                    if let Err(e) = self
-                        .repository
-                        .save(raw_name, normalized, result, platform_hint.clone())
-                        .await
-                    {
-                        log::error!(
-                            "Failed to save product master cache (index: {}, platform_hint: {:?}): {}",
-                            i,
-                            platform_hint,
-                            e
-                        );
-                    }
-                    results.push((*i, result.clone()));
                 }
-
-                log::info!(
-                    "Chunk {}/{}: Saved {} items to product_master",
-                    chunk_idx + 1,
-                    total_chunks,
-                    chunk.len()
-                );
             }
 
             log::info!(
