@@ -26,6 +26,14 @@ pub fn normalize_product_name(name: &str) -> String {
         .collect()
 }
 
+/// バッチパース結果（success_count / failed_count を正確に集計）
+#[derive(Debug, Clone)]
+pub struct ParseBatchResult {
+    pub products: Vec<ParsedProduct>,
+    pub success_count: usize,
+    pub failed_count: usize,
+}
+
 /// 商品名パースサービス
 ///
 /// Gemini APIを使用して商品名を解析し、結果をキャッシュします。
@@ -91,16 +99,22 @@ impl<C: GeminiClientTrait, R: ProductMasterRepository> ProductParseService<C, R>
     pub async fn parse_products_batch(
         &self,
         items: &[(String, Option<String>)], // (raw_name, platform_hint)
-    ) -> Result<Vec<ParsedProduct>, String> {
+    ) -> Result<ParseBatchResult, String> {
         use crate::gemini::client::{GEMINI_BATCH_SIZE, GEMINI_DELAY_SECONDS};
         use std::time::Duration;
         use tokio::time::sleep;
 
         if items.is_empty() {
-            return Ok(Vec::new());
+            return Ok(ParseBatchResult {
+                products: Vec::new(),
+                success_count: 0,
+                failed_count: 0,
+            });
         }
 
         let mut results: Vec<(usize, ParsedProduct)> = Vec::with_capacity(items.len());
+        let mut success_count: usize = 0;
+        let mut failed_count: usize = 0;
         let mut cache_misses: Vec<(usize, String, String, Option<String>)> = Vec::new();
 
         // 1. キャッシュチェック（一括取得でN+1クエリを回避）
@@ -112,6 +126,7 @@ impl<C: GeminiClientTrait, R: ProductMasterRepository> ProductParseService<C, R>
         for (i, (raw_name, platform_hint)) in items.iter().enumerate() {
             if let Some(cached) = raw_name_map.get(raw_name) {
                 log::debug!("Batch: Cache hit for product (raw_name)");
+                success_count += 1;
                 results.push((i, cached.clone().into()));
                 continue;
             }
@@ -128,6 +143,7 @@ impl<C: GeminiClientTrait, R: ProductMasterRepository> ProductParseService<C, R>
         for (i, raw_name, normalized, platform_hint) in normalized_for_miss {
             if let Some(cached) = normalized_map.get(&normalized) {
                 log::debug!("Batch: Cache hit (normalized)");
+                success_count += 1;
                 results.push((i, cached.clone().into()));
             } else {
                 cache_misses.push((i, raw_name, normalized, platform_hint));
@@ -175,19 +191,21 @@ impl<C: GeminiClientTrait, R: ProductMasterRepository> ProductParseService<C, R>
                 // 単一チャンクに対してAPI呼び出し（parse_single_chunk を使用）
                 let api_results = match self.gemini_client.parse_single_chunk(&names_to_parse).await
                 {
-                    Some(mut parsed) => {
-                        // 結果数が一致しない場合はフォールバックで埋める
-                        while parsed.len() < names_to_parse.len() {
-                            let idx = parsed.len();
-                            parsed.push(ParsedProduct {
-                                maker: None,
-                                series: None,
-                                name: names_to_parse[idx].clone(),
-                                scale: None,
-                                is_reissue: false,
-                            });
+                    Some(parsed) => {
+                        // 結果数が入力件数と一致しない場合はチャンク全体を失敗扱いにする
+                        // （フォールバックで埋めると product_master に保存され、再解析が困難になるため）
+                        if parsed.len() != names_to_parse.len() {
+                            log::warn!(
+                                "Gemini API returned {} results for {} requested items in chunk {}/{}; treating chunk as failed (not saved to cache)",
+                                parsed.len(),
+                                names_to_parse.len(),
+                                chunk_idx + 1,
+                                total_chunks
+                            );
+                            None
+                        } else {
+                            Some(parsed)
                         }
-                        Some(parsed)
                     }
                     None => {
                         log::warn!(
@@ -226,6 +244,9 @@ impl<C: GeminiClientTrait, R: ProductMasterRepository> ProductParseService<C, R>
                                     platform_hint,
                                     e
                                 );
+                                failed_count += 1;
+                            } else {
+                                success_count += 1;
                             }
                             results.push((*i, result.clone()));
                         }
@@ -239,6 +260,7 @@ impl<C: GeminiClientTrait, R: ProductMasterRepository> ProductParseService<C, R>
                     }
                     None => {
                         // フォールバック結果を results に追加（DBには保存しない）
+                        failed_count += chunk.len();
                         let fallback_results: Vec<ParsedProduct> = names_to_parse
                             .iter()
                             .map(|name| ParsedProduct {
@@ -265,7 +287,11 @@ impl<C: GeminiClientTrait, R: ProductMasterRepository> ProductParseService<C, R>
 
         // インデックス順にソートして返す
         results.sort_by_key(|(i, _)| *i);
-        Ok(results.into_iter().map(|(_, r)| r).collect())
+        Ok(ParseBatchResult {
+            products: results.into_iter().map(|(_, r)| r).collect(),
+            success_count,
+            failed_count,
+        })
     }
 }
 
@@ -434,12 +460,14 @@ mod tests {
         let result = service.parse_products_batch(&items).await;
 
         assert!(result.is_ok());
-        let products = result.unwrap();
-        assert_eq!(products.len(), 2);
+        let batch_result = result.unwrap();
+        assert_eq!(batch_result.products.len(), 2);
+        assert_eq!(batch_result.success_count, 2);
+        assert_eq!(batch_result.failed_count, 0);
 
         // 商品A: キャッシュからの結果
-        assert_eq!(products[0].maker, Some("キャッシュ結果".to_string()));
+        assert_eq!(batch_result.products[0].maker, Some("キャッシュ結果".to_string()));
         // 商品B: APIからの結果
-        assert_eq!(products[1].maker, Some("API結果".to_string()));
+        assert_eq!(batch_result.products[1].maker, Some("API結果".to_string()));
     }
 }

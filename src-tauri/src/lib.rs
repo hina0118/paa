@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqlitePool;
 use std::collections::VecDeque;
 use std::io::Write;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Listener, Manager};
@@ -435,6 +435,10 @@ pub fn run() {
             app.manage(parsers::ParseState::new());
             log::info!("Parse state initialized");
 
+            // Initialize product name parse state (多重実行ガード用)
+            app.manage(ProductNameParseState::new());
+            log::info!("Product name parse state initialized");
+
             // Restore window settings and setup close handler
             let window = app
                 .get_webview_window("main")
@@ -824,6 +828,38 @@ async fn delete_gemini_api_key(app_handle: tauri::AppHandle) -> Result<(), Strin
     Ok(())
 }
 
+/// 商品名パースの多重実行ガード用状態
+#[derive(Clone, Default)]
+pub struct ProductNameParseState {
+    is_running: Arc<Mutex<bool>>,
+}
+
+impl ProductNameParseState {
+    pub fn new() -> Self {
+        Self {
+            is_running: Arc::new(Mutex::new(false)),
+        }
+    }
+
+    pub fn try_start(&self) -> Result<(), String> {
+        let mut running = self
+            .is_running
+            .lock()
+            .map_err(|e| format!("Lock error: {e}"))?;
+        if *running {
+            return Err("商品名解析は既に実行中です。完了するまでお待ちください。".to_string());
+        }
+        *running = true;
+        Ok(())
+    }
+
+    pub fn finish(&self) {
+        if let Ok(mut running) = self.is_running.lock() {
+            *running = false;
+        }
+    }
+}
+
 /// 商品名パース進捗イベント
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ProductNameParseProgress {
@@ -841,10 +877,16 @@ pub struct ProductNameParseProgress {
 async fn start_product_name_parse(
     app_handle: tauri::AppHandle,
     pool: tauri::State<'_, SqlitePool>,
+    parse_state: tauri::State<'_, ProductNameParseState>,
 ) -> Result<(), String> {
     use tauri::Emitter;
 
+    // 多重実行ガード
+    parse_state.try_start()?;
+
     log::info!("Starting product name parse with Gemini API...");
+
+    let parse_state_clone = parse_state.inner().clone();
 
     // Gemini API キーを確認
     let app_data_dir = app_handle
@@ -899,6 +941,7 @@ async fn start_product_name_parse(
                     error: Some(e.to_string()),
                 };
                 let _ = app_handle.emit("product-name-parse-progress", error_event);
+                parse_state_clone.finish();
                 return;
             }
         };
@@ -921,6 +964,7 @@ async fn start_product_name_parse(
                 error: None,
             };
             let _ = app_handle.emit("product-name-parse-progress", complete_event);
+            parse_state_clone.finish();
             return;
         }
 
@@ -939,14 +983,14 @@ async fn start_product_name_parse(
         // Gemini API でバッチ処理（client.rs 内で10件ずつ + 10秒ディレイ）
         // ProductParseService.parse_products_batch は内部で product_master へ保存する
         match service.parse_products_batch(&items).await {
-            Ok(parsed_products) => {
-                // パース結果を取得できた件数として success_count を集計
-                let success_count = parsed_products.len();
-                let failed_count = total_items.saturating_sub(success_count);
+            Ok(batch_result) => {
+                let success_count = batch_result.success_count;
+                let failed_count = batch_result.failed_count;
 
                 log::info!(
-                    "Product name parse completed: {} items processed by ProductParseService (requested: {})",
+                    "Product name parse completed: success={}, failed={} (requested: {})",
                     success_count,
+                    failed_count,
                     total_items
                 );
 
@@ -956,8 +1000,9 @@ async fn start_product_name_parse(
                     success_count,
                     failed_count,
                     status_message: format!(
-                        "商品名パース完了: {} 件の処理が完了しました（リクエスト件数: {}）",
+                        "商品名パース完了: 成功 {} 件、失敗 {} 件（リクエスト件数: {}）",
                         success_count,
+                        failed_count,
                         total_items
                     ),
                     is_complete: true,
@@ -979,6 +1024,9 @@ async fn start_product_name_parse(
                 let _ = app_handle.emit("product-name-parse-progress", error_event);
             }
         }
+
+        // 多重実行ガード解除（成功・失敗・エラー問わず必ず呼ぶ）
+        parse_state_clone.finish();
     });
 
     Ok(())
