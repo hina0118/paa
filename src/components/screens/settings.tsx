@@ -226,6 +226,7 @@ export function Settings() {
               <Button
                 onClick={handleSaveBatchSize}
                 disabled={isSavingBatchSize}
+                aria-label="同期バッチサイズを保存"
               >
                 保存
               </Button>
@@ -254,6 +255,7 @@ export function Settings() {
               <Button
                 onClick={handleSaveMaxIterations}
                 disabled={isSavingMaxIterations}
+                aria-label="最大繰り返し回数を保存"
               >
                 保存
               </Button>
@@ -303,7 +305,8 @@ export function Settings() {
               />
               <Button
                 onClick={handleSaveGeminiApiKey}
-                disabled={isSavingGeminiApiKey || !geminiApiKey.trim()}
+                disabled={isSavingGeminiApiKey}
+                aria-label="Gemini APIキーを保存"
               >
                 保存
               </Button>
@@ -312,6 +315,7 @@ export function Settings() {
                   variant="destructive"
                   onClick={handleDeleteGeminiApiKey}
                   disabled={isDeletingGeminiApiKey}
+                  aria-label="Gemini APIキーを削除"
                 >
                   削除
                 </Button>
@@ -347,6 +351,7 @@ export function Settings() {
               <Button
                 onClick={handleSaveParseBatchSize}
                 disabled={isSavingParseBatchSize}
+                aria-label="パースバッチサイズを保存"
               >
                 保存
               </Button>
