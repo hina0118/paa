@@ -130,8 +130,9 @@ describe('Settings', () => {
         expect(input).toHaveValue(75);
       });
 
-      const saveButtons = screen.getAllByRole('button', { name: '保存' });
-      await user.click(saveButtons[0]);
+      await user.click(
+        screen.getByRole('button', { name: '同期バッチサイズを保存' })
+      );
 
       await waitFor(() => {
         expect(mockInvoke).toHaveBeenCalledWith('update_batch_size', {
@@ -168,8 +169,9 @@ describe('Settings', () => {
         expect(document.getElementById('batch-size')).toBeInTheDocument();
       });
 
-      const saveButtons = screen.getAllByRole('button', { name: '保存' });
-      await user.click(saveButtons[0]);
+      await user.click(
+        screen.getByRole('button', { name: '同期バッチサイズを保存' })
+      );
 
       await waitFor(() => {
         expect(
@@ -200,8 +202,9 @@ describe('Settings', () => {
         expect(document.getElementById('batch-size')).toBeInTheDocument();
       });
 
-      const saveButtons = screen.getAllByRole('button', { name: '保存' });
-      await user.click(saveButtons[0]);
+      await user.click(
+        screen.getByRole('button', { name: '同期バッチサイズを保存' })
+      );
 
       await waitFor(() => {
         expect(
@@ -234,8 +237,9 @@ describe('Settings', () => {
         expect(document.getElementById('batch-size')).toBeInTheDocument();
       });
 
-      const saveButtons = screen.getAllByRole('button', { name: '保存' });
-      await user.click(saveButtons[0]);
+      await user.click(
+        screen.getByRole('button', { name: '同期バッチサイズを保存' })
+      );
 
       await waitFor(() => {
         expect(
@@ -271,8 +275,9 @@ describe('Settings', () => {
         expect(document.getElementById('max-iterations')).toBeInTheDocument();
       });
 
-      const saveButtons = screen.getAllByRole('button', { name: '保存' });
-      await user.click(saveButtons[1]);
+      await user.click(
+        screen.getByRole('button', { name: '最大繰り返し回数を保存' })
+      );
 
       await waitFor(() => {
         expect(mockInvoke).toHaveBeenCalledWith('update_max_iterations', {
@@ -309,8 +314,9 @@ describe('Settings', () => {
         expect(document.getElementById('max-iterations')).toBeInTheDocument();
       });
 
-      const saveButtons = screen.getAllByRole('button', { name: '保存' });
-      await user.click(saveButtons[1]);
+      await user.click(
+        screen.getByRole('button', { name: '最大繰り返し回数を保存' })
+      );
 
       await waitFor(() => {
         expect(
@@ -343,8 +349,9 @@ describe('Settings', () => {
         expect(document.getElementById('max-iterations')).toBeInTheDocument();
       });
 
-      const saveButtons = screen.getAllByRole('button', { name: '保存' });
-      await user.click(saveButtons[1]);
+      await user.click(
+        screen.getByRole('button', { name: '最大繰り返し回数を保存' })
+      );
 
       await waitFor(() => {
         expect(
@@ -380,9 +387,9 @@ describe('Settings', () => {
         expect(document.getElementById('parse-batch-size')).toBeInTheDocument();
       });
 
-      const saveButtons = screen.getAllByRole('button', { name: '保存' });
-      // 4番目の保存ボタン（パース設定。0:同期バッチ, 1:最大繰り返し, 2:Gemini API, 3:パース）
-      await user.click(saveButtons[3]);
+      await user.click(
+        screen.getByRole('button', { name: 'パースバッチサイズを保存' })
+      );
 
       await waitFor(() => {
         expect(mockInvoke).toHaveBeenCalledWith('update_parse_batch_size', {
@@ -419,9 +426,9 @@ describe('Settings', () => {
         expect(document.getElementById('parse-batch-size')).toBeInTheDocument();
       });
 
-      const saveButtons = screen.getAllByRole('button', { name: '保存' });
-      // 4番目: パースバッチサイズ
-      await user.click(saveButtons[3]);
+      await user.click(
+        screen.getByRole('button', { name: 'パースバッチサイズを保存' })
+      );
 
       await waitFor(() => {
         expect(
@@ -454,15 +461,199 @@ describe('Settings', () => {
         expect(document.getElementById('parse-batch-size')).toBeInTheDocument();
       });
 
-      // パースバッチサイズの保存ボタン（Gemini API 追加により index 3）
-      const saveButtons = screen.getAllByRole('button', { name: '保存' });
-      await user.click(saveButtons[3]);
+      await user.click(
+        screen.getByRole('button', { name: 'パースバッチサイズを保存' })
+      );
 
       await waitFor(() => {
         expect(
           screen.getByText(/更新に失敗しました.*Parse error/)
         ).toBeInTheDocument();
       });
+    });
+  });
+
+  // Gemini API キー保存/削除テスト
+  describe('handleSaveGeminiApiKey / handleDeleteGeminiApiKey', () => {
+    it('saves Gemini API key successfully and clears input', async () => {
+      const user = userEvent.setup();
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+        if (cmd === 'save_gemini_api_key') return Promise.resolve(undefined);
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      const apiKeyInput = screen.getByPlaceholderText('APIキーを入力');
+      await user.type(apiKeyInput, 'test-api-key-123');
+
+      await user.click(
+        screen.getByRole('button', { name: 'Gemini APIキーを保存' })
+      );
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith('save_gemini_api_key', {
+          apiKey: 'test-api-key-123',
+        });
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/Gemini APIキーを保存しました/)
+        ).toBeInTheDocument();
+      });
+
+      await waitFor(() => {
+        expect(apiKeyInput).toHaveValue('');
+      });
+    });
+
+    it('calls refreshGeminiApiKeyStatus after save', async () => {
+      const user = userEvent.setup();
+      const invokeCalls: string[] = [];
+      mockInvoke.mockImplementation((cmd: string) => {
+        invokeCalls.push(cmd);
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+        if (cmd === 'save_gemini_api_key') return Promise.resolve(undefined);
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await user.type(screen.getByPlaceholderText('APIキーを入力'), 'key');
+      await user.click(
+        screen.getByRole('button', { name: 'Gemini APIキーを保存' })
+      );
+
+      await waitFor(() => {
+        expect(invokeCalls).toContain('save_gemini_api_key');
+        const saveIdx = invokeCalls.indexOf('save_gemini_api_key');
+        const hasKeyAfterSave = invokeCalls
+          .slice(saveIdx + 1)
+          .includes('has_gemini_api_key');
+        expect(hasKeyAfterSave).toBe(true);
+      });
+    });
+
+    it('shows error message when save fails', async () => {
+      const user = userEvent.setup();
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+        if (cmd === 'save_gemini_api_key')
+          return Promise.reject(new Error('Save failed'));
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await user.type(screen.getByPlaceholderText('APIキーを入力'), 'key');
+      await user.click(
+        screen.getByRole('button', { name: 'Gemini APIキーを保存' })
+      );
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/保存に失敗しました.*Save failed/)
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('shows validation error when API key is empty', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<Settings />);
+
+      await user.click(
+        screen.getByRole('button', { name: 'Gemini APIキーを保存' })
+      );
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('APIキーを入力してください')
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('deletes Gemini API key when confirm is accepted', async () => {
+      const user = userEvent.setup();
+      vi.stubGlobal(
+        'confirm',
+        vi.fn(() => true)
+      );
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(true);
+        if (cmd === 'delete_gemini_api_key') return Promise.resolve(undefined);
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: 'Gemini APIキーを削除' })
+        ).toBeInTheDocument();
+      });
+      await user.click(
+        screen.getByRole('button', { name: 'Gemini APIキーを削除' })
+      );
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith('delete_gemini_api_key');
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('Gemini APIキーを削除しました')
+        ).toBeInTheDocument();
+      });
+
+      vi.unstubAllGlobals();
+    });
+
+    it('does not delete when confirm is cancelled', async () => {
+      const user = userEvent.setup();
+      vi.stubGlobal(
+        'confirm',
+        vi.fn(() => false)
+      );
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(true);
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: 'Gemini APIキーを削除' })
+        ).toBeInTheDocument();
+      });
+      await user.click(
+        screen.getByRole('button', { name: 'Gemini APIキーを削除' })
+      );
+
+      expect(mockInvoke).not.toHaveBeenCalledWith('delete_gemini_api_key');
+      vi.unstubAllGlobals();
     });
   });
 

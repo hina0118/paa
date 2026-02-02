@@ -261,7 +261,8 @@ impl GeminiClient {
         };
 
         if let Some(error) = gemini_response.error {
-            log::error!("Gemini API error: {}", error.message);
+            // エラーメッセージ本文は商品名等を含む可能性があるためログに出さず、メタ情報のみ
+            log::error!("Gemini API returned error object (message length: {} chars)", error.message.len());
             return None;
         }
 

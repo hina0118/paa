@@ -881,14 +881,10 @@ async fn start_product_name_parse(
 ) -> Result<(), String> {
     use tauri::Emitter;
 
-    // 多重実行ガード
-    parse_state.try_start()?;
-
     log::info!("Starting product name parse with Gemini API...");
 
-    let parse_state_clone = parse_state.inner().clone();
-
-    // Gemini API キーを確認
+    // 失敗し得る初期化を先に行い、try_start() は spawn 直前に呼ぶ
+    // （早期 return 時に finish() が呼ばれず「実行中」のままになるのを防ぐ）
     let app_data_dir = app_handle
         .path()
         .app_data_dir()
@@ -906,6 +902,10 @@ async fn start_product_name_parse(
     let product_repo = SqliteProductMasterRepository::new(pool.inner().clone());
     let service = gemini::ProductParseService::new(gemini_client, product_repo);
 
+    // 多重実行ガード（初期化成功後にのみ取得）
+    parse_state.try_start()?;
+
+    let parse_state_clone = parse_state.inner().clone();
     let pool_clone = pool.inner().clone();
 
     tauri::async_runtime::spawn(async move {
