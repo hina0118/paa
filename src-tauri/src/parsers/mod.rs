@@ -250,7 +250,7 @@ pub struct ParseProgressEvent {
 }
 
 /// バッチパース処理（メールから注文情報を抽出）
-/// NOTE: 商品名のAI解析（Gemini API）は別コマンド parse_product_names で実行
+/// NOTE: 商品名のAI解析（Gemini API）は別コマンド start_product_name_parse で実行
 pub async fn batch_parse_emails(
     app_handle: &tauri::AppHandle,
     pool: &SqlitePool,
