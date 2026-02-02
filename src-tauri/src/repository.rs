@@ -1507,11 +1507,7 @@ impl ProductMasterRepository for SqliteProductMasterRepository {
         let mut all_rows: Vec<ProductMaster> = Vec::new();
 
         for chunk in raw_names.chunks(MAX_PARAMS_PER_QUERY) {
-            let placeholders = chunk
-                .iter()
-                .map(|_| "?")
-                .collect::<Vec<_>>()
-                .join(", ");
+            let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
             let sql = format!(
                 r#"
                 SELECT
@@ -1559,11 +1555,7 @@ impl ProductMasterRepository for SqliteProductMasterRepository {
         let mut all_rows: Vec<ProductMaster> = Vec::new();
 
         for chunk in normalized_names.chunks(MAX_PARAMS_PER_QUERY) {
-            let placeholders = chunk
-                .iter()
-                .map(|_| "?")
-                .collect::<Vec<_>>()
-                .join(", ");
+            let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
             let sql = format!(
                 r#"
                 SELECT
@@ -2600,8 +2592,16 @@ mod tests {
         let repo = SqliteProductMasterRepository::new(pool.clone());
 
         let items = vec![
-            ("商品A", "shohina", make_parsed_product(None, None, "商品A", None, false)),
-            ("商品B", "shohinb", make_parsed_product(None, None, "商品B", None, false)),
+            (
+                "商品A",
+                "shohina",
+                make_parsed_product(None, None, "商品A", None, false),
+            ),
+            (
+                "商品B",
+                "shohinb",
+                make_parsed_product(None, None, "商品B", None, false),
+            ),
         ];
 
         for (raw, norm, parsed) in &items {
@@ -2624,8 +2624,16 @@ mod tests {
         let repo = SqliteProductMasterRepository::new(pool.clone());
 
         let items = vec![
-            ("商品A", "shohina", make_parsed_product(None, None, "商品A", None, false)),
-            ("商品B", "shohinb", make_parsed_product(None, None, "商品B", None, false)),
+            (
+                "商品A",
+                "shohina",
+                make_parsed_product(None, None, "商品A", None, false),
+            ),
+            (
+                "商品B",
+                "shohinb",
+                make_parsed_product(None, None, "商品B", None, false),
+            ),
         ];
 
         for (raw, norm, parsed) in &items {

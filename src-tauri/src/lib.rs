@@ -892,8 +892,7 @@ async fn start_product_name_parse(
 
     if !gemini::has_api_key(&app_data_dir) {
         return Err(
-            "Gemini APIキーが設定されていません。設定画面でAPIキーを設定してください。"
-                .to_string(),
+            "Gemini APIキーが設定されていません。設定画面でAPIキーを設定してください。".to_string(),
         );
     }
 
@@ -1002,9 +1001,7 @@ async fn start_product_name_parse(
                     failed_count,
                     status_message: format!(
                         "商品名パース完了: 成功 {} 件、失敗 {} 件（リクエスト件数: {}）",
-                        success_count,
-                        failed_count,
-                        total_items
+                        success_count, failed_count, total_items
                     ),
                     is_complete: true,
                     error: None,

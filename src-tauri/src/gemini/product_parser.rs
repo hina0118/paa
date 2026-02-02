@@ -138,7 +138,10 @@ impl<C: GeminiClientTrait, R: ProductMasterRepository> ProductParseService<C, R>
             .iter()
             .map(|(_, _, n, _)| n.clone())
             .collect();
-        let normalized_map = self.repository.find_by_normalized_names(&normalized_names).await?;
+        let normalized_map = self
+            .repository
+            .find_by_normalized_names(&normalized_names)
+            .await?;
 
         for (i, raw_name, normalized, platform_hint) in normalized_for_miss {
             if let Some(cached) = normalized_map.get(&normalized) {
@@ -419,30 +422,28 @@ mod tests {
         let mut mock_repo = MockProductMasterRepository::new();
 
         // find_by_raw_names: 商品A のみキャッシュヒット
-        mock_repo
-            .expect_find_by_raw_names()
-            .returning(|raw_names| {
-                let mut map = HashMap::new();
-                if raw_names.contains(&"商品A".to_string()) {
-                    map.insert(
-                        "商品A".to_string(),
-                        ProductMaster {
-                            id: 1,
-                            raw_name: "商品A".to_string(),
-                            normalized_name: "商品a".to_string(),
-                            maker: Some("キャッシュ結果".to_string()),
-                            series: None,
-                            product_name: Some("商品A".to_string()),
-                            scale: None,
-                            is_reissue: false,
-                            platform_hint: None,
-                            created_at: "2024-01-01".to_string(),
-                            updated_at: "2024-01-01".to_string(),
-                        },
-                    );
-                }
-                Ok(map)
-            });
+        mock_repo.expect_find_by_raw_names().returning(|raw_names| {
+            let mut map = HashMap::new();
+            if raw_names.contains(&"商品A".to_string()) {
+                map.insert(
+                    "商品A".to_string(),
+                    ProductMaster {
+                        id: 1,
+                        raw_name: "商品A".to_string(),
+                        normalized_name: "商品a".to_string(),
+                        maker: Some("キャッシュ結果".to_string()),
+                        series: None,
+                        product_name: Some("商品A".to_string()),
+                        scale: None,
+                        is_reissue: false,
+                        platform_hint: None,
+                        created_at: "2024-01-01".to_string(),
+                        updated_at: "2024-01-01".to_string(),
+                    },
+                );
+            }
+            Ok(map)
+        });
 
         // find_by_normalized_names: 商品B の正規化名はキャッシュミス
         mock_repo
@@ -466,7 +467,10 @@ mod tests {
         assert_eq!(batch_result.failed_count, 0);
 
         // 商品A: キャッシュからの結果
-        assert_eq!(batch_result.products[0].maker, Some("キャッシュ結果".to_string()));
+        assert_eq!(
+            batch_result.products[0].maker,
+            Some("キャッシュ結果".to_string())
+        );
         // 商品B: APIからの結果
         assert_eq!(batch_result.products[1].maker, Some("API結果".to_string()));
     }

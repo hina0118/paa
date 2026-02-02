@@ -198,7 +198,10 @@ impl GeminiClient {
 
         // リクエストのメトリクスのみログに出力（内容や商品名は含めない）
         log::info!("Gemini API endpoint: {}", endpoint);
-        log::debug!("Gemini API request body length: {} bytes", request_body.len());
+        log::debug!(
+            "Gemini API request body length: {} bytes",
+            request_body.len()
+        );
 
         let body = Full::new(Bytes::from(request_body));
         let req = match Request::builder()
@@ -262,7 +265,10 @@ impl GeminiClient {
 
         if let Some(error) = gemini_response.error {
             // エラーメッセージ本文は商品名等を含む可能性があるためログに出さず、メタ情報のみ
-            log::error!("Gemini API returned error object (message length: {} chars)", error.message.len());
+            log::error!(
+                "Gemini API returned error object (message length: {} chars)",
+                error.message.len()
+            );
             return None;
         }
 
