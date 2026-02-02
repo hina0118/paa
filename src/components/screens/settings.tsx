@@ -300,12 +300,12 @@ export function Settings() {
                 placeholder={hasGeminiApiKey ? '********' : 'APIキーを入力'}
                 value={geminiApiKey}
                 onChange={(e) => setGeminiApiKey(e.target.value)}
-                disabled={isSavingGeminiApiKey}
+                disabled={isSavingGeminiApiKey || isDeletingGeminiApiKey}
                 className="max-w-md"
               />
               <Button
                 onClick={handleSaveGeminiApiKey}
-                disabled={isSavingGeminiApiKey}
+                disabled={isSavingGeminiApiKey || isDeletingGeminiApiKey}
                 aria-label="Gemini APIキーを保存"
               >
                 保存
@@ -314,7 +314,7 @@ export function Settings() {
                 <Button
                   variant="destructive"
                   onClick={handleDeleteGeminiApiKey}
-                  disabled={isDeletingGeminiApiKey}
+                  disabled={isSavingGeminiApiKey || isDeletingGeminiApiKey}
                   aria-label="Gemini APIキーを削除"
                 >
                   削除
