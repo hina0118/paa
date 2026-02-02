@@ -356,10 +356,9 @@ mod tests {
     #[tokio::test]
     async fn test_parse_products_batch_mixed_cache() {
         let mut mock_client = MockGeminiClientTrait::new();
-        mock_client
-            .expect_parse_product_names_batch()
-            .returning(|names| {
-                Ok(names
+        mock_client.expect_parse_single_chunk().returning(|names| {
+            Some(
+                names
                     .iter()
                     .map(|name| ParsedProduct {
                         maker: Some("API結果".to_string()),
@@ -368,8 +367,9 @@ mod tests {
                         scale: None,
                         is_reissue: false,
                     })
-                    .collect())
-            });
+                    .collect(),
+            )
+        });
 
         let mut mock_repo = MockProductMasterRepository::new();
 
