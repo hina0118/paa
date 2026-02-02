@@ -29,9 +29,9 @@ pub fn has_api_key(_app_data_dir: &Path) -> bool {
 /// APIキーはログに出力されません
 pub fn load_api_key(_app_data_dir: &Path) -> Result<String, String> {
     let entry = gemini_keyring_entry()?;
-    let secret = entry.get_password().map_err(|e| {
-        format!("Failed to load Gemini API key from secure storage: {e}")
-    })?;
+    let secret = entry
+        .get_password()
+        .map_err(|e| format!("Failed to load Gemini API key from secure storage: {e}"))?;
 
     if secret.is_empty() {
         return Err("Gemini API key is empty".to_string());
@@ -62,9 +62,9 @@ pub fn save_api_key(_app_data_dir: &Path, api_key: &str) -> Result<(), String> {
 /// APIキーを削除
 pub fn delete_api_key(_app_data_dir: &Path) -> Result<(), String> {
     let entry = gemini_keyring_entry()?;
-    entry.delete_credential().map_err(|e| {
-        format!("Failed to delete Gemini API key from secure storage: {e}")
-    })?;
+    entry
+        .delete_credential()
+        .map_err(|e| format!("Failed to delete Gemini API key from secure storage: {e}"))?;
 
     log::info!("Gemini API key deleted successfully from secure storage");
     Ok(())
