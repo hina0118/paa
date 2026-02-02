@@ -23,6 +23,7 @@ export const VALID_TABLES = [
   'sync_metadata',
   'window_settings',
   'parse_metadata',
+  'product_master',
 ] as const;
 
 export type ValidTableName = (typeof VALID_TABLES)[number];

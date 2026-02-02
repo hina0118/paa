@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import {
   type ParseProgress,
   type ParseMetadata,
+  type ProductNameParseProgress,
   ParseContext,
 } from './parse-context-value';
 
@@ -11,6 +12,10 @@ export function ParseProvider({ children }: { children: ReactNode }) {
   const [isParsing, setIsParsing] = useState(false);
   const [progress, setProgress] = useState<ParseProgress | null>(null);
   const [metadata, setMetadata] = useState<ParseMetadata | null>(null);
+  // 商品名パース (Gemini API)
+  const [isProductNameParsing, setIsProductNameParsing] = useState(false);
+  const [productNameProgress, setProductNameProgress] =
+    useState<ProductNameParseProgress | null>(null);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -37,6 +42,25 @@ export function ParseProvider({ children }: { children: ReactNode }) {
       unlisten.then((fn) => fn());
     };
   }, [refreshStatus]);
+
+  // 商品名パース進捗イベントをリッスン
+  useEffect(() => {
+    const unlisten = listen<ProductNameParseProgress>(
+      'product-name-parse-progress',
+      (event) => {
+        const data = event.payload;
+        setProductNameProgress(data);
+
+        if (data.is_complete) {
+          setIsProductNameParsing(false);
+        }
+      }
+    );
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
 
   useEffect(() => {
     refreshStatus();
@@ -72,6 +96,17 @@ export function ParseProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const startProductNameParse = async () => {
+    try {
+      setIsProductNameParsing(true);
+      setProductNameProgress(null);
+      await invoke('start_product_name_parse');
+    } catch (error) {
+      setIsProductNameParsing(false);
+      throw error;
+    }
+  };
+
   return (
     <ParseContext.Provider
       value={{
@@ -82,6 +117,9 @@ export function ParseProvider({ children }: { children: ReactNode }) {
         cancelParse,
         refreshStatus,
         updateBatchSize,
+        isProductNameParsing,
+        productNameProgress,
+        startProductNameParse,
       }}
     >
       {children}

@@ -20,7 +20,8 @@ export type Screen =
   | 'table-shop-settings'
   | 'table-sync-metadata'
   | 'table-window-settings'
-  | 'table-parse-metadata';
+  | 'table-parse-metadata'
+  | 'table-product-master';
 
 export type NavigationContextType = {
   currentScreen: Screen;

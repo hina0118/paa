@@ -14,6 +14,7 @@ describe('table-utils', () => {
       expect(VALID_TABLES).toContain('images');
       expect(VALID_TABLES).toContain('deliveries');
       expect(VALID_TABLES).toContain('shop_settings');
+      expect(VALID_TABLES).toContain('product_master');
     });
   });
 
