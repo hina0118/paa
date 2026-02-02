@@ -62,6 +62,10 @@ struct GeminiError {
 pub const GEMINI_BATCH_SIZE: usize = 10;
 pub const GEMINI_DELAY_SECONDS: u64 = 10;
 
+/// リクエスト送信〜レスポンスボディ取得のタイムアウト（秒）
+/// ネットワークハング時に ProductNameParseState が永久に実行中のままになるのを防ぐ
+const GEMINI_REQUEST_TIMEOUT_SECS: u64 = 120;
+
 /// Gemini クライアントトレイト（テスト用モック対応）
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
@@ -218,21 +222,36 @@ impl GeminiClient {
             }
         };
 
-        let response = match self.http_client.request(req).await {
-            Ok(r) => r,
-            Err(e) => {
-                log::error!("Failed to send request to Gemini API: {e}");
+        // ネットワークハング時に ProductNameParseState が永久に実行中のままになるのを防ぐためタイムアウトを設定
+        let request_result =
+            tokio::time::timeout(Duration::from_secs(GEMINI_REQUEST_TIMEOUT_SECS), async {
+                let response = self
+                    .http_client
+                    .request(req)
+                    .await
+                    .map_err(|e| format!("Failed to send request to Gemini API: {e}"))?;
+                let status = response.status();
+                let body_bytes = response
+                    .into_body()
+                    .collect()
+                    .await
+                    .map_err(|e| format!("Failed to read response body: {e}"))?
+                    .to_bytes();
+                Ok::<_, String>((status, body_bytes))
+            })
+            .await;
+
+        let (status, body_bytes) = match request_result {
+            Ok(Ok((s, b))) => (s, b),
+            Ok(Err(e)) => {
+                log::error!("Failed to complete Gemini API request: {e}");
                 return None;
             }
-        };
-
-        let status = response.status();
-
-        // hyper 1.x: http-body-util の BodyExt::collect を使用
-        let body_bytes = match response.into_body().collect().await {
-            Ok(b) => b.to_bytes(),
-            Err(e) => {
-                log::error!("Failed to read response body: {e}");
+            Err(_) => {
+                log::error!(
+                    "Gemini API request timed out after {} seconds",
+                    GEMINI_REQUEST_TIMEOUT_SECS
+                );
                 return None;
             }
         };

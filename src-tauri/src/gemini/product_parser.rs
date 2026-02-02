@@ -162,6 +162,7 @@ impl<C: GeminiClientTrait, R: ProductMasterRepository> ProductParseService<C, R>
         // 2. キャッシュミスがあればチャンクごとにAPI呼び出し＆DB保存
         if !cache_misses.is_empty() {
             let total_chunks = (cache_misses.len() + GEMINI_BATCH_SIZE - 1) / GEMINI_BATCH_SIZE;
+            let mut saved_count: usize = 0;
             log::info!(
                 "Processing {} cache misses in {} chunks (batch size: {}, delay: {}s)",
                 cache_misses.len(),
@@ -250,6 +251,7 @@ impl<C: GeminiClientTrait, R: ProductMasterRepository> ProductParseService<C, R>
                                 failed_count += 1;
                             } else {
                                 success_count += 1;
+                                saved_count += 1;
                             }
                             results.push((*i, result.clone()));
                         }
@@ -282,9 +284,9 @@ impl<C: GeminiClientTrait, R: ProductMasterRepository> ProductParseService<C, R>
             }
 
             log::info!(
-                "Finished processing all {} chunks, total {} items saved",
+                "Finished processing all {} chunks, total {} items saved to product_master",
                 total_chunks,
-                cache_misses.len()
+                saved_count
             );
         }
 
