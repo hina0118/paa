@@ -921,6 +921,7 @@ async fn start_product_name_parse(
             LEFT JOIN product_master pm ON TRIM(i.item_name) = pm.raw_name
             WHERE i.item_name IS NOT NULL
               AND i.item_name != ''
+              AND TRIM(i.item_name) != ''
               AND pm.id IS NULL
             GROUP BY TRIM(i.item_name)
             "#,
