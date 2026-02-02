@@ -1534,7 +1534,10 @@ impl ProductMasterRepository for SqliteProductMasterRepository {
             format!("Failed to save product master: {e}")
         })?;
 
-        log::info!("Successfully saved to product_master with id={}", result.last_insert_rowid());
+        log::info!(
+            "Successfully saved to product_master with id={}",
+            result.last_insert_rowid()
+        );
         Ok(result.last_insert_rowid())
     }
 

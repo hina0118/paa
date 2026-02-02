@@ -366,13 +366,6 @@ pub fn run() {
             #[cfg(not(debug_assertions))]
             let default_level = log::LevelFilter::Warn;
 
-            // リリースビルドではWarnレベル以上、デバッグビルドではInfoレベル以上のログを出力
-            // これにより、本番環境で機密情報を含む可能性のあるデバッグログを防ぐ
-            #[cfg(debug_assertions)]
-            let default_level = log::LevelFilter::Info;
-            #[cfg(not(debug_assertions))]
-            let default_level = log::LevelFilter::Warn;
-
             env_logger::Builder::from_default_env()
                 .filter_level(default_level)
                 .format(|buf, record| {
@@ -805,10 +798,7 @@ async fn has_gemini_api_key(app_handle: tauri::AppHandle) -> Result<bool, String
 
 /// Gemini APIキーを保存
 #[tauri::command]
-async fn save_gemini_api_key(
-    app_handle: tauri::AppHandle,
-    api_key: String,
-) -> Result<(), String> {
+async fn save_gemini_api_key(app_handle: tauri::AppHandle, api_key: String) -> Result<(), String> {
     let app_data_dir = app_handle
         .path()
         .app_data_dir()
@@ -911,7 +901,10 @@ async fn start_product_name_parse(
         };
 
         let total_items = items.len();
-        log::info!("Found {} unparsed items (not in product_master)", total_items);
+        log::info!(
+            "Found {} unparsed items (not in product_master)",
+            total_items
+        );
 
         if total_items == 0 {
             let complete_event = ProductNameParseProgress {
@@ -919,7 +912,8 @@ async fn start_product_name_parse(
                 parsed_count: 0,
                 success_count: 0,
                 failed_count: 0,
-                status_message: "未解析の商品はありません（すべてproduct_masterに登録済み）".to_string(),
+                status_message: "未解析の商品はありません（すべてproduct_masterに登録済み）"
+                    .to_string(),
                 is_complete: true,
                 error: None,
             };

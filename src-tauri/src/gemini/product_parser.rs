@@ -71,7 +71,12 @@ impl<C: GeminiClientTrait, R: ProductMasterRepository> ProductParseService<C, R>
 
         // 4. キャッシュ保存
         self.repository
-            .save(raw_name, &normalized, &result, platform_hint.map(|s| s.to_string()))
+            .save(
+                raw_name,
+                &normalized,
+                &result,
+                platform_hint.map(|s| s.to_string()),
+            )
             .await?;
 
         Ok(result)
@@ -109,11 +114,7 @@ impl<C: GeminiClientTrait, R: ProductMasterRepository> ProductParseService<C, R>
 
             // 正規化名でチェック
             let normalized = normalize_product_name(raw_name);
-            if let Some(cached) = self
-                .repository
-                .find_by_normalized_name(&normalized)
-                .await?
-            {
+            if let Some(cached) = self.repository.find_by_normalized_name(&normalized).await? {
                 log::debug!("Batch: Cache hit (normalized) for product: {}", raw_name);
                 results.push((i, cached.into()));
                 continue;
@@ -131,8 +132,7 @@ impl<C: GeminiClientTrait, R: ProductMasterRepository> ProductParseService<C, R>
 
         // 2. キャッシュミスがあればチャンクごとにAPI呼び出し＆DB保存
         if !cache_misses.is_empty() {
-            let total_chunks =
-                (cache_misses.len() + GEMINI_BATCH_SIZE - 1) / GEMINI_BATCH_SIZE;
+            let total_chunks = (cache_misses.len() + GEMINI_BATCH_SIZE - 1) / GEMINI_BATCH_SIZE;
             log::info!(
                 "Processing {} cache misses in {} chunks (batch size: {}, delay: {}s)",
                 cache_misses.len(),
@@ -327,22 +327,18 @@ mod tests {
     #[tokio::test]
     async fn test_parse_product_cache_miss_calls_api() {
         let mut mock_client = MockGeminiClientTrait::new();
-        mock_client
-            .expect_parse_product_name()
-            .returning(|_| {
-                Ok(ParsedProduct {
-                    maker: Some("バンダイ".to_string()),
-                    series: Some("ガンダム".to_string()),
-                    name: "RX-78-2".to_string(),
-                    scale: Some("1/144".to_string()),
-                    is_reissue: false,
-                })
-            });
+        mock_client.expect_parse_product_name().returning(|_| {
+            Ok(ParsedProduct {
+                maker: Some("バンダイ".to_string()),
+                series: Some("ガンダム".to_string()),
+                name: "RX-78-2".to_string(),
+                scale: Some("1/144".to_string()),
+                is_reissue: false,
+            })
+        });
 
         let mut mock_repo = MockProductMasterRepository::new();
-        mock_repo
-            .expect_find_by_raw_name()
-            .returning(|_| Ok(None));
+        mock_repo.expect_find_by_raw_name().returning(|_| Ok(None));
         mock_repo
             .expect_find_by_normalized_name()
             .returning(|_| Ok(None));
