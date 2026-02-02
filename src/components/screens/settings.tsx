@@ -14,8 +14,12 @@ import { Button } from '@/components/ui/button';
 
 export function Settings() {
   const { metadata, updateBatchSize, updateMaxIterations } = useSync();
-  const { metadata: parseMetadata, updateBatchSize: updateParseBatchSize } =
-    useParse();
+  const {
+    metadata: parseMetadata,
+    updateBatchSize: updateParseBatchSize,
+    hasGeminiApiKey,
+    refreshGeminiApiKeyStatus,
+  } = useParse();
   const [batchSize, setBatchSize] = useState<string>('');
   const [maxIterations, setMaxIterations] = useState<string>('');
   const [parseBatchSize, setParseBatchSize] = useState<string>('');
@@ -27,7 +31,6 @@ export function Settings() {
   const [isInitialized, setIsInitialized] = useState(false);
   // Gemini API キー
   const [geminiApiKey, setGeminiApiKey] = useState<string>('');
-  const [hasGeminiApiKey, setHasGeminiApiKey] = useState(false);
   const [isSavingGeminiApiKey, setIsSavingGeminiApiKey] = useState(false);
   const [isDeletingGeminiApiKey, setIsDeletingGeminiApiKey] = useState(false);
 
@@ -44,6 +47,10 @@ export function Settings() {
       setParseBatchSize(parseMetadata.batch_size.toString());
     }
   }, [parseMetadata]);
+
+  useEffect(() => {
+    refreshGeminiApiKeyStatus();
+  }, [refreshGeminiApiKeyStatus]);
 
   const handleSaveBatchSize = async () => {
     const value = parseInt(batchSize, 10);
@@ -109,7 +116,6 @@ export function Settings() {
       setSuccessMessage(
         'Gemini APIキーを保存しました（OSのセキュアストレージに保存）'
       );
-      setHasGeminiApiKey(true);
       setGeminiApiKey(''); // セキュリティのため入力欄をクリア
       await refreshGeminiApiKeyStatus();
       setTimeout(() => setSuccessMessage(''), 3000);
@@ -134,7 +140,6 @@ export function Settings() {
     try {
       await invoke('delete_gemini_api_key');
       setSuccessMessage('Gemini APIキーを削除しました');
-      setHasGeminiApiKey(false);
       setGeminiApiKey('');
       await refreshGeminiApiKeyStatus();
       setTimeout(() => setSuccessMessage(''), 3000);
@@ -265,6 +270,54 @@ export function Settings() {
               </p>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Gemini API</CardTitle>
+          <CardDescription>
+            商品名解析に使用するGemini
+            APIキーを設定します（OSのセキュアストレージに保存）
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="space-y-2">
+            <label htmlFor="gemini-api-key" className="text-sm font-medium">
+              APIキー
+            </label>
+            <p className="text-sm text-muted-foreground">
+              {hasGeminiApiKey
+                ? 'APIキーは設定済みです'
+                : 'APIキーを入力して保存してください'}
+            </p>
+            <div className="flex gap-2">
+              <Input
+                id="gemini-api-key"
+                type="password"
+                placeholder={hasGeminiApiKey ? '********' : 'APIキーを入力'}
+                value={geminiApiKey}
+                onChange={(e) => setGeminiApiKey(e.target.value)}
+                disabled={isSavingGeminiApiKey}
+                className="max-w-md"
+              />
+              <Button
+                onClick={handleSaveGeminiApiKey}
+                disabled={isSavingGeminiApiKey || !geminiApiKey.trim()}
+              >
+                保存
+              </Button>
+              {hasGeminiApiKey && (
+                <Button
+                  variant="destructive"
+                  onClick={handleDeleteGeminiApiKey}
+                  disabled={isDeletingGeminiApiKey}
+                >
+                  削除
+                </Button>
+              )}
+            </div>
+          </div>
         </CardContent>
       </Card>
 

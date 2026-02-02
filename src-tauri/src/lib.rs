@@ -868,16 +868,19 @@ async fn start_product_name_parse(
 
     tauri::async_runtime::spawn(async move {
         // items テーブルから product_master に未登録の商品名のみを取得
-        // DISTINCT で重複を除去し、LEFT JOIN + IS NULL で未登録を判定
+        // 商品名単位で一意にするため GROUP BY TRIM(i.item_name) で集約
         let items: Vec<(String, Option<String>)> = match sqlx::query_as(
             r#"
-            SELECT DISTINCT TRIM(i.item_name) AS item_name, o.shop_domain
+            SELECT
+              TRIM(i.item_name) AS item_name,
+              MIN(o.shop_domain) AS shop_domain
             FROM items i
             JOIN orders o ON i.order_id = o.id
             LEFT JOIN product_master pm ON TRIM(i.item_name) = pm.raw_name
             WHERE i.item_name IS NOT NULL
               AND i.item_name != ''
               AND pm.id IS NULL
+            GROUP BY TRIM(i.item_name)
             "#,
         )
         .fetch_all(&pool_clone)
