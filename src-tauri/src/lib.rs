@@ -863,7 +863,10 @@ async fn start_product_name_parse(
         .map_err(|e| format!("Failed to get app data dir: {e}"))?;
 
     if !gemini::has_api_key(&app_data_dir) {
-        return Err("Gemini API key is not configured. Please set it in Settings.".to_string());
+        return Err(
+            "Gemini API key is not configured. Please create or update `gemini_api_key.json` in the app data directory."
+                .to_string(),
+        );
     }
 
     let api_key = gemini::load_api_key(&app_data_dir)?;
