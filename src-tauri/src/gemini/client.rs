@@ -110,12 +110,12 @@ impl GeminiClient {
         let http_client = Client::builder(TokioExecutor::new()).build(https);
 
         // セキュリティ: APIキーをログに出力しない
-        log::info!("GeminiClient created with model: gemini-1.5-flash");
+        log::info!("GeminiClient created with model: gemini-2.0-flash-lite");
 
         Ok(Self {
             api_key,
             http_client,
-            model: "gemini-1.5-flash".to_string(),
+            model: "gemini-2.0-flash-lite".to_string(),
         })
     }
 
