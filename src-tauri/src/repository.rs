@@ -1401,6 +1401,18 @@ pub trait ProductMasterRepository: Send + Sync {
         normalized_name: &str,
     ) -> Result<Option<ProductMaster>, String>;
 
+    /// 複数の raw_name で一括キャッシュ検索（N+1クエリ回避用）
+    async fn find_by_raw_names(
+        &self,
+        raw_names: &[String],
+    ) -> Result<std::collections::HashMap<String, ProductMaster>, String>;
+
+    /// 複数の normalized_name で一括キャッシュ検索（N+1クエリ回避用）
+    async fn find_by_normalized_names(
+        &self,
+        normalized_names: &[String],
+    ) -> Result<std::collections::HashMap<String, ProductMaster>, String>;
+
     /// 新規保存
     /// Note: platform_hintはOption<String>を使用（mockallとの互換性のため）
     async fn save(
@@ -1483,6 +1495,90 @@ impl ProductMasterRepository for SqliteProductMasterRepository {
         .map_err(|e| format!("Failed to find product master by normalized_name: {e}"))
     }
 
+    async fn find_by_raw_names(
+        &self,
+        raw_names: &[String],
+    ) -> Result<std::collections::HashMap<String, ProductMaster>, String> {
+        if raw_names.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+        let placeholders = raw_names
+            .iter()
+            .map(|_| "?")
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            r#"
+            SELECT
+                id,
+                raw_name,
+                normalized_name,
+                maker,
+                series,
+                product_name,
+                scale,
+                is_reissue,
+                platform_hint,
+                created_at,
+                updated_at
+            FROM product_master
+            WHERE raw_name IN ({})
+            "#,
+            placeholders
+        );
+        let mut query = sqlx::query_as::<_, ProductMaster>(&sql);
+        for name in raw_names {
+            query = query.bind(name);
+        }
+        let rows = query
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| format!("Failed to find product masters by raw_names: {e}"))?;
+        Ok(rows.into_iter().map(|r| (r.raw_name.clone(), r)).collect())
+    }
+
+    async fn find_by_normalized_names(
+        &self,
+        normalized_names: &[String],
+    ) -> Result<std::collections::HashMap<String, ProductMaster>, String> {
+        if normalized_names.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+        let placeholders = normalized_names
+            .iter()
+            .map(|_| "?")
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            r#"
+            SELECT
+                id,
+                raw_name,
+                normalized_name,
+                maker,
+                series,
+                product_name,
+                scale,
+                is_reissue,
+                platform_hint,
+                created_at,
+                updated_at
+            FROM product_master
+            WHERE normalized_name IN ({})
+            "#,
+            placeholders
+        );
+        let mut query = sqlx::query_as::<_, ProductMaster>(&sql);
+        for name in normalized_names {
+            query = query.bind(name);
+        }
+        let rows = query
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| format!("Failed to find product masters by normalized_names: {e}"))?;
+        Ok(rows.into_iter().map(|r| (r.normalized_name.clone(), r)).collect())
+    }
+
     async fn save(
         &self,
         raw_name: &str,
@@ -1490,15 +1586,10 @@ impl ProductMasterRepository for SqliteProductMasterRepository {
         parsed: &ParsedProduct,
         platform_hint: Option<String>,
     ) -> Result<i64, String> {
-        log::info!(
-            "Saving to product_master: raw_name={}, maker={:?}, series={:?}, name={}",
-            raw_name,
-            parsed.maker,
-            parsed.series,
-            parsed.name
-        );
+        // Avoid logging user/product data (raw_name, maker, series, name); keep logs metrics-only.
+        log::info!("Saving product_master entry");
 
-        let result = sqlx::query(
+        let id: i64 = sqlx::query_scalar(
             r#"
             INSERT INTO product_master (
                 raw_name,
@@ -1517,6 +1608,7 @@ impl ProductMasterRepository for SqliteProductMasterRepository {
                 scale = excluded.scale,
                 is_reissue = excluded.is_reissue,
                 platform_hint = COALESCE(product_master.platform_hint, excluded.platform_hint)
+            RETURNING id
             "#,
         )
         .bind(raw_name)
@@ -1527,18 +1619,15 @@ impl ProductMasterRepository for SqliteProductMasterRepository {
         .bind(&parsed.scale)
         .bind(parsed.is_reissue)
         .bind(&platform_hint)
-        .execute(&self.pool)
+        .fetch_one(&self.pool)
         .await
         .map_err(|e| {
             log::error!("Failed to save product master: {}", e);
             format!("Failed to save product master: {e}")
         })?;
 
-        log::info!(
-            "Successfully saved to product_master with id={}",
-            result.last_insert_rowid()
-        );
-        Ok(result.last_insert_rowid())
+        log::info!("Successfully saved to product_master");
+        Ok(id)
     }
 
     async fn update(&self, id: i64, parsed: &ParsedProduct) -> Result<(), String> {

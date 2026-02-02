@@ -16,6 +16,7 @@ export function ParseProvider({ children }: { children: ReactNode }) {
   const [isProductNameParsing, setIsProductNameParsing] = useState(false);
   const [productNameProgress, setProductNameProgress] =
     useState<ProductNameParseProgress | null>(null);
+  const [hasGeminiApiKey, setHasGeminiApiKey] = useState(false);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -65,6 +66,10 @@ export function ParseProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     refreshStatus();
   }, [refreshStatus]);
+
+  useEffect(() => {
+    refreshGeminiApiKeyStatus();
+  }, [refreshGeminiApiKeyStatus]);
 
   const startParse = async (batchSize?: number) => {
     try {
@@ -120,6 +125,8 @@ export function ParseProvider({ children }: { children: ReactNode }) {
         isProductNameParsing,
         productNameProgress,
         startProductNameParse,
+        hasGeminiApiKey,
+        refreshGeminiApiKeyStatus,
       }}
     >
       {children}

@@ -42,6 +42,8 @@ export interface ParseContextType {
   isProductNameParsing: boolean;
   productNameProgress: ProductNameParseProgress | null;
   startProductNameParse: () => Promise<void>;
+  hasGeminiApiKey: boolean;
+  refreshGeminiApiKeyStatus: () => Promise<void>;
 }
 
 export const ParseContext = createContext<ParseContextType | undefined>(

@@ -103,25 +103,35 @@ impl<C: GeminiClientTrait, R: ProductMasterRepository> ProductParseService<C, R>
         let mut results: Vec<(usize, ParsedProduct)> = Vec::with_capacity(items.len());
         let mut cache_misses: Vec<(usize, String, String, Option<String>)> = Vec::new();
 
-        // 1. キャッシュチェック
+        // 1. キャッシュチェック（一括取得でN+1クエリを回避）
+        let raw_names: Vec<String> = items.iter().map(|(r, _)| r.clone()).collect();
+        let raw_name_map = self.repository.find_by_raw_names(&raw_names).await?;
+
+        // raw_name でヒットしなかったものの normalized_name を一括取得
+        let mut normalized_for_miss: Vec<(usize, String, String, Option<String>)> = Vec::new();
         for (i, (raw_name, platform_hint)) in items.iter().enumerate() {
-            // raw_name で完全一致チェック
-            if let Some(cached) = self.repository.find_by_raw_name(raw_name).await? {
-                log::debug!("Batch: Cache hit for product: {}", raw_name);
-                results.push((i, cached.into()));
+            if let Some(cached) = raw_name_map.get(raw_name) {
+                log::debug!("Batch: Cache hit for product (raw_name)");
+                results.push((i, cached.clone().into()));
                 continue;
             }
-
-            // 正規化名でチェック
             let normalized = normalize_product_name(raw_name);
-            if let Some(cached) = self.repository.find_by_normalized_name(&normalized).await? {
-                log::debug!("Batch: Cache hit (normalized) for product: {}", raw_name);
-                results.push((i, cached.into()));
-                continue;
-            }
+            normalized_for_miss.push((i, raw_name.clone(), normalized, platform_hint.clone()));
+        }
 
-            // キャッシュミス
-            cache_misses.push((i, raw_name.clone(), normalized, platform_hint.clone()));
+        let normalized_names: Vec<String> = normalized_for_miss
+            .iter()
+            .map(|(_, _, n, _)| n.clone())
+            .collect();
+        let normalized_map = self.repository.find_by_normalized_names(&normalized_names).await?;
+
+        for (i, raw_name, normalized, platform_hint) in normalized_for_miss {
+            if let Some(cached) = normalized_map.get(&normalized) {
+                log::debug!("Batch: Cache hit (normalized)");
+                results.push((i, cached.clone().into()));
+            } else {
+                cache_misses.push((i, raw_name, normalized, platform_hint));
+            }
         }
 
         log::info!(
@@ -211,11 +221,6 @@ impl<C: GeminiClientTrait, R: ProductMasterRepository> ProductParseService<C, R>
                 for ((i, raw_name, normalized, platform_hint), result) in
                     chunk.iter().zip(api_results.iter())
                 {
-                    log::debug!(
-                        "Saving to DB: raw_name={}, maker={:?}",
-                        raw_name,
-                        result.maker
-                    );
                     if let Err(e) = self
                         .repository
                         .save(raw_name, normalized, result, platform_hint.clone())
@@ -256,6 +261,7 @@ mod tests {
     use super::*;
     use crate::gemini::client::MockGeminiClientTrait;
     use crate::repository::{MockProductMasterRepository, ProductMaster};
+    use std::collections::HashMap;
 
     #[test]
     fn test_normalize_product_name_fullwidth_to_halfwidth() {
@@ -373,34 +379,37 @@ mod tests {
 
         let mut mock_repo = MockProductMasterRepository::new();
 
-        // 最初の商品はキャッシュヒット
+        // find_by_raw_names: 商品A のみキャッシュヒット
         mock_repo
-            .expect_find_by_raw_name()
-            .withf(|name| name == "商品A")
-            .returning(|_| {
-                Ok(Some(ProductMaster {
-                    id: 1,
-                    raw_name: "商品A".to_string(),
-                    normalized_name: "商品a".to_string(),
-                    maker: Some("キャッシュ結果".to_string()),
-                    series: None,
-                    product_name: Some("商品A".to_string()),
-                    scale: None,
-                    is_reissue: false,
-                    platform_hint: None,
-                    created_at: "2024-01-01".to_string(),
-                    updated_at: "2024-01-01".to_string(),
-                }))
+            .expect_find_by_raw_names()
+            .returning(|raw_names| {
+                let mut map = HashMap::new();
+                if raw_names.contains(&"商品A".to_string()) {
+                    map.insert(
+                        "商品A".to_string(),
+                        ProductMaster {
+                            id: 1,
+                            raw_name: "商品A".to_string(),
+                            normalized_name: "商品a".to_string(),
+                            maker: Some("キャッシュ結果".to_string()),
+                            series: None,
+                            product_name: Some("商品A".to_string()),
+                            scale: None,
+                            is_reissue: false,
+                            platform_hint: None,
+                            created_at: "2024-01-01".to_string(),
+                            updated_at: "2024-01-01".to_string(),
+                        },
+                    );
+                }
+                Ok(map)
             });
 
-        // 2番目の商品はキャッシュミス
+        // find_by_normalized_names: 商品B の正規化名はキャッシュミス
         mock_repo
-            .expect_find_by_raw_name()
-            .withf(|name| name == "商品B")
-            .returning(|_| Ok(None));
-        mock_repo
-            .expect_find_by_normalized_name()
-            .returning(|_| Ok(None));
+            .expect_find_by_normalized_names()
+            .returning(|_| Ok(HashMap::new()));
+
         mock_repo.expect_save().returning(|_, _, _, _| Ok(2));
 
         let service = ProductParseService::new(mock_client, mock_repo);
