@@ -5,7 +5,7 @@
 //! - ファイルは app_data_dir に配置（client_secret.json と同じ場所）
 
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// APIキー設定ファイルの構造
 #[derive(Debug, Serialize, Deserialize)]
@@ -14,12 +14,12 @@ pub struct GeminiApiKeyConfig {
 }
 
 /// APIキー設定ファイルのパスを取得
-pub fn get_config_path(app_data_dir: &PathBuf) -> PathBuf {
+pub fn get_config_path(app_data_dir: &Path) -> PathBuf {
     app_data_dir.join("gemini_api_key.json")
 }
 
 /// APIキーが設定されているかチェック
-pub fn has_api_key(app_data_dir: &PathBuf) -> bool {
+pub fn has_api_key(app_data_dir: &Path) -> bool {
     get_config_path(app_data_dir).exists()
 }
 
@@ -27,7 +27,7 @@ pub fn has_api_key(app_data_dir: &PathBuf) -> bool {
 ///
 /// # セキュリティ
 /// APIキーはログに出力されません
-pub fn load_api_key(app_data_dir: &PathBuf) -> Result<String, String> {
+pub fn load_api_key(app_data_dir: &Path) -> Result<String, String> {
     let config_path = get_config_path(app_data_dir);
 
     if !config_path.exists() {
@@ -59,7 +59,7 @@ pub fn load_api_key(app_data_dir: &PathBuf) -> Result<String, String> {
 ///
 /// # セキュリティ
 /// APIキーはログに出力されません
-pub fn save_api_key(app_data_dir: &PathBuf, api_key: &str) -> Result<(), String> {
+pub fn save_api_key(app_data_dir: &Path, api_key: &str) -> Result<(), String> {
     let config_path = get_config_path(app_data_dir);
 
     let config = GeminiApiKeyConfig {
@@ -79,7 +79,7 @@ pub fn save_api_key(app_data_dir: &PathBuf, api_key: &str) -> Result<(), String>
 }
 
 /// APIキーファイルを削除
-pub fn delete_api_key(app_data_dir: &PathBuf) -> Result<(), String> {
+pub fn delete_api_key(app_data_dir: &Path) -> Result<(), String> {
     let config_path = get_config_path(app_data_dir);
 
     if config_path.exists() {

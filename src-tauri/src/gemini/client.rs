@@ -183,18 +183,12 @@ impl GeminiClient {
 
     /// 単一のAPIリクエストを実行（内部用）
     /// RESOURCE_EXHAUSTED などのエラー時は None を返す（呼び出し元でフォールバック処理）
-    async fn execute_single_request(
-        &self,
-        product_names: &[String],
-    ) -> Option<Vec<ParsedProduct>> {
+    async fn execute_single_request(&self, product_names: &[String]) -> Option<Vec<ParsedProduct>> {
         if product_names.is_empty() {
             return Some(Vec::new());
         }
 
-        log::info!(
-            "Calling Gemini API for {} product(s)",
-            product_names.len()
-        );
+        log::info!("Calling Gemini API for {} product(s)", product_names.len());
 
         let prompt = self.build_prompt(product_names);
         let request_body = self.build_request_body(&prompt);
@@ -279,10 +273,7 @@ impl GeminiClient {
 
         match self.parse_response_text(&text) {
             Ok(products) => {
-                log::info!(
-                    "Gemini API returned {} parsed product(s)",
-                    products.len()
-                );
+                log::info!("Gemini API returned {} parsed product(s)", products.len());
 
                 // 結果数が入力数と一致しない場合は警告
                 if products.len() != product_names.len() {
@@ -524,16 +515,15 @@ mod tests {
     async fn test_mock_gemini_client() {
         let mut mock = MockGeminiClientTrait::new();
 
-        mock.expect_parse_product_name()
-            .returning(|_| {
-                Ok(ParsedProduct {
-                    maker: Some("バンダイ".to_string()),
-                    series: Some("機動戦士ガンダム".to_string()),
-                    name: "RX-78-2 ガンダム".to_string(),
-                    scale: Some("1/144".to_string()),
-                    is_reissue: false,
-                })
-            });
+        mock.expect_parse_product_name().returning(|_| {
+            Ok(ParsedProduct {
+                maker: Some("バンダイ".to_string()),
+                series: Some("機動戦士ガンダム".to_string()),
+                name: "RX-78-2 ガンダム".to_string(),
+                scale: Some("1/144".to_string()),
+                is_reissue: false,
+            })
+        });
 
         let result = mock.parse_product_name("バンダイ ガンダム 1/144").await;
         assert!(result.is_ok());
