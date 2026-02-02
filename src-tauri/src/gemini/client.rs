@@ -83,9 +83,10 @@ pub trait GeminiClientTrait: Send + Sync {
 }
 
 /// Gemini API クライアント実装
+/// リクエストボディに Full<Bytes> を使用（hyper-util Client の型パラメータと一致）
 pub struct GeminiClient {
     api_key: String,
-    http_client: Client<HttpsConnector<HttpConnector>, hyper::body::Incoming>,
+    http_client: Client<HttpsConnector<HttpConnector>, Full<Bytes>>,
     model: String,
 }
 
