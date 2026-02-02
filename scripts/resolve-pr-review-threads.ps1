@@ -1,21 +1,22 @@
-# PR #55 の未解決レビュースレッドを gh api graphql で解決するスクリプト
-# 使用方法: .\scripts\resolve-pr-review-threads.ps1
+# PR の未解決レビュースレッドを gh api graphql で解決するスクリプト
+# 使用方法:
+#   .\scripts\resolve-pr-review-threads.ps1 -Owner hina0118 -Repo paa -PrNumber 55 -ThreadIds @("PRRT_xxx","PRRT_yyy")
+#   .\scripts\resolve-pr-review-threads.ps1  # デフォルト値で PR #55 の既知スレッドを解決
 # 前提: gh がインストール済みで gh auth login 済みであること
 
-$ErrorActionPreference = "Stop"
-$owner = "hina0118"
-$repo = "paa"
-$prNumber = 55
-
-# 未解決のスレッドID（レビュー指摘対応分）
-$unresolvedThreadIds = @(
-    "PRRT_kwDOQ3N1zs5sOopz",   # success_count の正確な集計（ParseBatchResult で対応済み）
-    "PRRT_kwDOQ3N1zs5sO4Iy",   # 多重実行ガード（ProductNameParseState で対応済み）
-    "PRRT_kwDOQ3N1zs5sO4I-",   # product_name NULL 時の raw_name フォールバック
-    "PRRT_kwDOQ3N1zs5sO4JY",   # APIエラー時のレスポンスボディ全文ログ削除
-    "PRRT_kwDOQ3N1zs5sO4J1",   # 返却件数不一致時のチャンク全体失敗扱い
-    "PRRT_kwDOQ3N1zs5sO4KD"    # success_count の正確な集計（ParseBatchResult で対応済み）
+param(
+    [string]$Owner = "hina0118",
+    [string]$Repo = "paa",
+    [int]$PrNumber = 55,
+    [string[]]$ThreadIds = @(
+        "PRRT_kwDOQ3N1zs5sPPlb",   # Gemini API保存/削除のテスト追加
+        "PRRT_kwDOQ3N1zs5sPPlz",   # 保存ボタン取得をaria-labelで安定化
+        "PRRT_kwDOQ3N1zs5sPPmB",   # try_start()後の早期returnでfinish()呼び忘れ
+        "PRRT_kwDOQ3N1zs5sPPmT"    # API失敗時のレスポンス本文ログ
+    )
 )
+
+$ErrorActionPreference = "Stop"
 
 Write-Host "gh コマンドの確認..."
 $ghPath = Get-Command gh -ErrorAction SilentlyContinue
@@ -32,12 +33,12 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-Write-Host "`n未解決のレビュースレッド $($unresolvedThreadIds.Count) 件を解決します..." -ForegroundColor Cyan
+Write-Host "`nPR #$PrNumber ($Owner/$Repo) の未解決レビュースレッド $($ThreadIds.Count) 件を解決します..." -ForegroundColor Cyan
 
 $successCount = 0
 $failCount = 0
 
-foreach ($threadId in $unresolvedThreadIds) {
+foreach ($threadId in $ThreadIds) {
     $query = "mutation { resolveReviewThread(input: {threadId: \`"$threadId\`"}) { thread { isResolved } } }"
 
     Write-Host "  Resolving $threadId..." -NoNewline
