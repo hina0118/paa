@@ -1354,6 +1354,217 @@ impl ShopSettingsRepository for SqliteShopSettingsRepository {
     }
 }
 
+// =============================================================================
+// ProductMasterRepository - Gemini AI による商品名解析結果のキャッシュ
+// =============================================================================
+
+use crate::gemini::ParsedProduct;
+
+/// ProductMaster エンティティ
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct ProductMaster {
+    pub id: i64,
+    pub raw_name: String,
+    pub normalized_name: String,
+    pub maker: Option<String>,
+    pub series: Option<String>,
+    pub product_name: Option<String>,
+    pub scale: Option<String>,
+    pub is_reissue: bool,
+    pub platform_hint: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+impl From<ProductMaster> for ParsedProduct {
+    fn from(pm: ProductMaster) -> Self {
+        ParsedProduct {
+            maker: pm.maker,
+            series: pm.series,
+            name: pm.product_name.unwrap_or_default(),
+            scale: pm.scale,
+            is_reissue: pm.is_reissue,
+        }
+    }
+}
+
+/// ProductMaster リポジトリトレイト
+#[cfg_attr(test, automock)]
+#[async_trait]
+pub trait ProductMasterRepository: Send + Sync {
+    /// raw_name でキャッシュ検索
+    async fn find_by_raw_name(&self, raw_name: &str) -> Result<Option<ProductMaster>, String>;
+
+    /// normalized_name でキャッシュ検索（類似検索用）
+    async fn find_by_normalized_name(
+        &self,
+        normalized_name: &str,
+    ) -> Result<Option<ProductMaster>, String>;
+
+    /// 新規保存
+    /// Note: platform_hintはOption<String>を使用（mockallとの互換性のため）
+    async fn save(
+        &self,
+        raw_name: &str,
+        normalized_name: &str,
+        parsed: &ParsedProduct,
+        platform_hint: Option<String>,
+    ) -> Result<i64, String>;
+
+    /// 更新
+    async fn update(&self, id: i64, parsed: &ParsedProduct) -> Result<(), String>;
+}
+
+/// SQLiteを使用したProductMasterRepositoryの実装
+pub struct SqliteProductMasterRepository {
+    pool: SqlitePool,
+}
+
+impl SqliteProductMasterRepository {
+    pub fn new(pool: SqlitePool) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait]
+impl ProductMasterRepository for SqliteProductMasterRepository {
+    async fn find_by_raw_name(&self, raw_name: &str) -> Result<Option<ProductMaster>, String> {
+        sqlx::query_as::<_, ProductMaster>(
+            r#"
+            SELECT
+                id,
+                raw_name,
+                normalized_name,
+                maker,
+                series,
+                product_name,
+                scale,
+                is_reissue,
+                platform_hint,
+                created_at,
+                updated_at
+            FROM product_master
+            WHERE raw_name = ?
+            LIMIT 1
+            "#,
+        )
+        .bind(raw_name)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to find product master by raw_name: {e}"))
+    }
+
+    async fn find_by_normalized_name(
+        &self,
+        normalized_name: &str,
+    ) -> Result<Option<ProductMaster>, String> {
+        sqlx::query_as::<_, ProductMaster>(
+            r#"
+            SELECT
+                id,
+                raw_name,
+                normalized_name,
+                maker,
+                series,
+                product_name,
+                scale,
+                is_reissue,
+                platform_hint,
+                created_at,
+                updated_at
+            FROM product_master
+            WHERE normalized_name = ?
+            LIMIT 1
+            "#,
+        )
+        .bind(normalized_name)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to find product master by normalized_name: {e}"))
+    }
+
+    async fn save(
+        &self,
+        raw_name: &str,
+        normalized_name: &str,
+        parsed: &ParsedProduct,
+        platform_hint: Option<String>,
+    ) -> Result<i64, String> {
+        log::info!(
+            "Saving to product_master: raw_name={}, maker={:?}, series={:?}, name={}",
+            raw_name,
+            parsed.maker,
+            parsed.series,
+            parsed.name
+        );
+
+        let result = sqlx::query(
+            r#"
+            INSERT INTO product_master (
+                raw_name,
+                normalized_name,
+                maker,
+                series,
+                product_name,
+                scale,
+                is_reissue,
+                platform_hint
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(raw_name) DO UPDATE SET
+                maker = excluded.maker,
+                series = excluded.series,
+                product_name = excluded.product_name,
+                scale = excluded.scale,
+                is_reissue = excluded.is_reissue,
+                platform_hint = COALESCE(product_master.platform_hint, excluded.platform_hint)
+            "#,
+        )
+        .bind(raw_name)
+        .bind(normalized_name)
+        .bind(&parsed.maker)
+        .bind(&parsed.series)
+        .bind(&parsed.name)
+        .bind(&parsed.scale)
+        .bind(parsed.is_reissue)
+        .bind(&platform_hint)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| {
+            log::error!("Failed to save product master: {}", e);
+            format!("Failed to save product master: {e}")
+        })?;
+
+        log::info!("Successfully saved to product_master with id={}", result.last_insert_rowid());
+        Ok(result.last_insert_rowid())
+    }
+
+    async fn update(&self, id: i64, parsed: &ParsedProduct) -> Result<(), String> {
+        sqlx::query(
+            r#"
+            UPDATE product_master
+            SET
+                maker = ?,
+                series = ?,
+                product_name = ?,
+                scale = ?,
+                is_reissue = ?
+            WHERE id = ?
+            "#,
+        )
+        .bind(&parsed.maker)
+        .bind(&parsed.series)
+        .bind(&parsed.name)
+        .bind(&parsed.scale)
+        .bind(parsed.is_reissue)
+        .bind(id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to update product master: {e}"))?;
+
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

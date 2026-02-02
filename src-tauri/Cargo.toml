@@ -44,11 +44,14 @@ sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-r
 regex = "1"
 once_cell = "1"
 async-trait = "0.1"
+unicode-normalization = "0.1"
+http-body-util = "0.1"
 
 [dev-dependencies]
 mockall = "0.13"
 tokio-test = "0.4"
 wiremock = "0.6"
+tempfile = "3"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(ci)'] }

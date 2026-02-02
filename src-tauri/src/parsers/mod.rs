@@ -249,7 +249,8 @@ pub struct ParseProgressEvent {
     pub error: Option<String>,
 }
 
-/// バッチパース処理
+/// バッチパース処理（メールから注文情報を抽出）
+/// NOTE: 商品名のAI解析（Gemini API）は別コマンド parse_product_names で実行
 pub async fn batch_parse_emails(
     app_handle: &tauri::AppHandle,
     pool: &SqlitePool,
@@ -373,6 +374,18 @@ pub async fn batch_parse_emails(
         // OrderRepositoryインスタンスをループの外で作成（効率化のため）
         let order_repo = SqliteOrderRepository::new(pool.clone());
 
+        // ===============================================================
+        // フェーズ1: 全メールを正規表現でパースし、成功した注文を収集
+        // ===============================================================
+        struct ParsedOrderData {
+            email_id: i64,
+            order_info: OrderInfo,
+            shop_name: String,
+            shop_domain: Option<String>,
+        }
+
+        let mut parsed_orders: Vec<ParsedOrderData> = Vec::new();
+
         for row in emails.iter() {
             // 送信元アドレスと件名フィルターから候補のパーサー(parser_type, shop_name)を全て取得
             let candidate_parsers = get_candidate_parsers_for_batch(
@@ -403,6 +416,7 @@ pub async fn batch_parse_emails(
                         )
                     })?;
                 failed_count += 1;
+                overall_parsed_count += 1;
                 continue;
             }
 
@@ -478,40 +492,16 @@ pub async fn batch_parse_emails(
             match parse_result {
                 Ok((order_info, shop_name)) => {
                     // ドメインを抽出（extract_email_address で <> 形式に対応、extract_domain でドメイン部分のみ取得）
-                    // candidate_parsers が空でない限り from_address は Some である
                     let from_address = row.from_address.as_deref().unwrap_or("");
                     let shop_domain = extract_email_address(from_address)
                         .and_then(|email| extract_domain(&email).map(|s| s.to_string()));
 
-                    // データベースに保存
-                    match order_repo
-                        .save_order(
-                            &order_info,
-                            Some(row.email_id),
-                            shop_domain,
-                            Some(shop_name),
-                        )
-                        .await
-                    {
-                        Ok(order_id) => {
-                            log::info!("Successfully parsed and saved order: {}", order_id);
-                            success_count += 1;
-                        }
-                        Err(e) => {
-                            log::error!("Failed to save order: {}", e);
-                            parse_repo
-                                .mark_parse_skipped(row.email_id, &e)
-                                .await
-                                .map_err(|mark_err| {
-                                    parse_state.finish();
-                                    format!(
-                                        "Failed to mark email {} as skipped (DB error): {}. Aborting to prevent infinite parse loop.",
-                                        row.email_id, mark_err
-                                    )
-                                })?;
-                            failed_count += 1;
-                        }
-                    }
+                    parsed_orders.push(ParsedOrderData {
+                        email_id: row.email_id,
+                        order_info,
+                        shop_name,
+                        shop_domain,
+                    });
                 }
                 Err(e) => {
                     log::error!("Failed to parse email {}: {}", row.email_id, e);
@@ -526,9 +516,43 @@ pub async fn batch_parse_emails(
                             )
                         })?;
                     failed_count += 1;
+                    overall_parsed_count += 1;
                 }
             }
+        }
 
+        // ===============================================================
+        // フェーズ2: 全注文をDBに保存
+        // ===============================================================
+        for order_data in parsed_orders {
+            match order_repo
+                .save_order(
+                    &order_data.order_info,
+                    Some(order_data.email_id),
+                    order_data.shop_domain,
+                    Some(order_data.shop_name),
+                )
+                .await
+            {
+                Ok(order_id) => {
+                    log::info!("Successfully parsed and saved order: {}", order_id);
+                    success_count += 1;
+                }
+                Err(e) => {
+                    log::error!("Failed to save order: {}", e);
+                    parse_repo
+                        .mark_parse_skipped(order_data.email_id, &e)
+                        .await
+                        .map_err(|mark_err| {
+                            parse_state.finish();
+                            format!(
+                                "Failed to mark email {} as skipped (DB error): {}. Aborting to prevent infinite parse loop.",
+                                order_data.email_id, mark_err
+                            )
+                        })?;
+                    failed_count += 1;
+                }
+            }
             overall_parsed_count += 1;
         }
 

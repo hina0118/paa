@@ -61,3 +61,9 @@ export function ParseMetadataTable() {
     <TableViewer tableName="parse_metadata" title="Parse Metadata テーブル" />
   );
 }
+
+export function ProductMasterTable() {
+  return (
+    <TableViewer tableName="product_master" title="Product Master テーブル" />
+  );
+}
