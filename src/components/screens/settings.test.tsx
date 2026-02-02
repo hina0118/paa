@@ -381,8 +381,8 @@ describe('Settings', () => {
       });
 
       const saveButtons = screen.getAllByRole('button', { name: '保存' });
-      // 3番目の保存ボタン（パース設定）
-      await user.click(saveButtons[2]);
+      // 4番目の保存ボタン（パース設定。0:同期バッチ, 1:最大繰り返し, 2:Gemini API, 3:パース）
+      await user.click(saveButtons[3]);
 
       await waitFor(() => {
         expect(mockInvoke).toHaveBeenCalledWith('update_parse_batch_size', {
@@ -420,7 +420,8 @@ describe('Settings', () => {
       });
 
       const saveButtons = screen.getAllByRole('button', { name: '保存' });
-      await user.click(saveButtons[2]);
+      // 4番目: パースバッチサイズ
+      await user.click(saveButtons[3]);
 
       await waitFor(() => {
         expect(
@@ -453,8 +454,9 @@ describe('Settings', () => {
         expect(document.getElementById('parse-batch-size')).toBeInTheDocument();
       });
 
+      // パースバッチサイズの保存ボタン（Gemini API 追加により index 3）
       const saveButtons = screen.getAllByRole('button', { name: '保存' });
-      await user.click(saveButtons[2]);
+      await user.click(saveButtons[3]);
 
       await waitFor(() => {
         expect(
