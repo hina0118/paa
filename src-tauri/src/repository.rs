@@ -1381,7 +1381,7 @@ impl From<ProductMaster> for ParsedProduct {
         ParsedProduct {
             maker: pm.maker,
             series: pm.series,
-            name: pm.product_name.unwrap_or_default(),
+            name: pm.product_name.unwrap_or_else(|| pm.raw_name.clone()),
             scale: pm.scale,
             is_reissue: pm.is_reissue,
         }

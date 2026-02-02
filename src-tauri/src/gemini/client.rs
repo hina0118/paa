@@ -235,9 +235,15 @@ impl GeminiClient {
         };
 
         if !status.is_success() {
-            let error_text = String::from_utf8_lossy(&body_bytes);
-            log::error!("Gemini API error (status {}): {}", status, error_text);
+            // レスポンスボディ全文はログに出さず、ステータスコードやボディ長などのメタ情報のみを出力
+            // （API側のエラーメッセージがプロンプト=商品名を含むケースがあり、商品データがログに漏れる可能性があるため）
+            log::error!(
+                "Gemini API error (status {}), response body length: {} bytes",
+                status,
+                body_bytes.len()
+            );
 
+            let error_text = String::from_utf8_lossy(&body_bytes);
             // RESOURCE_EXHAUSTED (429) やその他のエラーは None を返してスキップ
             if status.as_u16() == 429 || error_text.contains("RESOURCE_EXHAUSTED") {
                 log::warn!("Gemini API quota exceeded, skipping this batch");
