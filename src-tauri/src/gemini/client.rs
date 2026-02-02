@@ -10,7 +10,8 @@
 //! - RESOURCE_EXHAUSTED エラー時は処理をスキップ
 
 use async_trait::async_trait;
-use http_body_util::BodyExt;
+use bytes::Bytes;
+use http_body_util::{BodyExt, Full};
 use hyper::{Method, Request};
 use hyper_rustls::HttpsConnector;
 use hyper_util::client::legacy::connect::HttpConnector;
@@ -84,7 +85,7 @@ pub trait GeminiClientTrait: Send + Sync {
 /// Gemini API クライアント実装
 pub struct GeminiClient {
     api_key: String,
-    http_client: Client<HttpsConnector<HttpConnector>, String>,
+    http_client: Client<HttpsConnector<HttpConnector>, hyper::body::Incoming>,
     model: String,
 }
 
@@ -198,12 +199,13 @@ impl GeminiClient {
         log::info!("Gemini API endpoint: {}", endpoint);
         log::debug!("Gemini API request body length: {} bytes", request_body.len());
 
+        let body = Full::new(Bytes::from(request_body));
         let req = match Request::builder()
             .method(Method::POST)
             .uri(&endpoint)
             .header("Content-Type", "application/json")
             .header("X-goog-api-key", &self.api_key)
-            .body(request_body)
+            .body(body)
         {
             Ok(r) => r,
             Err(e) => {

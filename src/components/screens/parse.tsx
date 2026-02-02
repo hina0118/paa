@@ -31,7 +31,9 @@ export function Parse() {
     isProductNameParsing,
     productNameProgress,
     startProductNameParse,
+    hasGeminiApiKey,
   } = useParse();
+  const { setCurrentScreen } = useNavigation();
   const [error, setError] = useState<string | null>(null);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [productNameError, setProductNameError] = useState<string | null>(null);

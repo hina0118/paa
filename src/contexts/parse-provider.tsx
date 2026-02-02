@@ -18,6 +18,16 @@ export function ParseProvider({ children }: { children: ReactNode }) {
     useState<ProductNameParseProgress | null>(null);
   const [hasGeminiApiKey, setHasGeminiApiKey] = useState(false);
 
+  const refreshGeminiApiKeyStatus = useCallback(async () => {
+    try {
+      const has = await invoke<boolean>('has_gemini_api_key');
+      setHasGeminiApiKey(has);
+    } catch (error) {
+      console.error('Failed to fetch Gemini API key status:', error);
+      setHasGeminiApiKey(false);
+    }
+  }, []);
+
   const refreshStatus = useCallback(async () => {
     try {
       const status = await invoke<ParseMetadata>('get_parse_status');

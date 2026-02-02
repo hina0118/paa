@@ -227,8 +227,9 @@ impl<C: GeminiClientTrait, R: ProductMasterRepository> ProductParseService<C, R>
                         .await
                     {
                         log::error!(
-                            "Failed to save product master cache for '{}': {}",
-                            raw_name,
+                            "Failed to save product master cache (index: {}, platform_hint: {:?}): {}",
+                            i,
+                            platform_hint,
                             e
                         );
                     }

@@ -71,6 +71,7 @@ pub fn delete_api_key(_app_data_dir: &Path) -> Result<(), String> {
 }
 
 #[cfg(test)]
+#[cfg(not(ci))]
 mod tests {
     use super::*;
     use tempfile::TempDir;

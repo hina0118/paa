@@ -1587,7 +1587,7 @@ impl ProductMasterRepository for SqliteProductMasterRepository {
         platform_hint: Option<String>,
     ) -> Result<i64, String> {
         // Avoid logging user/product data (raw_name, maker, series, name); keep logs metrics-only.
-        log::info!("Saving product_master entry");
+        log::debug!("Saving product_master entry");
 
         let id: i64 = sqlx::query_scalar(
             r#"
@@ -1626,7 +1626,7 @@ impl ProductMasterRepository for SqliteProductMasterRepository {
             format!("Failed to save product master: {e}")
         })?;
 
-        log::info!("Successfully saved to product_master");
+        log::debug!("Successfully saved to product_master");
         Ok(id)
     }
 
