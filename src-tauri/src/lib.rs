@@ -854,7 +854,7 @@ async fn start_product_name_parse(
 
     if !gemini::has_api_key(&app_data_dir) {
         return Err(
-            "Gemini API key is not configured. Please set the API key in Settings."
+            "Gemini APIキーが設定されていません。設定画面でAPIキーを設定してください。"
                 .to_string(),
         );
     }
