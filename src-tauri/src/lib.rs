@@ -854,7 +854,7 @@ async fn start_product_name_parse(
 
     if !gemini::has_api_key(&app_data_dir) {
         return Err(
-            "Gemini API key is not configured. Please create or update `gemini_api_key.json` in the app data directory."
+            "Gemini API key is not configured. Please set the API key in Settings."
                 .to_string(),
         );
     }
@@ -871,7 +871,7 @@ async fn start_product_name_parse(
         // DISTINCT で重複を除去し、LEFT JOIN + IS NULL で未登録を判定
         let items: Vec<(String, Option<String>)> = match sqlx::query_as(
             r#"
-            SELECT DISTINCT i.item_name, o.shop_domain
+            SELECT DISTINCT TRIM(i.item_name) AS item_name, o.shop_domain
             FROM items i
             JOIN orders o ON i.order_id = o.id
             LEFT JOIN product_master pm ON TRIM(i.item_name) = pm.raw_name
@@ -937,21 +937,25 @@ async fn start_product_name_parse(
         // ProductParseService.parse_products_batch は内部で product_master へ保存する
         match service.parse_products_batch(&items).await {
             Ok(parsed_products) => {
+                // パース結果を取得できた件数として success_count を集計
                 let success_count = parsed_products.len();
+                let failed_count = total_items.saturating_sub(success_count);
 
                 log::info!(
-                    "Product name parse completed: {} items registered to product_master",
-                    success_count
+                    "Product name parse completed: {} items processed by ProductParseService (requested: {})",
+                    success_count,
+                    total_items
                 );
 
                 let complete_event = ProductNameParseProgress {
                     total_items,
                     parsed_count: total_items,
                     success_count,
-                    failed_count: 0,
+                    failed_count,
                     status_message: format!(
-                        "商品名パース完了: {} 件を product_master に登録",
-                        success_count
+                        "商品名パース完了: {} 件の処理が完了しました（リクエスト件数: {}）",
+                        success_count,
+                        total_items
                     ),
                     is_complete: true,
                     error: None,

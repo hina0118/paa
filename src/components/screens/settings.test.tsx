@@ -43,6 +43,9 @@ describe('Settings', () => {
       if (cmd === 'get_parse_status') {
         return Promise.resolve(defaultParseMetadata);
       }
+      if (cmd === 'has_gemini_api_key') {
+        return Promise.resolve(false);
+      }
       return Promise.resolve(null);
     });
     mockListen.mockResolvedValue(() => {});

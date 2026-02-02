@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParse } from '@/contexts/use-parse';
+import { useNavigation } from '@/contexts/use-navigation';
 import { formatDateTime } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -199,10 +200,26 @@ export function Parse() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {!hasGeminiApiKey && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded text-sm text-amber-800">
+              初回利用時は設定画面でGemini APIキーを設定してください。keyring（OSのセキュアストレージ）に保存されます。
+              <Button
+                variant="link"
+                className="p-0 h-auto ml-1 text-amber-800 underline"
+                onClick={() => setCurrentScreen('settings')}
+              >
+                設定へ →
+              </Button>
+            </div>
+          )}
           <div className="flex gap-4">
             <Button
               onClick={handleStartProductNameParse}
-              disabled={isProductNameParsing || isParsing}
+              disabled={
+                isProductNameParsing ||
+                isParsing ||
+                !hasGeminiApiKey
+              }
               variant={isProductNameParsing ? 'secondary' : 'default'}
             >
               {isProductNameParsing ? '解析中...' : '商品名を解析'}

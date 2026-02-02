@@ -104,12 +104,12 @@ impl GeminiClient {
         let http_client = Client::builder(TokioExecutor::new()).build(https);
 
         // セキュリティ: APIキーをログに出力しない
-        log::info!("GeminiClient created with model: gemini-2.0-flash-lite");
+        log::info!("GeminiClient created with model: gemini-1.5-flash");
 
         Ok(Self {
             api_key,
             http_client,
-            model: "gemini-2.0-flash-lite".to_string(),
+            model: "gemini-1.5-flash".to_string(),
         })
     }
 
@@ -194,9 +194,9 @@ impl GeminiClient {
         let request_body = self.build_request_body(&prompt);
         let endpoint = self.get_endpoint();
 
-        // リクエスト内容をログに出力（APIキーは除く）
+        // リクエストのメトリクスのみログに出力（内容や商品名は含めない）
         log::info!("Gemini API endpoint: {}", endpoint);
-        log::debug!("Gemini API request body: {}", request_body);
+        log::debug!("Gemini API request body length: {} bytes", request_body.len());
 
         let req = match Request::builder()
             .method(Method::POST)

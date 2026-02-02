@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { useSync } from '@/contexts/use-sync';
 import { useParse } from '@/contexts/use-parse';
 import {
@@ -24,6 +25,11 @@ export function Settings() {
   const [successMessage, setSuccessMessage] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [isInitialized, setIsInitialized] = useState(false);
+  // Gemini API キー
+  const [geminiApiKey, setGeminiApiKey] = useState<string>('');
+  const [hasGeminiApiKey, setHasGeminiApiKey] = useState(false);
+  const [isSavingGeminiApiKey, setIsSavingGeminiApiKey] = useState(false);
+  const [isDeletingGeminiApiKey, setIsDeletingGeminiApiKey] = useState(false);
 
   useEffect(() => {
     if (metadata && !isInitialized) {
@@ -84,6 +90,58 @@ export function Settings() {
       );
     } finally {
       setIsSavingMaxIterations(false);
+    }
+  };
+
+  const handleSaveGeminiApiKey = async () => {
+    const key = geminiApiKey.trim();
+    if (!key) {
+      setErrorMessage('APIキーを入力してください');
+      return;
+    }
+
+    setIsSavingGeminiApiKey(true);
+    setErrorMessage('');
+    setSuccessMessage('');
+
+    try {
+      await invoke('save_gemini_api_key', { apiKey: key });
+      setSuccessMessage('Gemini APIキーを保存しました（OSのセキュアストレージに保存）');
+      setHasGeminiApiKey(true);
+      setGeminiApiKey(''); // セキュリティのため入力欄をクリア
+      await refreshGeminiApiKeyStatus();
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (error) {
+      setErrorMessage(
+        `保存に失敗しました: ${error instanceof Error ? error.message : String(error)}`
+      );
+    } finally {
+      setIsSavingGeminiApiKey(false);
+    }
+  };
+
+  const handleDeleteGeminiApiKey = async () => {
+    if (!confirm('Gemini APIキーを削除しますか？')) {
+      return;
+    }
+
+    setIsDeletingGeminiApiKey(true);
+    setErrorMessage('');
+    setSuccessMessage('');
+
+    try {
+      await invoke('delete_gemini_api_key');
+      setSuccessMessage('Gemini APIキーを削除しました');
+      setHasGeminiApiKey(false);
+      setGeminiApiKey('');
+      await refreshGeminiApiKeyStatus();
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (error) {
+      setErrorMessage(
+        `削除に失敗しました: ${error instanceof Error ? error.message : String(error)}`
+      );
+    } finally {
+      setIsDeletingGeminiApiKey(false);
     }
   };
 
