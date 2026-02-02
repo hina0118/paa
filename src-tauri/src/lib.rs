@@ -2,12 +2,13 @@ use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqlitePool;
 use std::collections::VecDeque;
 use std::io::Write;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Listener, Manager};
 use tauri_plugin_sql::{Migration, MigrationKind};
 
+pub mod gemini;
 pub mod gmail;
 pub mod gmail_client;
 pub mod logic;
@@ -18,9 +19,9 @@ use crate::logic::email_parser::get_candidate_parsers;
 use crate::repository::{
     EmailStats, EmailStatsRepository, OrderRepository, ParseMetadataRepository,
     ShopSettingsRepository, SqliteEmailStatsRepository, SqliteOrderRepository,
-    SqliteParseMetadataRepository, SqliteShopSettingsRepository, SqliteSyncMetadataRepository,
-    SqliteWindowSettingsRepository, SyncMetadataRepository, WindowSettings,
-    WindowSettingsRepository,
+    SqliteParseMetadataRepository, SqliteProductMasterRepository, SqliteShopSettingsRepository,
+    SqliteSyncMetadataRepository, SqliteWindowSettingsRepository, SyncMetadataRepository,
+    WindowSettings, WindowSettingsRepository,
 };
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -326,12 +327,20 @@ fn get_logs(level_filter: Option<String>, limit: Option<usize>) -> Result<Vec<Lo
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let migrations = vec![Migration {
-        version: 1,
-        description: "init",
-        sql: include_str!("../migrations/001_init.sql"),
-        kind: MigrationKind::Up,
-    }];
+    let migrations = vec![
+        Migration {
+            version: 1,
+            description: "init",
+            sql: include_str!("../migrations/001_init.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 2,
+            description: "product_master",
+            sql: include_str!("../migrations/002_product_master.sql"),
+            kind: MigrationKind::Up,
+        },
+    ];
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -350,13 +359,6 @@ pub fn run() {
             init_log_buffer();
 
             // マルチロガーの初期化（コンソールとメモリの両方に出力）
-            // リリースビルドではWarnレベル以上、デバッグビルドではInfoレベル以上のログを出力
-            // これにより、本番環境で機密情報を含む可能性のあるデバッグログを防ぐ
-            #[cfg(debug_assertions)]
-            let default_level = log::LevelFilter::Info;
-            #[cfg(not(debug_assertions))]
-            let default_level = log::LevelFilter::Warn;
-
             // リリースビルドではWarnレベル以上、デバッグビルドではInfoレベル以上のログを出力
             // これにより、本番環境で機密情報を含む可能性のあるデバッグログを防ぐ
             #[cfg(debug_assertions)]
@@ -432,6 +434,10 @@ pub fn run() {
             // Initialize parse state
             app.manage(parsers::ParseState::new());
             log::info!("Parse state initialized");
+
+            // Initialize product name parse state (多重実行ガード用)
+            app.manage(ProductNameParseState::new());
+            log::info!("Product name parse state initialized");
 
             // Restore window settings and setup close handler
             let window = app
@@ -562,7 +568,12 @@ pub fn run() {
             start_batch_parse,
             cancel_parse,
             get_parse_status,
-            update_parse_batch_size
+            update_parse_batch_size,
+            // Gemini API commands
+            has_gemini_api_key,
+            save_gemini_api_key,
+            delete_gemini_api_key,
+            start_product_name_parse,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -772,6 +783,251 @@ async fn update_parse_batch_size(
     log::info!("Updating parse batch size to: {batch_size}");
     let repo = SqliteParseMetadataRepository::new(pool.inner().clone());
     repo.update_batch_size(batch_size).await
+}
+
+// =============================================================================
+// Gemini API Commands
+// =============================================================================
+
+/// Gemini APIキーが設定されているかチェック
+#[tauri::command]
+async fn has_gemini_api_key(app_handle: tauri::AppHandle) -> Result<bool, String> {
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {e}"))?;
+
+    Ok(gemini::has_api_key(&app_data_dir))
+}
+
+/// Gemini APIキーを保存
+#[tauri::command]
+async fn save_gemini_api_key(app_handle: tauri::AppHandle, api_key: String) -> Result<(), String> {
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {e}"))?;
+
+    gemini::config::save_api_key(&app_data_dir, &api_key)?;
+
+    log::info!("Gemini API key saved successfully");
+    Ok(())
+}
+
+/// Gemini APIキーを削除
+#[tauri::command]
+async fn delete_gemini_api_key(app_handle: tauri::AppHandle) -> Result<(), String> {
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {e}"))?;
+
+    gemini::config::delete_api_key(&app_data_dir)?;
+
+    log::info!("Gemini API key deleted successfully");
+    Ok(())
+}
+
+/// 商品名パースの多重実行ガード用状態
+#[derive(Clone, Default)]
+pub struct ProductNameParseState {
+    is_running: Arc<Mutex<bool>>,
+}
+
+impl ProductNameParseState {
+    pub fn new() -> Self {
+        Self {
+            is_running: Arc::new(Mutex::new(false)),
+        }
+    }
+
+    pub fn try_start(&self) -> Result<(), String> {
+        let mut running = self
+            .is_running
+            .lock()
+            .map_err(|e| format!("Lock error: {e}"))?;
+        if *running {
+            return Err("商品名解析は既に実行中です。完了するまでお待ちください。".to_string());
+        }
+        *running = true;
+        Ok(())
+    }
+
+    pub fn finish(&self) {
+        if let Ok(mut running) = self.is_running.lock() {
+            *running = false;
+        }
+    }
+}
+
+/// 商品名パース進捗イベント
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ProductNameParseProgress {
+    pub total_items: usize,
+    pub parsed_count: usize,
+    pub success_count: usize,
+    pub failed_count: usize,
+    pub status_message: String,
+    pub is_complete: bool,
+    pub error: Option<String>,
+}
+
+/// product_masterに未登録の商品名をGemini APIで解析して登録
+#[tauri::command]
+async fn start_product_name_parse(
+    app_handle: tauri::AppHandle,
+    pool: tauri::State<'_, SqlitePool>,
+    parse_state: tauri::State<'_, ProductNameParseState>,
+) -> Result<(), String> {
+    use tauri::Emitter;
+
+    log::info!("Starting product name parse with Gemini API...");
+
+    // 失敗し得る初期化を先に行い、try_start() は spawn 直前に呼ぶ
+    // （早期 return 時に finish() が呼ばれず「実行中」のままになるのを防ぐ）
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {e}"))?;
+
+    if !gemini::has_api_key(&app_data_dir) {
+        return Err(
+            "Gemini APIキーが設定されていません。設定画面でAPIキーを設定してください。".to_string(),
+        );
+    }
+
+    let api_key = gemini::load_api_key(&app_data_dir)?;
+    let gemini_client = gemini::GeminiClient::new(api_key)?;
+    let product_repo = SqliteProductMasterRepository::new(pool.inner().clone());
+    let service = gemini::ProductParseService::new(gemini_client, product_repo);
+
+    // 多重実行ガード（初期化成功後にのみ取得）
+    parse_state.try_start()?;
+
+    let parse_state_clone = parse_state.inner().clone();
+    let pool_clone = pool.inner().clone();
+
+    tauri::async_runtime::spawn(async move {
+        // items テーブルから product_master に未登録の商品名のみを取得
+        // 商品名単位で一意にするため GROUP BY TRIM(i.item_name) で集約
+        let items: Vec<(String, Option<String>)> = match sqlx::query_as(
+            r#"
+            SELECT
+              TRIM(i.item_name) AS item_name,
+              MIN(o.shop_domain) AS shop_domain
+            FROM items i
+            JOIN orders o ON i.order_id = o.id
+            LEFT JOIN product_master pm ON TRIM(i.item_name) = pm.raw_name
+            WHERE i.item_name IS NOT NULL
+              AND i.item_name != ''
+              AND TRIM(i.item_name) != ''
+              AND pm.id IS NULL
+            GROUP BY TRIM(i.item_name)
+            "#,
+        )
+        .fetch_all(&pool_clone)
+        .await
+        {
+            Ok(rows) => rows,
+            Err(e) => {
+                log::error!("Failed to fetch unparsed items: {}", e);
+                let error_event = ProductNameParseProgress {
+                    total_items: 0,
+                    parsed_count: 0,
+                    success_count: 0,
+                    failed_count: 0,
+                    status_message: format!("商品情報の取得に失敗: {}", e),
+                    is_complete: true,
+                    error: Some(e.to_string()),
+                };
+                let _ = app_handle.emit("product-name-parse-progress", error_event);
+                parse_state_clone.finish();
+                return;
+            }
+        };
+
+        let total_items = items.len();
+        log::info!(
+            "Found {} unparsed items (not in product_master)",
+            total_items
+        );
+
+        if total_items == 0 {
+            let complete_event = ProductNameParseProgress {
+                total_items: 0,
+                parsed_count: 0,
+                success_count: 0,
+                failed_count: 0,
+                status_message: "未解析の商品はありません（すべてproduct_masterに登録済み）"
+                    .to_string(),
+                is_complete: true,
+                error: None,
+            };
+            let _ = app_handle.emit("product-name-parse-progress", complete_event);
+            parse_state_clone.finish();
+            return;
+        }
+
+        // 進捗開始イベント
+        let start_event = ProductNameParseProgress {
+            total_items,
+            parsed_count: 0,
+            success_count: 0,
+            failed_count: 0,
+            status_message: format!("商品名パース開始: {} 件（未解析分）", total_items),
+            is_complete: false,
+            error: None,
+        };
+        let _ = app_handle.emit("product-name-parse-progress", start_event);
+
+        // Gemini API でバッチ処理（client.rs 内で10件ずつ + 10秒ディレイ）
+        // ProductParseService.parse_products_batch は内部で product_master へ保存する
+        match service.parse_products_batch(&items).await {
+            Ok(batch_result) => {
+                let success_count = batch_result.success_count;
+                let failed_count = batch_result.failed_count;
+
+                log::info!(
+                    "Product name parse completed: success={}, failed={} (requested: {})",
+                    success_count,
+                    failed_count,
+                    total_items
+                );
+
+                let complete_event = ProductNameParseProgress {
+                    total_items,
+                    parsed_count: total_items,
+                    success_count,
+                    failed_count,
+                    status_message: format!(
+                        "商品名パース完了: 成功 {} 件、失敗 {} 件（リクエスト件数: {}）",
+                        success_count, failed_count, total_items
+                    ),
+                    is_complete: true,
+                    error: None,
+                };
+                let _ = app_handle.emit("product-name-parse-progress", complete_event);
+            }
+            Err(e) => {
+                log::error!("Gemini API batch parse failed: {}", e);
+                let error_event = ProductNameParseProgress {
+                    total_items,
+                    parsed_count: 0,
+                    success_count: 0,
+                    failed_count: total_items,
+                    status_message: format!("Gemini API エラー: {}", e),
+                    is_complete: true,
+                    error: Some(e),
+                };
+                let _ = app_handle.emit("product-name-parse-progress", error_event);
+            }
+        }
+
+        // 多重実行ガード解除（成功・失敗・エラー問わず必ず呼ぶ）
+        parse_state_clone.finish();
+    });
+
+    Ok(())
 }
 
 #[cfg(test)]
