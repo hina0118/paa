@@ -40,7 +40,8 @@ type TableItem = {
     | 'table-shop-settings'
     | 'table-sync-metadata'
     | 'table-window-settings'
-    | 'table-parse-metadata';
+    | 'table-parse-metadata'
+    | 'table-product-master';
 };
 
 const navigationItems: NavigationItem[] = [
@@ -67,6 +68,7 @@ const tableItems: TableItem[] = [
   { name: 'Sync Metadata', id: 'table-sync-metadata' },
   { name: 'Window Settings', id: 'table-window-settings' },
   { name: 'Parse Metadata', id: 'table-parse-metadata' },
+  { name: 'Product Master', id: 'table-product-master' },
 ];
 
 export function Sidebar() {

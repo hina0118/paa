@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import {
   type ParseProgress,
   type ParseMetadata,
+  type ProductNameParseProgress,
   ParseContext,
 } from './parse-context-value';
 
@@ -11,6 +12,21 @@ export function ParseProvider({ children }: { children: ReactNode }) {
   const [isParsing, setIsParsing] = useState(false);
   const [progress, setProgress] = useState<ParseProgress | null>(null);
   const [metadata, setMetadata] = useState<ParseMetadata | null>(null);
+  // 商品名パース (Gemini API)
+  const [isProductNameParsing, setIsProductNameParsing] = useState(false);
+  const [productNameProgress, setProductNameProgress] =
+    useState<ProductNameParseProgress | null>(null);
+  const [hasGeminiApiKey, setHasGeminiApiKey] = useState(false);
+
+  const refreshGeminiApiKeyStatus = useCallback(async () => {
+    try {
+      const has = await invoke<boolean>('has_gemini_api_key');
+      setHasGeminiApiKey(has);
+    } catch (error) {
+      console.error('Failed to fetch Gemini API key status:', error);
+      setHasGeminiApiKey(false);
+    }
+  }, []);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -38,9 +54,32 @@ export function ParseProvider({ children }: { children: ReactNode }) {
     };
   }, [refreshStatus]);
 
+  // 商品名パース進捗イベントをリッスン
+  useEffect(() => {
+    const unlisten = listen<ProductNameParseProgress>(
+      'product-name-parse-progress',
+      (event) => {
+        const data = event.payload;
+        setProductNameProgress(data);
+
+        if (data.is_complete) {
+          setIsProductNameParsing(false);
+        }
+      }
+    );
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
   useEffect(() => {
     refreshStatus();
   }, [refreshStatus]);
+
+  useEffect(() => {
+    refreshGeminiApiKeyStatus();
+  }, [refreshGeminiApiKeyStatus]);
 
   const startParse = async (batchSize?: number) => {
     try {
@@ -72,6 +111,17 @@ export function ParseProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const startProductNameParse = async () => {
+    try {
+      setIsProductNameParsing(true);
+      setProductNameProgress(null);
+      await invoke('start_product_name_parse');
+    } catch (error) {
+      setIsProductNameParsing(false);
+      throw error;
+    }
+  };
+
   return (
     <ParseContext.Provider
       value={{
@@ -82,6 +132,11 @@ export function ParseProvider({ children }: { children: ReactNode }) {
         cancelParse,
         refreshStatus,
         updateBatchSize,
+        isProductNameParsing,
+        productNameProgress,
+        startProductNameParse,
+        hasGeminiApiKey,
+        refreshGeminiApiKeyStatus,
       }}
     >
       {children}

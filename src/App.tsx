@@ -22,6 +22,7 @@ import {
   WindowSettingsTable,
   ParseMetadataTable,
   ParseSkippedTable,
+  ProductMasterTable,
 } from '@/components/screens/tables';
 import { NavigationProvider } from '@/contexts/navigation-provider';
 import { useNavigation } from '@/contexts/use-navigation';
@@ -77,6 +78,8 @@ function AppContent() {
         return <WindowSettingsTable />;
       case 'table-parse-metadata':
         return <ParseMetadataTable />;
+      case 'table-product-master':
+        return <ProductMasterTable />;
       default:
         return <Orders />;
     }
