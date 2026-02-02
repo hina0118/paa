@@ -1,0 +1,21 @@
+# PAA Project: Development & Review Rules
+
+## 1. Review Priority System (重要)
+AIがコードを提案・レビューする際は、以下の優先度ラベルを意識してください。
+
+- **[P0: Critical]**: 動作不能、セキュリティ、致命的なバグ、データ破損の恐れ。
+  - AIの行動: 即座に指摘し、修正されるまで徹底的に議論する。
+- **[P1: Important]**: パフォーマンス低下、設計の明らかなミス、将来的な負債。
+  - AIの行動: 指摘はするが、ユーザーが「後で直す」と言ったら受け入れる。
+- **[P2: Nitpick]**: コーディングスタイル、変数名、リファクタリング、Fast Refreshの警告。
+  - AIの行動: 1回だけ提案する。ユーザーが無視したら二度と同じ指摘を繰り返さない。
+
+## 2. Technical Strategy (Rust / Tauri)
+- **Error Handling**: `unwrap()` を避け、`Result` または `Option` を使用すること。
+- **Sync Logic**: Gmail APIからの取得は `nextPageToken` をベースとしたループ処理を厳守すること。
+- **AI Extraction**: 商品名のパースは `src-tauri/src/ai_extractor.rs`（予定）に集約し、フロントエンドに複雑なロジックを持たせない。
+
+## 3. Communication Strategy
+- レビューがループしていると感じた場合、AIは自ら「どの優先度レベルの議論か」を確認すること。
+- ユーザーが「先に進めて」と言った場合、P1/P2の指摘をすべて取り下げ、現在の実装を完遂すること。
+- 修正案を出す際は、ファイル全体を書き換えるのではなく、変更が必要な最小単位のコードブロックを提示すること。

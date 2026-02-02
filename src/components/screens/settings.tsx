@@ -106,7 +106,9 @@ export function Settings() {
 
     try {
       await invoke('save_gemini_api_key', { apiKey: key });
-      setSuccessMessage('Gemini APIキーを保存しました（OSのセキュアストレージに保存）');
+      setSuccessMessage(
+        'Gemini APIキーを保存しました（OSのセキュアストレージに保存）'
+      );
       setHasGeminiApiKey(true);
       setGeminiApiKey(''); // セキュリティのため入力欄をクリア
       await refreshGeminiApiKeyStatus();
