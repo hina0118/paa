@@ -22,11 +22,7 @@
       "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost",
       "assetProtocol": {
         "enable": true,
-        "scope": [
-          "$APPDATA/jp.github.hina0118.paa/images/*",
-          "$APPCONFIG/jp.github.hina0118.paa/images/*",
-          "$HOME/Library/Application Support/jp.github.hina0118.paa/images/*"
-        ]
+        "scope": ["$APPDATA/**", "$HOME/Library/Application Support/**"]
       }
     },
     "withGlobalTauri": true
