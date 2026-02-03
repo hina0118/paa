@@ -1145,7 +1145,10 @@ async fn save_image_from_url(
     let req = Request::builder()
         .method(Method::GET)
         .uri(&image_url)
-        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+        .header(
+            "User-Agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        )
         .body(Full::new(Bytes::new()))
         .map_err(|e| format!("Failed to build request: {e}"))?;
 
@@ -1232,10 +1235,7 @@ async fn save_image_from_url(
     .await
     .map_err(|e| format!("Failed to save image to database: {e}"))?;
 
-    log::info!(
-        "Image record saved to database for item_id: {}",
-        item_id
-    );
+    log::info!("Image record saved to database for item_id: {}", item_id);
 
     Ok(file_name)
 }
