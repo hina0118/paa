@@ -87,7 +87,7 @@ export function ImageSearchDialog({
     } finally {
       setIsSaving(false);
     }
-  }, [itemId, selectedUrl, onImageSaved, onOpenChange]);
+  }, [itemId, selectedUrl, onImageSaved]);
 
   // 成功後、少し待ってからダイアログを閉じる（クリーンアップでメモリリーク防止）
   useEffect(() => {
