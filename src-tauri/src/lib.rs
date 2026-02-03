@@ -1124,10 +1124,7 @@ fn validate_image_url(url_str: &str) -> Result<(), String> {
     }
 
     // ホスト名の検証
-    let host_str = parsed
-        .host_str()
-        .ok_or("URL has no host")?
-        .to_lowercase();
+    let host_str = parsed.host_str().ok_or("URL has no host")?.to_lowercase();
 
     // localhost 系をブロック
     if host_str == "localhost"
@@ -1290,16 +1287,16 @@ async fn save_image_from_url(
     }
 
     // 画像フォーマットの検証（マルウェア対策）
-    let format = image::guess_format(&image_data)
-        .map_err(|e| format!("Invalid image format: {e}"))?;
+    let format =
+        image::guess_format(&image_data).map_err(|e| format!("Invalid image format: {e}"))?;
     let extension = match format {
         image::ImageFormat::Jpeg => "jpg",
         image::ImageFormat::Png => "png",
         image::ImageFormat::WebP => "webp",
         _ => {
-            return Err(format!(
-                "Unsupported image format. Only JPEG, PNG, and WebP are allowed"
-            ));
+            return Err(
+                "Unsupported image format. Only JPEG, PNG, and WebP are allowed".to_string(),
+            );
         }
     };
 
@@ -1316,12 +1313,13 @@ async fn save_image_from_url(
         .map_err(|e| format!("Failed to create images directory: {e}"))?;
 
     // 既存のfile_nameを取得（古い画像削除用）
-    let old_file_name: Option<String> = sqlx::query_scalar("SELECT file_name FROM images WHERE item_id = ?")
-        .bind(item_id)
-        .fetch_optional(pool.inner())
-        .await
-        .map_err(|e| format!("Failed to get existing image: {e}"))?
-        .flatten();
+    let old_file_name: Option<String> =
+        sqlx::query_scalar("SELECT file_name FROM images WHERE item_id = ?")
+            .bind(item_id)
+            .fetch_optional(pool.inner())
+            .await
+            .map_err(|e| format!("Failed to get existing image: {e}"))?
+            .flatten();
 
     // 画像ファイルを保存
     let file_path = images_dir.join(&file_name);
@@ -1583,5 +1581,42 @@ mod tests {
     fn test_validate_max_iterations_negative() {
         let result = validate_max_iterations(-1);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_image_url_https_ok() {
+        assert!(validate_image_url("https://example.com/image.png").is_ok());
+        assert!(validate_image_url("https://images.example.co.jp/photo.jpg").is_ok());
+    }
+
+    #[test]
+    fn test_validate_image_url_http_rejected() {
+        assert!(validate_image_url("http://example.com/image.png").is_err());
+    }
+
+    #[test]
+    fn test_validate_image_url_localhost_rejected() {
+        assert!(validate_image_url("https://localhost/image.png").is_err());
+        assert!(validate_image_url("https://127.0.0.1/image.png").is_err());
+    }
+
+    #[test]
+    fn test_validate_image_url_private_ip_rejected() {
+        assert!(validate_image_url("https://192.168.1.1/image.png").is_err());
+        assert!(validate_image_url("https://10.0.0.1/image.png").is_err());
+    }
+
+    #[test]
+    fn test_validate_image_url_metadata_rejected() {
+        assert!(validate_image_url("https://169.254.169.254/").is_err());
+    }
+
+    #[test]
+    fn test_is_private_ip() {
+        use std::net::IpAddr;
+        assert!(is_private_ip("10.0.0.1".parse().unwrap()));
+        assert!(is_private_ip("192.168.1.1".parse().unwrap()));
+        assert!(is_private_ip("172.16.0.1".parse().unwrap()));
+        assert!(!is_private_ip("8.8.8.8".parse::<IpAddr>().unwrap()));
     }
 }
