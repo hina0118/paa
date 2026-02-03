@@ -335,7 +335,9 @@ mod tests {
     fn test_is_gif_url() {
         assert!(is_gif_url("https://example.com/image.gif"));
         assert!(is_gif_url("https://example.com/photo.GIF"));
-        assert!(is_gif_url("https://example.com/path/to/file.gif?size=large"));
+        assert!(is_gif_url(
+            "https://example.com/path/to/file.gif?size=large"
+        ));
         assert!(is_gif_url("https://example.com/file.gif#anchor"));
         assert!(!is_gif_url("https://example.com/image.jpg"));
         assert!(!is_gif_url("https://gif.example.com/image.jpg"));
