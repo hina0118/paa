@@ -341,6 +341,12 @@ pub fn run() {
             sql: include_str!("../migrations/002_product_master.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 3,
+            description: "images_item_name_normalized",
+            sql: include_str!("../migrations/003_images_item_name_normalized.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
@@ -1312,14 +1318,32 @@ async fn save_image_from_url(
     std::fs::create_dir_all(&images_dir)
         .map_err(|e| format!("Failed to create images directory: {e}"))?;
 
+    // itemsテーブルからitem_name_normalizedを取得
+    let item_name_normalized: Option<String> =
+        sqlx::query_scalar("SELECT item_name_normalized FROM items WHERE id = ?")
+            .bind(item_id)
+            .fetch_optional(pool.inner())
+            .await
+            .map_err(|e| format!("Failed to get item_name_normalized: {e}"))?
+            .flatten();
+
     // 既存のfile_nameを取得（古い画像削除用）
-    let old_file_name: Option<String> =
+    // item_name_normalizedがあればそれで検索、なければitem_idで検索
+    let old_file_name: Option<String> = if let Some(ref normalized) = item_name_normalized {
+        sqlx::query_scalar("SELECT file_name FROM images WHERE item_name_normalized = ?")
+            .bind(normalized)
+            .fetch_optional(pool.inner())
+            .await
+            .map_err(|e| format!("Failed to get existing image: {e}"))?
+            .flatten()
+    } else {
         sqlx::query_scalar("SELECT file_name FROM images WHERE item_id = ?")
             .bind(item_id)
             .fetch_optional(pool.inner())
             .await
             .map_err(|e| format!("Failed to get existing image: {e}"))?
-            .flatten();
+            .flatten()
+    };
 
     // 画像ファイルを保存
     let file_path = images_dir.join(&file_name);
@@ -1329,20 +1353,63 @@ async fn save_image_from_url(
     log::info!("Image saved to: {}", file_path.display());
 
     // データベースに保存（既存レコードがあれば更新、なければ挿入）
-    sqlx::query(
-        r#"
-        INSERT INTO images (item_id, file_name, created_at)
-        VALUES (?, ?, CURRENT_TIMESTAMP)
-        ON CONFLICT (item_id) DO UPDATE SET
-            file_name = excluded.file_name,
-            created_at = CURRENT_TIMESTAMP
-        "#,
-    )
-    .bind(item_id)
-    .bind(&file_name)
-    .execute(pool.inner())
-    .await
-    .map_err(|e| format!("Failed to save image to database: {e}"))?;
+    // item_name_normalizedがあればそれをキーに、なければitem_idをキーにする
+    if let Some(ref normalized) = item_name_normalized {
+        // item_name_normalizedで既存レコードを検索・更新
+        let existing: Option<(i64,)> =
+            sqlx::query_as("SELECT id FROM images WHERE item_name_normalized = ?")
+                .bind(normalized)
+                .fetch_optional(pool.inner())
+                .await
+                .map_err(|e| format!("Failed to check existing image: {e}"))?;
+
+        if existing.is_some() {
+            // 既存レコードを更新
+            sqlx::query(
+                r#"
+                UPDATE images
+                SET item_id = ?, file_name = ?, created_at = CURRENT_TIMESTAMP
+                WHERE item_name_normalized = ?
+                "#,
+            )
+            .bind(item_id)
+            .bind(&file_name)
+            .bind(normalized)
+            .execute(pool.inner())
+            .await
+            .map_err(|e| format!("Failed to update image in database: {e}"))?;
+        } else {
+            // 新規レコードを挿入
+            sqlx::query(
+                r#"
+                INSERT INTO images (item_id, item_name_normalized, file_name, created_at)
+                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                "#,
+            )
+            .bind(item_id)
+            .bind(normalized)
+            .bind(&file_name)
+            .execute(pool.inner())
+            .await
+            .map_err(|e| format!("Failed to save image to database: {e}"))?;
+        }
+    } else {
+        // item_name_normalizedがない場合は従来通りitem_idで管理
+        sqlx::query(
+            r#"
+            INSERT INTO images (item_id, file_name, created_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT (item_id) DO UPDATE SET
+                file_name = excluded.file_name,
+                created_at = CURRENT_TIMESTAMP
+            "#,
+        )
+        .bind(item_id)
+        .bind(&file_name)
+        .execute(pool.inner())
+        .await
+        .map_err(|e| format!("Failed to save image to database: {e}"))?;
+    }
 
     log::info!("Image record saved to database for item_id: {}", item_id);
 
