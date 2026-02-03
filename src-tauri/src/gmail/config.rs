@@ -6,6 +6,7 @@
 
 use keyring::Entry;
 use serde::Deserialize;
+use std::path::Path;
 
 /// keyring のサービス名
 const KEYRING_SERVICE: &str = "paa-gmail-oauth";
@@ -23,7 +24,7 @@ fn client_secret_entry() -> Result<Entry, String> {
 }
 
 /// OAuth認証情報が設定されているかチェック
-pub fn has_oauth_credentials() -> bool {
+pub fn has_oauth_credentials(_app_data_dir: &Path) -> bool {
     let has_client_id = client_id_entry()
         .ok()
         .and_then(|e| e.get_password().ok())
@@ -43,7 +44,7 @@ pub fn has_oauth_credentials() -> bool {
 ///
 /// # セキュリティ
 /// client_id/client_secretはログに出力されません
-pub fn load_oauth_credentials() -> Result<(String, String), String> {
+pub fn load_oauth_credentials(_app_data_dir: &Path) -> Result<(String, String), String> {
     let client_id = client_id_entry()?
         .get_password()
         .map_err(|e| format!("Failed to load client_id from secure storage: {e}"))?;
@@ -67,7 +68,11 @@ pub fn load_oauth_credentials() -> Result<(String, String), String> {
 ///
 /// # セキュリティ
 /// client_id/client_secretはログに出力されません
-pub fn save_oauth_credentials(client_id: &str, client_secret: &str) -> Result<(), String> {
+pub fn save_oauth_credentials(
+    _app_data_dir: &Path,
+    client_id: &str,
+    client_secret: &str,
+) -> Result<(), String> {
     if client_id.is_empty() {
         return Err("Gmail client_id is empty".to_string());
     }
@@ -88,7 +93,7 @@ pub fn save_oauth_credentials(client_id: &str, client_secret: &str) -> Result<()
 }
 
 /// OAuth認証情報を削除
-pub fn delete_oauth_credentials() -> Result<(), String> {
+pub fn delete_oauth_credentials(_app_data_dir: &Path) -> Result<(), String> {
     // client_idの削除
     client_id_entry()?
         .delete_credential()
@@ -127,7 +132,10 @@ struct WebCredentials {
 /// Google Cloud Consoleからダウンロードした形式に対応:
 /// - "installed" キー（デスクトップアプリ用）
 /// - "web" キー（Webアプリ用）
-pub fn save_oauth_credentials_from_json(json_content: &str) -> Result<(), String> {
+pub fn save_oauth_credentials_from_json(
+    _app_data_dir: &Path,
+    json_content: &str,
+) -> Result<(), String> {
     let parsed: ClientSecretJson =
         serde_json::from_str(json_content).map_err(|e| format!("Invalid JSON format: {e}"))?;
 
@@ -143,7 +151,7 @@ pub fn save_oauth_credentials_from_json(json_content: &str) -> Result<(), String
         );
     };
 
-    save_oauth_credentials(&client_id, &client_secret)
+    save_oauth_credentials(_app_data_dir, &client_id, &client_secret)
 }
 
 #[cfg(test)]
@@ -151,6 +159,12 @@ pub fn save_oauth_credentials_from_json(json_content: &str) -> Result<(), String
 mod tests {
     use super::*;
     use serial_test::serial;
+    use std::path::Path;
+
+    /// テスト用: keyring は app_data_dir を使用しないため空パスで十分
+    fn test_path() -> &'static Path {
+        Path::new("")
+    }
 
     /// テスト用: keyring のエントリをクリーンアップ
     fn cleanup_test_keyring() {
@@ -166,15 +180,15 @@ mod tests {
     #[serial]
     fn test_has_oauth_credentials_returns_false_when_empty() {
         cleanup_test_keyring();
-        assert!(!has_oauth_credentials());
+        assert!(!has_oauth_credentials(test_path()));
     }
 
     #[test]
     #[serial]
     fn test_has_oauth_credentials_returns_true_when_set() {
         cleanup_test_keyring();
-        save_oauth_credentials("test_client_id", "test_client_secret").unwrap();
-        assert!(has_oauth_credentials());
+        save_oauth_credentials(test_path(), "test_client_id", "test_client_secret").unwrap();
+        assert!(has_oauth_credentials(test_path()));
         cleanup_test_keyring();
     }
 
@@ -186,10 +200,10 @@ mod tests {
         let client_id = "my_test_client_id";
         let client_secret = "my_test_client_secret";
 
-        let save_result = save_oauth_credentials(client_id, client_secret);
+        let save_result = save_oauth_credentials(test_path(), client_id, client_secret);
         assert!(save_result.is_ok());
 
-        let load_result = load_oauth_credentials();
+        let load_result = load_oauth_credentials(test_path());
         assert!(load_result.is_ok());
         let (loaded_id, loaded_secret) = load_result.unwrap();
         assert_eq!(loaded_id, client_id);
@@ -202,7 +216,7 @@ mod tests {
     #[serial]
     fn test_load_oauth_credentials_not_found() {
         cleanup_test_keyring();
-        let result = load_oauth_credentials();
+        let result = load_oauth_credentials(test_path());
         assert!(result.is_err());
         assert!(result.unwrap_err().to_lowercase().contains("failed"));
     }
@@ -212,12 +226,12 @@ mod tests {
     fn test_delete_oauth_credentials() {
         cleanup_test_keyring();
 
-        save_oauth_credentials("test_id", "test_secret").unwrap();
-        assert!(has_oauth_credentials());
+        save_oauth_credentials(test_path(), "test_id", "test_secret").unwrap();
+        assert!(has_oauth_credentials(test_path()));
 
-        let delete_result = delete_oauth_credentials();
+        let delete_result = delete_oauth_credentials(test_path());
         assert!(delete_result.is_ok());
-        assert!(!has_oauth_credentials());
+        assert!(!has_oauth_credentials(test_path()));
     }
 
     #[test]
@@ -235,10 +249,10 @@ mod tests {
             }
         }"#;
 
-        let result = save_oauth_credentials_from_json(json);
+        let result = save_oauth_credentials_from_json(test_path(), json);
         assert!(result.is_ok());
 
-        let (id, secret) = load_oauth_credentials().unwrap();
+        let (id, secret) = load_oauth_credentials(test_path()).unwrap();
         assert_eq!(id, "123456.apps.googleusercontent.com");
         assert_eq!(secret, "GOCSPX-secret123");
 
@@ -257,10 +271,10 @@ mod tests {
             }
         }"#;
 
-        let result = save_oauth_credentials_from_json(json);
+        let result = save_oauth_credentials_from_json(test_path(), json);
         assert!(result.is_ok());
 
-        let (id, secret) = load_oauth_credentials().unwrap();
+        let (id, secret) = load_oauth_credentials(test_path()).unwrap();
         assert_eq!(id, "web-client-id.apps.googleusercontent.com");
         assert_eq!(secret, "web-secret-456");
 
@@ -273,12 +287,12 @@ mod tests {
         cleanup_test_keyring();
 
         // 無効なJSON
-        let result1 = save_oauth_credentials_from_json("not json");
+        let result1 = save_oauth_credentials_from_json(test_path(), "not json");
         assert!(result1.is_err());
         assert!(result1.unwrap_err().contains("Invalid JSON"));
 
         // installedもwebもない
-        let result2 = save_oauth_credentials_from_json(r#"{"other": {}}"#);
+        let result2 = save_oauth_credentials_from_json(test_path(), r#"{"other": {}}"#);
         assert!(result2.is_err());
         assert!(result2.unwrap_err().contains("neither"));
 
@@ -290,11 +304,11 @@ mod tests {
     fn test_save_oauth_credentials_empty_values() {
         cleanup_test_keyring();
 
-        let result1 = save_oauth_credentials("", "secret");
+        let result1 = save_oauth_credentials(test_path(), "", "secret");
         assert!(result1.is_err());
         assert!(result1.unwrap_err().contains("client_id is empty"));
 
-        let result2 = save_oauth_credentials("id", "");
+        let result2 = save_oauth_credentials(test_path(), "id", "");
         assert!(result2.is_err());
         assert!(result2.unwrap_err().contains("client_secret is empty"));
 
@@ -307,7 +321,7 @@ mod tests {
         cleanup_test_keyring();
 
         let json = r#"{"installed":{"client_id":"","client_secret":"secret"}}"#;
-        let result = save_oauth_credentials_from_json(json);
+        let result = save_oauth_credentials_from_json(test_path(), json);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("client_id is empty"));
 
