@@ -845,9 +845,12 @@ async fn delete_gemini_api_key(app_handle: tauri::AppHandle) -> Result<(), Strin
 
 /// Gmail OAuth認証情報が設定されているかチェック
 #[tauri::command]
-async fn has_gmail_oauth_credentials(app_handle: tauri::AppHandle) -> bool {
-    let app_data_dir = app_handle.path().app_data_dir().unwrap_or_default();
-    gmail::has_oauth_credentials(&app_data_dir)
+async fn has_gmail_oauth_credentials(app_handle: tauri::AppHandle) -> Result<bool, String> {
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {e}"))?;
+    Ok(gmail::has_oauth_credentials(&app_data_dir))
 }
 
 /// Gmail OAuth認証情報を保存（JSONから）

@@ -84,6 +84,7 @@ export function Settings() {
       setIsGmailOAuthConfigured(configured);
     } catch (error) {
       console.error('Failed to check Gmail OAuth config:', error);
+      setIsGmailOAuthConfigured(false);
     }
   }, []);
 
