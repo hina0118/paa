@@ -15,9 +15,11 @@ all-features = true
 workspace = true
 
 # 除外するファイル（テストファイルなど）
+# google_search: keyring依存のconfigテストがCIでスキップされるため除外
 exclude-files = [
     "tests/",
     "target/",
     ".cargo/",
-    "build.rs"
+    "build.rs",
+    "src/google_search/"
 ]

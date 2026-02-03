@@ -46,6 +46,9 @@ describe('Settings', () => {
       if (cmd === 'has_gemini_api_key') {
         return Promise.resolve(false);
       }
+      if (cmd === 'is_google_search_configured') {
+        return Promise.resolve(false);
+      }
       return Promise.resolve(null);
     });
     mockListen.mockResolvedValue(() => {});
@@ -489,7 +492,10 @@ describe('Settings', () => {
 
       renderWithProviders(<Settings />);
 
-      const apiKeyInput = screen.getByPlaceholderText('APIキーを入力');
+      // Use ID selector to distinguish from SerpApi API key input
+      const apiKeyInput = document.getElementById(
+        'gemini-api-key'
+      ) as HTMLInputElement;
       await user.type(apiKeyInput, 'test-api-key-123');
 
       await user.click(
@@ -529,7 +535,11 @@ describe('Settings', () => {
 
       renderWithProviders(<Settings />);
 
-      await user.type(screen.getByPlaceholderText('APIキーを入力'), 'key');
+      // Use ID selector to distinguish from SerpApi API key input
+      const apiKeyInput = document.getElementById(
+        'gemini-api-key'
+      ) as HTMLInputElement;
+      await user.type(apiKeyInput, 'key');
       await user.click(
         screen.getByRole('button', { name: 'Gemini APIキーを保存' })
       );
@@ -559,7 +569,11 @@ describe('Settings', () => {
 
       renderWithProviders(<Settings />);
 
-      await user.type(screen.getByPlaceholderText('APIキーを入力'), 'key');
+      // Use ID selector to distinguish from SerpApi API key input
+      const apiKeyInput = document.getElementById(
+        'gemini-api-key'
+      ) as HTMLInputElement;
+      await user.type(apiKeyInput, 'key');
       await user.click(
         screen.getByRole('button', { name: 'Gemini APIキーを保存' })
       );
@@ -664,6 +678,219 @@ describe('Settings', () => {
     await waitFor(() => {
       // 50 * 100 = 5000（千の位にカンマなし）
       expect(screen.getByText(/5000 件/)).toBeInTheDocument();
+    });
+  });
+
+  // SerpApi 設定カード表示テスト
+  it('renders SerpApi settings card', async () => {
+    renderWithProviders(<Settings />);
+    await waitFor(() => {
+      expect(
+        screen.getByRole('heading', { name: /SerpApi/ })
+      ).toBeInTheDocument();
+    });
+  });
+
+  // SerpApi API キー保存/削除テスト
+  describe('handleSaveSerpApiKey / handleDeleteSerpApiKey', () => {
+    it('saves SerpApi API key successfully', async () => {
+      const user = userEvent.setup();
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+        if (cmd === 'is_google_search_configured')
+          return Promise.resolve(false);
+        if (cmd === 'save_google_search_api_key')
+          return Promise.resolve(undefined);
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      const apiKeyInput = document.getElementById(
+        'serpapi-key'
+      ) as HTMLInputElement;
+      await user.type(apiKeyInput, 'serp-api-key-456');
+
+      await user.click(
+        screen.getByRole('button', { name: 'SerpApi APIキーを保存' })
+      );
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith('save_google_search_api_key', {
+          apiKey: 'serp-api-key-456',
+        });
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/SerpApi APIキーを保存しました/)
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('shows validation error when SerpApi API key is empty', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<Settings />);
+
+      await user.click(
+        screen.getByRole('button', { name: 'SerpApi APIキーを保存' })
+      );
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('APIキーを入力してください')
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('shows error when SerpApi save fails', async () => {
+      const user = userEvent.setup();
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+        if (cmd === 'is_google_search_configured')
+          return Promise.resolve(false);
+        if (cmd === 'save_google_search_api_key')
+          return Promise.reject(new Error('Save failed'));
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      const apiKeyInput = document.getElementById(
+        'serpapi-key'
+      ) as HTMLInputElement;
+      await user.type(apiKeyInput, 'key');
+      await user.click(
+        screen.getByRole('button', { name: 'SerpApi APIキーを保存' })
+      );
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/保存に失敗しました.*Save failed/)
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('deletes SerpApi API key when confirm is accepted', async () => {
+      const user = userEvent.setup();
+      vi.stubGlobal(
+        'confirm',
+        vi.fn(() => true)
+      );
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+        if (cmd === 'is_google_search_configured') return Promise.resolve(true);
+        if (cmd === 'delete_google_search_config')
+          return Promise.resolve(undefined);
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: 'SerpApi APIキーを削除' })
+        ).toBeInTheDocument();
+      });
+      await user.click(
+        screen.getByRole('button', { name: 'SerpApi APIキーを削除' })
+      );
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith('delete_google_search_config');
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('SerpApi APIキーを削除しました')
+        ).toBeInTheDocument();
+      });
+
+      vi.unstubAllGlobals();
+    });
+
+    it('does not delete SerpApi when confirm is cancelled', async () => {
+      const user = userEvent.setup();
+      vi.stubGlobal(
+        'confirm',
+        vi.fn(() => false)
+      );
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+        if (cmd === 'is_google_search_configured') return Promise.resolve(true);
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: 'SerpApi APIキーを削除' })
+        ).toBeInTheDocument();
+      });
+      await user.click(
+        screen.getByRole('button', { name: 'SerpApi APIキーを削除' })
+      );
+
+      expect(mockInvoke).not.toHaveBeenCalledWith(
+        'delete_google_search_config'
+      );
+      vi.unstubAllGlobals();
+    });
+
+    it('shows error when SerpApi delete fails', async () => {
+      const user = userEvent.setup();
+      vi.stubGlobal(
+        'confirm',
+        vi.fn(() => true)
+      );
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+        if (cmd === 'is_google_search_configured') return Promise.resolve(true);
+        if (cmd === 'delete_google_search_config')
+          return Promise.reject(new Error('Delete failed'));
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: 'SerpApi APIキーを削除' })
+        ).toBeInTheDocument();
+      });
+
+      await user.click(
+        screen.getByRole('button', { name: 'SerpApi APIキーを削除' })
+      );
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/削除に失敗しました.*Delete failed/)
+        ).toBeInTheDocument();
+      });
+
+      vi.unstubAllGlobals();
     });
   });
 });

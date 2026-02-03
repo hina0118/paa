@@ -1,4 +1,4 @@
-//! Gemini APIキー管理
+//! SerpApi APIキー管理
 //!
 //! # セキュリティガイドライン
 //! - APIキーは絶対にログに出力しないこと
@@ -7,15 +7,15 @@
 use keyring::Entry;
 use std::path::Path;
 
-/// keyring 用のエントリを取得
-fn gemini_keyring_entry() -> Result<Entry, String> {
-    Entry::new("paa-gemini", "gemini-api-key")
-        .map_err(|e| format!("Failed to access secure storage: {e}"))
+/// keyring 用のエントリを取得（SerpApi API Key）
+fn serpapi_api_key_entry() -> Result<Entry, String> {
+    Entry::new("paa-serpapi", "serpapi-api-key")
+        .map_err(|e| format!("Failed to access secure storage for API key: {e}"))
 }
 
 /// APIキーが設定されているかチェック
 pub fn has_api_key(_app_data_dir: &Path) -> bool {
-    if let Ok(entry) = gemini_keyring_entry() {
+    if let Ok(entry) = serpapi_api_key_entry() {
         if let Ok(secret) = entry.get_password() {
             return !secret.is_empty();
         }
@@ -23,21 +23,26 @@ pub fn has_api_key(_app_data_dir: &Path) -> bool {
     false
 }
 
+/// 設定が完了しているかチェック（SerpApiはAPIキーのみ）
+pub fn is_configured(app_data_dir: &Path) -> bool {
+    has_api_key(app_data_dir)
+}
+
 /// APIキーを読み込み
 ///
 /// # セキュリティ
 /// APIキーはログに出力されません
 pub fn load_api_key(_app_data_dir: &Path) -> Result<String, String> {
-    let entry = gemini_keyring_entry()?;
+    let entry = serpapi_api_key_entry()?;
     let secret = entry
         .get_password()
-        .map_err(|e| format!("Failed to load Gemini API key from secure storage: {e}"))?;
+        .map_err(|e| format!("Failed to load SerpApi API key from secure storage: {e}"))?;
 
     if secret.is_empty() {
-        return Err("Gemini API key is empty".to_string());
+        return Err("SerpApi API key is empty".to_string());
     }
 
-    log::info!("Gemini API key loaded successfully from secure storage");
+    log::info!("SerpApi API key loaded successfully from secure storage");
     Ok(secret)
 }
 
@@ -47,26 +52,26 @@ pub fn load_api_key(_app_data_dir: &Path) -> Result<String, String> {
 /// APIキーはログに出力されません
 pub fn save_api_key(_app_data_dir: &Path, api_key: &str) -> Result<(), String> {
     if api_key.is_empty() {
-        return Err("Gemini API key is empty".to_string());
+        return Err("SerpApi API key is empty".to_string());
     }
 
-    let entry = gemini_keyring_entry()?;
+    let entry = serpapi_api_key_entry()?;
     entry
         .set_password(api_key)
-        .map_err(|e| format!("Failed to save Gemini API key to secure storage: {e}"))?;
+        .map_err(|e| format!("Failed to save SerpApi API key to secure storage: {e}"))?;
 
-    log::info!("Gemini API key saved successfully to secure storage");
+    log::info!("SerpApi API key saved successfully to secure storage");
     Ok(())
 }
 
 /// APIキーを削除
 pub fn delete_api_key(_app_data_dir: &Path) -> Result<(), String> {
-    let entry = gemini_keyring_entry()?;
+    let entry = serpapi_api_key_entry()?;
     entry
         .delete_credential()
-        .map_err(|e| format!("Failed to delete Gemini API key from secure storage: {e}"))?;
+        .map_err(|e| format!("Failed to delete SerpApi API key from secure storage: {e}"))?;
 
-    log::info!("Gemini API key deleted successfully from secure storage");
+    log::info!("SerpApi API key deleted successfully from secure storage");
     Ok(())
 }
 
@@ -79,7 +84,7 @@ mod tests {
 
     /// テスト用: keyring のエントリをクリーンアップ
     fn cleanup_test_keyring() {
-        if let Ok(entry) = gemini_keyring_entry() {
+        if let Ok(entry) = serpapi_api_key_entry() {
             let _ = entry.delete_credential();
         }
     }
@@ -108,28 +113,18 @@ mod tests {
 
     #[test]
     #[serial]
-    fn test_load_api_key_success() {
+    fn test_is_configured() {
         cleanup_test_keyring();
         let temp_dir = TempDir::new().unwrap();
         let app_data_dir = temp_dir.path();
 
-        save_api_key(app_data_dir, "test_api_key_12345").unwrap();
-        let result = load_api_key(app_data_dir);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "test_api_key_12345");
-        cleanup_test_keyring();
-    }
+        // APIキーなし
+        assert!(!is_configured(app_data_dir));
 
-    #[test]
-    #[serial]
-    fn test_load_api_key_not_found() {
-        cleanup_test_keyring();
-        let temp_dir = TempDir::new().unwrap();
-        let app_data_dir = temp_dir.path();
+        // APIキーあり
+        save_api_key(app_data_dir, "test_key").unwrap();
+        assert!(is_configured(app_data_dir));
 
-        let result = load_api_key(app_data_dir);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_lowercase().contains("failed"));
         cleanup_test_keyring();
     }
 

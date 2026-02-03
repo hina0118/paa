@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useSync } from '@/contexts/use-sync';
 import { useParse } from '@/contexts/use-parse';
@@ -33,6 +33,11 @@ export function Settings() {
   const [geminiApiKey, setGeminiApiKey] = useState<string>('');
   const [isSavingGeminiApiKey, setIsSavingGeminiApiKey] = useState(false);
   const [isDeletingGeminiApiKey, setIsDeletingGeminiApiKey] = useState(false);
+  // SerpApi
+  const [isSerpApiConfigured, setIsSerpApiConfigured] = useState(false);
+  const [serpApiKey, setSerpApiKey] = useState<string>('');
+  const [isSavingSerpApi, setIsSavingSerpApi] = useState(false);
+  const [isDeletingSerpApi, setIsDeletingSerpApi] = useState(false);
 
   useEffect(() => {
     if (metadata && !isInitialized) {
@@ -51,6 +56,19 @@ export function Settings() {
   useEffect(() => {
     refreshGeminiApiKeyStatus();
   }, [refreshGeminiApiKeyStatus]);
+
+  const refreshSerpApiStatus = useCallback(async () => {
+    try {
+      const configured = await invoke<boolean>('is_google_search_configured');
+      setIsSerpApiConfigured(configured);
+    } catch (error) {
+      console.error('Failed to check SerpApi config:', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshSerpApiStatus();
+  }, [refreshSerpApiStatus]);
 
   const handleSaveBatchSize = async () => {
     const value = parseInt(batchSize, 10);
@@ -173,6 +191,59 @@ export function Settings() {
       );
     } finally {
       setIsSavingParseBatchSize(false);
+    }
+  };
+
+  const handleSaveSerpApiKey = async () => {
+    const apiKey = serpApiKey.trim();
+
+    if (!apiKey) {
+      setErrorMessage('APIキーを入力してください');
+      return;
+    }
+
+    setIsSavingSerpApi(true);
+    setErrorMessage('');
+    setSuccessMessage('');
+
+    try {
+      await invoke('save_google_search_api_key', { apiKey });
+      setSuccessMessage(
+        'SerpApi APIキーを保存しました（OSのセキュアストレージに保存）'
+      );
+      setSerpApiKey('');
+      await refreshSerpApiStatus();
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (error) {
+      setErrorMessage(
+        `保存に失敗しました: ${error instanceof Error ? error.message : String(error)}`
+      );
+    } finally {
+      setIsSavingSerpApi(false);
+    }
+  };
+
+  const handleDeleteSerpApiKey = async () => {
+    if (!confirm('SerpApi APIキーを削除しますか？')) {
+      return;
+    }
+
+    setIsDeletingSerpApi(true);
+    setErrorMessage('');
+    setSuccessMessage('');
+
+    try {
+      await invoke('delete_google_search_config');
+      setSuccessMessage('SerpApi APIキーを削除しました');
+      setSerpApiKey('');
+      await refreshSerpApiStatus();
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (error) {
+      setErrorMessage(
+        `削除に失敗しました: ${error instanceof Error ? error.message : String(error)}`
+      );
+    } finally {
+      setIsDeletingSerpApi(false);
     }
   };
 
@@ -321,6 +392,71 @@ export function Settings() {
                 </Button>
               )}
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>SerpApi（画像検索）</CardTitle>
+          <CardDescription>
+            商品画像検索に使用するSerpApiの設定です（OSのセキュアストレージに保存）
+            <br />
+            <a
+              href="https://serpapi.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 hover:underline"
+            >
+              SerpApiでAPIキーを取得
+            </a>
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              {isSerpApiConfigured
+                ? 'APIキーは設定済みです'
+                : 'APIキーを入力して保存してください'}
+            </p>
+          </div>
+          <div className="space-y-2">
+            <label htmlFor="serpapi-key" className="text-sm font-medium">
+              APIキー
+            </label>
+            <div className="flex gap-2">
+              <Input
+                id="serpapi-key"
+                type="password"
+                placeholder={isSerpApiConfigured ? '********' : 'APIキーを入力'}
+                value={serpApiKey}
+                onChange={(e) => setSerpApiKey(e.target.value)}
+                disabled={isSavingSerpApi || isDeletingSerpApi}
+                className="max-w-md"
+              />
+              <Button
+                onClick={handleSaveSerpApiKey}
+                disabled={isSavingSerpApi || isDeletingSerpApi}
+                aria-label="SerpApi APIキーを保存"
+              >
+                保存
+              </Button>
+              {isSerpApiConfigured && (
+                <Button
+                  variant="destructive"
+                  onClick={handleDeleteSerpApiKey}
+                  disabled={isSavingSerpApi || isDeletingSerpApi}
+                  aria-label="SerpApi APIキーを削除"
+                >
+                  削除
+                </Button>
+              )}
+            </div>
+          </div>
+          <div className="pt-4 border-t">
+            <p className="text-sm text-muted-foreground">
+              無料枠: 月100リクエストまで
+            </p>
           </div>
         </CardContent>
       </Card>
