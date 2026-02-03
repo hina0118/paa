@@ -244,7 +244,7 @@ impl SyncState {
 
 /// RAII guard that automatically resets the running flag when dropped
 /// This ensures cleanup happens even on early returns or panics
-struct SyncGuard<'a> {
+pub struct SyncGuard<'a> {
     sync_state: &'a SyncState,
 }
 
@@ -287,18 +287,19 @@ impl GmailClient {
         std::fs::create_dir_all(&app_data_dir)
             .map_err(|e| format!("Failed to create app data dir: {e}"))?;
 
-        // DBファイルと同じディレクトリに配置
+        // トークンはファイルに保存（既存の動作を維持）
         let token_path = app_data_dir.join("gmail_token.json");
-        let client_secret_path = app_data_dir.join("client_secret.json");
 
-        if !client_secret_path.exists() {
-            return Err(format!(
-                "Client secret file not found. Please place client_secret.json at: {}\n\nThis is the same directory where paa_data.db is stored.",
-                client_secret_path.display()
-            ));
-        }
+        // keyringから認証情報を取得
+        let (client_id, client_secret) =
+            crate::gmail::config::load_oauth_credentials(&app_data_dir)
+            .map_err(|e| {
+                format!(
+                    "Gmail OAuth credentials not configured. Please set up OAuth credentials in Settings.\n\nError: {e}"
+                )
+            })?;
 
-        let auth = Self::authenticate(&client_secret_path, &token_path).await?;
+        let auth = Self::authenticate_from_keyring(&client_id, &client_secret, &token_path).await?;
 
         // トークンを取得して認証を確実にする
         // gmail.readonlyスコープのみを使用（デスクトップアプリケーションに必要な最小限の権限）
@@ -324,16 +325,27 @@ impl GmailClient {
         Ok(Self { hub })
     }
 
-    async fn authenticate(
-        client_secret_path: &PathBuf,
+    /// keyringから読み込んだ認証情報を使用して認証を実行
+    async fn authenticate_from_keyring(
+        client_id: &str,
+        client_secret: &str,
         token_path: &PathBuf,
     ) -> Result<
         oauth2::authenticator::Authenticator<hyper_rustls::HttpsConnector<HttpConnector>>,
         String,
     > {
-        let secret = oauth2::read_application_secret(client_secret_path)
-            .await
-            .map_err(|e| format!("Failed to read client secret: {e}"))?;
+        // ApplicationSecretを手動で構築
+        let secret = oauth2::ApplicationSecret {
+            client_id: client_id.to_string(),
+            client_secret: client_secret.to_string(),
+            auth_uri: "https://accounts.google.com/o/oauth2/auth".to_string(),
+            token_uri: "https://oauth2.googleapis.com/token".to_string(),
+            redirect_uris: vec!["http://localhost".to_string()],
+            project_id: None,
+            client_email: None,
+            auth_provider_x509_cert_url: None,
+            client_x509_cert_url: None,
+        };
 
         log::info!("Starting OAuth authentication flow...");
         log::info!("Opening browser for authentication...");
