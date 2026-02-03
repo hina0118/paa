@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Settings } from './settings';
 import { SyncProvider } from '@/contexts/sync-provider';
@@ -47,6 +47,9 @@ describe('Settings', () => {
         return Promise.resolve(false);
       }
       if (cmd === 'is_google_search_configured') {
+        return Promise.resolve(false);
+      }
+      if (cmd === 'has_gmail_oauth_credentials') {
         return Promise.resolve(false);
       }
       return Promise.resolve(null);
@@ -882,6 +885,250 @@ describe('Settings', () => {
 
       await user.click(
         screen.getByRole('button', { name: 'SerpApi APIキーを削除' })
+      );
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/削除に失敗しました.*Delete failed/)
+        ).toBeInTheDocument();
+      });
+
+      vi.unstubAllGlobals();
+    });
+  });
+
+  // Gmail OAuth 設定カード表示テスト
+  it('renders Gmail OAuth settings card', async () => {
+    renderWithProviders(<Settings />);
+    await waitFor(() => {
+      expect(
+        screen.getByRole('heading', { name: /Gmail OAuth認証/ })
+      ).toBeInTheDocument();
+    });
+  });
+
+  // Gmail OAuth 保存/削除テスト
+  describe('handleSaveGmailOAuth / handleDeleteGmailOAuth', () => {
+    it('saves Gmail OAuth credentials successfully via JSON paste', async () => {
+      const user = userEvent.setup();
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+        if (cmd === 'is_google_search_configured')
+          return Promise.resolve(false);
+        if (cmd === 'has_gmail_oauth_credentials') return Promise.resolve(true);
+        if (cmd === 'save_gmail_oauth_credentials')
+          return Promise.resolve(undefined);
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      const validJson = JSON.stringify({
+        installed: {
+          client_id: 'test-client-id.apps.googleusercontent.com',
+          client_secret: 'GOCSPX-test-secret',
+        },
+      });
+
+      const textarea = screen.getByLabelText(/client_secret\.json の内容/);
+      fireEvent.change(textarea, { target: { value: validJson } });
+
+      await user.click(
+        screen.getByRole('button', { name: 'Gmail OAuth認証情報を保存' })
+      );
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith(
+          'save_gmail_oauth_credentials',
+          { jsonContent: validJson }
+        );
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/Gmail OAuth認証情報を保存しました/)
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('disables save button when JSON textarea is empty', async () => {
+      renderWithProviders(<Settings />);
+
+      const saveButton = screen.getByRole('button', {
+        name: 'Gmail OAuth認証情報を保存',
+      });
+      expect(saveButton).toBeDisabled();
+    });
+
+    it('shows error when JSON format is invalid', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<Settings />);
+
+      const textarea = screen.getByLabelText(/client_secret\.json の内容/);
+      fireEvent.change(textarea, { target: { value: 'not valid json' } });
+
+      await user.click(
+        screen.getByRole('button', { name: 'Gmail OAuth認証情報を保存' })
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('無効なJSON形式です')).toBeInTheDocument();
+      });
+    });
+
+    it('shows error when Gmail OAuth save fails', async () => {
+      const user = userEvent.setup();
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+        if (cmd === 'is_google_search_configured')
+          return Promise.resolve(false);
+        if (cmd === 'has_gmail_oauth_credentials')
+          return Promise.resolve(false);
+        if (cmd === 'save_gmail_oauth_credentials')
+          return Promise.reject(new Error('Save failed'));
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      const validJson = JSON.stringify({
+        installed: {
+          client_id: 'test-id',
+          client_secret: 'test-secret',
+        },
+      });
+      const textarea = screen.getByLabelText(/client_secret\.json の内容/);
+      fireEvent.change(textarea, { target: { value: validJson } });
+      await user.click(
+        screen.getByRole('button', { name: 'Gmail OAuth認証情報を保存' })
+      );
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/保存に失敗しました.*Save failed/)
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('deletes Gmail OAuth credentials when confirm is accepted', async () => {
+      const user = userEvent.setup();
+      vi.stubGlobal(
+        'confirm',
+        vi.fn(() => true)
+      );
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+        if (cmd === 'is_google_search_configured')
+          return Promise.resolve(false);
+        if (cmd === 'has_gmail_oauth_credentials') return Promise.resolve(true);
+        if (cmd === 'delete_gmail_oauth_credentials')
+          return Promise.resolve(undefined);
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: 'Gmail OAuth認証情報を削除' })
+        ).toBeInTheDocument();
+      });
+      await user.click(
+        screen.getByRole('button', { name: 'Gmail OAuth認証情報を削除' })
+      );
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith(
+          'delete_gmail_oauth_credentials'
+        );
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('Gmail OAuth認証情報を削除しました')
+        ).toBeInTheDocument();
+      });
+
+      vi.unstubAllGlobals();
+    });
+
+    it('does not delete Gmail OAuth when confirm is cancelled', async () => {
+      const user = userEvent.setup();
+      vi.stubGlobal(
+        'confirm',
+        vi.fn(() => false)
+      );
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+        if (cmd === 'is_google_search_configured')
+          return Promise.resolve(false);
+        if (cmd === 'has_gmail_oauth_credentials') return Promise.resolve(true);
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: 'Gmail OAuth認証情報を削除' })
+        ).toBeInTheDocument();
+      });
+      await user.click(
+        screen.getByRole('button', { name: 'Gmail OAuth認証情報を削除' })
+      );
+
+      expect(mockInvoke).not.toHaveBeenCalledWith(
+        'delete_gmail_oauth_credentials'
+      );
+      vi.unstubAllGlobals();
+    });
+
+    it('shows error when Gmail OAuth delete fails', async () => {
+      const user = userEvent.setup();
+      vi.stubGlobal(
+        'confirm',
+        vi.fn(() => true)
+      );
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+        if (cmd === 'is_google_search_configured')
+          return Promise.resolve(false);
+        if (cmd === 'has_gmail_oauth_credentials') return Promise.resolve(true);
+        if (cmd === 'delete_gmail_oauth_credentials')
+          return Promise.reject(new Error('Delete failed'));
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: 'Gmail OAuth認証情報を削除' })
+        ).toBeInTheDocument();
+      });
+
+      await user.click(
+        screen.getByRole('button', { name: 'Gmail OAuth認証情報を削除' })
       );
 
       await waitFor(() => {
