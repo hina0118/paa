@@ -575,6 +575,10 @@ pub fn run() {
             save_gemini_api_key,
             delete_gemini_api_key,
             start_product_name_parse,
+            // Gmail OAuth commands
+            has_gmail_oauth_credentials,
+            save_gmail_oauth_credentials,
+            delete_gmail_oauth_credentials,
             // SerpApi image search commands
             is_google_search_configured,
             save_google_search_api_key,
@@ -832,6 +836,47 @@ async fn delete_gemini_api_key(app_handle: tauri::AppHandle) -> Result<(), Strin
     gemini::config::delete_api_key(&app_data_dir)?;
 
     log::info!("Gemini API key deleted successfully");
+    Ok(())
+}
+
+// =============================================================================
+// Gmail OAuth Commands
+// =============================================================================
+
+/// Gmail OAuth認証情報が設定されているかチェック
+#[tauri::command]
+async fn has_gmail_oauth_credentials(app_handle: tauri::AppHandle) -> Result<bool, String> {
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {e}"))?;
+    Ok(gmail::has_oauth_credentials(&app_data_dir))
+}
+
+/// Gmail OAuth認証情報を保存（JSONから）
+#[tauri::command]
+async fn save_gmail_oauth_credentials(
+    app_handle: tauri::AppHandle,
+    json_content: String,
+) -> Result<(), String> {
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {e}"))?;
+    gmail::save_oauth_credentials_from_json(&app_data_dir, &json_content)?;
+    log::info!("Gmail OAuth credentials saved successfully");
+    Ok(())
+}
+
+/// Gmail OAuth認証情報を削除
+#[tauri::command]
+async fn delete_gmail_oauth_credentials(app_handle: tauri::AppHandle) -> Result<(), String> {
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {e}"))?;
+    gmail::delete_oauth_credentials(&app_data_dir)?;
+    log::info!("Gmail OAuth credentials deleted successfully");
     Ok(())
 }
 
@@ -1523,6 +1568,105 @@ mod tests {
             "invalid body".to_string(),
         );
         assert!(result.is_err());
+    }
+
+    /// hobbysearch_change パーサーのテスト（CIで実行、ダミーデータ使用）
+    const SAMPLE_HOBBYSEARCH_CHANGE: &str = r#"
+[注文番号] 25-0202-5678
+
+[お届け先情報]
+〒100-0001
+東京都千代田区千代田1-1-1
+テスト 花子 様
+
+[ご購入内容]
+バンダイ 1234567 テスト商品A (プラモデル) HGシリーズ
+単価：1,000円 × 個数：1 = 1,000円
+
+小計：1,000円
+送料：660円
+合計：1,660円
+"#;
+
+    #[test]
+    fn test_parse_email_hobbysearch_change() {
+        let result = parse_email(
+            "hobbysearch_change".to_string(),
+            SAMPLE_HOBBYSEARCH_CHANGE.to_string(),
+        );
+        assert!(result.is_ok());
+        let order_info = result.unwrap();
+        assert_eq!(order_info.order_number, "25-0202-5678");
+        assert_eq!(order_info.items.len(), 1);
+        assert_eq!(order_info.items[0].unit_price, 1000);
+        assert_eq!(order_info.items[0].quantity, 1);
+    }
+
+    /// hobbysearch_change_yoyaku パーサーのテスト（CIで実行、ダミーデータ使用）
+    const SAMPLE_HOBBYSEARCH_CHANGE_YOYAKU: &str = r#"
+[注文番号] 25-0303-9999
+
+[お届け先情報]
+〒200-0002
+東京都中央区銀座1-2-3
+予約 太郎 様
+
+[ご予約内容]
+バンダイ 2345678 テスト商品B (プラモデル) MGシリーズ
+単価：3,000円 × 個数：2 = 6,000円
+
+予約商品合計：6,000円
+"#;
+
+    #[test]
+    fn test_parse_email_hobbysearch_change_yoyaku() {
+        let result = parse_email(
+            "hobbysearch_change_yoyaku".to_string(),
+            SAMPLE_HOBBYSEARCH_CHANGE_YOYAKU.to_string(),
+        );
+        assert!(result.is_ok());
+        let order_info = result.unwrap();
+        assert_eq!(order_info.order_number, "25-0303-9999");
+        assert_eq!(order_info.items.len(), 1);
+        assert_eq!(order_info.items[0].unit_price, 3000);
+        assert_eq!(order_info.items[0].quantity, 2);
+    }
+
+    /// hobbysearch_send パーサーのテスト（CIで実行、ダミーデータ使用）
+    const SAMPLE_HOBBYSEARCH_SEND: &str = r#"
+[代表注文番号] 25-0404-1111
+
+[運送会社] ヤマト運輸
+[配送伝票] 1234-5678-9012
+
+[お届け先情報]
+〒300-0003
+東京都港区六本木1-2-3
+発送 次郎 様
+
+[ご購入内容]
+バンダイ 3456789 テスト商品C (プラモデル) RGシリーズ
+単価：2,000円 × 個数：1 = 2,000円
+
+小計：2,000円
+送料：0円
+合計：2,000円
+"#;
+
+    #[test]
+    fn test_parse_email_hobbysearch_send() {
+        let result = parse_email(
+            "hobbysearch_send".to_string(),
+            SAMPLE_HOBBYSEARCH_SEND.to_string(),
+        );
+        assert!(result.is_ok());
+        let order_info = result.unwrap();
+        assert_eq!(order_info.order_number, "25-0404-1111");
+        assert_eq!(order_info.items.len(), 1);
+        assert!(order_info.delivery_info.is_some());
+        let info = order_info.delivery_info.as_ref().unwrap();
+        assert_eq!(info.carrier, "ヤマト運輸");
+        assert_eq!(info.tracking_number, "1234-5678-9012");
     }
 
     // ==================== validate_window_size Tests ====================
