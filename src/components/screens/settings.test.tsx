@@ -1211,11 +1211,20 @@ describe('Settings', () => {
     it('shows error message when file read fails', async () => {
       const user = userEvent.setup();
       class MockFileReader {
-        onload: ((e: ProgressEvent<FileReader>) => void) | null = null;
-        onerror: (() => void) | null = null;
+        onload:
+          | ((this: FileReader, ev: ProgressEvent<FileReader>) => void)
+          | null = null;
+        onerror:
+          | ((this: FileReader, ev: ProgressEvent<FileReader>) => void)
+          | null = null;
         readAsText() {
           queueMicrotask(() => {
-            if (this.onerror) this.onerror(new ProgressEvent('error'));
+            if (this.onerror) {
+              this.onerror.call(
+                this as unknown as FileReader,
+                new ProgressEvent('error') as ProgressEvent<FileReader>
+              );
+            }
           });
         }
       }
