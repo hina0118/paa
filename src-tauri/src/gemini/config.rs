@@ -74,6 +74,7 @@ pub fn delete_api_key(_app_data_dir: &Path) -> Result<(), String> {
 #[cfg(not(ci))]
 mod tests {
     use super::*;
+    use serial_test::serial;
     use tempfile::TempDir;
 
     /// テスト用: keyring のエントリをクリーンアップ
@@ -84,6 +85,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_has_api_key_returns_false_when_empty() {
         cleanup_test_keyring();
         let temp_dir = TempDir::new().unwrap();
@@ -93,6 +95,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_has_api_key_returns_true_when_set() {
         cleanup_test_keyring();
         let temp_dir = TempDir::new().unwrap();
@@ -104,6 +107,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_load_api_key_success() {
         cleanup_test_keyring();
         let temp_dir = TempDir::new().unwrap();
@@ -117,6 +121,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_load_api_key_not_found() {
         cleanup_test_keyring();
         let temp_dir = TempDir::new().unwrap();
@@ -129,6 +134,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_save_and_load_api_key() {
         cleanup_test_keyring();
         let temp_dir = TempDir::new().unwrap();
@@ -146,6 +152,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_delete_api_key() {
         cleanup_test_keyring();
         let temp_dir = TempDir::new().unwrap();
