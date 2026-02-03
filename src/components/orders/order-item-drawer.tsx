@@ -58,9 +58,11 @@ export function OrderItemDrawer({
                 tabIndex={0}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
                     setImageSearchOpen(true);
                   }
                 }}
+                aria-label="画像を検索"
                 title="クリックして画像を検索"
               >
                 {imageSrc ? (

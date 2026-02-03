@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { OrderItemDrawer } from './order-item-drawer';
 import type { OrderItemRow } from '@/lib/types';
+import { mockInvoke } from '@/test/setup';
 
 const mockGetImageUrl = vi.fn(() => null);
 vi.mock('@/hooks/useImageUrl', () => ({
@@ -30,6 +31,7 @@ const mockItem: OrderItemRow = {
 describe('OrderItemDrawer', () => {
   beforeEach(() => {
     mockGetImageUrl.mockImplementation(() => null);
+    vi.clearAllMocks();
   });
 
   it('returns null when item is null', () => {
@@ -175,8 +177,9 @@ describe('OrderItemDrawer', () => {
       <OrderItemDrawer item={mockItem} open={true} onOpenChange={vi.fn()} />
     );
 
-    const searchButton = screen.getByRole('button', { name: /画像を検索/ });
-    await user.click(searchButton);
+    // ドロワー内のボタン（ダイアログが閉じているときは1つ、開いているときは複数あるため最初のものを使用）
+    const searchButtons = screen.getAllByRole('button', { name: /画像を検索/ });
+    await user.click(searchButtons[0]);
 
     expect(
       screen.getByRole('heading', { name: '画像を検索' })
@@ -228,5 +231,65 @@ describe('OrderItemDrawer', () => {
       />
     );
     expect(screen.getByText('-')).toBeInTheDocument();
+  });
+
+  it('calls onImageUpdated when image is saved via ImageSearchDialog', async () => {
+    const user = userEvent.setup();
+    const onImageUpdated = vi.fn();
+    const mockResults = [
+      {
+        url: 'https://example.com/img1.jpg',
+        thumbnail_url: null,
+        width: null,
+        height: null,
+        title: null,
+        mime_type: null,
+      },
+    ];
+    mockInvoke
+      .mockResolvedValueOnce(mockResults)
+      .mockResolvedValueOnce(undefined);
+
+    render(
+      <OrderItemDrawer
+        item={mockItem}
+        open={true}
+        onOpenChange={vi.fn()}
+        onImageUpdated={onImageUpdated}
+      />
+    );
+
+    // ドロワー内のボタンをクリックしてダイアログを開く
+    const drawerButtons = screen.getAllByRole('button', { name: /画像を検索/ });
+    await user.click(drawerButtons[0]);
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('heading', { name: '画像を検索' })
+      ).toBeInTheDocument();
+    });
+
+    const dialog = screen.getByRole('dialog');
+    await user.click(
+      within(dialog).getByRole('button', { name: /画像を検索/ })
+    );
+
+    await waitFor(() => {
+      expect(screen.getByAltText('検索結果 1')).toBeInTheDocument();
+    });
+
+    const img = screen.getByAltText('検索結果 1');
+    const firstResultButton = img.closest('button');
+    if (firstResultButton) {
+      await user.click(firstResultButton);
+    }
+
+    await user.click(
+      screen.getByRole('button', { name: '選択した画像を保存' })
+    );
+
+    await waitFor(() => {
+      expect(onImageUpdated).toHaveBeenCalled();
+    });
   });
 });

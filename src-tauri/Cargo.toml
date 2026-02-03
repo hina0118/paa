@@ -50,6 +50,8 @@ bytes = "1"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 urlencoding = "2"
 uuid = { version = "1", features = ["v4"] }
+url = "2"
+image = { version = "0.24", default-features = false, features = ["jpeg", "png", "webp"] }
 
 [dev-dependencies]
 mockall = "0.13"

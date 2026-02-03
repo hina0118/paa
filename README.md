@@ -207,3 +207,31 @@ npm スクリプト（プロジェクトルートで実行）
 | `npm run format:check`  | Prettier のチェックのみ（書き換えしない）                 |
 | `npm run format`        | Prettier でフォーマット（書き換えする）                   |
 | `npm run lint:fix`      | lint:rust:fix ＋ lint:ui:fix ＋ format をまとめて実行     |
+
+### PR レビューコメントの解決
+
+対応済みのレビューコメントを GitHub 上で Resolved にするスクリプトです。
+
+**前提**: [GitHub CLI (gh)](https://cli.github.com/) がインストール済みで `gh auth login` 済みであること。
+
+```powershell
+# 最もシンプル（リポジトリ内で実行、未解決スレッドを自動取得して解決）
+.\scripts\resolve-pr-review-threads.ps1 -PrNumber 59
+
+# リポジトリ外から実行する場合
+.\scripts\resolve-pr-review-threads.ps1 -Owner hina0118 -Repo paa -PrNumber 59
+
+# 現在のブランチの PR を一括解決
+.\scripts\resolve-pr-review-threads.ps1 -CurrentBranch
+
+# スレッド ID を明示指定する場合
+.\scripts\resolve-pr-review-threads.ps1 -PrNumber 59 -ThreadIds @("PRRT_xxx","PRRT_yyy")
+```
+
+| パラメータ       | 説明                                                                     |
+| ---------------- | ------------------------------------------------------------------------ |
+| `-PrNumber`      | PR 番号（必須。`-CurrentBranch` 使用時は不要）                           |
+| `-Owner`         | リポジトリオーナー（省略時は `gh repo view` または git remote から取得） |
+| `-Repo`          | リポジトリ名（省略時は同上）                                             |
+| `-CurrentBranch` | 現在のブランチの PR を対象にする                                         |
+| `-ThreadIds`     | 解決するスレッド ID の配列（省略時は未解決スレッドを自動取得）           |
