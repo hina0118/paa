@@ -1140,4 +1140,113 @@ describe('Settings', () => {
       vi.unstubAllGlobals();
     });
   });
+
+  // Gmail OAuth ファイルアップロード・inputMode切り替えテスト
+  describe('handleFileUpload / inputMode', () => {
+    it('switches between paste and file input modes', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('heading', { name: /Gmail OAuth認証/ })
+        ).toBeInTheDocument();
+      });
+
+      // 初期状態: JSON貼り付けモード
+      expect(
+        screen.getByLabelText(/client_secret\.json の内容/)
+      ).toBeInTheDocument();
+
+      // ファイルアップロードモードに切り替え
+      await user.click(
+        screen.getByRole('radio', { name: /ファイルをアップロード/ })
+      );
+      expect(
+        screen.getByLabelText(/client_secret\.json ファイル/)
+      ).toBeInTheDocument();
+
+      // JSON貼り付けモードに戻す
+      await user.click(screen.getByRole('radio', { name: /JSONを貼り付け/ }));
+      expect(
+        screen.getByLabelText(/client_secret\.json の内容/)
+      ).toBeInTheDocument();
+    });
+
+    it('loads file content and displays success message when file upload succeeds', async () => {
+      const user = userEvent.setup();
+      const validJson = JSON.stringify({
+        installed: {
+          client_id: 'test-id.apps.googleusercontent.com',
+          client_secret: 'GOCSPX-secret',
+        },
+      });
+      const file = new File([validJson], 'client_secret.json', {
+        type: 'application/json',
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('heading', { name: /Gmail OAuth認証/ })
+        ).toBeInTheDocument();
+      });
+
+      // ファイルアップロードモードに切り替え
+      await user.click(
+        screen.getByRole('radio', { name: /ファイルをアップロード/ })
+      );
+
+      const fileInput = screen.getByLabelText(/client_secret\.json ファイル/);
+      await user.upload(fileInput, file);
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('ファイルが読み込まれました')
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('shows error message when file read fails', async () => {
+      const user = userEvent.setup();
+      class MockFileReader {
+        onload: ((e: ProgressEvent<FileReader>) => void) | null = null;
+        onerror: (() => void) | null = null;
+        readAsText() {
+          queueMicrotask(() => {
+            if (this.onerror) this.onerror(new ProgressEvent('error'));
+          });
+        }
+      }
+      vi.stubGlobal('FileReader', MockFileReader);
+
+      const file = new File(['content'], 'test.json', {
+        type: 'application/json',
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('heading', { name: /Gmail OAuth認証/ })
+        ).toBeInTheDocument();
+      });
+
+      await user.click(
+        screen.getByRole('radio', { name: /ファイルをアップロード/ })
+      );
+
+      const fileInput = screen.getByLabelText(/client_secret\.json ファイル/);
+      await user.upload(fileInput, file);
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('ファイルの読み込みに失敗しました')
+        ).toBeInTheDocument();
+      });
+
+      vi.unstubAllGlobals();
+    });
+  });
 });

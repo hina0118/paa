@@ -300,4 +300,17 @@ mod tests {
 
         cleanup_test_keyring();
     }
+
+    #[test]
+    #[serial]
+    fn test_save_oauth_credentials_from_json_with_empty_client_id() {
+        cleanup_test_keyring();
+
+        let json = r#"{"installed":{"client_id":"","client_secret":"secret"}}"#;
+        let result = save_oauth_credentials_from_json(json);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("client_id is empty"));
+
+        cleanup_test_keyring();
+    }
 }
