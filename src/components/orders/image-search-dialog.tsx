@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import {
   Dialog,
@@ -82,16 +82,22 @@ export function ImageSearchDialog({
       });
       setSavedSuccess(true);
       onImageSaved?.();
-      // 成功後、少し待ってからダイアログを閉じる
-      setTimeout(() => {
-        onOpenChange(false);
-      }, 1000);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setIsSaving(false);
     }
   }, [itemId, selectedUrl, onImageSaved, onOpenChange]);
+
+  // 成功後、少し待ってからダイアログを閉じる（クリーンアップでメモリリーク防止）
+  useEffect(() => {
+    if (savedSuccess) {
+      const timer = setTimeout(() => {
+        onOpenChange(false);
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [savedSuccess, onOpenChange]);
 
   const handleOpenChange = useCallback(
     (newOpen: boolean) => {
@@ -160,7 +166,7 @@ export function ImageSearchDialog({
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {searchResults.map((result, index) => (
                 <button
-                  key={index}
+                  key={`${result.url}-${index}`}
                   type="button"
                   onClick={() => setSelectedUrl(result.url)}
                   className={`
@@ -179,10 +185,13 @@ export function ImageSearchDialog({
                     className="w-full h-full object-cover"
                     loading="lazy"
                     onError={(e) => {
-                      // サムネイルが読み込めない場合は元のURLを試す
                       const img = e.target as HTMLImageElement;
-                      if (img.src !== result.url) {
+                      // サムネイルが読み込めない場合は一度だけ元のURLを試す
+                      if (img.src !== result.url && !img.dataset.errorHandled) {
+                        img.dataset.errorHandled = 'true';
                         img.src = result.url;
+                      } else {
+                        img.style.display = 'none';
                       }
                     }}
                   />

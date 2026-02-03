@@ -681,6 +681,16 @@ describe('Settings', () => {
     });
   });
 
+  // SerpApi 設定カード表示テスト
+  it('renders SerpApi settings card', async () => {
+    renderWithProviders(<Settings />);
+    await waitFor(() => {
+      expect(
+        screen.getByRole('heading', { name: /SerpApi/ })
+      ).toBeInTheDocument();
+    });
+  });
+
   // SerpApi API キー保存/削除テスト
   describe('handleSaveSerpApiKey / handleDeleteSerpApiKey', () => {
     it('saves SerpApi API key successfully', async () => {
