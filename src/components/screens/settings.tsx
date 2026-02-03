@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useSync } from '@/contexts/use-sync';
 import { useParse } from '@/contexts/use-parse';
@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
 
 export function Settings() {
   const { metadata, updateBatchSize, updateMaxIterations } = useSync();
@@ -38,6 +39,13 @@ export function Settings() {
   const [serpApiKey, setSerpApiKey] = useState<string>('');
   const [isSavingSerpApi, setIsSavingSerpApi] = useState(false);
   const [isDeletingSerpApi, setIsDeletingSerpApi] = useState(false);
+  // Gmail OAuth
+  const [isGmailOAuthConfigured, setIsGmailOAuthConfigured] = useState(false);
+  const [gmailOAuthJson, setGmailOAuthJson] = useState<string>('');
+  const [isSavingGmailOAuth, setIsSavingGmailOAuth] = useState(false);
+  const [isDeletingGmailOAuth, setIsDeletingGmailOAuth] = useState(false);
+  const [inputMode, setInputMode] = useState<'paste' | 'file'>('paste');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (metadata && !isInitialized) {
@@ -69,6 +77,19 @@ export function Settings() {
   useEffect(() => {
     refreshSerpApiStatus();
   }, [refreshSerpApiStatus]);
+
+  const refreshGmailOAuthStatus = useCallback(async () => {
+    try {
+      const configured = await invoke<boolean>('has_gmail_oauth_credentials');
+      setIsGmailOAuthConfigured(configured);
+    } catch (error) {
+      console.error('Failed to check Gmail OAuth config:', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshGmailOAuthStatus();
+  }, [refreshGmailOAuthStatus]);
 
   const handleSaveBatchSize = async () => {
     const value = parseInt(batchSize, 10);
@@ -247,6 +268,87 @@ export function Settings() {
     }
   };
 
+  const handleSaveGmailOAuth = async () => {
+    const jsonContent = gmailOAuthJson.trim();
+
+    if (!jsonContent) {
+      setErrorMessage('JSONを入力してください');
+      return;
+    }
+
+    // JSONの形式を簡易チェック
+    try {
+      JSON.parse(jsonContent);
+    } catch {
+      setErrorMessage('無効なJSON形式です');
+      return;
+    }
+
+    setIsSavingGmailOAuth(true);
+    setErrorMessage('');
+    setSuccessMessage('');
+
+    try {
+      await invoke('save_gmail_oauth_credentials', { jsonContent });
+      setSuccessMessage(
+        'Gmail OAuth認証情報を保存しました（OSのセキュアストレージに保存）'
+      );
+      setGmailOAuthJson(''); // セキュリティのため入力欄をクリア
+      await refreshGmailOAuthStatus();
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (error) {
+      setErrorMessage(
+        `保存に失敗しました: ${error instanceof Error ? error.message : String(error)}`
+      );
+    } finally {
+      setIsSavingGmailOAuth(false);
+    }
+  };
+
+  const handleDeleteGmailOAuth = async () => {
+    if (!confirm('Gmail OAuth認証情報を削除しますか？')) {
+      return;
+    }
+
+    setIsDeletingGmailOAuth(true);
+    setErrorMessage('');
+    setSuccessMessage('');
+
+    try {
+      await invoke('delete_gmail_oauth_credentials');
+      setSuccessMessage('Gmail OAuth認証情報を削除しました');
+      setGmailOAuthJson('');
+      await refreshGmailOAuthStatus();
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (error) {
+      setErrorMessage(
+        `削除に失敗しました: ${error instanceof Error ? error.message : String(error)}`
+      );
+    } finally {
+      setIsDeletingGmailOAuth(false);
+    }
+  };
+
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const content = e.target?.result as string;
+      setGmailOAuthJson(content);
+    };
+    reader.onerror = () => {
+      setErrorMessage('ファイルの読み込みに失敗しました');
+    };
+    reader.readAsText(file);
+
+    // ファイル入力をリセット（同じファイルを再選択できるように）
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
   return (
     <div className="container mx-auto py-10 space-y-6">
       <h1 className="text-3xl font-bold">設定</h1>
@@ -270,6 +372,121 @@ export function Settings() {
           {errorMessage}
         </div>
       )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Gmail OAuth認証</CardTitle>
+          <CardDescription>
+            Gmail同期に使用するOAuth認証情報を設定します（OSのセキュアストレージに保存）
+            <br />
+            <a
+              href="https://console.cloud.google.com/apis/credentials"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 hover:underline"
+            >
+              Google Cloud ConsoleでOAuth認証情報を取得
+            </a>
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              {isGmailOAuthConfigured
+                ? '認証情報は設定済みです'
+                : '認証情報を設定してください'}
+            </p>
+          </div>
+          <div className="space-y-4">
+            <div className="flex gap-4">
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="input-mode"
+                  checked={inputMode === 'paste'}
+                  onChange={() => setInputMode('paste')}
+                  disabled={isSavingGmailOAuth || isDeletingGmailOAuth}
+                />
+                <span className="text-sm">JSONを貼り付け</span>
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="input-mode"
+                  checked={inputMode === 'file'}
+                  onChange={() => setInputMode('file')}
+                  disabled={isSavingGmailOAuth || isDeletingGmailOAuth}
+                />
+                <span className="text-sm">ファイルをアップロード</span>
+              </label>
+            </div>
+
+            {inputMode === 'paste' ? (
+              <div className="space-y-2">
+                <label
+                  htmlFor="gmail-oauth-json"
+                  className="text-sm font-medium"
+                >
+                  client_secret.json の内容
+                </label>
+                <Textarea
+                  id="gmail-oauth-json"
+                  placeholder='{"installed":{"client_id":"...","client_secret":"..."}}'
+                  value={gmailOAuthJson}
+                  onChange={(e) => setGmailOAuthJson(e.target.value)}
+                  disabled={isSavingGmailOAuth || isDeletingGmailOAuth}
+                  className="min-h-[120px] font-mono text-sm"
+                />
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  client_secret.json ファイル
+                </label>
+                <div className="flex gap-2 items-center">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".json,application/json"
+                    onChange={handleFileUpload}
+                    disabled={isSavingGmailOAuth || isDeletingGmailOAuth}
+                    className="text-sm"
+                  />
+                </div>
+                {gmailOAuthJson && (
+                  <p className="text-sm text-muted-foreground">
+                    ファイルが読み込まれました
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <Button
+                onClick={handleSaveGmailOAuth}
+                disabled={
+                  isSavingGmailOAuth ||
+                  isDeletingGmailOAuth ||
+                  !gmailOAuthJson.trim()
+                }
+                aria-label="Gmail OAuth認証情報を保存"
+              >
+                保存
+              </Button>
+              {isGmailOAuthConfigured && (
+                <Button
+                  variant="destructive"
+                  onClick={handleDeleteGmailOAuth}
+                  disabled={isSavingGmailOAuth || isDeletingGmailOAuth}
+                  aria-label="Gmail OAuth認証情報を削除"
+                >
+                  削除
+                </Button>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

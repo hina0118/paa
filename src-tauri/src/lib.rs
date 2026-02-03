@@ -575,6 +575,10 @@ pub fn run() {
             save_gemini_api_key,
             delete_gemini_api_key,
             start_product_name_parse,
+            // Gmail OAuth commands
+            has_gmail_oauth_credentials,
+            save_gmail_oauth_credentials,
+            delete_gmail_oauth_credentials,
             // SerpApi image search commands
             is_google_search_configured,
             save_google_search_api_key,
@@ -832,6 +836,32 @@ async fn delete_gemini_api_key(app_handle: tauri::AppHandle) -> Result<(), Strin
     gemini::config::delete_api_key(&app_data_dir)?;
 
     log::info!("Gemini API key deleted successfully");
+    Ok(())
+}
+
+// =============================================================================
+// Gmail OAuth Commands
+// =============================================================================
+
+/// Gmail OAuth認証情報が設定されているかチェック
+#[tauri::command]
+async fn has_gmail_oauth_credentials() -> bool {
+    gmail::has_oauth_credentials()
+}
+
+/// Gmail OAuth認証情報を保存（JSONから）
+#[tauri::command]
+async fn save_gmail_oauth_credentials(json_content: String) -> Result<(), String> {
+    gmail::save_oauth_credentials_from_json(&json_content)?;
+    log::info!("Gmail OAuth credentials saved successfully");
+    Ok(())
+}
+
+/// Gmail OAuth認証情報を削除
+#[tauri::command]
+async fn delete_gmail_oauth_credentials() -> Result<(), String> {
+    gmail::delete_oauth_credentials()?;
+    log::info!("Gmail OAuth credentials deleted successfully");
     Ok(())
 }
 
