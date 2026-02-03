@@ -90,15 +90,14 @@ pub fn save_oauth_credentials(client_id: &str, client_secret: &str) -> Result<()
 /// OAuth認証情報を削除
 pub fn delete_oauth_credentials() -> Result<(), String> {
     // client_idの削除
-    if let Ok(entry) = client_id_entry() {
-        // エントリが存在しない場合のエラーは無視
-        let _ = entry.delete_credential();
-    }
+    client_id_entry()?
+        .delete_credential()
+        .map_err(|e| format!("Failed to delete Gmail client_id from secure storage: {e}"))?;
 
     // client_secretの削除
-    if let Ok(entry) = client_secret_entry() {
-        let _ = entry.delete_credential();
-    }
+    client_secret_entry()?
+        .delete_credential()
+        .map_err(|e| format!("Failed to delete Gmail client_secret from secure storage: {e}"))?;
 
     log::info!("Gmail OAuth credentials deleted successfully from secure storage");
     Ok(())
