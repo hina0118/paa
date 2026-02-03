@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { OrderItemDrawer } from './order-item-drawer';
 import type { OrderItemRow } from '@/lib/types';
 
@@ -118,5 +119,114 @@ describe('OrderItemDrawer', () => {
       />
     );
     expect(screen.queryByText('メーカー / 作品名')).not.toBeInTheDocument();
+  });
+
+  it('opens image search on Enter key when focusing image area', async () => {
+    const user = userEvent.setup();
+    render(
+      <OrderItemDrawer item={mockItem} open={true} onOpenChange={vi.fn()} />
+    );
+
+    const imageArea = screen.getByTitle('クリックして画像を検索');
+    imageArea.focus();
+    await user.keyboard('{Enter}');
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('heading', { name: '画像を検索' })
+      ).toBeInTheDocument();
+    });
+  });
+
+  it('opens image search on Space key when focusing image area', async () => {
+    const user = userEvent.setup();
+    render(
+      <OrderItemDrawer item={mockItem} open={true} onOpenChange={vi.fn()} />
+    );
+
+    const imageArea = screen.getByTitle('クリックして画像を検索');
+    imageArea.focus();
+    await user.keyboard(' ');
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('heading', { name: '画像を検索' })
+      ).toBeInTheDocument();
+    });
+  });
+
+  it('opens image search when image area is clicked', async () => {
+    const user = userEvent.setup();
+    render(
+      <OrderItemDrawer item={mockItem} open={true} onOpenChange={vi.fn()} />
+    );
+
+    const imageArea = screen.getByTitle('クリックして画像を検索');
+    await user.click(imageArea);
+
+    expect(
+      screen.getByRole('heading', { name: '画像を検索' })
+    ).toBeInTheDocument();
+  });
+
+  it('opens image search when 画像を検索 button is clicked', async () => {
+    const user = userEvent.setup();
+    render(
+      <OrderItemDrawer item={mockItem} open={true} onOpenChange={vi.fn()} />
+    );
+
+    const searchButton = screen.getByRole('button', { name: /画像を検索/ });
+    await user.click(searchButton);
+
+    expect(
+      screen.getByRole('heading', { name: '画像を検索' })
+    ).toBeInTheDocument();
+  });
+
+  it('renders shop domain when shopName is null', () => {
+    const itemWithDomainOnly: OrderItemRow = {
+      ...mockItem,
+      shopName: null,
+      shopDomain: 'example.com',
+    };
+    render(
+      <OrderItemDrawer
+        item={itemWithDomainOnly}
+        open={true}
+        onOpenChange={vi.fn()}
+      />
+    );
+    expect(screen.getByText('example.com')).toBeInTheDocument();
+  });
+
+  it('renders hyphen when both shopName and shopDomain are null', () => {
+    const itemWithNoShop: OrderItemRow = {
+      ...mockItem,
+      shopName: null,
+      shopDomain: null,
+    };
+    render(
+      <OrderItemDrawer
+        item={itemWithNoShop}
+        open={true}
+        onOpenChange={vi.fn()}
+      />
+    );
+    expect(screen.getByText('-')).toBeInTheDocument();
+  });
+
+  it('renders hyphen for order number when null', () => {
+    const itemWithNoOrderNumber: OrderItemRow = {
+      ...mockItem,
+      orderNumber: null,
+    };
+    render(
+      <OrderItemDrawer
+        item={itemWithNoOrderNumber}
+        open={true}
+        onOpenChange={vi.fn()}
+      />
+    );
+    expect(screen.getByText('-')).toBeInTheDocument();
   });
 });

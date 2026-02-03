@@ -57,8 +57,9 @@ export function ImageSearchDialog({
           numResults: 10,
         }
       );
-      setSearchResults(results);
-      if (results.length === 0) {
+      const safeResults = Array.isArray(results) ? results : [];
+      setSearchResults(safeResults);
+      if (safeResults.length === 0) {
         setError('画像が見つかりませんでした。');
       }
     } catch (e) {
