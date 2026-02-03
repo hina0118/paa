@@ -489,7 +489,10 @@ describe('Settings', () => {
 
       renderWithProviders(<Settings />);
 
-      const apiKeyInput = screen.getByPlaceholderText('APIキーを入力');
+      // Use ID selector to distinguish from SerpApi API key input
+      const apiKeyInput = document.getElementById(
+        'gemini-api-key'
+      ) as HTMLInputElement;
       await user.type(apiKeyInput, 'test-api-key-123');
 
       await user.click(
@@ -529,7 +532,11 @@ describe('Settings', () => {
 
       renderWithProviders(<Settings />);
 
-      await user.type(screen.getByPlaceholderText('APIキーを入力'), 'key');
+      // Use ID selector to distinguish from SerpApi API key input
+      const apiKeyInput = document.getElementById(
+        'gemini-api-key'
+      ) as HTMLInputElement;
+      await user.type(apiKeyInput, 'key');
       await user.click(
         screen.getByRole('button', { name: 'Gemini APIキーを保存' })
       );
@@ -559,7 +566,11 @@ describe('Settings', () => {
 
       renderWithProviders(<Settings />);
 
-      await user.type(screen.getByPlaceholderText('APIキーを入力'), 'key');
+      // Use ID selector to distinguish from SerpApi API key input
+      const apiKeyInput = document.getElementById(
+        'gemini-api-key'
+      ) as HTMLInputElement;
+      await user.type(apiKeyInput, 'key');
       await user.click(
         screen.getByRole('button', { name: 'Gemini APIキーを保存' })
       );

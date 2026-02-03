@@ -48,6 +48,8 @@ unicode-normalization = "0.1"
 http-body-util = "0.1"
 bytes = "1"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+urlencoding = "2"
+uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 mockall = "0.13"

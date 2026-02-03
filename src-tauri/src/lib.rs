@@ -11,6 +11,7 @@ use tauri_plugin_sql::{Migration, MigrationKind};
 pub mod gemini;
 pub mod gmail;
 pub mod gmail_client;
+pub mod google_search;
 pub mod logic;
 pub mod parsers;
 pub mod repository;
@@ -574,6 +575,12 @@ pub fn run() {
             save_gemini_api_key,
             delete_gemini_api_key,
             start_product_name_parse,
+            // SerpApi image search commands
+            is_google_search_configured,
+            save_google_search_api_key,
+            delete_google_search_config,
+            search_product_images,
+            save_image_from_url,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -1028,6 +1035,209 @@ async fn start_product_name_parse(
     });
 
     Ok(())
+}
+
+// =============================================================================
+// SerpApi Image Search Commands
+// =============================================================================
+
+/// SerpApi が設定済みかチェック（API Key のみ）
+#[tauri::command]
+async fn is_google_search_configured(app_handle: tauri::AppHandle) -> Result<bool, String> {
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {e}"))?;
+
+    Ok(google_search::is_configured(&app_data_dir))
+}
+
+/// SerpApi API キーを保存
+#[tauri::command]
+async fn save_google_search_api_key(
+    app_handle: tauri::AppHandle,
+    api_key: String,
+) -> Result<(), String> {
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {e}"))?;
+
+    google_search::save_api_key(&app_data_dir, &api_key)?;
+
+    log::info!("SerpApi API key saved successfully");
+    Ok(())
+}
+
+/// SerpApi API 設定を削除
+#[tauri::command]
+async fn delete_google_search_config(app_handle: tauri::AppHandle) -> Result<(), String> {
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {e}"))?;
+
+    google_search::delete_api_key(&app_data_dir)?;
+
+    log::info!("SerpApi config deleted successfully");
+    Ok(())
+}
+
+/// 商品画像を検索（SerpApi）
+#[tauri::command]
+async fn search_product_images(
+    app_handle: tauri::AppHandle,
+    query: String,
+    num_results: Option<u32>,
+) -> Result<Vec<google_search::ImageSearchResult>, String> {
+    use google_search::ImageSearchClientTrait;
+
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {e}"))?;
+
+    if !google_search::is_configured(&app_data_dir) {
+        return Err(
+            "SerpApiが設定されていません。設定画面でAPIキーを設定してください。".to_string(),
+        );
+    }
+
+    let api_key = google_search::load_api_key(&app_data_dir)?;
+
+    let client = google_search::SerpApiClient::new(api_key)?;
+    client
+        .search_images(&query, num_results.unwrap_or(10))
+        .await
+}
+
+/// 画像URLから画像をダウンロードしてimagesテーブルに保存
+#[tauri::command]
+async fn save_image_from_url(
+    app_handle: tauri::AppHandle,
+    pool: tauri::State<'_, SqlitePool>,
+    item_id: i64,
+    image_url: String,
+) -> Result<String, String> {
+    use bytes::Bytes;
+    use http_body_util::{BodyExt, Full};
+    use hyper::{Method, Request};
+    use hyper_rustls::HttpsConnector;
+    use hyper_util::client::legacy::connect::HttpConnector;
+    use hyper_util::client::legacy::Client;
+    use hyper_util::rt::TokioExecutor;
+    use std::time::Duration;
+
+    log::info!("Downloading image for item_id: {}", item_id);
+
+    // HTTPSクライアントを作成
+    let https = hyper_rustls::HttpsConnectorBuilder::new()
+        .with_native_roots()
+        .map_err(|e| format!("Failed to create HTTPS connector: {e}"))?
+        .https_or_http()
+        .enable_http1()
+        .build();
+
+    let http_client: Client<HttpsConnector<HttpConnector>, Full<Bytes>> =
+        Client::builder(TokioExecutor::new()).build(https);
+
+    // 画像をダウンロード
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri(&image_url)
+        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+        .body(Full::new(Bytes::new()))
+        .map_err(|e| format!("Failed to build request: {e}"))?;
+
+    let request_result = tokio::time::timeout(Duration::from_secs(30), async {
+        let response = http_client
+            .request(req)
+            .await
+            .map_err(|e| format!("Failed to download image: {e}"))?;
+        let status = response.status();
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+        let body_bytes = response
+            .into_body()
+            .collect()
+            .await
+            .map_err(|e| format!("Failed to read image body: {e}"))?
+            .to_bytes();
+        Ok::<_, String>((status, content_type, body_bytes))
+    })
+    .await;
+
+    let (status, content_type, image_data) = match request_result {
+        Ok(Ok((s, ct, b))) => (s, ct, b),
+        Ok(Err(e)) => return Err(e),
+        Err(_) => return Err("Image download timed out".to_string()),
+    };
+
+    if !status.is_success() {
+        return Err(format!("Failed to download image: HTTP {}", status));
+    }
+
+    // ファイル拡張子を決定
+    let extension = match content_type.as_deref() {
+        Some(ct) if ct.contains("jpeg") || ct.contains("jpg") => "jpg",
+        Some(ct) if ct.contains("png") => "png",
+        Some(ct) if ct.contains("webp") => "webp",
+        _ => {
+            // URLから拡張子を推測
+            if image_url.to_lowercase().contains(".png") {
+                "png"
+            } else if image_url.to_lowercase().contains(".webp") {
+                "webp"
+            } else {
+                "jpg"
+            }
+        }
+    };
+
+    // ファイル名を生成（UUID + 拡張子）
+    let file_name = format!("{}.{}", uuid::Uuid::new_v4(), extension);
+
+    // 画像保存ディレクトリを作成
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {e}"))?;
+    let images_dir = app_data_dir.join("images");
+    std::fs::create_dir_all(&images_dir)
+        .map_err(|e| format!("Failed to create images directory: {e}"))?;
+
+    // 画像ファイルを保存
+    let file_path = images_dir.join(&file_name);
+    std::fs::write(&file_path, &image_data)
+        .map_err(|e| format!("Failed to write image file: {e}"))?;
+
+    log::info!("Image saved to: {}", file_path.display());
+
+    // データベースに保存（既存レコードがあれば更新、なければ挿入）
+    sqlx::query(
+        r#"
+        INSERT INTO images (item_id, file_name, created_at)
+        VALUES (?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT (item_id) DO UPDATE SET
+            file_name = excluded.file_name,
+            created_at = CURRENT_TIMESTAMP
+        "#,
+    )
+    .bind(item_id)
+    .bind(&file_name)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| format!("Failed to save image to database: {e}"))?;
+
+    log::info!(
+        "Image record saved to database for item_id: {}",
+        item_id
+    );
+
+    Ok(file_name)
 }
 
 #[cfg(test)]
