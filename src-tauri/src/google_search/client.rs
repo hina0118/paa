@@ -54,6 +54,13 @@ struct SerpApiImageResult {
 /// リクエストタイムアウト（秒）
 const REQUEST_TIMEOUT_SECS: u64 = 30;
 
+/// URLがGIF画像かをパス末尾の拡張子で判定（クエリ・フラグメントは除去）
+fn is_gif_url(url: &str) -> bool {
+    let url_lower = url.to_lowercase();
+    let path_without_query = url_lower.split(['?', '#']).next().unwrap_or(&url_lower);
+    path_without_query.ends_with(".gif")
+}
+
 /// 画像検索クライアントトレイト（テスト用モック対応）
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
@@ -220,12 +227,7 @@ impl ImageSearchClientTrait for SerpApiClient {
                 let url = item.original.or(item.thumbnail.clone())?;
 
                 // GIFは除外（拡張子で判定、クエリ・フラグメントは除去）
-                let url_lower = url.to_lowercase();
-                let path_without_query = url_lower
-                    .split(|c| c == '?' || c == '#')
-                    .next()
-                    .unwrap_or(&url_lower);
-                if path_without_query.ends_with(".gif") {
+                if is_gif_url(&url) {
                     return None;
                 }
 
@@ -327,5 +329,16 @@ mod tests {
         let images = result.unwrap();
         assert_eq!(images.len(), 1);
         assert_eq!(images[0].url, "https://example.com/image.jpg");
+    }
+
+    #[test]
+    fn test_is_gif_url() {
+        assert!(is_gif_url("https://example.com/image.gif"));
+        assert!(is_gif_url("https://example.com/photo.GIF"));
+        assert!(is_gif_url("https://example.com/path/to/file.gif?size=large"));
+        assert!(is_gif_url("https://example.com/file.gif#anchor"));
+        assert!(!is_gif_url("https://example.com/image.jpg"));
+        assert!(!is_gif_url("https://gif.example.com/image.jpg"));
+        assert!(!is_gif_url("https://example.com/image.jpg?ext=gif"));
     }
 }
