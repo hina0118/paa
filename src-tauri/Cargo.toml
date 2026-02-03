@@ -48,12 +48,17 @@ unicode-normalization = "0.1"
 http-body-util = "0.1"
 bytes = "1"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+urlencoding = "2"
+uuid = { version = "1", features = ["v4"] }
+url = "2"
+image = { version = "0.24", default-features = false, features = ["jpeg", "png", "webp"] }
 
 [dev-dependencies]
 mockall = "0.13"
 tokio-test = "0.4"
 wiremock = "0.6"
 tempfile = "3"
+serial_test = "3"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(ci)'] }
