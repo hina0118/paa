@@ -440,11 +440,15 @@ export function Settings() {
               </div>
             ) : (
               <div className="space-y-2">
-                <label className="text-sm font-medium">
+                <label
+                  htmlFor="gmail-oauth-file"
+                  className="text-sm font-medium"
+                >
                   client_secret.json ファイル
                 </label>
                 <div className="flex gap-2 items-center">
                   <input
+                    id="gmail-oauth-file"
                     ref={fileInputRef}
                     type="file"
                     accept=".json,application/json"
