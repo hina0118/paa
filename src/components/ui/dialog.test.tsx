@@ -10,7 +10,6 @@ import {
   DialogTitle,
   DialogDescription,
   DialogClose,
-  DialogOverlay,
 } from './dialog';
 
 describe('Dialog', () => {

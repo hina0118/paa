@@ -219,8 +219,13 @@ impl ImageSearchClientTrait for SerpApiClient {
                 // original または thumbnail が必要
                 let url = item.original.or(item.thumbnail.clone())?;
 
-                // GIFは除外
-                if url.to_lowercase().contains(".gif") {
+                // GIFは除外（拡張子で判定、クエリ・フラグメントは除去）
+                let url_lower = url.to_lowercase();
+                let path_without_query = url_lower
+                    .split(|c| c == '?' || c == '#')
+                    .next()
+                    .unwrap_or(&url_lower);
+                if path_without_query.ends_with(".gif") {
                     return None;
                 }
 
