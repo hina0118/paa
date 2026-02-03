@@ -83,11 +83,17 @@ export async function loadOrderItems(
       o.order_number AS orderNumber,
       o.order_date AS orderDate,
       img.file_name AS fileName,
-      ld.delivery_status AS deliveryStatus
+      ld.delivery_status AS deliveryStatus,
+      pm.maker,
+      pm.series,
+      pm.product_name AS productName,
+      pm.scale,
+      pm.is_reissue AS isReissue
     FROM items i
     JOIN orders o ON i.order_id = o.id
     LEFT JOIN latest_delivery ld ON ld.order_id = o.id
     LEFT JOIN images img ON img.item_id = i.id
+    LEFT JOIN product_master pm ON i.item_name_normalized = pm.normalized_name
     WHERE ${conditions.join(' AND ')}
     ORDER BY ${orderCol} ${orderDir}
   `;

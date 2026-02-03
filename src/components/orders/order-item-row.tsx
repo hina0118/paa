@@ -54,14 +54,22 @@ export function OrderItemRowView({
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <h3 className="font-medium text-sm truncate">{item.itemName}</h3>
+          <h3 className="font-medium text-sm truncate">
+            {item.productName ?? item.itemName}
+          </h3>
           <StatusBadge status={item.deliveryStatus} className="shrink-0" />
         </div>
-        {(item.brand || item.category) && (
+        {(item.maker || item.series || item.scale) && (
           <p className="text-xs text-muted-foreground truncate">
-            {[item.brand, item.category].filter(Boolean).join(' / ')}
+            {[item.maker, item.series, item.scale].filter(Boolean).join(' / ')}
           </p>
         )}
+        {!(item.maker || item.series || item.scale) &&
+          (item.brand || item.category) && (
+            <p className="text-xs text-muted-foreground truncate">
+              {[item.brand, item.category].filter(Boolean).join(' / ')}
+            </p>
+          )}
       </div>
       <div className="text-right shrink-0">
         <p className="text-sm font-semibold">{formatPrice(item.price)}</p>

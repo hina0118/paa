@@ -57,15 +57,21 @@ export function OrderItemCard({
       <CardContent className="p-3 space-y-1">
         <div className="flex items-start justify-between gap-2">
           <h3 className="font-medium text-sm line-clamp-2 flex-1">
-            {item.itemName}
+            {item.productName ?? item.itemName}
           </h3>
           <StatusBadge status={item.deliveryStatus} className="shrink-0" />
         </div>
-        {(item.brand || item.category) && (
+        {(item.maker || item.series || item.scale) && (
           <p className="text-xs text-muted-foreground line-clamp-1">
-            {[item.brand, item.category].filter(Boolean).join(' / ')}
+            {[item.maker, item.series, item.scale].filter(Boolean).join(' / ')}
           </p>
         )}
+        {!(item.maker || item.series || item.scale) &&
+          (item.brand || item.category) && (
+            <p className="text-xs text-muted-foreground line-clamp-1">
+              {[item.brand, item.category].filter(Boolean).join(' / ')}
+            </p>
+          )}
         <p className="text-sm font-semibold">{formatPrice(item.price)}</p>
       </CardContent>
       <CardFooter className="p-3 pt-0 flex flex-wrap gap-x-2 gap-y-0 text-xs text-muted-foreground">
