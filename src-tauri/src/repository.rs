@@ -2,6 +2,7 @@
 //!
 //! このモジュールはデータベース操作を抽象化し、テスト時にモック可能にします。
 
+use crate::gemini::normalize_product_name;
 use crate::gmail::{
     CreateShopSettings, GmailMessage, ShopSettings, SyncMetadata, UpdateShopSettings,
 };
@@ -716,14 +717,16 @@ impl OrderRepository for SqliteOrderRepository {
 
             if existing_item.is_none() {
                 // 新しい商品を追加
+                let item_name_normalized = normalize_product_name(&item.name);
                 sqlx::query(
                     r#"
-                    INSERT INTO items (order_id, item_name, brand, price, quantity)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO items (order_id, item_name, item_name_normalized, brand, price, quantity)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     "#,
                 )
                 .bind(order_id)
                 .bind(&item.name)
+                .bind(&item_name_normalized)
                 .bind(&item.manufacturer)
                 .bind(item.unit_price)
                 .bind(item.quantity)
