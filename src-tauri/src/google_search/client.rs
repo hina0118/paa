@@ -191,7 +191,10 @@ impl ImageSearchClientTrait for SerpApiClient {
                         ));
                     }
                     if status.as_u16() == 429 {
-                        return Err("API利用制限に達しました。しばらく待ってから再度お試しください。".to_string());
+                        return Err(
+                            "API利用制限に達しました。しばらく待ってから再度お試しください。"
+                                .to_string(),
+                        );
                     }
                     return Err(format!("SerpApi error: {}", error));
                 }
