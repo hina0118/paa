@@ -845,22 +845,34 @@ async fn delete_gemini_api_key(app_handle: tauri::AppHandle) -> Result<(), Strin
 
 /// Gmail OAuth認証情報が設定されているかチェック
 #[tauri::command]
-async fn has_gmail_oauth_credentials() -> bool {
-    gmail::has_oauth_credentials()
+async fn has_gmail_oauth_credentials(app_handle: tauri::AppHandle) -> bool {
+    let app_data_dir = app_handle.path().app_data_dir().unwrap_or_default();
+    gmail::has_oauth_credentials(&app_data_dir)
 }
 
 /// Gmail OAuth認証情報を保存（JSONから）
 #[tauri::command]
-async fn save_gmail_oauth_credentials(json_content: String) -> Result<(), String> {
-    gmail::save_oauth_credentials_from_json(&json_content)?;
+async fn save_gmail_oauth_credentials(
+    app_handle: tauri::AppHandle,
+    json_content: String,
+) -> Result<(), String> {
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {e}"))?;
+    gmail::save_oauth_credentials_from_json(&app_data_dir, &json_content)?;
     log::info!("Gmail OAuth credentials saved successfully");
     Ok(())
 }
 
 /// Gmail OAuth認証情報を削除
 #[tauri::command]
-async fn delete_gmail_oauth_credentials() -> Result<(), String> {
-    gmail::delete_oauth_credentials()?;
+async fn delete_gmail_oauth_credentials(app_handle: tauri::AppHandle) -> Result<(), String> {
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {e}"))?;
+    gmail::delete_oauth_credentials(&app_data_dir)?;
     log::info!("Gmail OAuth credentials deleted successfully");
     Ok(())
 }

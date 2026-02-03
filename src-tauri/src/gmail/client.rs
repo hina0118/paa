@@ -291,7 +291,8 @@ impl GmailClient {
         let token_path = app_data_dir.join("gmail_token.json");
 
         // keyringから認証情報を取得
-        let (client_id, client_secret) = crate::gmail::config::load_oauth_credentials()
+        let (client_id, client_secret) =
+            crate::gmail::config::load_oauth_credentials(&app_data_dir)
             .map_err(|e| {
                 format!(
                     "Gmail OAuth credentials not configured. Please set up OAuth credentials in Settings.\n\nError: {e}"
