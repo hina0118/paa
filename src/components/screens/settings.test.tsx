@@ -684,6 +684,358 @@ describe('Settings', () => {
     });
   });
 
+  // geminiApiKeyStatus / serpApiStatus 状態表示テスト
+  describe('geminiApiKeyStatus and serpApiStatus state display', () => {
+    it('displays checking state for Gemini API key status', async () => {
+      let resolveGemini: (value: boolean) => void;
+      const geminiPromise = new Promise<boolean>((resolve) => {
+        resolveGemini = resolve;
+      });
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return geminiPromise;
+        if (cmd === 'is_google_search_configured')
+          return Promise.resolve(false);
+        if (cmd === 'has_gmail_oauth_credentials')
+          return Promise.resolve(false);
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      // 確認中状態で「APIキーの状態を確認中...」が表示される（SerpApiは即解決するため1件）
+      await waitFor(() => {
+        expect(
+          screen.getByText('APIキーの状態を確認中...')
+        ).toBeInTheDocument();
+      });
+
+      resolveGemini!(false);
+    });
+
+    it('displays checking state for SerpApi status', async () => {
+      let resolveSerp: (value: boolean) => void;
+      const serpPromise = new Promise<boolean>((resolve) => {
+        resolveSerp = resolve;
+      });
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+        if (cmd === 'is_google_search_configured') return serpPromise;
+        if (cmd === 'has_gmail_oauth_credentials')
+          return Promise.resolve(false);
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      // 確認中状態で「APIキーの状態を確認中...」が表示される（Geminiは即解決するため1件）
+      await waitFor(() => {
+        expect(
+          screen.getByText('APIキーの状態を確認中...')
+        ).toBeInTheDocument();
+      });
+
+      resolveSerp!(false);
+    });
+
+    it('displays error state for Gemini when backend is not running', async () => {
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key')
+          return Promise.reject(new Error('Backend not running'));
+        if (cmd === 'is_google_search_configured')
+          return Promise.resolve(false);
+        if (cmd === 'has_gmail_oauth_credentials')
+          return Promise.resolve(false);
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            'APIキーの状態を取得できません（バックエンド未起動の可能性）'
+          )
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('displays error state for SerpApi when backend is not running', async () => {
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+        if (cmd === 'is_google_search_configured')
+          return Promise.reject(new Error('Backend not running'));
+        if (cmd === 'has_gmail_oauth_credentials')
+          return Promise.resolve(false);
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            'APIキーの状態を取得できません（バックエンド未起動の可能性）'
+          )
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('shows placeholder "********" when Gemini API key is available', async () => {
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(true);
+        if (cmd === 'is_google_search_configured')
+          return Promise.resolve(false);
+        if (cmd === 'has_gmail_oauth_credentials')
+          return Promise.resolve(false);
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        const input = document.getElementById('gemini-api-key');
+        expect(input).toHaveAttribute('placeholder', '********');
+      });
+    });
+
+    it('shows placeholder "APIキーを入力" when Gemini API key is unavailable', async () => {
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+        if (cmd === 'is_google_search_configured')
+          return Promise.resolve(false);
+        if (cmd === 'has_gmail_oauth_credentials')
+          return Promise.resolve(false);
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        const input = document.getElementById('gemini-api-key');
+        expect(input).toHaveAttribute('placeholder', 'APIキーを入力');
+      });
+    });
+
+    it('shows placeholder "********" when SerpApi is available', async () => {
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+        if (cmd === 'is_google_search_configured') return Promise.resolve(true);
+        if (cmd === 'has_gmail_oauth_credentials')
+          return Promise.resolve(false);
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        const input = document.getElementById('serpapi-key');
+        expect(input).toHaveAttribute('placeholder', '********');
+      });
+    });
+
+    it('shows placeholder "APIキーを入力" when SerpApi is unavailable', async () => {
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+        if (cmd === 'is_google_search_configured')
+          return Promise.resolve(false);
+        if (cmd === 'has_gmail_oauth_credentials')
+          return Promise.resolve(false);
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        const input = document.getElementById('serpapi-key');
+        expect(input).toHaveAttribute('placeholder', 'APIキーを入力');
+      });
+    });
+
+    it('shows delete button when Gemini API key is available', async () => {
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(true);
+        if (cmd === 'is_google_search_configured')
+          return Promise.resolve(false);
+        if (cmd === 'has_gmail_oauth_credentials')
+          return Promise.resolve(false);
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: 'Gemini APIキーを削除' })
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('hides delete button when Gemini API key is unavailable', async () => {
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+        if (cmd === 'is_google_search_configured')
+          return Promise.resolve(false);
+        if (cmd === 'has_gmail_oauth_credentials')
+          return Promise.resolve(false);
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        const input = document.getElementById('gemini-api-key');
+        expect(input).toHaveAttribute('placeholder', 'APIキーを入力');
+      });
+      expect(
+        screen.queryByRole('button', { name: 'Gemini APIキーを削除' })
+      ).not.toBeInTheDocument();
+    });
+
+    it('hides delete button when Gemini API key status is error', async () => {
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key')
+          return Promise.reject(new Error('Backend error'));
+        if (cmd === 'is_google_search_configured')
+          return Promise.resolve(false);
+        if (cmd === 'has_gmail_oauth_credentials')
+          return Promise.resolve(false);
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            'APIキーの状態を取得できません（バックエンド未起動の可能性）'
+          )
+        ).toBeInTheDocument();
+      });
+      expect(
+        screen.queryByRole('button', { name: 'Gemini APIキーを削除' })
+      ).not.toBeInTheDocument();
+    });
+
+    it('shows delete button when SerpApi is available', async () => {
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+        if (cmd === 'is_google_search_configured') return Promise.resolve(true);
+        if (cmd === 'has_gmail_oauth_credentials')
+          return Promise.resolve(false);
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: 'SerpApi APIキーを削除' })
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('hides delete button when SerpApi is unavailable', async () => {
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+        if (cmd === 'is_google_search_configured')
+          return Promise.resolve(false);
+        if (cmd === 'has_gmail_oauth_credentials')
+          return Promise.resolve(false);
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        const input = document.getElementById('serpapi-key');
+        expect(input).toHaveAttribute('placeholder', 'APIキーを入力');
+      });
+      expect(
+        screen.queryByRole('button', { name: 'SerpApi APIキーを削除' })
+      ).not.toBeInTheDocument();
+    });
+
+    it('hides delete button when SerpApi status is error', async () => {
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+        if (cmd === 'is_google_search_configured')
+          return Promise.reject(new Error('Backend error'));
+        if (cmd === 'has_gmail_oauth_credentials')
+          return Promise.resolve(false);
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            'APIキーの状態を取得できません（バックエンド未起動の可能性）'
+          )
+        ).toBeInTheDocument();
+      });
+      expect(
+        screen.queryByRole('button', { name: 'SerpApi APIキーを削除' })
+      ).not.toBeInTheDocument();
+    });
+  });
+
   // SerpApi 設定カード表示テスト
   it('renders SerpApi settings card', async () => {
     renderWithProviders(<Settings />);
@@ -904,6 +1256,181 @@ describe('Settings', () => {
       expect(
         screen.getByRole('heading', { name: /Gmail OAuth認証/ })
       ).toBeInTheDocument();
+    });
+  });
+
+  // gmailOAuthStatus 状態表示テスト
+  describe('gmailOAuthStatus state display', () => {
+    it('displays checking state for Gmail OAuth status', async () => {
+      let resolveGmail: (value: boolean) => void;
+      const gmailPromise = new Promise<boolean>((resolve) => {
+        resolveGmail = resolve;
+      });
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+        if (cmd === 'is_google_search_configured')
+          return Promise.resolve(false);
+        if (cmd === 'has_gmail_oauth_credentials') return gmailPromise;
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('認証情報の状態を確認中...')
+        ).toBeInTheDocument();
+      });
+
+      resolveGmail!(false);
+    });
+
+    it('displays error state for Gmail OAuth when backend is not running', async () => {
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+        if (cmd === 'is_google_search_configured')
+          return Promise.resolve(false);
+        if (cmd === 'has_gmail_oauth_credentials')
+          return Promise.reject(new Error('Backend not running'));
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            '認証情報の状態を取得できません（バックエンド未起動の可能性）'
+          )
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('displays available state for Gmail OAuth', async () => {
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+        if (cmd === 'is_google_search_configured')
+          return Promise.resolve(false);
+        if (cmd === 'has_gmail_oauth_credentials') return Promise.resolve(true);
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(screen.getByText('認証情報は設定済みです')).toBeInTheDocument();
+      });
+    });
+
+    it('displays unavailable state for Gmail OAuth', async () => {
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+        if (cmd === 'is_google_search_configured')
+          return Promise.resolve(false);
+        if (cmd === 'has_gmail_oauth_credentials')
+          return Promise.resolve(false);
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('認証情報を設定してください')
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('shows delete button when Gmail OAuth is available', async () => {
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+        if (cmd === 'is_google_search_configured')
+          return Promise.resolve(false);
+        if (cmd === 'has_gmail_oauth_credentials') return Promise.resolve(true);
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: 'Gmail OAuth認証情報を削除' })
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('hides delete button when Gmail OAuth is unavailable', async () => {
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+        if (cmd === 'is_google_search_configured')
+          return Promise.resolve(false);
+        if (cmd === 'has_gmail_oauth_credentials')
+          return Promise.resolve(false);
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('認証情報を設定してください')
+        ).toBeInTheDocument();
+      });
+      expect(
+        screen.queryByRole('button', { name: 'Gmail OAuth認証情報を削除' })
+      ).not.toBeInTheDocument();
+    });
+
+    it('hides delete button when Gmail OAuth status is error', async () => {
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+        if (cmd === 'is_google_search_configured')
+          return Promise.resolve(false);
+        if (cmd === 'has_gmail_oauth_credentials')
+          return Promise.reject(new Error('Backend error'));
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            '認証情報の状態を取得できません（バックエンド未起動の可能性）'
+          )
+        ).toBeInTheDocument();
+      });
+      expect(
+        screen.queryByRole('button', { name: 'Gmail OAuth認証情報を削除' })
+      ).not.toBeInTheDocument();
     });
   });
 
