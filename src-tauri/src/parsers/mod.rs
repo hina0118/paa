@@ -633,6 +633,7 @@ pub async fn batch_parse_emails(
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
 

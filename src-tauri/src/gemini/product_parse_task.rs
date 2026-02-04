@@ -291,34 +291,32 @@ where
         let mut saved_count = 0;
         let mut save_errors = 0;
 
-        for result in results {
-            if let Ok(output) = result {
-                // キャッシュヒットは保存不要
-                if output.cache_hit {
-                    continue;
-                }
+        for output in results.iter().filter_map(|r| r.as_ref().ok()) {
+            // キャッシュヒットは保存不要
+            if output.cache_hit {
+                continue;
+            }
 
-                // DB に保存
-                if let Err(e) = context
-                    .repository
-                    .save(
-                        &output.input.raw_name,
-                        &output.input.normalized_name,
-                        &output.parsed,
-                        output.input.platform_hint.clone(),
-                    )
-                    .await
-                {
-                    log::error!(
-                        "[{}] Failed to save product master for '{}': {}",
-                        self.name(),
-                        output.input.raw_name,
-                        e
-                    );
-                    save_errors += 1;
-                } else {
-                    saved_count += 1;
-                }
+            // DB に保存
+            if let Err(e) = context
+                .repository
+                .save(
+                    &output.input.raw_name,
+                    &output.input.normalized_name,
+                    &output.parsed,
+                    output.input.platform_hint.clone(),
+                )
+                .await
+            {
+                log::error!(
+                    "[{}] Failed to save product master for '{}': {}",
+                    self.name(),
+                    output.input.raw_name,
+                    e
+                );
+                save_errors += 1;
+            } else {
+                saved_count += 1;
             }
         }
 

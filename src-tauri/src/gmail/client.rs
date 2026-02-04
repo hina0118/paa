@@ -1321,6 +1321,7 @@ pub async fn delete_shop_setting(pool: &SqlitePool, id: i64) -> Result<(), Strin
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
     use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
