@@ -3,7 +3,7 @@ import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { StatusBadge } from './status-badge';
 import { useImageUrl } from '@/hooks/useImageUrl';
 import type { OrderItemRow } from '@/lib/types';
-import { cn, formatDate, formatPrice } from '@/lib/utils';
+import { cn, formatDate, formatPrice, getProductMetadata } from '@/lib/utils';
 
 type OrderItemCardProps = {
   item: OrderItemRow;
@@ -29,6 +29,7 @@ export function OrderItemCard({
 }: OrderItemCardProps) {
   const getImageUrl = useImageUrl();
   const imageSrc = getImageUrl(item.fileName);
+  const metadata = getProductMetadata(item);
 
   return (
     <Card
@@ -57,13 +58,13 @@ export function OrderItemCard({
       <CardContent className="p-3 space-y-1">
         <div className="flex items-start justify-between gap-2">
           <h3 className="font-medium text-sm line-clamp-2 flex-1">
-            {item.itemName}
+            {item.productName ?? item.itemName}
           </h3>
           <StatusBadge status={item.deliveryStatus} className="shrink-0" />
         </div>
-        {(item.brand || item.category) && (
+        {metadata && (
           <p className="text-xs text-muted-foreground line-clamp-1">
-            {[item.brand, item.category].filter(Boolean).join(' / ')}
+            {metadata}
           </p>
         )}
         <p className="text-sm font-semibold">{formatPrice(item.price)}</p>
