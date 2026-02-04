@@ -159,6 +159,7 @@ pub struct BatchProgressEvent {
 
 impl BatchProgressEvent {
     /// 進捗イベントを作成
+    #[allow(clippy::too_many_arguments)]
     pub fn progress(
         task_name: &str,
         batch_number: usize,
@@ -516,11 +517,7 @@ impl<T: BatchTask> BatchRunner<T> {
             }
 
             // 成功した結果を outputs に追加
-            for result in batch_results {
-                if let Ok(output) = result {
-                    outputs.push(output);
-                }
-            }
+            outputs.extend(batch_results.into_iter().flatten());
 
             // 進捗イベントを送信
             let event = BatchProgressEvent::progress(

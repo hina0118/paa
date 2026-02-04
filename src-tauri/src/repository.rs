@@ -1681,6 +1681,7 @@ impl ProductMasterRepository for SqliteProductMasterRepository {
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
     use crate::gemini::ParsedProduct;
