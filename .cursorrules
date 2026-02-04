@@ -51,6 +51,12 @@ AIがコードを提案・レビューする際は、以下の優先度ラベル
     /commit_plan
   instructions:
     - チャット上で対応した変更をコミットする
+/resolve_comment
+  description: 対応したコメントを解決済みにする
+  example:
+    /resolve_comment
+  instructions:
+    - PR上の対応したコメントを解決済みにする
 /ci_plan
   description: CI成功のためチェックする
   example:
