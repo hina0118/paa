@@ -99,7 +99,7 @@ export type OrderWithSources = Order & {
   deliveries: Delivery[];
 };
 
-/** 商品一覧 1 件分（items + order + image + delivery） */
+/** 商品一覧 1 件分（items + order + image + delivery + product_master） */
 export type OrderItemRow = {
   id: number;
   orderId: number;
@@ -117,4 +117,10 @@ export type OrderItemRow = {
   orderDate: string | null;
   fileName: string | null;
   deliveryStatus: DeliveryStatus | null;
+  /** product_master から取得（Gemini解析結果） */
+  maker: string | null;
+  series: string | null;
+  productName: string | null;
+  scale: string | null;
+  isReissue: number | null;
 };

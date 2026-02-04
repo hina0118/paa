@@ -2,7 +2,7 @@ import { Package } from 'lucide-react';
 import { StatusBadge } from './status-badge';
 import { useImageUrl } from '@/hooks/useImageUrl';
 import type { OrderItemRow } from '@/lib/types';
-import { cn, formatDate, formatPrice } from '@/lib/utils';
+import { cn, formatDate, formatPrice, getProductMetadata } from '@/lib/utils';
 
 type OrderItemRowViewProps = {
   item: OrderItemRow;
@@ -17,6 +17,7 @@ export function OrderItemRowView({
 }: OrderItemRowViewProps) {
   const getImageUrl = useImageUrl();
   const imageSrc = getImageUrl(item.fileName);
+  const metadata = getProductMetadata(item);
   const isInteractive = Boolean(onClick);
 
   return (
@@ -54,13 +55,13 @@ export function OrderItemRowView({
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <h3 className="font-medium text-sm truncate">{item.itemName}</h3>
+          <h3 className="font-medium text-sm truncate">
+            {item.productName ?? item.itemName}
+          </h3>
           <StatusBadge status={item.deliveryStatus} className="shrink-0" />
         </div>
-        {(item.brand || item.category) && (
-          <p className="text-xs text-muted-foreground truncate">
-            {[item.brand, item.category].filter(Boolean).join(' / ')}
-          </p>
+        {metadata && (
+          <p className="text-xs text-muted-foreground truncate">{metadata}</p>
         )}
       </div>
       <div className="text-right shrink-0">

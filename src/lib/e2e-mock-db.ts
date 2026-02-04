@@ -29,8 +29,8 @@ const IMAGES_SCHEMA: SchemaColumn[] = [
   { cid: 0, name: 'id', type: 'INTEGER', notnull: 0, dflt_value: null, pk: 1 },
   {
     cid: 1,
-    name: 'item_id',
-    type: 'INTEGER',
+    name: 'item_name_normalized',
+    type: 'TEXT',
     notnull: 1,
     dflt_value: null,
     pk: 0,
@@ -191,13 +191,13 @@ const MOCK_ORDERS_ROWS = [
   },
 ];
 
-/** E2E 用シード: orders + items + images（Orders ドロワー用） */
+/** E2E 用シード: orders + items + images + product_master（Orders ドロワー用） */
 const MOCK_ORDER_ITEMS = [
   {
     id: 1,
     orderId: 1,
     itemName: 'E2Eテスト商品',
-    itemNameNormalized: null,
+    itemNameNormalized: 'e2eテスト商品',
     price: 1500,
     quantity: 1,
     category: null,
@@ -209,6 +209,12 @@ const MOCK_ORDER_ITEMS = [
     orderDate: '2024-01-15',
     fileName: null,
     deliveryStatus: 'delivered',
+    // product_master からの情報
+    maker: 'テストメーカー',
+    series: 'テストシリーズ',
+    productName: 'E2Eテスト商品（解析済）',
+    scale: '1/7',
+    isReissue: 0,
   },
 ];
 

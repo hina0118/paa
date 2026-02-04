@@ -57,7 +57,7 @@ This template should help get you started developing with Tauri, React and Types
 
 ### `images` (画像データ)
 
-- `item_id` (FK), `file_name` (TEXT)
+- `item_name_normalized` (リレーションキー), `file_name` (TEXT)
 
 ## 4. タイムゾーン規約
 

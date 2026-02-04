@@ -45,7 +45,7 @@ type SchemaColumn = {
 
 const IMAGES_COLUMN_LABELS: Record<string, string> = {
   id: 'ID',
-  item_id: '商品ID',
+  item_name_normalized: '正規化商品名',
   file_name: 'ファイル名',
   created_at: '作成日時',
 };
