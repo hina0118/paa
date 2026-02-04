@@ -6,7 +6,14 @@ import {
   type ParseMetadata,
   type ProductNameParseProgress,
   ParseContext,
+  batchProgressToParseProgress,
+  batchProgressToProductNameParseProgress,
 } from './parse-context-value';
+import {
+  type BatchProgress,
+  BATCH_PROGRESS_EVENT,
+  TASK_NAMES,
+} from './batch-progress-types';
 
 export function ParseProvider({ children }: { children: ReactNode }) {
   const [isParsing, setIsParsing] = useState(false);
@@ -41,6 +48,39 @@ export function ParseProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // 新しい共通イベント（batch-progress）をリッスン
+  useEffect(() => {
+    const unlisten = listen<BatchProgress>(BATCH_PROGRESS_EVENT, (event) => {
+      const data = event.payload;
+
+      // メールパースのイベント
+      if (data.task_name === TASK_NAMES.EMAIL_PARSE) {
+        const parseProgress = batchProgressToParseProgress(data);
+        setProgress(parseProgress);
+
+        if (data.is_complete) {
+          setIsParsing(false);
+          refreshStatus();
+        }
+      }
+
+      // 商品名パースのイベント
+      if (data.task_name === TASK_NAMES.PRODUCT_NAME_PARSE) {
+        const productProgress = batchProgressToProductNameParseProgress(data);
+        setProductNameProgress(productProgress);
+
+        if (data.is_complete) {
+          setIsProductNameParsing(false);
+        }
+      }
+    });
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [refreshStatus]);
+
+  // 後方互換性のため、古いイベント（parse-progress）もリッスン
   useEffect(() => {
     const unlisten = listen<ParseProgress>('parse-progress', (event) => {
       const data = event.payload;
@@ -57,7 +97,7 @@ export function ParseProvider({ children }: { children: ReactNode }) {
     };
   }, [refreshStatus]);
 
-  // 商品名パース進捗イベントをリッスン
+  // 後方互換性のため、古いイベント（product-name-parse-progress）もリッスン
   useEffect(() => {
     const unlisten = listen<ProductNameParseProgress>(
       'product-name-parse-progress',

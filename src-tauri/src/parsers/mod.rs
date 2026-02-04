@@ -1,3 +1,4 @@
+use crate::batch_runner::BatchProgressEvent;
 use crate::logic::email_parser::extract_domain;
 use crate::logic::sync_logic::extract_email_address;
 use crate::repository::{
@@ -10,6 +11,10 @@ use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, SqlitePool};
 use std::sync::{Arc, Mutex};
 use tauri::Emitter;
+
+/// メールパースのタスク名とイベント名
+const EMAIL_PARSE_TASK_NAME: &str = "メールパース";
+const EMAIL_PARSE_EVENT_NAME: &str = "batch-progress";
 
 /// パース対象メールの情報（get_unparsed_emails の戻り値）
 #[derive(Debug, Clone, FromRow)]
@@ -236,8 +241,10 @@ pub struct ParseMetadata {
     pub batch_size: i64,
 }
 
-/// パース進捗イベント
+/// パース進捗イベント（後方互換性のため残す）
+/// 新しいコードでは BatchProgressEvent を使用してください
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[deprecated(note = "Use BatchProgressEvent instead")]
 pub struct ParseProgressEvent {
     pub batch_number: usize,
     pub total_emails: usize,
@@ -327,17 +334,14 @@ pub async fn batch_parse_emails(
             parse_state.finish();
 
             // キャンセルイベントを送信
-            let cancel_event = ParseProgressEvent {
-                batch_number: iteration,
-                total_emails: total_email_count as usize,
-                parsed_count: overall_parsed_count,
-                success_count: overall_success_count,
-                failed_count: overall_failed_count,
-                status_message: "パースがキャンセルされました".to_string(),
-                is_complete: true,
-                error: Some("Cancelled by user".to_string()),
-            };
-            let _ = app_handle.emit("parse-progress", cancel_event);
+            let cancel_event = BatchProgressEvent::cancelled(
+                EMAIL_PARSE_TASK_NAME,
+                total_email_count as usize,
+                overall_parsed_count,
+                overall_success_count,
+                overall_failed_count,
+            );
+            let _ = app_handle.emit(EMAIL_PARSE_EVENT_NAME, cancel_event);
 
             // ステータスをidleに戻す
             let parse_metadata_repo = SqliteParseMetadataRepository::new(pool.clone());
@@ -560,21 +564,21 @@ pub async fn batch_parse_emails(
         overall_success_count += success_count;
         overall_failed_count += failed_count;
 
-        let progress = ParseProgressEvent {
-            batch_number: iteration,
-            total_emails: total_email_count as usize,
-            parsed_count: overall_parsed_count,
-            success_count: overall_success_count,
-            failed_count: overall_failed_count,
-            status_message: format!(
+        let progress = BatchProgressEvent::progress(
+            EMAIL_PARSE_TASK_NAME,
+            iteration,
+            batch_email_count,
+            total_email_count as usize,
+            overall_parsed_count,
+            overall_success_count,
+            overall_failed_count,
+            format!(
                 "パース中... ({}/{})",
                 overall_parsed_count, total_email_count
             ),
-            is_complete: false,
-            error: None,
-        };
+        );
 
-        let _ = app_handle.emit("parse-progress", progress);
+        let _ = app_handle.emit(EMAIL_PARSE_EVENT_NAME, progress);
 
         log::info!(
             "Iteration {} completed: success={}, failed={}",
@@ -585,21 +589,18 @@ pub async fn batch_parse_emails(
     }
 
     // 完了イベントを送信
-    let final_progress = ParseProgressEvent {
-        batch_number: iteration,
-        total_emails: total_email_count as usize,
-        parsed_count: overall_parsed_count,
-        success_count: overall_success_count,
-        failed_count: overall_failed_count,
-        status_message: format!(
+    let final_progress = BatchProgressEvent::complete(
+        EMAIL_PARSE_TASK_NAME,
+        total_email_count as usize,
+        overall_success_count,
+        overall_failed_count,
+        format!(
             "パース完了: 成功 {}, 失敗 {}",
             overall_success_count, overall_failed_count
         ),
-        is_complete: true,
-        error: None,
-    };
+    );
 
-    let _ = app_handle.emit("parse-progress", final_progress);
+    let _ = app_handle.emit(EMAIL_PARSE_EVENT_NAME, final_progress);
 
     // メタデータを更新
     parse_metadata_repo
