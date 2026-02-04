@@ -63,7 +63,9 @@ AIがコードを提案・レビューする際は、以下の優先度ラベル
     /ci_plan
   instructions:
     - 全体のlint,format,test,coverageを実行する
+    - フロント、バックエンドともに確認する
     - CIの設定に沿って結果を確認する
+    - コマンド実行中に作成した一時ファイルは削除する
 /push_plan
   description: 対応内容をプッシュする
   example:
