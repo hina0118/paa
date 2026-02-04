@@ -5,7 +5,7 @@ use std::io::Write;
 use std::sync::{Arc, Mutex};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
-use tauri::{Emitter, Listener, Manager};
+use tauri::{Listener, Manager};
 use tauri_plugin_sql::{Migration, MigrationKind};
 
 pub mod batch_runner;
@@ -24,12 +24,19 @@ use crate::gemini::{
     PRODUCT_NAME_PARSE_TASK_NAME,
 };
 use crate::logic::email_parser::get_candidate_parsers;
+use crate::gmail::{
+    create_sync_input, fetch_all_message_ids, GmailSyncContext, GmailSyncTask,
+    ShopSettingsCacheForSync, GMAIL_SYNC_EVENT_NAME, GMAIL_SYNC_TASK_NAME,
+};
+use crate::parsers::{
+    EmailParseContext, EmailParseTask, EMAIL_PARSE_EVENT_NAME, EMAIL_PARSE_TASK_NAME,
+};
 use crate::repository::{
-    EmailStats, EmailStatsRepository, OrderRepository, ParseMetadataRepository,
-    ShopSettingsRepository, SqliteEmailStatsRepository, SqliteOrderRepository,
-    SqliteParseMetadataRepository, SqliteProductMasterRepository, SqliteShopSettingsRepository,
-    SqliteSyncMetadataRepository, SqliteWindowSettingsRepository, SyncMetadataRepository,
-    WindowSettings, WindowSettingsRepository,
+    EmailRepository, EmailStats, EmailStatsRepository, OrderRepository, ParseMetadataRepository,
+    ParseRepository, ShopSettingsRepository, SqliteEmailRepository, SqliteEmailStatsRepository,
+    SqliteOrderRepository, SqliteParseMetadataRepository, SqliteParseRepository,
+    SqliteProductMasterRepository, SqliteShopSettingsRepository, SqliteSyncMetadataRepository,
+    SqliteWindowSettingsRepository, SyncMetadataRepository, WindowSettings, WindowSettingsRepository,
 };
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -38,13 +45,21 @@ fn greet(name: &str) -> String {
     format!("Hello, {name}! You've been greeted from Rust!")
 }
 
+/// Gmail同期処理を開始
+/// BatchRunner<GmailSyncTask> を使用
 #[tauri::command]
 async fn start_sync(
     app_handle: tauri::AppHandle,
     pool: tauri::State<'_, SqlitePool>,
     sync_state: tauri::State<'_, gmail::SyncState>,
 ) -> Result<(), String> {
-    log::info!("Starting incremental Gmail sync...");
+    use std::collections::HashSet;
+    use std::sync::Arc;
+    use tauri::Emitter;
+    use tauri_plugin_notification::NotificationExt;
+    use tokio::sync::Mutex;
+
+    log::info!("Starting Gmail sync with BatchRunner<GmailSyncTask>...");
 
     // Spawn async task to avoid blocking
     let pool_clone = pool.inner().clone();
@@ -52,26 +67,265 @@ async fn start_sync(
     let app_clone = app_handle;
 
     tauri::async_runtime::spawn(async move {
-        if let Err(e) =
-            gmail::sync_gmail_incremental(&app_clone, &pool_clone, &sync_state_clone, 50).await
-        {
-            log::error!("Sync failed: {e}");
-
-            // Emit error event
+        // 多重実行防止
+        if !sync_state_clone.try_start() {
+            log::warn!("Sync is already in progress");
             let error_event = BatchProgressEvent::error(
-                "メール同期",
+                GMAIL_SYNC_TASK_NAME,
                 0,
                 0,
                 0,
                 0,
-                format!("Sync error: {e}"),
+                "Sync is already in progress".to_string(),
             );
+            let _ = app_clone.emit(GMAIL_SYNC_EVENT_NAME, error_event);
+            return;
+        }
 
-            let _ = app_clone.emit("batch-progress", error_event);
+        // SyncGuard でクリーンアップ保証
+        let _guard = gmail::SyncGuard::new(&sync_state_clone);
 
-            // Update database status to error
-            let repo = SqliteSyncMetadataRepository::new(pool_clone.clone());
-            let _ = repo.update_error_status(&e).await;
+        let email_repo = SqliteEmailRepository::new(pool_clone.clone());
+        let shop_repo = SqliteShopSettingsRepository::new(pool_clone.clone());
+        let _sync_metadata_repo = SqliteSyncMetadataRepository::new(pool_clone.clone());
+
+        // shop_settings から sender_addresses を取得
+        let enabled_shops = match shop_repo.get_enabled().await {
+            Ok(shops) => shops,
+            Err(e) => {
+                log::error!("Failed to fetch shop settings: {}", e);
+                let _ = email_repo.update_sync_error_status().await;
+                let error_event = BatchProgressEvent::error(
+                    GMAIL_SYNC_TASK_NAME,
+                    0,
+                    0,
+                    0,
+                    0,
+                    format!("Failed to fetch shop settings: {}", e),
+                );
+                let _ = app_clone.emit(GMAIL_SYNC_EVENT_NAME, error_event);
+                return;
+            }
+        };
+
+        let sender_addresses: Vec<String> = enabled_shops
+            .iter()
+            .map(|s| s.sender_address.clone())
+            .collect();
+
+        log::info!(
+            "Starting sync with {} enabled sender addresses",
+            sender_addresses.len()
+        );
+
+        // 同期ステータスを 'syncing' に更新
+        if let Err(e) = email_repo.start_sync().await {
+            log::error!("Failed to start sync: {}", e);
+            let _ = email_repo.update_sync_error_status().await;
+            let error_event = BatchProgressEvent::error(
+                GMAIL_SYNC_TASK_NAME,
+                0,
+                0,
+                0,
+                0,
+                format!("Failed to start sync: {}", e),
+            );
+            let _ = app_clone.emit(GMAIL_SYNC_EVENT_NAME, error_event);
+            return;
+        }
+
+        // sync_metadata から batch_size を取得
+        let metadata = match email_repo.get_sync_metadata().await {
+            Ok(m) => m,
+            Err(e) => {
+                log::error!("Failed to fetch sync metadata: {}", e);
+                let _ = email_repo.update_sync_error_status().await;
+                let error_event = BatchProgressEvent::error(
+                    GMAIL_SYNC_TASK_NAME,
+                    0,
+                    0,
+                    0,
+                    0,
+                    format!("Failed to fetch sync metadata: {}", e),
+                );
+                let _ = app_clone.emit(GMAIL_SYNC_EVENT_NAME, error_event);
+                return;
+            }
+        };
+
+        let batch_size = if metadata.batch_size > 0 {
+            metadata.batch_size as usize
+        } else {
+            50
+        };
+
+        // Gmail クライアントを初期化
+        let gmail_client = match gmail::GmailClient::new(&app_clone).await {
+            Ok(c) => c,
+            Err(e) => {
+                log::error!("Failed to create Gmail client: {}", e);
+                let _ = email_repo.update_sync_error_status().await;
+                let error_event = BatchProgressEvent::error(
+                    GMAIL_SYNC_TASK_NAME,
+                    0,
+                    0,
+                    0,
+                    0,
+                    format!("Failed to create Gmail client: {}", e),
+                );
+                let _ = app_clone.emit(GMAIL_SYNC_EVENT_NAME, error_event);
+                return;
+            }
+        };
+
+        // クエリを構築
+        let query = crate::logic::sync_logic::build_sync_query(&sender_addresses, &None);
+
+        // 全メッセージIDを取得
+        log::info!("Fetching all message IDs from Gmail...");
+        let all_ids = match fetch_all_message_ids(&gmail_client, &query, 100, None).await {
+            Ok(ids) => ids,
+            Err(e) => {
+                log::error!("Failed to fetch message IDs: {}", e);
+                let _ = email_repo.update_sync_error_status().await;
+                let error_event = BatchProgressEvent::error(
+                    GMAIL_SYNC_TASK_NAME,
+                    0,
+                    0,
+                    0,
+                    0,
+                    format!("Failed to fetch message IDs: {}", e),
+                );
+                let _ = app_clone.emit(GMAIL_SYNC_EVENT_NAME, error_event);
+                return;
+            }
+        };
+
+        log::info!("Fetched {} message IDs from Gmail", all_ids.len());
+
+        // emails テーブルから既存の message_id を取得
+        let existing_ids: HashSet<String> = match email_repo.get_existing_message_ids().await {
+            Ok(ids) => ids.into_iter().collect(),
+            Err(e) => {
+                log::error!("Failed to fetch existing message IDs: {}", e);
+                let _ = email_repo.update_sync_error_status().await;
+                let error_event = BatchProgressEvent::error(
+                    GMAIL_SYNC_TASK_NAME,
+                    0,
+                    0,
+                    0,
+                    0,
+                    format!("Failed to fetch existing message IDs: {}", e),
+                );
+                let _ = app_clone.emit(GMAIL_SYNC_EVENT_NAME, error_event);
+                return;
+            }
+        };
+
+        log::info!("Found {} existing message IDs in database", existing_ids.len());
+
+        // 未処理のIDのみフィルタ
+        let new_ids: Vec<String> = all_ids
+            .into_iter()
+            .filter(|id| !existing_ids.contains(id))
+            .collect();
+
+        log::info!("Found {} new messages to sync", new_ids.len());
+
+        if new_ids.is_empty() {
+            log::info!("No new messages to sync");
+            let _ = email_repo.complete_sync("idle").await;
+            let complete_event = BatchProgressEvent::complete(
+                GMAIL_SYNC_TASK_NAME,
+                0,
+                0,
+                0,
+                "同期対象の新規メッセージがありません".to_string(),
+            );
+            let _ = app_clone.emit(GMAIL_SYNC_EVENT_NAME, complete_event);
+
+            // デスクトップ通知
+            let _ = app_clone
+                .notification()
+                .builder()
+                .title("Gmail同期完了")
+                .body("新規メッセージはありませんでした")
+                .show();
+            return;
+        }
+
+        // GmailSyncInput に変換
+        let inputs: Vec<_> = new_ids.into_iter().map(create_sync_input).collect();
+        let total_items = inputs.len();
+
+        // BatchRunner と Context を構築
+        let task: GmailSyncTask<
+            gmail::GmailClient,
+            SqliteEmailRepository,
+            SqliteShopSettingsRepository,
+        > = GmailSyncTask::new();
+
+        let context = GmailSyncContext {
+            gmail_client: Arc::new(gmail_client),
+            email_repo: Arc::new(email_repo),
+            shop_settings_repo: Arc::new(shop_repo),
+            shop_settings_cache: Arc::new(Mutex::new(ShopSettingsCacheForSync::default())),
+        };
+
+        // BatchRunner で実行（30分タイムアウト、ディレイなし）
+        let runner = BatchRunner::new(task, batch_size, 0).with_timeout(30);
+        let sync_state_for_cancel = sync_state_clone.clone();
+
+        match runner
+            .run(&app_clone, inputs, &context, || sync_state_for_cancel.should_stop())
+            .await
+        {
+            Ok(batch_result) => {
+                log::info!(
+                    "Gmail sync completed: success={}, failed={}",
+                    batch_result.success_count,
+                    batch_result.failed_count
+                );
+
+                // 同期完了
+                let final_status = if sync_state_clone.should_stop() {
+                    "paused"
+                } else {
+                    "idle"
+                };
+                let email_repo = SqliteEmailRepository::new(pool_clone.clone());
+                let _ = email_repo.complete_sync(final_status).await;
+
+                // 完了イベント（BatchRunnerが既に送信しているが、通知用に再度確認）
+                if !sync_state_clone.should_stop() {
+                    // デスクトップ通知
+                    let notification_body = format!(
+                        "同期完了：新たに{}件のメールを取り込みました",
+                        batch_result.success_count
+                    );
+                    let _ = app_clone
+                        .notification()
+                        .builder()
+                        .title("Gmail同期完了")
+                        .body(&notification_body)
+                        .show();
+                }
+            }
+            Err(e) => {
+                log::error!("BatchRunner failed: {}", e);
+                let email_repo = SqliteEmailRepository::new(pool_clone.clone());
+                let _ = email_repo.update_sync_error_status().await;
+
+                let error_event = BatchProgressEvent::error(
+                    GMAIL_SYNC_TASK_NAME,
+                    total_items,
+                    0,
+                    0,
+                    0,
+                    format!("Sync error: {}", e),
+                );
+                let _ = app_clone.emit(GMAIL_SYNC_EVENT_NAME, error_event);
+            }
         }
     });
 
@@ -724,6 +978,8 @@ async fn parse_and_save_email(
         .await
 }
 
+/// メールパース処理を開始
+/// BatchRunner<EmailParseTask> を使用
 #[tauri::command]
 async fn start_batch_parse(
     app_handle: tauri::AppHandle,
@@ -731,7 +987,11 @@ async fn start_batch_parse(
     parse_state: tauri::State<'_, parsers::ParseState>,
     batch_size: Option<usize>,
 ) -> Result<(), String> {
-    log::info!("Starting batch parse...");
+    use std::sync::Arc;
+    use tauri::Emitter;
+    use tokio::sync::Mutex;
+
+    log::info!("Starting batch parse with BatchRunner<EmailParseTask>...");
 
     // batch_sizeが指定されていない場合はparse_metadataから取得
     let size = if let Some(size) = batch_size {
@@ -746,29 +1006,239 @@ async fn start_batch_parse(
     let parse_state_clone = parse_state.inner().clone();
 
     tauri::async_runtime::spawn(async move {
-        if let Err(e) =
-            parsers::batch_parse_emails(&app_handle, &pool_clone, &parse_state_clone, size).await
-        {
-            log::error!("Batch parse failed: {}", e);
-
-            // エラーイベントを送信
+        // パース状態をチェック・開始
+        if let Err(e) = parse_state_clone.start() {
+            log::error!("Failed to start parse: {}", e);
             let error_event = BatchProgressEvent::error(
-                "メールパース",
+                EMAIL_PARSE_TASK_NAME,
                 0,
                 0,
                 0,
                 0,
                 format!("Parse error: {}", e),
             );
+            let _ = app_handle.emit(EMAIL_PARSE_EVENT_NAME, error_event);
+            return;
+        }
 
-            let _ = app_handle.emit("batch-progress", error_event);
+        let parse_metadata_repo = SqliteParseMetadataRepository::new(pool_clone.clone());
+        let parse_repo = SqliteParseRepository::new(pool_clone.clone());
+        let order_repo = SqliteOrderRepository::new(pool_clone.clone());
+        let shop_settings_repo = SqliteShopSettingsRepository::new(pool_clone.clone());
 
-            // データベースのステータスをエラーに更新
-            let repo = SqliteParseMetadataRepository::new(pool_clone.clone());
-            let _ = repo
+        // パース状態を「実行中」に更新
+        if let Err(e) = parse_metadata_repo
+            .update_parse_status(
+                "running",
+                Some(chrono::Utc::now().to_rfc3339()),
+                None,
+                None,
+                None,
+            )
+            .await
+        {
+            log::error!("Failed to update parse status: {}", e);
+            parse_state_clone.finish();
+            let error_event = BatchProgressEvent::error(
+                EMAIL_PARSE_TASK_NAME,
+                0,
+                0,
+                0,
+                0,
+                format!("Failed to update parse status: {}", e),
+            );
+            let _ = app_handle.emit(EMAIL_PARSE_EVENT_NAME, error_event);
+            return;
+        }
+
+        // 注文関連テーブルをクリア
+        log::info!("Clearing order_emails, deliveries, items, and orders tables for fresh parse...");
+        if let Err(e) = parse_repo.clear_order_tables().await {
+            log::error!("Failed to clear order tables: {}", e);
+            parse_state_clone.finish();
+            let _ = parse_metadata_repo
                 .update_parse_status("error", None, None, None, Some(e.clone()))
                 .await;
+            let error_event = BatchProgressEvent::error(
+                EMAIL_PARSE_TASK_NAME,
+                0,
+                0,
+                0,
+                0,
+                format!("Failed to clear order tables: {}", e),
+            );
+            let _ = app_handle.emit(EMAIL_PARSE_EVENT_NAME, error_event);
+            return;
         }
+
+        // shop_settingsから有効な店舗設定を取得
+        let enabled_settings = match shop_settings_repo.get_enabled().await {
+            Ok(settings) => settings,
+            Err(e) => {
+                log::error!("Failed to fetch shop settings: {}", e);
+                parse_state_clone.finish();
+                let _ = parse_metadata_repo
+                    .update_parse_status("error", None, None, None, Some(e.clone()))
+                    .await;
+                let error_event = BatchProgressEvent::error(
+                    EMAIL_PARSE_TASK_NAME,
+                    0,
+                    0,
+                    0,
+                    0,
+                    format!("Failed to fetch shop settings: {}", e),
+                );
+                let _ = app_handle.emit(EMAIL_PARSE_EVENT_NAME, error_event);
+                return;
+            }
+        };
+
+        if enabled_settings.is_empty() {
+            log::warn!("No enabled shop settings found");
+            parse_state_clone.finish();
+            let _ = parse_metadata_repo
+                .update_parse_status(
+                    "error",
+                    None,
+                    None,
+                    None,
+                    Some("No enabled shop settings found".to_string()),
+                )
+                .await;
+            let error_event = BatchProgressEvent::error(
+                EMAIL_PARSE_TASK_NAME,
+                0,
+                0,
+                0,
+                0,
+                "No enabled shop settings found".to_string(),
+            );
+            let _ = app_handle.emit(EMAIL_PARSE_EVENT_NAME, error_event);
+            return;
+        }
+
+        // パース対象の全メール数を取得
+        let total_email_count = match parse_repo.get_total_email_count().await {
+            Ok(count) => count as usize,
+            Err(e) => {
+                log::error!("Failed to count emails: {}", e);
+                parse_state_clone.finish();
+                let _ = parse_metadata_repo
+                    .update_parse_status("error", None, None, None, Some(e.clone()))
+                    .await;
+                let error_event = BatchProgressEvent::error(
+                    EMAIL_PARSE_TASK_NAME,
+                    0,
+                    0,
+                    0,
+                    0,
+                    format!("Failed to count emails: {}", e),
+                );
+                let _ = app_handle.emit(EMAIL_PARSE_EVENT_NAME, error_event);
+                return;
+            }
+        };
+
+        log::info!("Total emails to parse: {}", total_email_count);
+
+        if total_email_count == 0 {
+            log::info!("No emails to parse");
+            parse_state_clone.finish();
+            let _ = parse_metadata_repo
+                .update_parse_status("completed", None, Some(chrono::Utc::now().to_rfc3339()), Some(0), None)
+                .await;
+            let complete_event = BatchProgressEvent::complete(
+                EMAIL_PARSE_TASK_NAME,
+                0,
+                0,
+                0,
+                "パース対象のメールがありません".to_string(),
+            );
+            let _ = app_handle.emit(EMAIL_PARSE_EVENT_NAME, complete_event);
+            return;
+        }
+
+        // 全未パースメールを取得（total_email_countを使ってバッチサイズを設定）
+        let all_unparsed_emails = match parse_repo.get_unparsed_emails(total_email_count).await {
+            Ok(emails) => emails,
+            Err(e) => {
+                log::error!("Failed to fetch unparsed emails: {}", e);
+                parse_state_clone.finish();
+                let _ = parse_metadata_repo
+                    .update_parse_status("error", None, None, None, Some(e.clone()))
+                    .await;
+                let error_event = BatchProgressEvent::error(
+                    EMAIL_PARSE_TASK_NAME,
+                    total_email_count,
+                    0,
+                    0,
+                    0,
+                    format!("Failed to fetch unparsed emails: {}", e),
+                );
+                let _ = app_handle.emit(EMAIL_PARSE_EVENT_NAME, error_event);
+                return;
+            }
+        };
+
+        // EmailParseInput に変換
+        let inputs: Vec<_> = all_unparsed_emails.into_iter().map(|row| row.into()).collect();
+        let inputs_len = inputs.len();
+
+        log::info!("Fetched {} unparsed emails", inputs_len);
+
+        // BatchRunner と Context を構築
+        let task: EmailParseTask<
+            SqliteOrderRepository,
+            SqliteParseRepository,
+            SqliteShopSettingsRepository,
+        > = EmailParseTask::new();
+
+        let context = EmailParseContext {
+            order_repo: Arc::new(order_repo),
+            parse_repo: Arc::new(parse_repo),
+            shop_settings_repo: Arc::new(shop_settings_repo),
+            shop_settings_cache: Arc::new(Mutex::new(
+                crate::parsers::ShopSettingsCache::default(),
+            )),
+            parse_state: Arc::new(parse_state_clone.clone()),
+        };
+
+        // BatchRunner で実行（メールパースはディレイ不要）
+        let runner = BatchRunner::new(task, size, 0);
+        let parse_state_for_cancel = parse_state_clone.clone();
+
+        match runner
+            .run(&app_handle, inputs, &context, || parse_state_for_cancel.is_cancelled())
+            .await
+        {
+            Ok(batch_result) => {
+                log::info!(
+                    "Email parse completed: success={}, failed={}",
+                    batch_result.success_count,
+                    batch_result.failed_count
+                );
+
+                // メタデータを更新
+                let _ = parse_metadata_repo
+                    .update_parse_status(
+                        "completed",
+                        None,
+                        Some(chrono::Utc::now().to_rfc3339()),
+                        Some(batch_result.success_count as i64),
+                        None,
+                    )
+                    .await;
+            }
+            Err(e) => {
+                log::error!("BatchRunner failed: {}", e);
+                let _ = parse_metadata_repo
+                    .update_parse_status("error", None, None, None, Some(e.clone()))
+                    .await;
+            }
+        }
+
+        // パース状態をクリーンアップ
+        parse_state_clone.finish();
     });
 
     Ok(())

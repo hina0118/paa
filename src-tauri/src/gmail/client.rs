@@ -257,7 +257,7 @@ pub struct SyncGuard<'a> {
 }
 
 impl<'a> SyncGuard<'a> {
-    const fn new(sync_state: &'a SyncState) -> Self {
+    pub const fn new(sync_state: &'a SyncState) -> Self {
         Self { sync_state }
     }
 }
