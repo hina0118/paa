@@ -3,7 +3,7 @@ import { useParse } from '@/contexts/use-parse';
 import { useNavigation } from '@/contexts/use-navigation';
 import { formatDateTime } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
+import { BatchProgressBar } from '@/components/ui/batch-progress-bar';
 import {
   Card,
   CardContent,
@@ -23,13 +23,13 @@ import {
 export function Parse() {
   const {
     isParsing,
-    progress,
+    batchProgress,
     metadata,
     startParse,
     cancelParse,
     refreshStatus,
     isProductNameParsing,
-    productNameProgress,
+    productNameBatchProgress,
     startProductNameParse,
     geminiApiKeyStatus,
   } = useParse();
@@ -79,11 +79,6 @@ export function Parse() {
       setProductNameError(err instanceof Error ? err.message : String(err));
     }
   };
-
-  const progressPercentage =
-    progress?.total_emails && progress.parsed_count
-      ? Math.min((progress.parsed_count / progress.total_emails) * 100, 100)
-      : 0;
 
   const getStatusBadgeClass = (status?: string) => {
     switch (status) {
@@ -233,73 +228,15 @@ export function Parse() {
           </p>
 
           {/* Product Name Parse Progress */}
-          {(isProductNameParsing || productNameProgress) && (
-            <div className="space-y-4 pt-4 border-t">
-              {productNameProgress && (
-                <>
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span>
-                        {productNameProgress.parsed_count} /{' '}
-                        {productNameProgress.total_items} 件
-                      </span>
-                      <span>
-                        {productNameProgress.total_items > 0
-                          ? Math.round(
-                              (productNameProgress.parsed_count /
-                                productNameProgress.total_items) *
-                                100
-                            )
-                          : 0}
-                        %
-                      </span>
-                    </div>
-                    <Progress
-                      value={
-                        productNameProgress.total_items > 0
-                          ? (productNameProgress.parsed_count /
-                              productNameProgress.total_items) *
-                            100
-                          : 0
-                      }
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <span className="text-muted-foreground">成功:</span>
-                      <div className="text-lg font-bold text-green-600">
-                        {productNameProgress.success_count}
-                      </div>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">失敗:</span>
-                      <div className="text-lg font-bold text-red-600">
-                        {productNameProgress.failed_count}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="text-sm text-muted-foreground">
-                    {productNameProgress.status_message}
-                  </div>
-
-                  {productNameProgress.is_complete &&
-                    !productNameProgress.error && (
-                      <div className="p-3 bg-green-50 border border-green-200 rounded text-sm text-green-800">
-                        商品名解析が完了しました
-                      </div>
-                    )}
-
-                  {productNameProgress.error && (
-                    <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-800">
-                      {productNameProgress.error}
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          )}
+          {(isProductNameParsing || productNameBatchProgress) &&
+            productNameBatchProgress && (
+              <div className="pt-4 border-t">
+                <BatchProgressBar
+                  progress={productNameBatchProgress}
+                  completeMessage="商品名解析が完了しました"
+                />
+              </div>
+            )}
 
           {productNameError && (
             <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-800">
@@ -310,53 +247,17 @@ export function Parse() {
       </Card>
 
       {/* Progress Display */}
-      {(isParsing || progress) && (
+      {(isParsing || batchProgress) && (
         <Card>
           <CardHeader>
             <CardTitle>パース進捗</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            {progress && (
-              <>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span>
-                      {progress.parsed_count} / {progress.total_emails} 件
-                    </span>
-                    <span>{Math.round(progressPercentage)}%</span>
-                  </div>
-                  <Progress value={progressPercentage} />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <span className="text-muted-foreground">成功:</span>
-                    <div className="text-lg font-bold text-green-600">
-                      {progress.success_count}
-                    </div>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">失敗:</span>
-                    <div className="text-lg font-bold text-red-600">
-                      {progress.failed_count}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="text-sm text-muted-foreground">
-                  {progress.status_message}
-                </div>
-
-                {progress.is_complete && !progress.error && (
-                  <div
-                    className="p-3 bg-green-50 border border-green-200 rounded text-sm text-green-800"
-                    data-testid="success-message"
-                    role="status"
-                  >
-                    パースが完了しました
-                  </div>
-                )}
-              </>
+          <CardContent>
+            {batchProgress && (
+              <BatchProgressBar
+                progress={batchProgress}
+                completeMessage="パースが完了しました"
+              />
             )}
           </CardContent>
         </Card>
@@ -398,7 +299,7 @@ export function Parse() {
       )}
 
       {/* Error Display */}
-      {(error || progress?.error || metadata?.last_error_message) && (
+      {(error || batchProgress?.error || metadata?.last_error_message) && (
         <Card
           className="border-red-200 bg-red-50"
           data-testid="error-message"
@@ -409,7 +310,7 @@ export function Parse() {
           </CardHeader>
           <CardContent>
             <p className="text-sm text-red-700">
-              {error || progress?.error || metadata?.last_error_message}
+              {error || batchProgress?.error || metadata?.last_error_message}
             </p>
           </CardContent>
         </Card>

@@ -43,7 +43,10 @@ export interface SyncMetadata {
 
 export interface SyncContextType {
   isSyncing: boolean;
+  /** @deprecated 新しいコードでは batchProgress を使用してください */
   progress: SyncProgress | null;
+  /** 共通の進捗型 */
+  batchProgress: BatchProgress | null;
   metadata: SyncMetadata | null;
   startSync: () => Promise<void>;
   cancelSync: () => Promise<void>;

@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useSync } from '@/contexts/use-sync';
 import { formatDateTime } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
+import { SimpleBatchProgressBar } from '@/components/ui/batch-progress-bar';
 import {
   Card,
   CardContent,
@@ -15,7 +15,7 @@ import {
 export function Sync() {
   const {
     isSyncing,
-    progress,
+    batchProgress,
     metadata,
     startSync,
     cancelSync,
@@ -68,16 +68,6 @@ export function Sync() {
       setError(err instanceof Error ? err.message : String(err));
     }
   };
-
-  const progressPercentage =
-    progress?.total_synced && metadata?.total_synced_count
-      ? Math.min(
-          (progress.total_synced /
-            Math.max(metadata.total_synced_count, progress.total_synced)) *
-            100,
-          100
-        )
-      : 0;
 
   const getStatusBadgeClass = (status?: string) => {
     switch (status) {
@@ -181,27 +171,17 @@ export function Sync() {
       </Card>
 
       {/* Progress Display */}
-      {(isSyncing || progress) && (
+      {(isSyncing || batchProgress) && (
         <Card>
           <CardHeader>
             <CardTitle>同期進捗</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {progress && (
+            {batchProgress && (
               <>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span>バッチ {progress.batch_number}</span>
-                    <span>{progress.total_synced} 件取得済み</span>
-                  </div>
-                  <Progress value={progressPercentage} />
-                </div>
+                <SimpleBatchProgressBar progress={batchProgress} />
 
-                <div className="text-sm text-muted-foreground">
-                  {progress.status_message}
-                </div>
-
-                {progress.is_complete && !progress.error && (
+                {batchProgress.is_complete && !batchProgress.error && (
                   <div
                     className="p-3 bg-green-50 border border-green-200 rounded text-sm text-green-800"
                     data-testid="success-message"
@@ -258,7 +238,7 @@ export function Sync() {
       )}
 
       {/* Error Display */}
-      {(error || progress?.error) && (
+      {(error || batchProgress?.error) && (
         <Card
           className="border-red-200 bg-red-50"
           data-testid="error-message"
@@ -268,7 +248,9 @@ export function Sync() {
             <CardTitle className="text-red-800">エラー</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-red-700">{error || progress?.error}</p>
+            <p className="text-sm text-red-700">
+              {error || batchProgress?.error}
+            </p>
           </CardContent>
         </Card>
       )}
