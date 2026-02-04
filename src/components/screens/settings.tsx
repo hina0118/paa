@@ -18,7 +18,7 @@ export function Settings() {
   const {
     metadata: parseMetadata,
     updateBatchSize: updateParseBatchSize,
-    hasGeminiApiKey,
+    geminiApiKeyStatus,
     refreshGeminiApiKeyStatus,
   } = useParse();
   const [batchSize, setBatchSize] = useState<string>('');
@@ -35,12 +35,16 @@ export function Settings() {
   const [isSavingGeminiApiKey, setIsSavingGeminiApiKey] = useState(false);
   const [isDeletingGeminiApiKey, setIsDeletingGeminiApiKey] = useState(false);
   // SerpApi
-  const [isSerpApiConfigured, setIsSerpApiConfigured] = useState(false);
   const [serpApiKey, setSerpApiKey] = useState<string>('');
   const [isSavingSerpApi, setIsSavingSerpApi] = useState(false);
   const [isDeletingSerpApi, setIsDeletingSerpApi] = useState(false);
+  const [serpApiStatus, setSerpApiStatus] = useState<
+    'checking' | 'available' | 'unavailable' | 'error'
+  >('checking');
   // Gmail OAuth
-  const [isGmailOAuthConfigured, setIsGmailOAuthConfigured] = useState(false);
+  const [gmailOAuthStatus, setGmailOAuthStatus] = useState<
+    'checking' | 'available' | 'unavailable' | 'error'
+  >('checking');
   const [gmailOAuthJson, setGmailOAuthJson] = useState<string>('');
   const [isSavingGmailOAuth, setIsSavingGmailOAuth] = useState(false);
   const [isDeletingGmailOAuth, setIsDeletingGmailOAuth] = useState(false);
@@ -66,11 +70,13 @@ export function Settings() {
   }, [refreshGeminiApiKeyStatus]);
 
   const refreshSerpApiStatus = useCallback(async () => {
+    setSerpApiStatus('checking');
     try {
       const configured = await invoke<boolean>('is_google_search_configured');
-      setIsSerpApiConfigured(configured);
+      setSerpApiStatus(configured ? 'available' : 'unavailable');
     } catch (error) {
       console.error('Failed to check SerpApi config:', error);
+      setSerpApiStatus('error');
     }
   }, []);
 
@@ -79,12 +85,13 @@ export function Settings() {
   }, [refreshSerpApiStatus]);
 
   const refreshGmailOAuthStatus = useCallback(async () => {
+    setGmailOAuthStatus('checking');
     try {
       const configured = await invoke<boolean>('has_gmail_oauth_credentials');
-      setIsGmailOAuthConfigured(configured);
+      setGmailOAuthStatus(configured ? 'available' : 'unavailable');
     } catch (error) {
       console.error('Failed to check Gmail OAuth config:', error);
-      setIsGmailOAuthConfigured(false);
+      setGmailOAuthStatus('error');
     }
   }, []);
 
@@ -393,9 +400,12 @@ export function Settings() {
         <CardContent className="space-y-6">
           <div className="space-y-2">
             <p className="text-sm text-muted-foreground">
-              {isGmailOAuthConfigured
-                ? '認証情報は設定済みです'
-                : '認証情報を設定してください'}
+              {gmailOAuthStatus === 'checking' && '認証情報の状態を確認中...'}
+              {gmailOAuthStatus === 'error' &&
+                '認証情報の状態を取得できません（バックエンド未起動の可能性）'}
+              {gmailOAuthStatus === 'available' && '認証情報は設定済みです'}
+              {gmailOAuthStatus === 'unavailable' &&
+                '認証情報を設定してください'}
             </p>
           </div>
           <div className="space-y-4">
@@ -478,7 +488,7 @@ export function Settings() {
               >
                 保存
               </Button>
-              {isGmailOAuthConfigured && (
+              {gmailOAuthStatus === 'available' && (
                 <Button
                   variant="destructive"
                   onClick={handleDeleteGmailOAuth}
@@ -582,15 +592,22 @@ export function Settings() {
               APIキー
             </label>
             <p className="text-sm text-muted-foreground">
-              {hasGeminiApiKey
-                ? 'APIキーは設定済みです'
-                : 'APIキーを入力して保存してください'}
+              {geminiApiKeyStatus === 'checking' && 'APIキーの状態を確認中...'}
+              {geminiApiKeyStatus === 'error' &&
+                'APIキーの状態を取得できません（バックエンド未起動の可能性）'}
+              {geminiApiKeyStatus === 'available' && 'APIキーは設定済みです'}
+              {geminiApiKeyStatus === 'unavailable' &&
+                'APIキーを入力して保存してください'}
             </p>
             <div className="flex gap-2">
               <Input
                 id="gemini-api-key"
                 type="password"
-                placeholder={hasGeminiApiKey ? '********' : 'APIキーを入力'}
+                placeholder={
+                  geminiApiKeyStatus === 'available'
+                    ? '********'
+                    : 'APIキーを入力'
+                }
                 value={geminiApiKey}
                 onChange={(e) => setGeminiApiKey(e.target.value)}
                 disabled={isSavingGeminiApiKey || isDeletingGeminiApiKey}
@@ -603,7 +620,7 @@ export function Settings() {
               >
                 保存
               </Button>
-              {hasGeminiApiKey && (
+              {geminiApiKeyStatus === 'available' && (
                 <Button
                   variant="destructive"
                   onClick={handleDeleteGeminiApiKey}
@@ -637,9 +654,12 @@ export function Settings() {
         <CardContent className="space-y-6">
           <div className="space-y-2">
             <p className="text-sm text-muted-foreground">
-              {isSerpApiConfigured
-                ? 'APIキーは設定済みです'
-                : 'APIキーを入力して保存してください'}
+              {serpApiStatus === 'checking' && 'APIキーの状態を確認中...'}
+              {serpApiStatus === 'error' &&
+                'APIキーの状態を取得できません（バックエンド未起動の可能性）'}
+              {serpApiStatus === 'available' && 'APIキーは設定済みです'}
+              {serpApiStatus === 'unavailable' &&
+                'APIキーを入力して保存してください'}
             </p>
           </div>
           <div className="space-y-2">
@@ -650,7 +670,9 @@ export function Settings() {
               <Input
                 id="serpapi-key"
                 type="password"
-                placeholder={isSerpApiConfigured ? '********' : 'APIキーを入力'}
+                placeholder={
+                  serpApiStatus === 'available' ? '********' : 'APIキーを入力'
+                }
                 value={serpApiKey}
                 onChange={(e) => setSerpApiKey(e.target.value)}
                 disabled={isSavingSerpApi || isDeletingSerpApi}
@@ -663,7 +685,7 @@ export function Settings() {
               >
                 保存
               </Button>
-              {isSerpApiConfigured && (
+              {serpApiStatus === 'available' && (
                 <Button
                   variant="destructive"
                   onClick={handleDeleteSerpApiKey}

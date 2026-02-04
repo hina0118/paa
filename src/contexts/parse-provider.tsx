@@ -16,15 +16,18 @@ export function ParseProvider({ children }: { children: ReactNode }) {
   const [isProductNameParsing, setIsProductNameParsing] = useState(false);
   const [productNameProgress, setProductNameProgress] =
     useState<ProductNameParseProgress | null>(null);
-  const [hasGeminiApiKey, setHasGeminiApiKey] = useState(false);
+  const [geminiApiKeyStatus, setGeminiApiKeyStatus] = useState<
+    'checking' | 'available' | 'unavailable' | 'error'
+  >('checking');
 
   const refreshGeminiApiKeyStatus = useCallback(async () => {
+    setGeminiApiKeyStatus('checking');
     try {
       const has = await invoke<boolean>('has_gemini_api_key');
-      setHasGeminiApiKey(has);
+      setGeminiApiKeyStatus(has ? 'available' : 'unavailable');
     } catch (error) {
       console.error('Failed to fetch Gemini API key status:', error);
-      setHasGeminiApiKey(false);
+      setGeminiApiKeyStatus('error');
     }
   }, []);
 
@@ -135,7 +138,8 @@ export function ParseProvider({ children }: { children: ReactNode }) {
         isProductNameParsing,
         productNameProgress,
         startProductNameParse,
-        hasGeminiApiKey,
+        geminiApiKeyStatus,
+        hasGeminiApiKey: geminiApiKeyStatus === 'available',
         refreshGeminiApiKeyStatus,
       }}
     >

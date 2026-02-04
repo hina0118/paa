@@ -42,7 +42,8 @@ export interface ParseContextType {
   isProductNameParsing: boolean;
   productNameProgress: ProductNameParseProgress | null;
   startProductNameParse: () => Promise<void>;
-  hasGeminiApiKey: boolean;
+  geminiApiKeyStatus: 'checking' | 'available' | 'unavailable' | 'error';
+  hasGeminiApiKey: boolean; // geminiApiKeyStatus === 'available' のエイリアス
   refreshGeminiApiKeyStatus: () => Promise<void>;
 }
 

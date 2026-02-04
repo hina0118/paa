@@ -31,7 +31,7 @@ export function Parse() {
     isProductNameParsing,
     productNameProgress,
     startProductNameParse,
-    hasGeminiApiKey,
+    geminiApiKeyStatus,
   } = useParse();
   const { setCurrentScreen } = useNavigation();
   const [error, setError] = useState<string | null>(null);
@@ -202,7 +202,7 @@ export function Parse() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {!hasGeminiApiKey && (
+          {geminiApiKeyStatus !== 'available' && (
             <div className="p-3 bg-amber-50 border border-amber-200 rounded text-sm text-amber-800">
               初回利用時は設定画面でGemini
               APIキーを設定してください。keyring（OSのセキュアストレージ）に保存されます。
@@ -218,7 +218,11 @@ export function Parse() {
           <div className="flex gap-4">
             <Button
               onClick={handleStartProductNameParse}
-              disabled={isProductNameParsing || isParsing || !hasGeminiApiKey}
+              disabled={
+                isProductNameParsing ||
+                isParsing ||
+                geminiApiKeyStatus !== 'available'
+              }
               variant={isProductNameParsing ? 'secondary' : 'default'}
             >
               {isProductNameParsing ? '解析中...' : '商品名を解析'}

@@ -18,6 +18,9 @@ describe('ParseContext', () => {
       if (cmd === 'get_parse_status') {
         return Promise.resolve(mockParseMetadata);
       }
+      if (cmd === 'has_gemini_api_key') {
+        return Promise.resolve(false);
+      }
       return Promise.resolve(undefined);
     });
     mockListen.mockResolvedValue(() => {});
@@ -44,6 +47,7 @@ describe('ParseContext', () => {
           batch_size: 100,
         });
       }
+      if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
       return Promise.resolve(undefined);
     });
 
@@ -294,12 +298,19 @@ describe('ParseContext', () => {
       expect(result.current).toHaveProperty('cancelParse');
       expect(result.current).toHaveProperty('refreshStatus');
       expect(result.current).toHaveProperty('updateBatchSize');
+      expect(result.current).toHaveProperty('geminiApiKeyStatus');
+      expect(result.current).toHaveProperty('hasGeminiApiKey');
+      expect(result.current).toHaveProperty('refreshGeminiApiKeyStatus');
     });
 
     expect(typeof result.current.startParse).toBe('function');
     expect(typeof result.current.cancelParse).toBe('function');
     expect(typeof result.current.refreshStatus).toBe('function');
     expect(typeof result.current.updateBatchSize).toBe('function');
+    expect(typeof result.current.refreshGeminiApiKeyStatus).toBe('function');
+    expect(['checking', 'available', 'unavailable', 'error']).toContain(
+      result.current.geminiApiKeyStatus
+    );
   });
 
   it('sets isParsing to true during parse', async () => {
