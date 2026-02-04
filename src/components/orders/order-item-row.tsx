@@ -2,7 +2,7 @@ import { Package } from 'lucide-react';
 import { StatusBadge } from './status-badge';
 import { useImageUrl } from '@/hooks/useImageUrl';
 import type { OrderItemRow } from '@/lib/types';
-import { cn, formatDate, formatPrice } from '@/lib/utils';
+import { cn, formatDate, formatPrice, getProductMetadata } from '@/lib/utils';
 
 type OrderItemRowViewProps = {
   item: OrderItemRow;
@@ -17,6 +17,7 @@ export function OrderItemRowView({
 }: OrderItemRowViewProps) {
   const getImageUrl = useImageUrl();
   const imageSrc = getImageUrl(item.fileName);
+  const metadata = getProductMetadata(item);
   const isInteractive = Boolean(onClick);
 
   return (
@@ -59,17 +60,9 @@ export function OrderItemRowView({
           </h3>
           <StatusBadge status={item.deliveryStatus} className="shrink-0" />
         </div>
-        {(item.maker || item.series || item.scale) && (
-          <p className="text-xs text-muted-foreground truncate">
-            {[item.maker, item.series, item.scale].filter(Boolean).join(' / ')}
-          </p>
+        {metadata && (
+          <p className="text-xs text-muted-foreground truncate">{metadata}</p>
         )}
-        {!(item.maker || item.series || item.scale) &&
-          (item.brand || item.category) && (
-            <p className="text-xs text-muted-foreground truncate">
-              {[item.brand, item.category].filter(Boolean).join(' / ')}
-            </p>
-          )}
       </div>
       <div className="text-right shrink-0">
         <p className="text-sm font-semibold">{formatPrice(item.price)}</p>

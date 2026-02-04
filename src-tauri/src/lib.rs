@@ -1321,23 +1321,19 @@ async fn save_image_from_url(
             .map_err(|e| format!("Failed to get item_name_normalized: {e}"))?
             .flatten();
 
+    // 正規化できない商品名には画像を登録できない（item_name_normalized がリレーションキー）
+    let normalized = item_name_normalized.as_ref().ok_or_else(|| {
+        "この商品は正規化できないため画像を登録できません。商品名に記号のみなどが含まれている可能性があります。".to_string()
+    })?;
+
     // 既存のfile_nameを取得（古い画像削除用）
-    // item_name_normalizedがあればそれで検索、なければitem_idで検索
-    let old_file_name: Option<String> = if let Some(ref normalized) = item_name_normalized {
+    let old_file_name: Option<String> =
         sqlx::query_scalar("SELECT file_name FROM images WHERE item_name_normalized = ?")
             .bind(normalized)
             .fetch_optional(pool.inner())
             .await
             .map_err(|e| format!("Failed to get existing image: {e}"))?
-            .flatten()
-    } else {
-        sqlx::query_scalar("SELECT file_name FROM images WHERE item_id = ?")
-            .bind(item_id)
-            .fetch_optional(pool.inner())
-            .await
-            .map_err(|e| format!("Failed to get existing image: {e}"))?
-            .flatten()
-    };
+            .flatten();
 
     // 画像ファイルを保存
     let file_path = images_dir.join(&file_name);
@@ -1347,84 +1343,44 @@ async fn save_image_from_url(
     log::info!("Image saved to: {}", file_path.display());
 
     // データベースに保存（既存レコードがあれば更新、なければ挿入）
-    // item_name_normalizedがあればそれをキーに、なければitem_idをキーにする
-    if let Some(ref normalized) = item_name_normalized {
-        // item_name_normalizedで既存レコードを検索・更新
-        let existing: Option<(i64,)> =
-            sqlx::query_as("SELECT id FROM images WHERE item_name_normalized = ?")
-                .bind(normalized)
-                .fetch_optional(pool.inner())
-                .await
-                .map_err(|e| format!("Failed to check existing image: {e}"))?;
+    let existing: Option<(i64,)> =
+        sqlx::query_as("SELECT id FROM images WHERE item_name_normalized = ?")
+            .bind(normalized)
+            .fetch_optional(pool.inner())
+            .await
+            .map_err(|e| format!("Failed to check existing image: {e}"))?;
 
-        if existing.is_some() {
-            // 既存レコードを更新（item_id は「最終更新した item」の参照。画像は item_name_normalized で共有される）
-            sqlx::query(
-                r#"
-                UPDATE images
-                SET item_id = ?, file_name = ?, created_at = CURRENT_TIMESTAMP
-                WHERE item_name_normalized = ?
-                "#,
-            )
-            .bind(item_id)
-            .bind(&file_name)
-            .bind(normalized)
-            .execute(pool.inner())
-            .await
-            .map_err(|e| format!("Failed to update image in database: {e}"))?;
-        } else {
-            // 新規レコードを挿入
-            sqlx::query(
-                r#"
-                INSERT INTO images (item_id, item_name_normalized, file_name, created_at)
-                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-                "#,
-            )
-            .bind(item_id)
-            .bind(normalized)
-            .bind(&file_name)
-            .execute(pool.inner())
-            .await
-            .map_err(|e| format!("Failed to save image to database: {e}"))?;
-        }
+    if existing.is_some() {
+        sqlx::query(
+            r#"
+            UPDATE images
+            SET file_name = ?, created_at = CURRENT_TIMESTAMP
+            WHERE item_name_normalized = ?
+            "#,
+        )
+        .bind(&file_name)
+        .bind(normalized)
+        .execute(pool.inner())
+        .await
+        .map_err(|e| format!("Failed to update image in database: {e}"))?;
     } else {
-        // item_name_normalizedがない場合はitem_idで検索し、既存があれば更新、なければ挿入
-        let existing_by_id: Option<(i64,)> =
-            sqlx::query_as("SELECT id FROM images WHERE item_id = ?")
-                .bind(item_id)
-                .fetch_optional(pool.inner())
-                .await
-                .map_err(|e| format!("Failed to check existing image by item_id: {e}"))?;
-
-        if existing_by_id.is_some() {
-            sqlx::query(
-                r#"
-                UPDATE images
-                SET file_name = ?, created_at = CURRENT_TIMESTAMP
-                WHERE item_id = ?
-                "#,
-            )
-            .bind(&file_name)
-            .bind(item_id)
-            .execute(pool.inner())
-            .await
-            .map_err(|e| format!("Failed to update image in database: {e}"))?;
-        } else {
-            sqlx::query(
-                r#"
-                INSERT INTO images (item_id, file_name, created_at)
-                VALUES (?, ?, CURRENT_TIMESTAMP)
-                "#,
-            )
-            .bind(item_id)
-            .bind(&file_name)
-            .execute(pool.inner())
-            .await
-            .map_err(|e| format!("Failed to save image to database: {e}"))?;
-        }
+        sqlx::query(
+            r#"
+            INSERT INTO images (item_name_normalized, file_name, created_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            "#,
+        )
+        .bind(normalized)
+        .bind(&file_name)
+        .execute(pool.inner())
+        .await
+        .map_err(|e| format!("Failed to save image to database: {e}"))?;
     }
 
-    log::info!("Image record saved to database for item_id: {}", item_id);
+    log::info!(
+        "Image record saved to database for item_name_normalized: {}",
+        normalized
+    );
 
     // 古い画像ファイルを削除（ディスク容量節約）
     if let Some(ref old_name) = old_file_name {
