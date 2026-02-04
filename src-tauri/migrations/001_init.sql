@@ -95,6 +95,7 @@ END;
 -- -----------------------------------------------------------------------------
 -- images (file_name のみ、app_data_dir/images/ に実体保存)
 -- item_name_normalized: パース再実行時にも画像を維持するため、正規化商品名で関連付け
+-- item_id: 画像を最後に更新した item の参照（画像は item_name_normalized で共有されるため、所有権ではない）
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS images (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
