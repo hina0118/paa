@@ -38,6 +38,11 @@ use tokio::time::sleep;
 /// バッチ処理の1タスクを定義するトレイト
 ///
 /// このトレイトを実装することで、`BatchRunner`による統一的なバッチ処理が可能になります。
+///
+/// # フック
+/// - `before_batch`: バッチ処理前に呼び出される（キャッシュ一括取得等に使用）
+/// - `process_batch`: バッチ単位での処理（デフォルトは1件ずつ `process` を呼び出す）
+/// - `after_batch`: バッチ処理後に呼び出される（一括DB保存、メタデータ更新等に使用）
 #[async_trait]
 pub trait BatchTask: Send + Sync {
     /// 入力データの型
@@ -66,6 +71,63 @@ pub trait BatchTask: Send + Sync {
         input: Self::Input,
         context: &Self::Context,
     ) -> Result<Self::Output, String>;
+
+    /// バッチ処理前のフック（オプション）
+    ///
+    /// キャッシュの一括取得など、バッチ処理前に行いたい処理を実装します。
+    /// デフォルトは何もしません。
+    ///
+    /// # Arguments
+    /// * `inputs` - このバッチで処理する入力データのスライス
+    /// * `context` - 処理に必要なコンテキスト
+    async fn before_batch(
+        &self,
+        _inputs: &[Self::Input],
+        _context: &Self::Context,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// バッチ単位での処理（オプション）
+    ///
+    /// デフォルトは1件ずつ `process` を呼び出しますが、
+    /// チャンク単位でAPI呼び出しを行いたい場合などにオーバーライドします。
+    ///
+    /// # Arguments
+    /// * `inputs` - このバッチで処理する入力データ
+    /// * `context` - 処理に必要なコンテキスト
+    ///
+    /// # Returns
+    /// 各入力に対する処理結果のベクタ（入力と同じ順序）
+    async fn process_batch(
+        &self,
+        inputs: Vec<Self::Input>,
+        context: &Self::Context,
+    ) -> Vec<Result<Self::Output, String>> {
+        let mut results = Vec::with_capacity(inputs.len());
+        for input in inputs {
+            results.push(self.process(input, context).await);
+        }
+        results
+    }
+
+    /// バッチ処理後のフック（オプション）
+    ///
+    /// 一括DB保存やメタデータ更新など、バッチ処理後に行いたい処理を実装します。
+    /// デフォルトは何もしません。
+    ///
+    /// # Arguments
+    /// * `batch_number` - 現在のバッチ番号（1から開始）
+    /// * `results` - このバッチの処理結果
+    /// * `context` - 処理に必要なコンテキスト
+    async fn after_batch(
+        &self,
+        _batch_number: usize,
+        _results: &[Result<Self::Output, String>],
+        _context: &Self::Context,
+    ) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 /// バッチ処理の進捗イベント（フロントエンドへの通知用）
@@ -328,13 +390,32 @@ impl<T: BatchTask> BatchRunner<T> {
             );
 
             let batch_size = chunk.len();
+
+            // before_batch フックを呼び出し
+            if let Err(e) = self.task.before_batch(chunk, context).await {
+                log::error!("[{}] before_batch failed: {}", task_name, e);
+                let event = BatchProgressEvent::error(
+                    task_name,
+                    total_items,
+                    processed_count,
+                    success_count,
+                    failed_count,
+                    format!("before_batch エラー: {}", e),
+                );
+                let _ = app_handle.emit(event_name, event);
+                return Err(e);
+            }
+
+            // process_batch でバッチ処理を実行
+            let chunk_vec: Vec<T::Input> = chunk.to_vec();
+            let batch_results = self.task.process_batch(chunk_vec, context).await;
+
+            // 結果を集計
             let mut batch_success = 0;
             let mut batch_failed = 0;
-
-            for input in chunk {
-                match self.task.process(input.clone(), context).await {
-                    Ok(output) => {
-                        outputs.push(output);
+            for result in &batch_results {
+                match result {
+                    Ok(_) => {
                         success_count += 1;
                         batch_success += 1;
                     }
@@ -345,6 +426,28 @@ impl<T: BatchTask> BatchRunner<T> {
                     }
                 }
                 processed_count += 1;
+            }
+
+            // after_batch フックを呼び出し
+            if let Err(e) = self.task.after_batch(batch_number, &batch_results, context).await {
+                log::error!("[{}] after_batch failed: {}", task_name, e);
+                let event = BatchProgressEvent::error(
+                    task_name,
+                    total_items,
+                    processed_count,
+                    success_count,
+                    failed_count,
+                    format!("after_batch エラー: {}", e),
+                );
+                let _ = app_handle.emit(event_name, event);
+                return Err(e);
+            }
+
+            // 成功した結果を outputs に追加
+            for result in batch_results {
+                if let Ok(output) = result {
+                    outputs.push(output);
+                }
             }
 
             // 進捗イベントを送信
@@ -403,8 +506,6 @@ impl<T: BatchTask> BatchRunner<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Arc;
 
     // テスト用のモックタスク
     struct MockTask {

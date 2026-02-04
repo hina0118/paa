@@ -9,8 +9,14 @@
 
 pub mod client;
 pub mod config;
+pub mod product_parse_task;
 pub mod product_parser;
 
-pub use client::{GeminiClient, GeminiClientTrait, ParsedProduct};
+pub use client::{GeminiClient, GeminiClientTrait, ParsedProduct, GEMINI_BATCH_SIZE, GEMINI_DELAY_SECONDS};
 pub use config::{has_api_key, load_api_key};
-pub use product_parser::{normalize_product_name, ProductParseService};
+pub use product_parse_task::{
+    create_input as create_product_parse_input, ProductNameParseCache, ProductNameParseContext,
+    ProductNameParseInput, ProductNameParseOutput, ProductNameParseTask,
+    PRODUCT_NAME_PARSE_EVENT_NAME, PRODUCT_NAME_PARSE_TASK_NAME,
+};
+pub use product_parser::{normalize_product_name, ParseBatchResult, ProductParseService};

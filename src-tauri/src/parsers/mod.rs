@@ -12,9 +12,8 @@ use sqlx::{FromRow, SqlitePool};
 use std::sync::{Arc, Mutex};
 use tauri::Emitter;
 
-/// メールパースのタスク名とイベント名
-const EMAIL_PARSE_TASK_NAME: &str = "メールパース";
-const EMAIL_PARSE_EVENT_NAME: &str = "batch-progress";
+// 定数はemail_parse_taskモジュールからエクスポート
+use email_parse_task::{EMAIL_PARSE_EVENT_NAME, EMAIL_PARSE_TASK_NAME};
 
 /// パース対象メールの情報（get_unparsed_emails の戻り値）
 #[derive(Debug, Clone, FromRow)]
@@ -37,6 +36,13 @@ pub mod hobbysearch_change_yoyaku;
 pub mod hobbysearch_confirm;
 pub mod hobbysearch_confirm_yoyaku;
 pub mod hobbysearch_send;
+
+// BatchTask 実装
+pub mod email_parse_task;
+pub use email_parse_task::{
+    EmailParseContext, EmailParseInput, EmailParseOutput, EmailParseTask,
+    ShopSettingsCache,
+};
 
 /// パース状態管理
 #[derive(Clone)]
