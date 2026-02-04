@@ -1,5 +1,10 @@
 import { createContext } from 'react';
+import type { BatchProgress } from './batch-progress-types';
 
+/**
+ * パース進捗（後方互換性のため残す）
+ * @deprecated 新しいコードでは BatchProgress を使用してください
+ */
 export interface ParseProgress {
   batch_number: number;
   total_emails: number;
@@ -11,6 +16,10 @@ export interface ParseProgress {
   error?: string;
 }
 
+/**
+ * 商品名パース進捗（後方互換性のため残す）
+ * @deprecated 新しいコードでは BatchProgress を使用してください
+ */
 export interface ProductNameParseProgress {
   total_items: number;
   parsed_count: number;
@@ -19,6 +28,39 @@ export interface ProductNameParseProgress {
   status_message: string;
   is_complete: boolean;
   error?: string;
+}
+
+/**
+ * BatchProgress から ParseProgress への変換ヘルパー（後方互換性用）
+ */
+export function batchProgressToParseProgress(bp: BatchProgress): ParseProgress {
+  return {
+    batch_number: bp.batch_number,
+    total_emails: bp.total_items,
+    parsed_count: bp.processed_count,
+    success_count: bp.success_count,
+    failed_count: bp.failed_count,
+    status_message: bp.status_message,
+    is_complete: bp.is_complete,
+    error: bp.error,
+  };
+}
+
+/**
+ * BatchProgress から ProductNameParseProgress への変換ヘルパー（後方互換性用）
+ */
+export function batchProgressToProductNameParseProgress(
+  bp: BatchProgress
+): ProductNameParseProgress {
+  return {
+    total_items: bp.total_items,
+    parsed_count: bp.processed_count,
+    success_count: bp.success_count,
+    failed_count: bp.failed_count,
+    status_message: bp.status_message,
+    is_complete: bp.is_complete,
+    error: bp.error,
+  };
 }
 
 export interface ParseMetadata {

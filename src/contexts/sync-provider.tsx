@@ -5,7 +5,13 @@ import {
   type SyncProgress,
   type SyncMetadata,
   SyncContext,
+  batchProgressToSyncProgress,
 } from './sync-context-value';
+import {
+  type BatchProgress,
+  BATCH_PROGRESS_EVENT,
+  TASK_NAMES,
+} from './batch-progress-types';
 
 export function SyncProvider({ children }: { children: ReactNode }) {
   const [isSyncing, setIsSyncing] = useState(false);
@@ -22,6 +28,32 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // 新しい共通イベント（batch-progress）をリッスン
+  useEffect(() => {
+    const unlisten = listen<BatchProgress>(BATCH_PROGRESS_EVENT, (event) => {
+      const data = event.payload;
+
+      // メール同期のイベントのみ処理
+      if (data.task_name !== TASK_NAMES.GMAIL_SYNC) {
+        return;
+      }
+
+      // BatchProgress を SyncProgress に変換
+      const syncProgress = batchProgressToSyncProgress(data);
+      setProgress(syncProgress);
+
+      if (data.is_complete) {
+        setIsSyncing(false);
+        refreshStatus();
+      }
+    });
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [refreshStatus]);
+
+  // 後方互換性のため、古いイベント（sync-progress）もリッスン
   useEffect(() => {
     const unlisten = listen<SyncProgress>('sync-progress', (event) => {
       const data = event.payload;

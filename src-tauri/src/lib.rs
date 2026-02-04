@@ -8,6 +8,7 @@ use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Listener, Manager};
 use tauri_plugin_sql::{Migration, MigrationKind};
 
+pub mod batch_runner;
 pub mod gemini;
 pub mod gmail;
 pub mod gmail_client;
@@ -16,6 +17,7 @@ pub mod logic;
 pub mod parsers;
 pub mod repository;
 
+use crate::batch_runner::BatchProgressEvent;
 use crate::logic::email_parser::get_candidate_parsers;
 use crate::repository::{
     EmailStats, EmailStatsRepository, OrderRepository, ParseMetadataRepository,
@@ -51,18 +53,16 @@ async fn start_sync(
             log::error!("Sync failed: {e}");
 
             // Emit error event
-            let error_msg = e.clone();
-            let error_event = gmail::SyncProgressEvent {
-                batch_number: 0,
-                batch_size: 0,
-                total_synced: 0,
-                newly_saved: 0,
-                status_message: format!("Sync error: {e}"),
-                is_complete: true,
-                error: Some(error_msg),
-            };
+            let error_event = BatchProgressEvent::error(
+                "メール同期",
+                0,
+                0,
+                0,
+                0,
+                format!("Sync error: {e}"),
+            );
 
-            let _ = app_clone.emit("sync-progress", error_event);
+            let _ = app_clone.emit("batch-progress", error_event);
 
             // Update database status to error
             let repo = SqliteSyncMetadataRepository::new(pool_clone.clone());
@@ -747,18 +747,16 @@ async fn start_batch_parse(
             log::error!("Batch parse failed: {}", e);
 
             // エラーイベントを送信
-            let error_event = parsers::ParseProgressEvent {
-                batch_number: 0,
-                total_emails: 0,
-                parsed_count: 0,
-                success_count: 0,
-                failed_count: 0,
-                status_message: format!("Parse error: {}", e),
-                is_complete: true,
-                error: Some(e.clone()),
-            };
+            let error_event = BatchProgressEvent::error(
+                "メールパース",
+                0,
+                0,
+                0,
+                0,
+                format!("Parse error: {}", e),
+            );
 
-            let _ = app_handle.emit("parse-progress", error_event);
+            let _ = app_handle.emit("batch-progress", error_event);
 
             // データベースのステータスをエラーに更新
             let repo = SqliteParseMetadataRepository::new(pool_clone.clone());
@@ -912,8 +910,10 @@ impl ProductNameParseState {
     }
 }
 
-/// 商品名パース進捗イベント
+/// 商品名パース進捗イベント（後方互換性のため残す）
+/// 新しいコードでは BatchProgressEvent を使用してください
 #[derive(Debug, Clone, serde::Serialize)]
+#[deprecated(note = "Use BatchProgressEvent instead")]
 pub struct ProductNameParseProgress {
     pub total_items: usize,
     pub parsed_count: usize,
@@ -923,6 +923,9 @@ pub struct ProductNameParseProgress {
     pub is_complete: bool,
     pub error: Option<String>,
 }
+
+const PRODUCT_NAME_PARSE_TASK_NAME: &str = "商品名パース";
+const PRODUCT_NAME_PARSE_EVENT_NAME: &str = "batch-progress";
 
 /// product_masterに未登録の商品名をGemini APIで解析して登録
 #[tauri::command]
@@ -983,16 +986,15 @@ async fn start_product_name_parse(
             Ok(rows) => rows,
             Err(e) => {
                 log::error!("Failed to fetch unparsed items: {}", e);
-                let error_event = ProductNameParseProgress {
-                    total_items: 0,
-                    parsed_count: 0,
-                    success_count: 0,
-                    failed_count: 0,
-                    status_message: format!("商品情報の取得に失敗: {}", e),
-                    is_complete: true,
-                    error: Some(e.to_string()),
-                };
-                let _ = app_handle.emit("product-name-parse-progress", error_event);
+                let error_event = BatchProgressEvent::error(
+                    PRODUCT_NAME_PARSE_TASK_NAME,
+                    0,
+                    0,
+                    0,
+                    0,
+                    format!("商品情報の取得に失敗: {}", e),
+                );
+                let _ = app_handle.emit(PRODUCT_NAME_PARSE_EVENT_NAME, error_event);
                 parse_state_clone.finish();
                 return;
             }
@@ -1005,32 +1007,30 @@ async fn start_product_name_parse(
         );
 
         if total_items == 0 {
-            let complete_event = ProductNameParseProgress {
-                total_items: 0,
-                parsed_count: 0,
-                success_count: 0,
-                failed_count: 0,
-                status_message: "未解析の商品はありません（すべてproduct_masterに登録済み）"
-                    .to_string(),
-                is_complete: true,
-                error: None,
-            };
-            let _ = app_handle.emit("product-name-parse-progress", complete_event);
+            let complete_event = BatchProgressEvent::complete(
+                PRODUCT_NAME_PARSE_TASK_NAME,
+                0,
+                0,
+                0,
+                "未解析の商品はありません（すべてproduct_masterに登録済み）".to_string(),
+            );
+            let _ = app_handle.emit(PRODUCT_NAME_PARSE_EVENT_NAME, complete_event);
             parse_state_clone.finish();
             return;
         }
 
         // 進捗開始イベント
-        let start_event = ProductNameParseProgress {
+        let start_event = BatchProgressEvent::progress(
+            PRODUCT_NAME_PARSE_TASK_NAME,
+            0,
+            0,
             total_items,
-            parsed_count: 0,
-            success_count: 0,
-            failed_count: 0,
-            status_message: format!("商品名パース開始: {} 件（未解析分）", total_items),
-            is_complete: false,
-            error: None,
-        };
-        let _ = app_handle.emit("product-name-parse-progress", start_event);
+            0,
+            0,
+            0,
+            format!("商品名パース開始: {} 件（未解析分）", total_items),
+        );
+        let _ = app_handle.emit(PRODUCT_NAME_PARSE_EVENT_NAME, start_event);
 
         // Gemini API でバッチ処理（client.rs 内で10件ずつ + 10秒ディレイ）
         // ProductParseService.parse_products_batch は内部で product_master へ保存する
@@ -1046,32 +1046,29 @@ async fn start_product_name_parse(
                     total_items
                 );
 
-                let complete_event = ProductNameParseProgress {
+                let complete_event = BatchProgressEvent::complete(
+                    PRODUCT_NAME_PARSE_TASK_NAME,
                     total_items,
-                    parsed_count: total_items,
                     success_count,
                     failed_count,
-                    status_message: format!(
+                    format!(
                         "商品名パース完了: 成功 {} 件、失敗 {} 件（リクエスト件数: {}）",
                         success_count, failed_count, total_items
                     ),
-                    is_complete: true,
-                    error: None,
-                };
-                let _ = app_handle.emit("product-name-parse-progress", complete_event);
+                );
+                let _ = app_handle.emit(PRODUCT_NAME_PARSE_EVENT_NAME, complete_event);
             }
             Err(e) => {
                 log::error!("Gemini API batch parse failed: {}", e);
-                let error_event = ProductNameParseProgress {
+                let error_event = BatchProgressEvent::error(
+                    PRODUCT_NAME_PARSE_TASK_NAME,
                     total_items,
-                    parsed_count: 0,
-                    success_count: 0,
-                    failed_count: total_items,
-                    status_message: format!("Gemini API エラー: {}", e),
-                    is_complete: true,
-                    error: Some(e),
-                };
-                let _ = app_handle.emit("product-name-parse-progress", error_event);
+                    0,
+                    0,
+                    total_items,
+                    format!("Gemini API エラー: {}", e),
+                );
+                let _ = app_handle.emit(PRODUCT_NAME_PARSE_EVENT_NAME, error_event);
             }
         }
 
