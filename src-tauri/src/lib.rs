@@ -17,7 +17,12 @@ pub mod logic;
 pub mod parsers;
 pub mod repository;
 
-use crate::batch_runner::BatchProgressEvent;
+use crate::batch_runner::{BatchProgressEvent, BatchRunner};
+use crate::gemini::{
+    create_product_parse_input, GeminiClient, ProductNameParseCache, ProductNameParseContext,
+    ProductNameParseTask, GEMINI_BATCH_SIZE, GEMINI_DELAY_SECONDS, PRODUCT_NAME_PARSE_EVENT_NAME,
+    PRODUCT_NAME_PARSE_TASK_NAME,
+};
 use crate::logic::email_parser::get_candidate_parsers;
 use crate::repository::{
     EmailStats, EmailStatsRepository, OrderRepository, ParseMetadataRepository,
@@ -924,19 +929,19 @@ pub struct ProductNameParseProgress {
     pub error: Option<String>,
 }
 
-const PRODUCT_NAME_PARSE_TASK_NAME: &str = "商品名パース";
-const PRODUCT_NAME_PARSE_EVENT_NAME: &str = "batch-progress";
-
 /// product_masterに未登録の商品名をGemini APIで解析して登録
+/// BatchRunner<ProductNameParseTask> を使用
 #[tauri::command]
 async fn start_product_name_parse(
     app_handle: tauri::AppHandle,
     pool: tauri::State<'_, SqlitePool>,
     parse_state: tauri::State<'_, ProductNameParseState>,
 ) -> Result<(), String> {
+    use std::sync::Arc;
     use tauri::Emitter;
+    use tokio::sync::Mutex;
 
-    log::info!("Starting product name parse with Gemini API...");
+    log::info!("Starting product name parse with BatchRunner<ProductNameParseTask>...");
 
     // 失敗し得る初期化を先に行い、try_start() は spawn 直前に呼ぶ
     // （早期 return 時に finish() が呼ばれず「実行中」のままになるのを防ぐ）
@@ -952,9 +957,8 @@ async fn start_product_name_parse(
     }
 
     let api_key = gemini::load_api_key(&app_data_dir)?;
-    let gemini_client = gemini::GeminiClient::new(api_key)?;
+    let gemini_client = GeminiClient::new(api_key)?;
     let product_repo = SqliteProductMasterRepository::new(pool.inner().clone());
-    let service = gemini::ProductParseService::new(gemini_client, product_repo);
 
     // 多重実行ガード（初期化成功後にのみ取得）
     parse_state.try_start()?;
@@ -1019,54 +1023,45 @@ async fn start_product_name_parse(
             return;
         }
 
-        // 進捗開始イベント
-        let start_event = BatchProgressEvent::progress(
-            PRODUCT_NAME_PARSE_TASK_NAME,
-            0,
-            0,
-            total_items,
-            0,
-            0,
-            0,
-            format!("商品名パース開始: {} 件（未解析分）", total_items),
-        );
-        let _ = app_handle.emit(PRODUCT_NAME_PARSE_EVENT_NAME, start_event);
+        // 入力データを ProductNameParseInput に変換
+        let inputs: Vec<_> = items
+            .into_iter()
+            .map(|(raw_name, platform_hint)| create_product_parse_input(raw_name, platform_hint))
+            .collect();
 
-        // Gemini API でバッチ処理（client.rs 内で10件ずつ + 10秒ディレイ）
-        // ProductParseService.parse_products_batch は内部で product_master へ保存する
-        match service.parse_products_batch(&items).await {
+        // BatchRunner と Context を構築
+        let task: ProductNameParseTask<GeminiClient, SqliteProductMasterRepository> =
+            ProductNameParseTask::new();
+        let context = ProductNameParseContext {
+            gemini_client: Arc::new(gemini_client),
+            repository: Arc::new(product_repo),
+            cache: Arc::new(Mutex::new(ProductNameParseCache::default())),
+        };
+
+        // BatchRunner で実行（GEMINI_BATCH_SIZE 件ずつ、GEMINI_DELAY_SECONDS 秒のディレイ）
+        let runner = BatchRunner::new(task, GEMINI_BATCH_SIZE, GEMINI_DELAY_SECONDS * 1000);
+
+        // 商品名パースは現在キャンセル機能がないため、常にfalseを返す
+        match runner
+            .run(&app_handle, inputs, &context, || false)
+            .await
+        {
             Ok(batch_result) => {
-                let success_count = batch_result.success_count;
-                let failed_count = batch_result.failed_count;
-
                 log::info!(
-                    "Product name parse completed: success={}, failed={} (requested: {})",
-                    success_count,
-                    failed_count,
-                    total_items
+                    "Product name parse completed: success={}, failed={}",
+                    batch_result.success_count,
+                    batch_result.failed_count
                 );
-
-                let complete_event = BatchProgressEvent::complete(
-                    PRODUCT_NAME_PARSE_TASK_NAME,
-                    total_items,
-                    success_count,
-                    failed_count,
-                    format!(
-                        "商品名パース完了: 成功 {} 件、失敗 {} 件（リクエスト件数: {}）",
-                        success_count, failed_count, total_items
-                    ),
-                );
-                let _ = app_handle.emit(PRODUCT_NAME_PARSE_EVENT_NAME, complete_event);
             }
             Err(e) => {
-                log::error!("Gemini API batch parse failed: {}", e);
+                log::error!("BatchRunner failed: {}", e);
                 let error_event = BatchProgressEvent::error(
                     PRODUCT_NAME_PARSE_TASK_NAME,
                     total_items,
                     0,
                     0,
                     total_items,
-                    format!("Gemini API エラー: {}", e),
+                    format!("バッチ処理エラー: {}", e),
                 );
                 let _ = app_handle.emit(PRODUCT_NAME_PARSE_EVENT_NAME, error_event);
             }
