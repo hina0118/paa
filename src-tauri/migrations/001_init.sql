@@ -94,16 +94,19 @@ END;
 
 -- -----------------------------------------------------------------------------
 -- images (file_name のみ、app_data_dir/images/ に実体保存)
+-- item_name_normalized: パース再実行時にも画像を維持するため、正規化商品名で関連付け
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS images (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     item_id INTEGER NOT NULL,
+    item_name_normalized TEXT,
     file_name TEXT,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE,
-    UNIQUE (item_id)
+    UNIQUE (item_name_normalized)
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_images_item_id ON images(item_id);
+CREATE INDEX IF NOT EXISTS idx_images_item_id ON images(item_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_images_item_name_normalized ON images(item_name_normalized) WHERE item_name_normalized IS NOT NULL;
 
 -- -----------------------------------------------------------------------------
 -- deliveries

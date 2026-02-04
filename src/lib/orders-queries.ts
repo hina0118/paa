@@ -92,6 +92,7 @@ export async function loadOrderItems(
     FROM items i
     JOIN orders o ON i.order_id = o.id
     LEFT JOIN latest_delivery ld ON ld.order_id = o.id
+    -- item_name_normalized で JOIN: 同じ正規化商品名の複数アイテムが同一画像を共有（意図した動作）
     LEFT JOIN images img ON img.item_name_normalized = i.item_name_normalized
     LEFT JOIN product_master pm ON i.item_name_normalized = pm.normalized_name
     WHERE ${conditions.join(' AND ')}
