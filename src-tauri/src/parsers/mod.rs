@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 use tauri::Emitter;
 
 // 定数はemail_parse_taskモジュールからエクスポート
-use email_parse_task::{EMAIL_PARSE_EVENT_NAME, EMAIL_PARSE_TASK_NAME};
+pub use email_parse_task::{EMAIL_PARSE_EVENT_NAME, EMAIL_PARSE_TASK_NAME};
 
 /// パース対象メールの情報（get_unparsed_emails の戻り値）
 #[derive(Debug, Clone, FromRow)]

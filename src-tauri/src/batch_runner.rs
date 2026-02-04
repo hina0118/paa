@@ -268,6 +268,35 @@ impl BatchProgressEvent {
             error: Some("Cancelled by user".to_string()),
         }
     }
+
+    /// タイムアウトイベントを作成
+    pub fn timeout(
+        task_name: &str,
+        total_items: usize,
+        processed_count: usize,
+        success_count: usize,
+        failed_count: usize,
+        timeout_minutes: u64,
+    ) -> Self {
+        let progress_percent = if total_items > 0 {
+            (processed_count as f32 / total_items as f32) * 100.0
+        } else {
+            0.0
+        };
+        Self {
+            task_name: task_name.to_string(),
+            batch_number: 0,
+            batch_size: 0,
+            total_items,
+            processed_count,
+            success_count,
+            failed_count,
+            progress_percent,
+            status_message: format!("タイムアウト（{}分）に達しました", timeout_minutes),
+            is_complete: true,
+            error: Some(format!("Timeout after {} minutes", timeout_minutes)),
+        }
+    }
 }
 
 /// バッチ処理の結果
@@ -288,6 +317,7 @@ pub struct BatchRunner<T: BatchTask> {
     task: T,
     batch_size: usize,
     delay_ms: u64,
+    timeout_minutes: Option<u64>,
 }
 
 impl<T: BatchTask> BatchRunner<T> {
@@ -302,7 +332,20 @@ impl<T: BatchTask> BatchRunner<T> {
             task,
             batch_size,
             delay_ms,
+            timeout_minutes: None,
         }
+    }
+
+    /// タイムアウトを設定（ビルダーパターン）
+    ///
+    /// # Arguments
+    /// * `minutes` - タイムアウト時間（分）
+    ///
+    /// # Returns
+    /// 自身への参照（チェーン呼び出し用）
+    pub fn with_timeout(mut self, minutes: u64) -> Self {
+        self.timeout_minutes = Some(minutes);
+        self
     }
 
     /// バッチ処理を実行
@@ -327,12 +370,15 @@ impl<T: BatchTask> BatchRunner<T> {
         let event_name = self.task.event_name();
 
         log::info!(
-            "[{}] Starting batch processing: {} items, batch_size={}, delay={}ms",
+            "[{}] Starting batch processing: {} items, batch_size={}, delay={}ms, timeout={:?}min",
             task_name,
             total_items,
             self.batch_size,
-            self.delay_ms
+            self.delay_ms,
+            self.timeout_minutes
         );
+
+        let start_time = std::time::Instant::now();
 
         if total_items == 0 {
             let event = BatchProgressEvent::complete(task_name, 0, 0, 0, "処理対象がありません".to_string());
@@ -367,6 +413,32 @@ impl<T: BatchTask> BatchRunner<T> {
                     success_count,
                     failed_count,
                 });
+            }
+
+            // タイムアウトチェック
+            if let Some(timeout_min) = self.timeout_minutes {
+                let elapsed = start_time.elapsed();
+                if elapsed.as_secs() > timeout_min * 60 {
+                    log::warn!(
+                        "[{}] Timeout reached ({} minutes), stopping batch processing",
+                        task_name,
+                        timeout_min
+                    );
+                    let event = BatchProgressEvent::timeout(
+                        task_name,
+                        total_items,
+                        processed_count,
+                        success_count,
+                        failed_count,
+                        timeout_min,
+                    );
+                    let _ = app_handle.emit(event_name, event);
+                    return Ok(BatchResult {
+                        outputs,
+                        success_count,
+                        failed_count,
+                    });
+                }
             }
 
             batch_number += 1;
@@ -597,5 +669,29 @@ mod tests {
         let runner = BatchRunner::new(task, 10, 1000);
         assert_eq!(runner.batch_size, 10);
         assert_eq!(runner.delay_ms, 1000);
+        assert!(runner.timeout_minutes.is_none());
+    }
+
+    #[test]
+    fn test_batch_runner_with_timeout() {
+        let task = MockTask { fail_indices: vec![] };
+        let runner = BatchRunner::new(task, 10, 1000).with_timeout(30);
+        assert_eq!(runner.batch_size, 10);
+        assert_eq!(runner.delay_ms, 1000);
+        assert_eq!(runner.timeout_minutes, Some(30));
+    }
+
+    #[test]
+    fn test_batch_progress_event_timeout() {
+        let event = BatchProgressEvent::timeout("テスト", 100, 50, 45, 5, 30);
+        assert_eq!(event.task_name, "テスト");
+        assert_eq!(event.total_items, 100);
+        assert_eq!(event.processed_count, 50);
+        assert_eq!(event.success_count, 45);
+        assert_eq!(event.failed_count, 5);
+        assert!((event.progress_percent - 50.0).abs() < 0.01);
+        assert!(event.is_complete);
+        assert_eq!(event.error, Some("Timeout after 30 minutes".to_string()));
+        assert_eq!(event.status_message, "タイムアウト（30分）に達しました");
     }
 }
