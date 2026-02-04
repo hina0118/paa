@@ -18,6 +18,7 @@ export function Settings() {
   const {
     metadata: parseMetadata,
     updateBatchSize: updateParseBatchSize,
+    geminiApiKeyStatus,
     refreshGeminiApiKeyStatus,
   } = useParse();
   const [batchSize, setBatchSize] = useState<string>('');
@@ -33,9 +34,6 @@ export function Settings() {
   const [geminiApiKey, setGeminiApiKey] = useState<string>('');
   const [isSavingGeminiApiKey, setIsSavingGeminiApiKey] = useState(false);
   const [isDeletingGeminiApiKey, setIsDeletingGeminiApiKey] = useState(false);
-  const [geminiApiKeyStatus, setGeminiApiKeyStatus] = useState<
-    'checking' | 'available' | 'unavailable' | 'error'
-  >('checking');
   // SerpApi
   const [serpApiKey, setSerpApiKey] = useState<string>('');
   const [isSavingSerpApi, setIsSavingSerpApi] = useState(false);
@@ -67,21 +65,9 @@ export function Settings() {
     }
   }, [parseMetadata]);
 
-  const refreshGeminiStatus = useCallback(async () => {
-    setGeminiApiKeyStatus('checking');
-    try {
-      const has = await invoke<boolean>('has_gemini_api_key');
-      setGeminiApiKeyStatus(has ? 'available' : 'unavailable');
-    } catch (error) {
-      console.error('Failed to check Gemini API key status:', error);
-      setGeminiApiKeyStatus('error');
-    }
-  }, []);
-
   useEffect(() => {
     refreshGeminiApiKeyStatus();
-    refreshGeminiStatus();
-  }, [refreshGeminiApiKeyStatus, refreshGeminiStatus]);
+  }, [refreshGeminiApiKeyStatus]);
 
   const refreshSerpApiStatus = useCallback(async () => {
     setSerpApiStatus('checking');
@@ -179,7 +165,6 @@ export function Settings() {
       );
       setGeminiApiKey(''); // セキュリティのため入力欄をクリア
       await refreshGeminiApiKeyStatus();
-      await refreshGeminiStatus();
       setTimeout(() => setSuccessMessage(''), 3000);
     } catch (error) {
       setErrorMessage(
@@ -204,7 +189,6 @@ export function Settings() {
       setSuccessMessage('Gemini APIキーを削除しました');
       setGeminiApiKey('');
       await refreshGeminiApiKeyStatus();
-      await refreshGeminiStatus();
       setTimeout(() => setSuccessMessage(''), 3000);
     } catch (error) {
       setErrorMessage(
