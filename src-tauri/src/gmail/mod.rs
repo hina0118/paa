@@ -2,6 +2,7 @@
 
 pub mod client;
 pub mod config;
+pub mod gmail_sync_task;
 
 // clientモジュールから公開されている型と関数をre-export
 pub use client::{
@@ -31,4 +32,11 @@ pub use client::{
 pub use config::{
     delete_oauth_credentials, has_oauth_credentials, load_oauth_credentials,
     save_oauth_credentials, save_oauth_credentials_from_json,
+};
+
+// BatchTask実装をre-export
+pub use gmail_sync_task::{
+    create_sync_input, fetch_all_message_ids, GmailSyncContext, GmailSyncInput,
+    GmailSyncOutput, GmailSyncTask, ShopSettingsCacheForSync, GMAIL_SYNC_EVENT_NAME,
+    GMAIL_SYNC_TASK_NAME,
 };
