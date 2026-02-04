@@ -150,38 +150,56 @@ where
 }
 
 /// ショップ設定から候補パーサーを取得
+///
+/// 旧実装 (`logic/email_parser.rs`) と同じロジックを使用:
+/// - from_address からメールアドレスを抽出して正規化
+/// - sender_address と完全一致（大文字小文字無視）でチェック
 fn get_candidate_parsers(
     settings: &[(String, String, Option<String>, String)],
     from_address: Option<&str>,
     subject: Option<&str>,
 ) -> Vec<(String, String)> {
-    let from_addr = match from_address {
-        Some(addr) => addr.to_lowercase(),
+    // from_addressからメールアドレスを抽出して正規化
+    let normalized_from = match from_address {
+        Some(addr) => match extract_email_address(addr) {
+            Some(email) => email,
+            None => return vec![], // 有効なメールアドレスが抽出できない場合は空を返す
+        },
         None => return vec![],
     };
 
     settings
         .iter()
         .filter(|(sender_address, _, subject_filters, _)| {
-            // 送信元アドレスが一致するか確認
-            if !from_addr.contains(&sender_address.to_lowercase()) {
+            // 送信元アドレスが完全一致するか確認（大文字小文字無視）
+            if !sender_address.eq_ignore_ascii_case(&normalized_from) {
                 return false;
             }
 
             // 件名フィルターがある場合はチェック
             if let Some(filters) = subject_filters {
-                if let Some(subj) = subject {
-                    // カンマ区切りで分割してOR条件でチェック
-                    let subj_lower = subj.to_lowercase();
-                    let matched = filters
-                        .split(',')
-                        .map(|f| f.trim().to_lowercase())
-                        .any(|filter| !filter.is_empty() && subj_lower.contains(&filter));
-                    if !matched {
-                        return false;
+                // JSON形式のフィルターをパース
+                let filter_list: Vec<String> = match serde_json::from_str(filters) {
+                    Ok(list) => list,
+                    Err(_) => {
+                        // JSONパースエラー時はフィルター無視（旧実装と同じ）
+                        return true;
                     }
-                } else {
-                    // 件名がnullの場合はフィルターがあればスキップ
+                };
+
+                // 空のフィルターリストは「フィルターなし＝全許可」
+                if filter_list.is_empty() {
+                    return true;
+                }
+
+                // 件名がない場合は除外
+                let subj = match subject {
+                    Some(s) => s,
+                    None => return false,
+                };
+
+                // いずれかのフィルターに一致すればOK
+                if !filter_list.iter().any(|filter| subj.contains(filter)) {
                     return false;
                 }
             }
@@ -482,7 +500,7 @@ mod tests {
         let settings = vec![(
             "shop@example.com".to_string(),
             "hobbysearch_confirm".to_string(),
-            Some("注文確認,発送".to_string()),
+            Some(r#"["注文確認","発送"]"#.to_string()), // JSON形式
             "TestShop".to_string(),
         )];
 
