@@ -45,10 +45,23 @@ AIがコードを提案・レビューする際は、以下の優先度ラベル
     /do_plan
   instructions:
     - チャット上で提示された対応計画を順次実行する
-/plan_commit
+/commit_plan
   description: 対応内容をコミットする
   example:
-    /plan_commit
+    /commit_plan
   instructions:
     - チャット上で対応した変更をコミットする
-  
+/ci_plan
+  description: CI成功のためチェックする
+  example:
+    /ci_plan
+  instructions:
+    - 全体のlint,format,test,coverageを実行する
+    - CIの設定に沿って結果を確認する
+/push_plan
+  description: 対応内容をプッシュする
+  example:
+    /push_plan
+  instructions:
+    - 対応内容をプッシュする
+    - プッシュ後に対応PR上でレビュー依頼を出す
