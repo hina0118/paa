@@ -21,10 +21,11 @@ describe('createE2EMockDb', () => {
       const result = await db.select<{ name: string }>(
         'PRAGMA table_info(images)'
       );
+      // item_id 削除、item_name_normalized がリレーションキーに。4 カラム
       expect(result).toHaveLength(4);
       expect(result.map((r) => r.name)).toEqual([
         'id',
-        'item_id',
+        'item_name_normalized',
         'file_name',
         'created_at',
       ]);

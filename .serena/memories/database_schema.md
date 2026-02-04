@@ -32,14 +32,14 @@
 
 ### `images` (画像データ)
 
-商品画像を保存するテーブル。
+商品画像を保存するテーブル。`item_name_normalized` で items と関連付け。
 
-| カラム名     | 型                  | 説明                                     |
-| ------------ | ------------------- | ---------------------------------------- |
-| `id`         | INTEGER PRIMARY KEY | 画像ID (自動採番)                        |
-| `item_id`    | INTEGER             | 商品ID (FK: items.id)                    |
-| `file_name`  | TEXT                | 画像ファイル名 (app_data_dir/images/ 内) |
-| `created_at` | DATETIME            | 作成日時                                 |
+| カラム名               | 型                  | 説明                                     |
+| ---------------------- | ------------------- | ---------------------------------------- |
+| `id`                   | INTEGER PRIMARY KEY | 画像ID (自動採番)                        |
+| `item_name_normalized` | TEXT                | 正規化商品名 (リレーションキー)          |
+| `file_name`            | TEXT                | 画像ファイル名 (app_data_dir/images/ 内) |
+| `created_at`           | DATETIME            | 作成日時                                 |
 
 ## データフロー
 
@@ -55,7 +55,7 @@
 - `orders.shop_domain` にインデックス
 - `items.order_id` に外部キーインデックス
 - `items.item_name` に全文検索インデックス (FTS5)
-- `images.item_id` に外部キーインデックス
+- `images.item_name_normalized` にユニークインデックス
 
 ## 注意事項
 

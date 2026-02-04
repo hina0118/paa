@@ -27,3 +27,47 @@ AIがコードを提案・レビューする際は、以下の優先度ラベル
 4. 指摘が残っている、または CI が失敗している場合は、完了とみなさず、再度原因を分析して修正をループすること。
 5. レビューへの対応を行った場合、同一PR上で再度copilotへレビュー依頼を行うこと。レビュー依頼を出したらレビュー結果が表示されるまでPRを監視すること
 6. 優先度の高いレビュー指摘、CIのエラーがなくなるまでPRを監視し繰り返し対応すること
+
+# Custom Commands
+/plan_pr:
+  description: 特定のPRの内容を分析し、対応計画を作成する
+  parameters:
+    pr_number:
+      type: integer
+      description: PRの番号
+  example:
+    /plan_pr 59
+  instructions:
+    - 未対応コメントを確認して対応計画を立てる
+/do_plan
+  description: 対応計画を実行する
+  example:
+    /do_plan
+  instructions:
+    - チャット上で提示された対応計画を順次実行する
+/commit_plan
+  description: 対応内容をコミットする
+  example:
+    /commit_plan
+  instructions:
+    - チャット上で対応した変更をコミットする
+/resolve_comment
+  description: 対応したコメントを解決済みにする
+  example:
+    /resolve_comment
+  instructions:
+    - PR上の対応したコメントを解決済みにする
+/ci_plan
+  description: CI成功のためチェックする
+  example:
+    /ci_plan
+  instructions:
+    - 全体のlint,format,test,coverageを実行する
+    - CIの設定に沿って結果を確認する
+/push_plan
+  description: 対応内容をプッシュする
+  example:
+    /push_plan
+  instructions:
+    - 対応内容をプッシュする
+    - プッシュ後に対応PR上でレビュー依頼を出す

@@ -536,6 +536,49 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_response_text_invalid_json() {
+        let client = GeminiClient {
+            api_key: "test".to_string(),
+            http_client: Client::builder(TokioExecutor::new()).build(
+                hyper_rustls::HttpsConnectorBuilder::new()
+                    .with_native_roots()
+                    .unwrap()
+                    .https_or_http()
+                    .enable_http1()
+                    .build(),
+            ),
+            model: "gemini-2.0-flash-lite".to_string(),
+        };
+
+        let invalid_json = "not valid json";
+        let result = client.parse_response_text(invalid_json);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err();
+        assert!(err_msg.contains("Failed to parse response"));
+    }
+
+    #[test]
+    fn test_parse_response_text_invalid_array_element() {
+        let client = GeminiClient {
+            api_key: "test".to_string(),
+            http_client: Client::builder(TokioExecutor::new()).build(
+                hyper_rustls::HttpsConnectorBuilder::new()
+                    .with_native_roots()
+                    .unwrap()
+                    .https_or_http()
+                    .enable_http1()
+                    .build(),
+            ),
+            model: "gemini-2.0-flash-lite".to_string(),
+        };
+
+        // 配列形式だが要素がParsedProductの型と合わない
+        let invalid_structure = r#"[{"invalid": "structure"}]"#;
+        let result = client.parse_response_text(invalid_structure);
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn test_parsed_product_default() {
         let product = ParsedProduct::default();
 

@@ -93,6 +93,21 @@ export function formatPrice(price: number): string {
   return priceFormatter.format(price) + '円';
 }
 
+/** 商品メタデータ表示用: product_master (maker/series/scale) を優先、なければ brand/category */
+export function getProductMetadata(item: {
+  maker?: string | null;
+  series?: string | null;
+  scale?: string | null;
+  brand?: string | null;
+  category?: string | null;
+}): string | null {
+  const pmData = [item.maker, item.series, item.scale].filter(Boolean);
+  if (pmData.length > 0) return pmData.join(' / ');
+
+  const fallback = [item.brand, item.category].filter(Boolean);
+  return fallback.length > 0 ? fallback.join(' / ') : null;
+}
+
 /**
  * Send a desktop notification
  * @param title - Notification title
