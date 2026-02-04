@@ -719,7 +719,11 @@ impl OrderRepository for SqliteOrderRepository {
                 // 新しい商品を追加
                 let item_name_normalized = {
                     let n = normalize_product_name(&item.name);
-                    if n.is_empty() { None } else { Some(n) }
+                    if n.is_empty() {
+                        None
+                    } else {
+                        Some(n)
+                    }
                 };
                 sqlx::query(
                     r#"
