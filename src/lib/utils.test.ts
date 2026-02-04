@@ -5,6 +5,7 @@ import {
   formatDate,
   formatDateTime,
   formatPrice,
+  getProductMetadata,
   parseNumericFilter,
 } from './utils';
 
@@ -233,6 +234,54 @@ describe('formatPrice', () => {
 
   it('formats zero', () => {
     expect(formatPrice(0)).toBe('0円');
+  });
+});
+
+describe('getProductMetadata', () => {
+  it('returns maker/series/scale when available', () => {
+    expect(
+      getProductMetadata({
+        maker: 'KADOKAWA',
+        series: 'Re:ゼロ',
+        scale: '1/7',
+        brand: null,
+        category: null,
+      })
+    ).toBe('KADOKAWA / Re:ゼロ / 1/7');
+  });
+
+  it('falls back to brand/category when maker/series/scale are empty', () => {
+    expect(
+      getProductMetadata({
+        maker: null,
+        series: null,
+        scale: null,
+        brand: 'メーカーA',
+        category: 'フィギュア',
+      })
+    ).toBe('メーカーA / フィギュア');
+  });
+
+  it('returns null when all fields are empty', () => {
+    expect(
+      getProductMetadata({
+        maker: null,
+        series: null,
+        scale: null,
+        brand: null,
+        category: null,
+      })
+    ).toBeNull();
+  });
+
+  it('prioritizes maker over brand', () => {
+    expect(
+      getProductMetadata({
+        maker: 'Maker',
+        brand: 'Brand',
+        category: null,
+      })
+    ).toBe('Maker');
   });
 });
 
