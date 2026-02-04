@@ -44,7 +44,9 @@ export function Settings() {
     'checking' | 'available' | 'unavailable' | 'error'
   >('checking');
   // Gmail OAuth
-  const [isGmailOAuthConfigured, setIsGmailOAuthConfigured] = useState(false);
+  const [gmailOAuthStatus, setGmailOAuthStatus] = useState<
+    'checking' | 'available' | 'unavailable' | 'error'
+  >('checking');
   const [gmailOAuthJson, setGmailOAuthJson] = useState<string>('');
   const [isSavingGmailOAuth, setIsSavingGmailOAuth] = useState(false);
   const [isDeletingGmailOAuth, setIsDeletingGmailOAuth] = useState(false);
@@ -97,12 +99,13 @@ export function Settings() {
   }, [refreshSerpApiStatus]);
 
   const refreshGmailOAuthStatus = useCallback(async () => {
+    setGmailOAuthStatus('checking');
     try {
       const configured = await invoke<boolean>('has_gmail_oauth_credentials');
-      setIsGmailOAuthConfigured(configured);
+      setGmailOAuthStatus(configured ? 'available' : 'unavailable');
     } catch (error) {
       console.error('Failed to check Gmail OAuth config:', error);
-      setIsGmailOAuthConfigured(false);
+      setGmailOAuthStatus('error');
     }
   }, []);
 
@@ -413,9 +416,12 @@ export function Settings() {
         <CardContent className="space-y-6">
           <div className="space-y-2">
             <p className="text-sm text-muted-foreground">
-              {isGmailOAuthConfigured
-                ? '認証情報は設定済みです'
-                : '認証情報を設定してください'}
+              {gmailOAuthStatus === 'checking' && '認証情報の状態を確認中...'}
+              {gmailOAuthStatus === 'error' &&
+                '認証情報の状態を取得できません（バックエンド未起動の可能性）'}
+              {gmailOAuthStatus === 'available' && '認証情報は設定済みです'}
+              {gmailOAuthStatus === 'unavailable' &&
+                '認証情報を設定してください'}
             </p>
           </div>
           <div className="space-y-4">
@@ -498,7 +504,7 @@ export function Settings() {
               >
                 保存
               </Button>
-              {isGmailOAuthConfigured && (
+              {gmailOAuthStatus === 'available' && (
                 <Button
                   variant="destructive"
                   onClick={handleDeleteGmailOAuth}
