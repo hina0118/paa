@@ -1358,7 +1358,7 @@ async fn save_image_from_url(
                 .map_err(|e| format!("Failed to check existing image: {e}"))?;
 
         if existing.is_some() {
-            // 既存レコードを更新
+            // 既存レコードを更新（item_id は「最終更新した item」の参照。画像は item_name_normalized で共有される）
             sqlx::query(
                 r#"
                 UPDATE images
