@@ -21,10 +21,11 @@ describe('createE2EMockDb', () => {
       const result = await db.select<{ name: string }>(
         'PRAGMA table_info(images)'
       );
-      expect(result).toHaveLength(4);
+      expect(result).toHaveLength(5);
       expect(result.map((r) => r.name)).toEqual([
         'id',
         'item_id',
+        'item_name_normalized',
         'file_name',
         'created_at',
       ]);

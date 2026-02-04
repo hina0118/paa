@@ -341,12 +341,6 @@ pub fn run() {
             sql: include_str!("../migrations/002_product_master.sql"),
             kind: MigrationKind::Up,
         },
-        Migration {
-            version: 3,
-            description: "images_item_name_normalized",
-            sql: include_str!("../migrations/003_images_item_name_normalized.sql"),
-            kind: MigrationKind::Up,
-        },
     ];
 
     tauri::Builder::default()
@@ -1394,21 +1388,40 @@ async fn save_image_from_url(
             .map_err(|e| format!("Failed to save image to database: {e}"))?;
         }
     } else {
-        // item_name_normalizedがない場合は従来通りitem_idで管理
-        sqlx::query(
-            r#"
-            INSERT INTO images (item_id, file_name, created_at)
-            VALUES (?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT (item_id) DO UPDATE SET
-                file_name = excluded.file_name,
-                created_at = CURRENT_TIMESTAMP
-            "#,
-        )
-        .bind(item_id)
-        .bind(&file_name)
-        .execute(pool.inner())
-        .await
-        .map_err(|e| format!("Failed to save image to database: {e}"))?;
+        // item_name_normalizedがない場合はitem_idで検索し、既存があれば更新、なければ挿入
+        let existing_by_id: Option<(i64,)> =
+            sqlx::query_as("SELECT id FROM images WHERE item_id = ?")
+                .bind(item_id)
+                .fetch_optional(pool.inner())
+                .await
+                .map_err(|e| format!("Failed to check existing image by item_id: {e}"))?;
+
+        if existing_by_id.is_some() {
+            sqlx::query(
+                r#"
+                UPDATE images
+                SET file_name = ?, created_at = CURRENT_TIMESTAMP
+                WHERE item_id = ?
+                "#,
+            )
+            .bind(&file_name)
+            .bind(item_id)
+            .execute(pool.inner())
+            .await
+            .map_err(|e| format!("Failed to update image in database: {e}"))?;
+        } else {
+            sqlx::query(
+                r#"
+                INSERT INTO images (item_id, file_name, created_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+                "#,
+            )
+            .bind(item_id)
+            .bind(&file_name)
+            .execute(pool.inner())
+            .await
+            .map_err(|e| format!("Failed to save image to database: {e}"))?;
+        }
     }
 
     log::info!("Image record saved to database for item_id: {}", item_id);

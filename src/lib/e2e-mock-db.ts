@@ -37,7 +37,7 @@ const IMAGES_SCHEMA: SchemaColumn[] = [
   },
   {
     cid: 2,
-    name: 'file_name',
+    name: 'item_name_normalized',
     type: 'TEXT',
     notnull: 0,
     dflt_value: null,
@@ -45,6 +45,14 @@ const IMAGES_SCHEMA: SchemaColumn[] = [
   },
   {
     cid: 3,
+    name: 'file_name',
+    type: 'TEXT',
+    notnull: 0,
+    dflt_value: null,
+    pk: 0,
+  },
+  {
+    cid: 4,
     name: 'created_at',
     type: 'TEXT',
     notnull: 0,

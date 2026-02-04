@@ -717,7 +717,10 @@ impl OrderRepository for SqliteOrderRepository {
 
             if existing_item.is_none() {
                 // 新しい商品を追加
-                let item_name_normalized = normalize_product_name(&item.name);
+                let item_name_normalized = {
+                    let n = normalize_product_name(&item.name);
+                    if n.is_empty() { None } else { Some(n) }
+                };
                 sqlx::query(
                     r#"
                     INSERT INTO items (order_id, item_name, item_name_normalized, brand, price, quantity)
@@ -726,7 +729,7 @@ impl OrderRepository for SqliteOrderRepository {
                 )
                 .bind(order_id)
                 .bind(&item.name)
-                .bind(&item_name_normalized)
+                .bind(item_name_normalized.as_deref())
                 .bind(&item.manufacturer)
                 .bind(item.unit_price)
                 .bind(item.quantity)
