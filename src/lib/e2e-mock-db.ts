@@ -29,22 +29,14 @@ const IMAGES_SCHEMA: SchemaColumn[] = [
   { cid: 0, name: 'id', type: 'INTEGER', notnull: 0, dflt_value: null, pk: 1 },
   {
     cid: 1,
-    name: 'item_id',
-    type: 'INTEGER',
+    name: 'item_name_normalized',
+    type: 'TEXT',
     notnull: 1,
     dflt_value: null,
     pk: 0,
   },
   {
     cid: 2,
-    name: 'item_name_normalized',
-    type: 'TEXT',
-    notnull: 0,
-    dflt_value: null,
-    pk: 0,
-  },
-  {
-    cid: 3,
     name: 'file_name',
     type: 'TEXT',
     notnull: 0,
@@ -52,7 +44,7 @@ const IMAGES_SCHEMA: SchemaColumn[] = [
     pk: 0,
   },
   {
-    cid: 4,
+    cid: 3,
     name: 'created_at',
     type: 'TEXT',
     notnull: 0,

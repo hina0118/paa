@@ -1,4 +1,5 @@
 -- 001_init: 統合スキーマ (旧 001-006 をすべて反映)
+-- 注: CREATE TABLE IF NOT EXISTS のため、既存DBには適用されない。新規インストール時のみ有効。
 
 -- -----------------------------------------------------------------------------
 -- emails
@@ -94,20 +95,17 @@ END;
 
 -- -----------------------------------------------------------------------------
 -- images (file_name のみ、app_data_dir/images/ に実体保存)
--- item_name_normalized: パース再実行時にも画像を維持するため、正規化商品名で関連付け
--- item_id: 画像を最後に更新した item の参照（画像は item_name_normalized で共有されるため、所有権ではない）
+-- item_name_normalized: リレーションキー。正規化商品名で関連付け、パース再実行時も画像を維持
+-- 正規化できない商品名（NULL）の item には画像を登録できない
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS images (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    item_id INTEGER NOT NULL,
-    item_name_normalized TEXT,
+    item_name_normalized TEXT NOT NULL,
     file_name TEXT,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE,
     UNIQUE (item_name_normalized)
 );
-CREATE INDEX IF NOT EXISTS idx_images_item_id ON images(item_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_images_item_name_normalized ON images(item_name_normalized) WHERE item_name_normalized IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_images_item_name_normalized ON images(item_name_normalized);
 
 -- -----------------------------------------------------------------------------
 -- deliveries

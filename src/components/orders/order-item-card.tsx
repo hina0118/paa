@@ -3,7 +3,7 @@ import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { StatusBadge } from './status-badge';
 import { useImageUrl } from '@/hooks/useImageUrl';
 import type { OrderItemRow } from '@/lib/types';
-import { cn, formatDate, formatPrice } from '@/lib/utils';
+import { cn, formatDate, formatPrice, getProductMetadata } from '@/lib/utils';
 
 type OrderItemCardProps = {
   item: OrderItemRow;
@@ -29,6 +29,7 @@ export function OrderItemCard({
 }: OrderItemCardProps) {
   const getImageUrl = useImageUrl();
   const imageSrc = getImageUrl(item.fileName);
+  const metadata = getProductMetadata(item);
 
   return (
     <Card
@@ -61,17 +62,11 @@ export function OrderItemCard({
           </h3>
           <StatusBadge status={item.deliveryStatus} className="shrink-0" />
         </div>
-        {(item.maker || item.series || item.scale) && (
+        {metadata && (
           <p className="text-xs text-muted-foreground line-clamp-1">
-            {[item.maker, item.series, item.scale].filter(Boolean).join(' / ')}
+            {metadata}
           </p>
         )}
-        {!(item.maker || item.series || item.scale) &&
-          (item.brand || item.category) && (
-            <p className="text-xs text-muted-foreground line-clamp-1">
-              {[item.brand, item.category].filter(Boolean).join(' / ')}
-            </p>
-          )}
         <p className="text-sm font-semibold">{formatPrice(item.price)}</p>
       </CardContent>
       <CardFooter className="p-3 pt-0 flex flex-wrap gap-x-2 gap-y-0 text-xs text-muted-foreground">
