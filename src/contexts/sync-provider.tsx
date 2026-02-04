@@ -16,6 +16,9 @@ import {
 export function SyncProvider({ children }: { children: ReactNode }) {
   const [isSyncing, setIsSyncing] = useState(false);
   const [progress, setProgress] = useState<SyncProgress | null>(null);
+  const [batchProgress, setBatchProgress] = useState<BatchProgress | null>(
+    null
+  );
   const [metadata, setMetadata] = useState<SyncMetadata | null>(null);
 
   const refreshStatus = useCallback(async () => {
@@ -38,7 +41,9 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // BatchProgress を SyncProgress に変換
+      // BatchProgress を保存
+      setBatchProgress(data);
+      // BatchProgress を SyncProgress に変換（後方互換性）
       const syncProgress = batchProgressToSyncProgress(data);
       setProgress(syncProgress);
 
@@ -100,6 +105,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     try {
       setIsSyncing(true);
       setProgress(null);
+      setBatchProgress(null);
       await invoke('start_sync');
     } catch (error) {
       setIsSyncing(false);
@@ -141,6 +147,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       value={{
         isSyncing,
         progress,
+        batchProgress,
         metadata,
         startSync,
         cancelSync,

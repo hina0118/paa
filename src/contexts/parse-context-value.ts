@@ -74,7 +74,10 @@ export interface ParseMetadata {
 
 export interface ParseContextType {
   isParsing: boolean;
+  /** @deprecated 新しいコードでは batchProgress を使用してください */
   progress: ParseProgress | null;
+  /** 共通の進捗型 */
+  batchProgress: BatchProgress | null;
   metadata: ParseMetadata | null;
   startParse: (batchSize?: number) => Promise<void>;
   cancelParse: () => Promise<void>;
@@ -82,7 +85,10 @@ export interface ParseContextType {
   updateBatchSize: (size: number) => Promise<void>;
   // 商品名パース (Gemini API)
   isProductNameParsing: boolean;
+  /** @deprecated 新しいコードでは productNameBatchProgress を使用してください */
   productNameProgress: ProductNameParseProgress | null;
+  /** 共通の進捗型（商品名パース用） */
+  productNameBatchProgress: BatchProgress | null;
   startProductNameParse: () => Promise<void>;
   geminiApiKeyStatus: 'checking' | 'available' | 'unavailable' | 'error';
   hasGeminiApiKey: boolean; // geminiApiKeyStatus === 'available' のエイリアス
