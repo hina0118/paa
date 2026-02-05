@@ -1,12 +1,12 @@
 import {
   LayoutDashboard,
   ShoppingCart,
-  RefreshCw,
+  Layers,
+  Key,
   Settings,
   Database,
   ScrollText,
   Store,
-  FileText,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useNavigation } from '@/contexts/use-navigation';
@@ -18,8 +18,8 @@ type NavigationItem = {
   id:
     | 'dashboard'
     | 'orders'
-    | 'sync'
-    | 'parse'
+    | 'batch'
+    | 'api-keys'
     | 'settings'
     | 'logs'
     | 'shop-settings';
@@ -36,21 +36,17 @@ type TableItem = {
     | 'table-htmls'
     | 'table-order-emails'
     | 'table-order-htmls'
-    | 'table-parse-skipped'
     | 'table-shop-settings'
-    | 'table-sync-metadata'
-    | 'table-window-settings'
-    | 'table-parse-metadata'
     | 'table-product-master';
 };
 
 const navigationItems: NavigationItem[] = [
   { name: 'Dashboard', icon: LayoutDashboard, id: 'dashboard' },
   { name: 'Orders', icon: ShoppingCart, id: 'orders' },
-  { name: 'Sync', icon: RefreshCw, id: 'sync' },
-  { name: 'Parse', icon: FileText, id: 'parse' },
+  { name: 'Batch', icon: Layers, id: 'batch' },
   { name: 'Logs', icon: ScrollText, id: 'logs' },
   { name: 'Shop Settings', icon: Store, id: 'shop-settings' },
+  { name: 'API Keys', icon: Key, id: 'api-keys' },
   { name: 'Settings', icon: Settings, id: 'settings' },
 ];
 
@@ -62,12 +58,8 @@ const tableItems: TableItem[] = [
   { name: 'Deliveries', id: 'table-deliveries' },
   { name: 'HTMLs', id: 'table-htmls' },
   { name: 'Order-Emails', id: 'table-order-emails' },
-  { name: 'Parse Skipped', id: 'table-parse-skipped' },
   { name: 'Order-HTMLs', id: 'table-order-htmls' },
   { name: 'Shop Settings', id: 'table-shop-settings' },
-  { name: 'Sync Metadata', id: 'table-sync-metadata' },
-  { name: 'Window Settings', id: 'table-window-settings' },
-  { name: 'Parse Metadata', id: 'table-parse-metadata' },
   { name: 'Product Master', id: 'table-product-master' },
 ];
 

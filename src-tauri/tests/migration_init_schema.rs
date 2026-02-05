@@ -28,10 +28,8 @@ fn test_init_contains_expected_tables() {
         "htmls",
         "order_emails",
         "order_htmls",
-        "sync_metadata",
-        "window_settings",
         "shop_settings",
-        "parse_metadata",
+        "product_master",
     ] {
         assert!(
             lower.contains(&format!("create table if not exists {table}")),

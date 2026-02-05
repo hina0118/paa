@@ -87,6 +87,12 @@ pub struct SyncMetadata {
     pub last_sync_started_at: Option<String>,
     pub last_sync_completed_at: Option<String>,
     pub max_iterations: i64,
+    /// Gmail API の1ページあたり取得件数（最大500）
+    pub max_results_per_page: i64,
+    /// 同期処理のタイムアウト（分）
+    pub timeout_minutes: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_error_message: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -132,6 +138,9 @@ pub struct UpdateShopSettings {
 
 /// Synchronization state for Gmail sync operations
 ///
+/// 進捗テーブル削除後はメモリのみで状態を管理する。
+/// last_error はエラー時に設定され、次回 start でクリアされる。
+///
 /// # Lock Ordering
 /// To prevent deadlock, always acquire locks in this order:
 /// 1. `should_cancel`
@@ -142,6 +151,8 @@ pub struct UpdateShopSettings {
 pub struct SyncState {
     pub should_cancel: Arc<Mutex<bool>>,
     pub is_running: Arc<Mutex<bool>>,
+    /// 直近のエラーメッセージ（エラー時のみ。try_start でクリア）
+    pub last_error: Arc<Mutex<Option<String>>>,
 }
 
 impl Default for SyncState {
@@ -149,6 +160,7 @@ impl Default for SyncState {
         Self {
             should_cancel: Arc::new(Mutex::new(false)),
             is_running: Arc::new(Mutex::new(false)),
+            last_error: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -166,6 +178,28 @@ impl SyncState {
 
     pub fn should_stop(&self) -> bool {
         self.should_cancel.lock().map(|c| *c).unwrap_or(false)
+    }
+
+    /// エラーを記録（get_sync_status で error として返す）
+    pub fn set_error(&self, msg: &str) {
+        if let Ok(mut err) = self.last_error.lock() {
+            *err = Some(msg.to_string());
+        }
+    }
+
+    /// エラーをクリア（try_start で呼ぶ）
+    pub fn clear_error(&self) {
+        if let Ok(mut err) = self.last_error.lock() {
+            *err = None;
+        }
+    }
+
+    /// 強制的に idle にリセット（reset_sync_status コマンド用）
+    pub fn force_idle(&self) {
+        if let Ok(mut running) = self.is_running.lock() {
+            *running = false;
+        }
+        self.clear_error();
     }
 
     #[allow(dead_code)]
@@ -222,10 +256,12 @@ impl SyncState {
             return false;
         }
 
-        // Start running and clear any pending cancellation atomically with respect to
-        // request_cancel().
+        // Start running, clear any pending cancellation, and clear last error.
         *is_running = true;
         *cancel = false;
+        drop(is_running);
+        drop(cancel);
+        self.clear_error();
 
         true
     }
@@ -1026,33 +1062,6 @@ mod tests {
         .await
         .expect("Failed to create emails table");
 
-        // Create sync_metadata table
-        sqlx::query(
-            r"
-            CREATE TABLE IF NOT EXISTS sync_metadata (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                sync_status TEXT NOT NULL DEFAULT 'idle',
-                oldest_fetched_date TEXT,
-                total_synced_count INTEGER NOT NULL DEFAULT 0,
-                batch_size INTEGER NOT NULL DEFAULT 50,
-                last_sync_started_at TEXT,
-                last_sync_completed_at TEXT,
-                last_error_message TEXT
-            )
-            ",
-        )
-        .execute(&pool)
-        .await
-        .expect("Failed to create sync_metadata table");
-
-        // Insert initial sync metadata
-        sqlx::query(
-            "INSERT INTO sync_metadata (id, sync_status, total_synced_count, batch_size) VALUES (1, 'idle', 0, 50)"
-        )
-        .execute(&pool)
-        .await
-        .expect("Failed to insert initial sync metadata");
-
         pool
     }
 
@@ -1392,6 +1401,9 @@ mod tests {
             last_sync_started_at: Some("2024-01-15T10:00:00Z".to_string()),
             last_sync_completed_at: Some("2024-01-15T10:30:00Z".to_string()),
             max_iterations: 100,
+            max_results_per_page: 100,
+            timeout_minutes: 30,
+            last_error_message: None,
         };
 
         assert_eq!(metadata.sync_status, "idle");
@@ -1478,50 +1490,6 @@ mod tests {
         if let Ok(res) = result {
             assert_eq!(res.saved_count, 1);
         }
-    }
-
-    #[tokio::test]
-    async fn test_update_sync_metadata_invalid_timestamp() {
-        let pool = create_test_db().await;
-
-        // 無効なRFC3339タイムスタンプ
-        let invalid_timestamp = "invalid-timestamp";
-
-        // sync_metadataの更新を試みる
-        let result = sqlx::query("UPDATE sync_metadata SET oldest_fetched_date = ?1 WHERE id = 1")
-            .bind(invalid_timestamp)
-            .execute(&pool)
-            .await;
-
-        // SQLiteは文字列を受け入れるため、更新自体は成功する
-        assert!(result.is_ok());
-
-        // しかし、この値をパースしようとするとエラーになる
-        let row: (Option<String>,) =
-            sqlx::query_as("SELECT oldest_fetched_date FROM sync_metadata WHERE id = 1")
-                .fetch_one(&pool)
-                .await
-                .expect("Failed to fetch");
-
-        if let Some(timestamp) = row.0 {
-            // RFC3339パースを試みる
-            let parse_result = chrono::DateTime::parse_from_rfc3339(&timestamp);
-            assert!(parse_result.is_err());
-        }
-    }
-
-    #[tokio::test]
-    async fn test_sync_metadata_update_nonexistent_record() {
-        let pool = create_test_db().await;
-
-        // id=999のレコードは存在しない
-        let result = sqlx::query("UPDATE sync_metadata SET sync_status = 'syncing' WHERE id = 999")
-            .execute(&pool)
-            .await
-            .expect("Query should succeed");
-
-        // 更新された行数は0
-        assert_eq!(result.rows_affected(), 0);
     }
 
     #[tokio::test]
@@ -1639,44 +1607,6 @@ mod tests {
         assert_eq!(row.0, "msg_unicode");
         assert!(row.1.is_some());
         assert!(row.1.unwrap().contains("こんにちは"));
-    }
-
-    #[tokio::test]
-    async fn test_sync_metadata_concurrent_updates() {
-        let pool = create_test_db().await;
-
-        // 並行してsync_statusを更新
-        let pool1 = pool.clone();
-        let pool2 = pool.clone();
-
-        let handle1 = tokio::spawn(async move {
-            sqlx::query("UPDATE sync_metadata SET sync_status = 'syncing' WHERE id = 1")
-                .execute(&pool1)
-                .await
-        });
-
-        let handle2 = tokio::spawn(async move {
-            sqlx::query("UPDATE sync_metadata SET sync_status = 'idle' WHERE id = 1")
-                .execute(&pool2)
-                .await
-        });
-
-        let result1 = handle1.await.expect("Task 1 panicked");
-        let result2 = handle2.await.expect("Task 2 panicked");
-
-        // 両方の更新が成功する（最後の更新が勝つ）
-        assert!(result1.is_ok());
-        assert!(result2.is_ok());
-
-        // 最終的な状態を確認
-        let status: (String,) =
-            sqlx::query_as("SELECT sync_status FROM sync_metadata WHERE id = 1")
-                .fetch_one(&pool)
-                .await
-                .expect("Failed to fetch final status");
-
-        // 最後に実行された更新の値になっている
-        assert!(status.0 == "syncing" || status.0 == "idle");
     }
 
     #[tokio::test]
@@ -1837,40 +1767,6 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn test_update_sync_error_status() {
-        use crate::repository::{EmailRepository, SqliteEmailRepository};
-
-        let pool = create_test_db().await;
-        let email_repo = SqliteEmailRepository::new(pool.clone());
-
-        // 初期状態を確認
-        let before: (String,) =
-            sqlx::query_as("SELECT sync_status FROM sync_metadata WHERE id = 1")
-                .fetch_one(&pool)
-                .await
-                .expect("Failed to fetch initial status");
-
-        assert_eq!(before.0, "idle");
-
-        // エラー状態に更新（リポジトリ経由）
-        email_repo
-            .update_sync_error_status()
-            .await
-            .expect("Failed to update error status");
-
-        // エラー状態になったことを確認
-        let after: (String, Option<String>) = sqlx::query_as(
-            "SELECT sync_status, last_sync_completed_at FROM sync_metadata WHERE id = 1",
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("Failed to fetch updated status");
-
-        assert_eq!(after.0, "error");
-        assert!(after.1.is_some()); // last_sync_completed_atが設定されている
-    }
-
     #[test]
     fn test_fetch_result_calculation() {
         // FetchResultの計算ロジックをテスト
@@ -1921,6 +1817,9 @@ mod tests {
             last_sync_started_at: None,
             last_sync_completed_at: None,
             max_iterations: 100,
+            max_results_per_page: 100,
+            timeout_minutes: 30,
+            last_error_message: None,
         };
 
         assert_eq!(metadata.sync_status, "idle");
@@ -2436,6 +2335,9 @@ mod tests {
             last_sync_started_at: Some("2024-01-15T10:00:00Z".to_string()),
             last_sync_completed_at: Some("2024-01-15T11:00:00Z".to_string()),
             max_iterations: 100,
+            max_results_per_page: 100,
+            timeout_minutes: 30,
+            last_error_message: None,
         };
 
         let json = serde_json::to_string(&metadata).unwrap();

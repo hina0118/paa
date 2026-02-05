@@ -5,16 +5,18 @@ import {
   expectSidebarVisible,
 } from './helpers';
 
-test.describe('Sync画面', () => {
+test.describe('Sync画面（Batch内）', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await expectSidebarVisible(page);
-    await navigateToScreen(page, 'Sync');
-    await expectScreenTitle(page, 'Gmail同期');
+    await navigateToScreen(page, 'Batch');
+    await expectScreenTitle(page, 'バッチ処理');
   });
 
-  test('Sync画面が表示される', async ({ page }) => {
-    await expectScreenTitle(page, 'Gmail同期');
+  test('Gmail同期セクションが表示される', async ({ page }) => {
+    await expect(
+      page.getByRole('heading', { name: '1. Gmail同期' })
+    ).toBeVisible();
   });
 
   test('同期開始ボタンがクリックできる', async ({ page }) => {
@@ -22,17 +24,8 @@ test.describe('Sync画面', () => {
     await expect(startButton).toBeVisible();
     await startButton.click();
     // Tauri API がなくてもクリックは実行される（エラー表示になる可能性あり）
-    await expect(startButton).toBeVisible();
-  });
-
-  test('同期日時をリセットボタンをクリックすると確認ダイアログが表示される', async ({
-    page,
-  }) => {
-    page.on('dialog', (dialog) => dialog.dismiss());
-    const resetButton = page.getByRole('button', {
-      name: '同期日時をリセット',
-    });
-    await expect(resetButton).toBeVisible();
-    await resetButton.click();
+    await expect(
+      page.getByRole('button', { name: /同期を開始|同期中\.\.\.|同期を再開/ })
+    ).toBeVisible();
   });
 });

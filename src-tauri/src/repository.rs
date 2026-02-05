@@ -3,52 +3,13 @@
 //! このモジュールはデータベース操作を抽象化し、テスト時にモック可能にします。
 
 use crate::gemini::normalize_product_name;
-use crate::gmail::{
-    CreateShopSettings, GmailMessage, ShopSettings, SyncMetadata, UpdateShopSettings,
-};
-use crate::parsers::{EmailRow, OrderInfo, ParseMetadata as ParserParseMetadata};
+use crate::gmail::{CreateShopSettings, GmailMessage, ShopSettings, UpdateShopSettings};
+use crate::parsers::{EmailRow, OrderInfo};
 use async_trait::async_trait;
-use chrono::Utc;
 #[cfg(test)]
 use mockall::automock;
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqlitePool;
-
-/// parse_skipped に保存する前にエラーメッセージをサニタイズ（パス・接続文字列等をマスク）
-fn sanitize_error_for_parse_skipped(msg: &str) -> String {
-    const MAX_LEN: usize = 500;
-    let mut s = msg.chars().take(MAX_LEN).collect::<String>();
-    if msg.chars().count() > MAX_LEN {
-        s.push_str("...");
-    }
-    // パスや接続文字列をマスク（テーブルビューアで機密情報が露出しないよう）
-    let patterns = [
-        (r"(?i)[A-Za-z]:\\[^\s]*", "[PATH]"), // Windows: C:\...
-        (r"sqlite:file:[^\s]*", "[DB_PATH]"), // sqlite:file:...
-        // Unix: 代表的な絶対パスのみマスク（/home, /var, /etc, /usr 等。スペースが \ でエスケープされている場合も含む）
-        (
-            r#"/(?:home|var|etc|usr|opt|tmp|root|srv|mnt|media|run)(?:/[^\s"']+)+"#,
-            "[PATH]",
-        ),
-    ];
-    for (pat, repl) in patterns {
-        if let Ok(re) = Regex::new(pat) {
-            s = re.replace_all(&s, repl).into_owned();
-        }
-    }
-    s
-}
-
-/// ウィンドウ設定
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WindowSettings {
-    pub width: i64,
-    pub height: i64,
-    pub x: Option<i64>,
-    pub y: Option<i64>,
-    pub maximized: bool,
-}
 
 /// メール統計情報
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,97 +47,6 @@ pub trait EmailRepository: Send + Sync {
 
     /// メッセージ数を取得
     async fn get_message_count(&self) -> Result<i64, String>;
-
-    /// 同期メタデータを取得
-    async fn get_sync_metadata(&self) -> Result<SyncMetadata, String>;
-
-    /// 同期メタデータを更新
-    /// ライフタイム問題を回避するためにOption<String>を使用
-    async fn update_sync_metadata(
-        &self,
-        oldest_date: Option<String>,
-        total_synced: i64,
-        status: &str,
-    ) -> Result<(), String>;
-
-    /// 同期開始日時を更新
-    async fn update_sync_started_at(&self) -> Result<(), String>;
-
-    /// 同期完了日時を更新
-    async fn update_sync_completed_at(&self) -> Result<(), String>;
-
-    /// 同期ステータスのみを更新
-    async fn update_sync_status(&self, status: &str) -> Result<(), String>;
-
-    /// エラーステータスに更新（last_sync_completed_atも更新）
-    async fn update_sync_error_status(&self) -> Result<(), String>;
-
-    /// 同期開始（ステータスと開始日時をアトミックに更新）
-    async fn start_sync(&self) -> Result<(), String>;
-
-    /// 同期完了（ステータスと完了日時をアトミックに更新）
-    async fn complete_sync(&self, status: &str) -> Result<(), String>;
-}
-
-/// 同期メタデータ専用のDB操作を抽象化するトレイト
-#[cfg_attr(test, automock)]
-#[async_trait]
-pub trait SyncMetadataRepository: Send + Sync {
-    /// 同期メタデータを取得
-    async fn get_sync_metadata(&self) -> Result<SyncMetadata, String>;
-
-    /// バッチサイズを更新
-    async fn update_batch_size(&self, batch_size: i64) -> Result<(), String>;
-
-    /// 最大イテレーション回数を更新
-    async fn update_max_iterations(&self, max_iterations: i64) -> Result<(), String>;
-
-    /// 同期ステータスをidleにリセット（syncingのときのみ）
-    async fn reset_sync_status(&self) -> Result<(), String>;
-
-    /// oldest_fetched_dateをNULLにリセット
-    async fn reset_sync_date(&self) -> Result<(), String>;
-
-    /// エラーステータスとエラーメッセージを更新
-    async fn update_error_status(&self, error_message: &str) -> Result<(), String>;
-}
-
-/// パースメタデータ専用のDB操作を抽象化するトレイト
-#[cfg_attr(test, automock)]
-#[async_trait]
-pub trait ParseMetadataRepository: Send + Sync {
-    /// パースメタデータを取得
-    async fn get_parse_metadata(&self) -> Result<ParserParseMetadata, String>;
-
-    /// バッチサイズを取得
-    async fn get_batch_size(&self) -> Result<i64, String>;
-
-    /// バッチサイズを更新
-    async fn update_batch_size(&self, batch_size: i64) -> Result<(), String>;
-
-    /// パースステータスと各種メタ情報を更新
-    async fn update_parse_status(
-        &self,
-        status: &str,
-        started_at: Option<String>,
-        completed_at: Option<String>,
-        total_parsed: Option<i64>,
-        error_message: Option<String>,
-    ) -> Result<(), String>;
-
-    /// パースステータスをidleにリセット
-    async fn reset_parse_status(&self) -> Result<(), String>;
-}
-
-/// ウィンドウ設定関連のDB操作を抽象化するトレイト
-#[cfg_attr(test, automock)]
-#[async_trait]
-pub trait WindowSettingsRepository: Send + Sync {
-    /// ウィンドウ設定を取得
-    async fn get_window_settings(&self) -> Result<WindowSettings, String>;
-
-    /// ウィンドウ設定を保存
-    async fn save_window_settings(&self, settings: WindowSettings) -> Result<(), String>;
 }
 
 /// メール統計関連のDB操作を抽象化するトレイト
@@ -185,6 +55,239 @@ pub trait WindowSettingsRepository: Send + Sync {
 pub trait EmailStatsRepository: Send + Sync {
     /// メール統計情報を取得
     async fn get_email_stats(&self) -> Result<EmailStats, String>;
+}
+
+/// 注文・商品サマリ統計
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrderStats {
+    pub total_orders: i64,
+    pub total_items: i64,
+    pub total_amount: i64,
+}
+
+/// 注文・商品サマリのDB操作を抽象化するトレイト
+#[cfg_attr(test, automock)]
+#[async_trait]
+pub trait OrderStatsRepository: Send + Sync {
+    /// 注文・商品サマリを取得
+    async fn get_order_stats(&self) -> Result<OrderStats, String>;
+}
+
+/// 配送状況サマリ（注文ごとの最新配送ステータス別件数）
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DeliveryStats {
+    pub not_shipped: i64,
+    pub preparing: i64,
+    pub shipped: i64,
+    pub in_transit: i64,
+    pub out_for_delivery: i64,
+    pub delivered: i64,
+    pub failed: i64,
+    pub returned: i64,
+    pub cancelled: i64,
+}
+
+/// 配送状況のDB操作を抽象化するトレイト
+#[cfg_attr(test, automock)]
+#[async_trait]
+pub trait DeliveryStatsRepository: Send + Sync {
+    /// 配送状況サマリを取得（注文ごとの最新ステータスで集計）
+    async fn get_delivery_stats(&self) -> Result<DeliveryStats, String>;
+}
+
+/// 商品名解析（product_master）進捗
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProductMasterStats {
+    /// product_master テーブルの件数
+    pub product_master_count: i64,
+    /// 正規化名を持つユニーク商品数（解析対象）
+    pub distinct_items_with_normalized: i64,
+    /// 解析済み（product_master に存在する）ユニーク商品数
+    pub items_with_parsed: i64,
+}
+
+/// 商品名解析進捗のDB操作を抽象化するトレイト
+#[cfg_attr(test, automock)]
+#[async_trait]
+pub trait ProductMasterStatsRepository: Send + Sync {
+    /// 商品名解析進捗を取得
+    async fn get_product_master_stats(&self) -> Result<ProductMasterStats, String>;
+}
+
+/// 店舗設定・画像サマリ
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MiscStats {
+    pub shop_settings_count: i64,
+    pub shop_settings_enabled_count: i64,
+    pub images_count: i64,
+}
+
+/// 店舗設定・画像のDB操作を抽象化するトレイト
+#[cfg_attr(test, automock)]
+#[async_trait]
+pub trait MiscStatsRepository: Send + Sync {
+    /// 店舗設定・画像サマリを取得
+    async fn get_misc_stats(&self) -> Result<MiscStats, String>;
+}
+
+/// SQLiteを使用したMiscStatsRepositoryの実装
+pub struct SqliteMiscStatsRepository {
+    pool: SqlitePool,
+}
+
+impl SqliteMiscStatsRepository {
+    pub fn new(pool: SqlitePool) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait]
+impl MiscStatsRepository for SqliteMiscStatsRepository {
+    async fn get_misc_stats(&self) -> Result<MiscStats, String> {
+        let stats: (i64, i64, i64) = sqlx::query_as(
+            r#"
+            SELECT
+                (SELECT COUNT(*) FROM shop_settings) AS shop_settings_count,
+                (SELECT COUNT(*) FROM shop_settings WHERE is_enabled = 1) AS shop_settings_enabled_count,
+                (SELECT COUNT(*) FROM images) AS images_count
+            "#,
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to fetch misc stats: {e}"))?;
+
+        Ok(MiscStats {
+            shop_settings_count: stats.0,
+            shop_settings_enabled_count: stats.1,
+            images_count: stats.2,
+        })
+    }
+}
+
+/// SQLiteを使用したProductMasterStatsRepositoryの実装
+pub struct SqliteProductMasterStatsRepository {
+    pool: SqlitePool,
+}
+
+impl SqliteProductMasterStatsRepository {
+    pub fn new(pool: SqlitePool) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait]
+impl ProductMasterStatsRepository for SqliteProductMasterStatsRepository {
+    async fn get_product_master_stats(&self) -> Result<ProductMasterStats, String> {
+        let stats: (i64, Option<i64>, Option<i64>) = sqlx::query_as(
+            r#"
+            SELECT
+                (SELECT COUNT(*) FROM product_master) AS product_master_count,
+                (SELECT COUNT(DISTINCT item_name_normalized) FROM items WHERE item_name_normalized IS NOT NULL) AS distinct_items,
+                (SELECT COUNT(DISTINCT i.item_name_normalized) FROM items i INNER JOIN product_master pm ON i.item_name_normalized = pm.normalized_name) AS items_parsed
+            "#,
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to fetch product master stats: {e}"))?;
+
+        Ok(ProductMasterStats {
+            product_master_count: stats.0,
+            distinct_items_with_normalized: stats.1.unwrap_or(0),
+            items_with_parsed: stats.2.unwrap_or(0),
+        })
+    }
+}
+
+/// SQLiteを使用したDeliveryStatsRepositoryの実装
+pub struct SqliteDeliveryStatsRepository {
+    pool: SqlitePool,
+}
+
+impl SqliteDeliveryStatsRepository {
+    pub fn new(pool: SqlitePool) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait]
+impl DeliveryStatsRepository for SqliteDeliveryStatsRepository {
+    async fn get_delivery_stats(&self) -> Result<DeliveryStats, String> {
+        let rows: Vec<(String, i64)> = sqlx::query_as(
+            r#"
+            WITH latest_delivery AS (
+                SELECT order_id, delivery_status
+                FROM (
+                    SELECT order_id, delivery_status,
+                           ROW_NUMBER() OVER (PARTITION BY order_id ORDER BY updated_at DESC) AS rn
+                    FROM deliveries
+                ) t
+                WHERE rn = 1
+            ),
+            order_status AS (
+                SELECT COALESCE(ld.delivery_status, 'not_shipped') AS status
+                FROM orders o
+                LEFT JOIN latest_delivery ld ON ld.order_id = o.id
+            )
+            SELECT status, COUNT(*) AS cnt
+            FROM order_status
+            GROUP BY status
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to fetch delivery stats: {e}"))?;
+
+        let mut stats = DeliveryStats::default();
+        for (status, cnt) in rows {
+            match status.as_str() {
+                "not_shipped" => stats.not_shipped = cnt,
+                "preparing" => stats.preparing = cnt,
+                "shipped" => stats.shipped = cnt,
+                "in_transit" => stats.in_transit = cnt,
+                "out_for_delivery" => stats.out_for_delivery = cnt,
+                "delivered" => stats.delivered = cnt,
+                "failed" => stats.failed = cnt,
+                "returned" => stats.returned = cnt,
+                "cancelled" => stats.cancelled = cnt,
+                _ => {}
+            }
+        }
+        Ok(stats)
+    }
+}
+
+/// SQLiteを使用したOrderStatsRepositoryの実装
+pub struct SqliteOrderStatsRepository {
+    pool: SqlitePool,
+}
+
+impl SqliteOrderStatsRepository {
+    pub fn new(pool: SqlitePool) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait]
+impl OrderStatsRepository for SqliteOrderStatsRepository {
+    async fn get_order_stats(&self) -> Result<OrderStats, String> {
+        let stats: (i64, i64, Option<i64>) = sqlx::query_as(
+            r#"
+            SELECT
+                (SELECT COUNT(*) FROM orders) AS total_orders,
+                (SELECT COUNT(*) FROM items) AS total_items,
+                (SELECT COALESCE(SUM(price * quantity), 0) FROM items) AS total_amount
+            "#,
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to fetch order stats: {e}"))?;
+
+        Ok(OrderStats {
+            total_orders: stats.0,
+            total_items: stats.1,
+            total_amount: stats.2.unwrap_or(0),
+        })
+    }
 }
 
 /// 注文関連のDB操作を抽象化するトレイト
@@ -205,13 +308,10 @@ pub trait OrderRepository: Send + Sync {
 #[cfg_attr(test, automock)]
 #[async_trait]
 pub trait ParseRepository: Send + Sync {
-    /// 未パースのメールを取得（order_emails・parse_skippedに存在しないメール）
+    /// 未パースのメールを取得（order_emails に存在しないメール）
     async fn get_unparsed_emails(&self, batch_size: usize) -> Result<Vec<EmailRow>, String>;
 
-    /// パース失敗したメールを記録（無限ループ防止）
-    async fn mark_parse_skipped(&self, email_id: i64, error_message: &str) -> Result<(), String>;
-
-    /// 注文関連テーブルをクリア（order_emails, parse_skipped, deliveries, items, orders）
+    /// 注文関連テーブルをクリア（order_emails, deliveries, items, orders）
     async fn clear_order_tables(&self) -> Result<(), String>;
 
     /// パース対象の全メール数を取得
@@ -246,326 +346,6 @@ pub struct SqliteEmailRepository {
 impl SqliteEmailRepository {
     pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
-    }
-}
-
-/// SQLiteを使用したSyncMetadataRepositoryの実装
-pub struct SqliteSyncMetadataRepository {
-    pool: SqlitePool,
-}
-
-impl SqliteSyncMetadataRepository {
-    pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
-    }
-}
-
-#[async_trait]
-impl SyncMetadataRepository for SqliteSyncMetadataRepository {
-    async fn get_sync_metadata(&self) -> Result<SyncMetadata, String> {
-        let row: (
-            String,
-            Option<String>,
-            i64,
-            i64,
-            Option<String>,
-            Option<String>,
-            i64,
-        ) = sqlx::query_as(
-            r#"
-                SELECT
-                    sync_status,
-                    oldest_fetched_date,
-                    total_synced_count,
-                    batch_size,
-                    last_sync_started_at,
-                    last_sync_completed_at,
-                    max_iterations
-                FROM sync_metadata
-                WHERE id = 1
-                "#,
-        )
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|e| format!("Failed to get sync metadata: {e}"))?;
-
-        Ok(SyncMetadata {
-            sync_status: row.0,
-            oldest_fetched_date: row.1,
-            total_synced_count: row.2,
-            batch_size: row.3,
-            last_sync_started_at: row.4,
-            last_sync_completed_at: row.5,
-            max_iterations: row.6,
-        })
-    }
-
-    async fn update_batch_size(&self, batch_size: i64) -> Result<(), String> {
-        sqlx::query(
-            r#"
-            UPDATE sync_metadata
-            SET batch_size = ?
-            WHERE id = 1
-            "#,
-        )
-        .bind(batch_size)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| format!("Failed to update batch size: {e}"))?;
-
-        Ok(())
-    }
-
-    async fn update_max_iterations(&self, max_iterations: i64) -> Result<(), String> {
-        sqlx::query(
-            r#"
-            UPDATE sync_metadata
-            SET max_iterations = ?
-            WHERE id = 1
-            "#,
-        )
-        .bind(max_iterations)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| format!("Failed to update max iterations: {e}"))?;
-
-        Ok(())
-    }
-
-    async fn reset_sync_status(&self) -> Result<(), String> {
-        sqlx::query(
-            r#"
-            UPDATE sync_metadata
-            SET sync_status = 'idle'
-            WHERE id = 1 AND sync_status = 'syncing'
-            "#,
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(|e| format!("Failed to reset sync status: {e}"))?;
-
-        Ok(())
-    }
-
-    async fn reset_sync_date(&self) -> Result<(), String> {
-        sqlx::query(
-            r#"
-            UPDATE sync_metadata
-            SET oldest_fetched_date = NULL
-            WHERE id = 1
-            "#,
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(|e| format!("Failed to reset sync date: {e}"))?;
-
-        Ok(())
-    }
-
-    async fn update_error_status(&self, error_message: &str) -> Result<(), String> {
-        let now = Utc::now().to_rfc3339();
-        sqlx::query(
-            r#"
-            UPDATE sync_metadata
-            SET sync_status = 'error',
-                last_error_message = ?,
-                last_sync_completed_at = ?
-            WHERE id = 1
-            "#,
-        )
-        .bind(error_message)
-        .bind(&now)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| format!("Failed to update error status: {e}"))?;
-
-        Ok(())
-    }
-}
-
-/// SQLiteを使用したParseMetadataRepositoryの実装
-pub struct SqliteParseMetadataRepository {
-    pool: SqlitePool,
-}
-
-impl SqliteParseMetadataRepository {
-    pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
-    }
-}
-
-#[async_trait]
-impl ParseMetadataRepository for SqliteParseMetadataRepository {
-    async fn get_parse_metadata(&self) -> Result<ParserParseMetadata, String> {
-        let row: (
-            String,
-            Option<String>,
-            Option<String>,
-            i64,
-            Option<String>,
-            i64,
-        ) = sqlx::query_as(
-            r#"
-                SELECT
-                    parse_status,
-                    last_parse_started_at,
-                    last_parse_completed_at,
-                    total_parsed_count,
-                    last_error_message,
-                    batch_size
-                FROM parse_metadata
-                WHERE id = 1
-                "#,
-        )
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|e| format!("Failed to get parse metadata: {e}"))?;
-
-        Ok(ParserParseMetadata {
-            parse_status: row.0,
-            last_parse_started_at: row.1,
-            last_parse_completed_at: row.2,
-            total_parsed_count: row.3,
-            last_error_message: row.4,
-            batch_size: row.5,
-        })
-    }
-
-    async fn get_batch_size(&self) -> Result<i64, String> {
-        let row: (i64,) = sqlx::query_as(
-            r#"
-            SELECT batch_size
-            FROM parse_metadata
-            WHERE id = 1
-            "#,
-        )
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|e| format!("Failed to get parse batch size: {e}"))?;
-
-        Ok(row.0)
-    }
-
-    async fn update_batch_size(&self, batch_size: i64) -> Result<(), String> {
-        sqlx::query(
-            r#"
-            UPDATE parse_metadata
-            SET batch_size = ?
-            WHERE id = 1
-            "#,
-        )
-        .bind(batch_size)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| format!("Failed to update parse batch size: {e}"))?;
-
-        Ok(())
-    }
-
-    async fn update_parse_status(
-        &self,
-        status: &str,
-        started_at: Option<String>,
-        completed_at: Option<String>,
-        total_parsed: Option<i64>,
-        error_message: Option<String>,
-    ) -> Result<(), String> {
-        sqlx::query(
-            r#"
-            UPDATE parse_metadata
-            SET parse_status = ?,
-                last_parse_started_at = COALESCE(?, last_parse_started_at),
-                last_parse_completed_at = COALESCE(?, last_parse_completed_at),
-                total_parsed_count = COALESCE(?, total_parsed_count),
-                last_error_message = COALESCE(?, last_error_message)
-            WHERE id = 1
-            "#,
-        )
-        .bind(status)
-        .bind(started_at)
-        .bind(completed_at)
-        .bind(total_parsed)
-        .bind(error_message)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| format!("Failed to update parse status: {e}"))?;
-
-        Ok(())
-    }
-
-    async fn reset_parse_status(&self) -> Result<(), String> {
-        sqlx::query(
-            r#"
-            UPDATE parse_metadata
-            SET parse_status = 'idle',
-                last_error_message = NULL
-            WHERE id = 1
-            "#,
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(|e| format!("Failed to reset parse status: {e}"))?;
-
-        Ok(())
-    }
-}
-
-/// SQLiteを使用したWindowSettingsRepositoryの実装
-pub struct SqliteWindowSettingsRepository {
-    pool: SqlitePool,
-}
-
-impl SqliteWindowSettingsRepository {
-    pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
-    }
-}
-
-#[async_trait]
-impl WindowSettingsRepository for SqliteWindowSettingsRepository {
-    async fn get_window_settings(&self) -> Result<WindowSettings, String> {
-        let row: (i64, i64, Option<i64>, Option<i64>, i64) = sqlx::query_as(
-            r#"
-            SELECT width, height, x, y, maximized
-            FROM window_settings
-            WHERE id = 1
-            "#,
-        )
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|e| format!("Failed to get window settings: {e}"))?;
-
-        Ok(WindowSettings {
-            width: row.0,
-            height: row.1,
-            x: row.2,
-            y: row.3,
-            maximized: row.4 != 0,
-        })
-    }
-
-    async fn save_window_settings(&self, settings: WindowSettings) -> Result<(), String> {
-        sqlx::query(
-            r#"
-            UPDATE window_settings
-            SET width = ?,
-                height = ?,
-                x = ?,
-                y = ?,
-                maximized = ?
-            WHERE id = 1
-            "#,
-        )
-        .bind(settings.width)
-        .bind(settings.height)
-        .bind(settings.x)
-        .bind(settings.y)
-        .bind(i32::from(settings.maximized))
-        .execute(&self.pool)
-        .await
-        .map_err(|e| format!("Failed to save window settings: {e}"))?;
-
-        Ok(())
     }
 }
 
@@ -872,11 +652,9 @@ impl ParseRepository for SqliteParseRepository {
             SELECT e.id, e.message_id, e.body_plain, e.from_address, e.subject, e.internal_date
             FROM emails e
             LEFT JOIN order_emails oe ON e.id = oe.email_id
-            LEFT JOIN parse_skipped ps ON e.id = ps.email_id
             WHERE e.body_plain IS NOT NULL
             AND e.from_address IS NOT NULL
             AND oe.email_id IS NULL
-            AND ps.email_id IS NULL
             ORDER BY e.internal_date ASC
             LIMIT ?
             "#,
@@ -887,22 +665,6 @@ impl ParseRepository for SqliteParseRepository {
         .map_err(|e| format!("Failed to fetch unparsed emails: {e}"))?;
 
         Ok(emails)
-    }
-
-    async fn mark_parse_skipped(&self, email_id: i64, error_message: &str) -> Result<(), String> {
-        let sanitized = sanitize_error_for_parse_skipped(error_message);
-        sqlx::query(
-            r#"
-            INSERT OR IGNORE INTO parse_skipped (email_id, error_message)
-            VALUES (?, ?)
-            "#,
-        )
-        .bind(email_id)
-        .bind(&sanitized)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| format!("Failed to mark parse skipped: {e}"))?;
-        Ok(())
     }
 
     async fn clear_order_tables(&self) -> Result<(), String> {
@@ -918,11 +680,6 @@ impl ParseRepository for SqliteParseRepository {
             .execute(&mut *tx)
             .await
             .map_err(|e| format!("Failed to clear order_emails table: {e}"))?;
-
-        sqlx::query("DELETE FROM parse_skipped")
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| format!("Failed to clear parse_skipped table: {e}"))?;
 
         sqlx::query("DELETE FROM deliveries")
             .execute(&mut *tx)
@@ -1102,171 +859,6 @@ impl EmailRepository for SqliteEmailRepository {
             .map_err(|e| format!("Failed to get message count: {e}"))?;
 
         Ok(count.0)
-    }
-
-    async fn get_sync_metadata(&self) -> Result<SyncMetadata, String> {
-        let row: (
-            String,
-            Option<String>,
-            i64,
-            i64,
-            Option<String>,
-            Option<String>,
-            i64,
-        ) = sqlx::query_as(
-            r#"
-                SELECT
-                    sync_status,
-                    oldest_fetched_date,
-                    total_synced_count,
-                    batch_size,
-                    last_sync_started_at,
-                    last_sync_completed_at,
-                    max_iterations
-                FROM sync_metadata
-                WHERE id = 1
-                "#,
-        )
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|e| format!("Failed to get sync metadata: {e}"))?;
-
-        Ok(SyncMetadata {
-            sync_status: row.0,
-            oldest_fetched_date: row.1,
-            total_synced_count: row.2,
-            batch_size: row.3,
-            last_sync_started_at: row.4,
-            last_sync_completed_at: row.5,
-            max_iterations: row.6,
-        })
-    }
-
-    async fn update_sync_metadata(
-        &self,
-        oldest_date: Option<String>,
-        total_synced: i64,
-        status: &str,
-    ) -> Result<(), String> {
-        sqlx::query(
-            r#"
-            UPDATE sync_metadata
-            SET oldest_fetched_date = COALESCE(?, oldest_fetched_date),
-                total_synced_count = ?,
-                sync_status = ?
-            WHERE id = 1
-            "#,
-        )
-        .bind(oldest_date)
-        .bind(total_synced)
-        .bind(status)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| format!("Failed to update sync metadata: {e}"))?;
-
-        Ok(())
-    }
-
-    async fn update_sync_started_at(&self) -> Result<(), String> {
-        let now = Utc::now().to_rfc3339();
-        sqlx::query(
-            r#"
-            UPDATE sync_metadata
-            SET last_sync_started_at = ?
-            WHERE id = 1
-            "#,
-        )
-        .bind(&now)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| format!("Failed to update sync started at: {e}"))?;
-
-        Ok(())
-    }
-
-    async fn update_sync_completed_at(&self) -> Result<(), String> {
-        let now = Utc::now().to_rfc3339();
-        sqlx::query(
-            r#"
-            UPDATE sync_metadata
-            SET last_sync_completed_at = ?
-            WHERE id = 1
-            "#,
-        )
-        .bind(&now)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| format!("Failed to update sync completed at: {e}"))?;
-
-        Ok(())
-    }
-
-    async fn update_sync_status(&self, status: &str) -> Result<(), String> {
-        sqlx::query(
-            r#"
-            UPDATE sync_metadata
-            SET sync_status = ?
-            WHERE id = 1
-            "#,
-        )
-        .bind(status)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| format!("Failed to update sync status: {e}"))?;
-
-        Ok(())
-    }
-
-    async fn update_sync_error_status(&self) -> Result<(), String> {
-        let now = Utc::now().to_rfc3339();
-        sqlx::query(
-            r#"
-            UPDATE sync_metadata
-            SET sync_status = 'error', last_sync_completed_at = ?
-            WHERE id = 1
-            "#,
-        )
-        .bind(&now)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| format!("Failed to update error status: {e}"))?;
-
-        Ok(())
-    }
-
-    async fn start_sync(&self) -> Result<(), String> {
-        let now = Utc::now().to_rfc3339();
-        sqlx::query(
-            r#"
-            UPDATE sync_metadata
-            SET sync_status = 'syncing', last_sync_started_at = ?
-            WHERE id = 1
-            "#,
-        )
-        .bind(&now)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| format!("Failed to start sync: {e}"))?;
-
-        Ok(())
-    }
-
-    async fn complete_sync(&self, status: &str) -> Result<(), String> {
-        let now = Utc::now().to_rfc3339();
-        sqlx::query(
-            r#"
-            UPDATE sync_metadata
-            SET sync_status = ?, last_sync_completed_at = ?
-            WHERE id = 1
-            "#,
-        )
-        .bind(status)
-        .bind(&now)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| format!("Failed to complete sync: {e}"))?;
-
-        Ok(())
     }
 }
 
@@ -1753,29 +1345,6 @@ mod tests {
     use crate::gemini::ParsedProduct;
     use sqlx::sqlite::SqlitePoolOptions;
 
-    #[test]
-    fn test_sanitize_error_for_parse_skipped() {
-        assert_eq!(
-            sanitize_error_for_parse_skipped("Order number not found"),
-            "Order number not found"
-        );
-        assert!(
-            sanitize_error_for_parse_skipped("Failed: C:\\Users\\john\\AppData\\paa_data.db")
-                .contains("[PATH]")
-        );
-        assert!(
-            sanitize_error_for_parse_skipped("sqlite:file:/path/to/db.db").contains("[DB_PATH]")
-        );
-        assert!(
-            sanitize_error_for_parse_skipped("error: /home/user/.config/paa/file")
-                .contains("[PATH]")
-        );
-        // /root, /etc, /usr/local 等の絶対パスもマスクされる
-        assert!(sanitize_error_for_parse_skipped("error: /root/.ssh/id_rsa").contains("[PATH]"));
-        assert!(sanitize_error_for_parse_skipped("error: /etc/passwd").contains("[PATH]"));
-        assert!(sanitize_error_for_parse_skipped("error: /usr/local/bin/app").contains("[PATH]"));
-    }
-
     async fn setup_test_db() -> SqlitePool {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
@@ -1805,82 +1374,6 @@ mod tests {
         .execute(&pool)
         .await
         .expect("Failed to create emails table");
-
-        // sync_metadata テーブル (010, 012 に対応)
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS sync_metadata (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                oldest_fetched_date TEXT,
-                sync_status TEXT NOT NULL DEFAULT 'idle' CHECK(sync_status IN ('idle', 'syncing', 'paused', 'error')),
-                total_synced_count INTEGER NOT NULL DEFAULT 0,
-                batch_size INTEGER NOT NULL DEFAULT 50,
-                last_sync_started_at TEXT,
-                last_sync_completed_at TEXT,
-                last_error_message TEXT,
-                created_at TEXT DEFAULT (datetime('now')),
-                updated_at TEXT DEFAULT (datetime('now')),
-                max_iterations INTEGER NOT NULL DEFAULT 1000
-            )
-            "#,
-        )
-        .execute(&pool)
-        .await
-        .expect("Failed to create sync_metadata table");
-
-        sqlx::query("INSERT INTO sync_metadata (id, sync_status) VALUES (1, 'idle')")
-            .execute(&pool)
-            .await
-            .expect("Failed to insert default metadata");
-
-        // parse_metadata テーブル (016, 018 に対応)
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS parse_metadata (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                parse_status TEXT NOT NULL DEFAULT 'idle' CHECK(parse_status IN ('idle', 'running', 'completed', 'error')),
-                last_parse_started_at DATETIME,
-                last_parse_completed_at DATETIME,
-                total_parsed_count INTEGER NOT NULL DEFAULT 0,
-                last_error_message TEXT,
-                batch_size INTEGER NOT NULL DEFAULT 100
-            )
-            "#,
-        )
-        .execute(&pool)
-        .await
-        .expect("Failed to create parse_metadata table");
-
-        sqlx::query("INSERT INTO parse_metadata (id, parse_status) VALUES (1, 'idle')")
-            .execute(&pool)
-            .await
-            .expect("Failed to insert default parse metadata");
-
-        // window_settings テーブル (013 に対応)
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS window_settings (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                width INTEGER NOT NULL DEFAULT 800,
-                height INTEGER NOT NULL DEFAULT 600,
-                x INTEGER,
-                y INTEGER,
-                maximized INTEGER NOT NULL DEFAULT 0 CHECK(maximized IN (0, 1)),
-                created_at TEXT DEFAULT (datetime('now')),
-                updated_at TEXT DEFAULT (datetime('now'))
-            )
-            "#,
-        )
-        .execute(&pool)
-        .await
-        .expect("Failed to create window_settings table");
-
-        sqlx::query(
-            "INSERT OR IGNORE INTO window_settings (id, width, height) VALUES (1, 800, 600)",
-        )
-        .execute(&pool)
-        .await
-        .expect("Failed to insert default window settings");
 
         // orders テーブル (003 に対応、shop_name 含む)
         sqlx::query(
@@ -1961,21 +1454,6 @@ mod tests {
         .execute(&pool)
         .await
         .expect("Failed to create order_emails table");
-
-        // parse_skipped テーブル
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS parse_skipped (
-                email_id INTEGER PRIMARY KEY,
-                error_message TEXT,
-                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE
-            )
-            "#,
-        )
-        .execute(&pool)
-        .await
-        .expect("Failed to create parse_skipped table");
 
         // shop_settings テーブル (014, 015 に対応)
         sqlx::query(
@@ -2168,167 +1646,6 @@ mod tests {
         ids_2000.extend((0..2000).map(|i| format!("chunk_2000_{}", i)));
         let result = repo.filter_new_message_ids(&ids_2000).await.unwrap();
         assert_eq!(result.len(), 2000);
-    }
-
-    #[tokio::test]
-    async fn test_sync_metadata_operations() {
-        let pool = setup_test_db().await;
-        let repo = SqliteEmailRepository::new(pool);
-
-        // 初期値確認
-        let metadata = repo.get_sync_metadata().await.unwrap();
-        assert_eq!(metadata.sync_status, "idle");
-        assert_eq!(metadata.total_synced_count, 0);
-
-        // 更新
-        repo.update_sync_metadata(Some("2024-01-01".to_string()), 100, "syncing")
-            .await
-            .unwrap();
-
-        let metadata = repo.get_sync_metadata().await.unwrap();
-        assert_eq!(metadata.sync_status, "syncing");
-        assert_eq!(metadata.total_synced_count, 100);
-        assert_eq!(metadata.oldest_fetched_date, Some("2024-01-01".to_string()));
-    }
-
-    #[tokio::test]
-    async fn test_sync_metadata_repository_get_and_update_batch_size() {
-        let pool = setup_test_db().await;
-        let repo = SqliteSyncMetadataRepository::new(pool.clone());
-
-        // 初期値確認
-        let metadata = repo.get_sync_metadata().await.unwrap();
-        assert_eq!(metadata.sync_status, "idle");
-        assert_eq!(metadata.batch_size, 50);
-
-        // バッチサイズ更新
-        repo.update_batch_size(100).await.unwrap();
-
-        // 更新結果を検証
-        let metadata = repo.get_sync_metadata().await.unwrap();
-        assert_eq!(metadata.batch_size, 100);
-    }
-
-    #[tokio::test]
-    async fn test_sync_metadata_repository_update_max_iterations() {
-        let pool = setup_test_db().await;
-        let repo = SqliteSyncMetadataRepository::new(pool.clone());
-
-        // 初期値確認
-        let metadata = repo.get_sync_metadata().await.unwrap();
-        assert_eq!(metadata.max_iterations, 1000);
-
-        // max_iterations 更新
-        repo.update_max_iterations(5000).await.unwrap();
-
-        // 更新結果を検証
-        let metadata = repo.get_sync_metadata().await.unwrap();
-        assert_eq!(metadata.max_iterations, 5000);
-    }
-
-    #[tokio::test]
-    async fn test_sync_metadata_repository_reset_sync_status_only_when_syncing() {
-        let pool = setup_test_db().await;
-        let repo = SqliteSyncMetadataRepository::new(pool.clone());
-
-        // idle のときに reset しても変化しない
-        let metadata = repo.get_sync_metadata().await.unwrap();
-        assert_eq!(metadata.sync_status, "idle");
-
-        repo.reset_sync_status().await.unwrap();
-        let metadata = repo.get_sync_metadata().await.unwrap();
-        assert_eq!(metadata.sync_status, "idle");
-
-        // syncing にしてから reset すると idle に戻る
-        sqlx::query("UPDATE sync_metadata SET sync_status = 'syncing' WHERE id = 1")
-            .execute(&pool)
-            .await
-            .expect("failed to set syncing status");
-
-        let metadata = repo.get_sync_metadata().await.unwrap();
-        assert_eq!(metadata.sync_status, "syncing");
-
-        repo.reset_sync_status().await.unwrap();
-        let metadata = repo.get_sync_metadata().await.unwrap();
-        assert_eq!(metadata.sync_status, "idle");
-    }
-
-    #[tokio::test]
-    async fn test_sync_metadata_repository_reset_sync_date() {
-        let pool = setup_test_db().await;
-        let repo = SqliteSyncMetadataRepository::new(pool.clone());
-
-        // 日付をセット
-        sqlx::query("UPDATE sync_metadata SET oldest_fetched_date = '2024-01-01' WHERE id = 1")
-            .execute(&pool)
-            .await
-            .expect("failed to set oldest_fetched_date");
-
-        let metadata = repo.get_sync_metadata().await.unwrap();
-        assert_eq!(metadata.oldest_fetched_date, Some("2024-01-01".to_string()));
-
-        // リセットで NULL になる
-        repo.reset_sync_date().await.unwrap();
-        let metadata = repo.get_sync_metadata().await.unwrap();
-        assert_eq!(metadata.oldest_fetched_date, None);
-    }
-
-    #[tokio::test]
-    async fn test_sync_metadata_repository_update_error_status() {
-        let pool = setup_test_db().await;
-        let repo = SqliteSyncMetadataRepository::new(pool.clone());
-
-        let error_message = "Test error for repository";
-        repo.update_error_status(error_message).await.unwrap();
-
-        let row: (String, Option<String>, Option<String>) = sqlx::query_as(
-            r#"
-            SELECT sync_status, last_error_message, last_sync_completed_at
-            FROM sync_metadata
-            WHERE id = 1
-            "#,
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("failed to fetch sync_metadata row");
-
-        assert_eq!(row.0, "error");
-        assert_eq!(row.1, Some(error_message.to_string()));
-        assert!(row.2.is_some(), "last_sync_completed_at should be set");
-    }
-
-    #[tokio::test]
-    async fn test_window_settings_repository_get_and_save() {
-        let pool = setup_test_db().await;
-        let repo = SqliteWindowSettingsRepository::new(pool.clone());
-
-        // 初期値確認
-        let settings = repo.get_window_settings().await.unwrap();
-        assert_eq!(settings.width, 800);
-        assert_eq!(settings.height, 600);
-        assert_eq!(settings.x, None);
-        assert_eq!(settings.y, None);
-        assert!(!settings.maximized);
-
-        // 設定を更新
-        let new_settings = WindowSettings {
-            width: 1024,
-            height: 768,
-            x: Some(100),
-            y: Some(200),
-            maximized: true,
-        };
-        repo.save_window_settings(new_settings.clone())
-            .await
-            .unwrap();
-
-        // 更新結果を検証
-        let settings = repo.get_window_settings().await.unwrap();
-        assert_eq!(settings.width, 1024);
-        assert_eq!(settings.height, 768);
-        assert_eq!(settings.x, Some(100));
-        assert_eq!(settings.y, Some(200));
-        assert!(settings.maximized);
     }
 
     #[tokio::test]
@@ -2549,52 +1866,6 @@ mod tests {
         // クリア後、未パースのメールは再び3件になる
         let emails = repo.get_unparsed_emails(10).await.unwrap();
         assert_eq!(emails.len(), 3);
-    }
-
-    #[tokio::test]
-    async fn test_parse_metadata_repository_get_and_update_batch_size() {
-        let pool = setup_test_db().await;
-        let repo = SqliteParseMetadataRepository::new(pool.clone());
-
-        // 初期値確認
-        let metadata = repo.get_parse_metadata().await.unwrap();
-        assert_eq!(metadata.parse_status, "idle");
-        assert_eq!(metadata.total_parsed_count, 0);
-        assert_eq!(metadata.batch_size, 100);
-
-        // バッチサイズ更新
-        repo.update_batch_size(200).await.unwrap();
-
-        // 更新結果を検証
-        let metadata = repo.get_parse_metadata().await.unwrap();
-        assert_eq!(metadata.batch_size, 200);
-    }
-
-    #[tokio::test]
-    async fn test_parse_metadata_repository_update_and_reset_status() {
-        let pool = setup_test_db().await;
-        let repo = SqliteParseMetadataRepository::new(pool.clone());
-
-        // ステータス更新
-        repo.update_parse_status(
-            "running",
-            Some("2024-01-01T10:00:00Z".to_string()),
-            None,
-            Some(10),
-            None,
-        )
-        .await
-        .unwrap();
-
-        let metadata = repo.get_parse_metadata().await.unwrap();
-        assert_eq!(metadata.parse_status, "running");
-        assert_eq!(metadata.total_parsed_count, 10);
-        assert!(metadata.last_parse_started_at.is_some());
-
-        // リセットでidleに戻る
-        repo.reset_parse_status().await.unwrap();
-        let metadata = repo.get_parse_metadata().await.unwrap();
-        assert_eq!(metadata.parse_status, "idle");
     }
 
     #[tokio::test]

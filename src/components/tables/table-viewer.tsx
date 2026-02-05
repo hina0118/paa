@@ -21,6 +21,7 @@ import {
   ChevronRight,
   ChevronUp,
   RefreshCw,
+  Database,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { sanitizeTableName } from '@/lib/database';
@@ -257,8 +258,13 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
 
   if (loading && data.length === 0) {
     return (
-      <div className="p-8">
-        <h1 className="text-3xl font-bold mb-6">{title}</h1>
+      <div className="container mx-auto py-10 px-6">
+        <div className="mb-8 flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-primary/10">
+            <Database className="h-6 w-6 text-primary" />
+          </div>
+          <h1 className="text-3xl font-bold tracking-tight">{title}</h1>
+        </div>
         <div className="flex items-center justify-center h-64">
           <div className="text-muted-foreground">読み込み中...</div>
         </div>
@@ -268,8 +274,13 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
 
   if (error) {
     return (
-      <div className="p-8">
-        <h1 className="text-3xl font-bold mb-6">{title}</h1>
+      <div className="container mx-auto py-10 px-6">
+        <div className="mb-8 flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-primary/10">
+            <Database className="h-6 w-6 text-primary" />
+          </div>
+          <h1 className="text-3xl font-bold tracking-tight">{title}</h1>
+        </div>
         <div className="flex items-center justify-center h-64">
           <div className="text-destructive">エラー: {error}</div>
         </div>
@@ -278,9 +289,14 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
   }
 
   return (
-    <div className="p-8">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold">{title}</h1>
+    <div className="container mx-auto py-10 px-6">
+      <div className="mb-8 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-primary/10">
+            <Database className="h-6 w-6 text-primary" />
+          </div>
+          <h1 className="text-3xl font-bold tracking-tight">{title}</h1>
+        </div>
         <div className="flex gap-2">
           <Button
             variant="outline"

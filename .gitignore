@@ -111,6 +111,7 @@ client_secret.json
 # Test coverage
 coverage/
 coverage-e2e/
+coverage.json
 *.profraw
 *.profdata
 .nyc_output/

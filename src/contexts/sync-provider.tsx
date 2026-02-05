@@ -112,6 +112,26 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const updateMaxResultsPerPage = async (maxResultsPerPage: number) => {
+    try {
+      await invoke('update_max_results_per_page', { maxResultsPerPage });
+      await refreshStatus();
+    } catch (error) {
+      console.error('Failed to update max results per page:', error);
+      throw error;
+    }
+  };
+
+  const updateTimeoutMinutes = async (timeoutMinutes: number) => {
+    try {
+      await invoke('update_timeout_minutes', { timeoutMinutes });
+      await refreshStatus();
+    } catch (error) {
+      console.error('Failed to update timeout minutes:', error);
+      throw error;
+    }
+  };
+
   return (
     <SyncContext.Provider
       value={{
@@ -123,6 +143,8 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         refreshStatus,
         updateBatchSize,
         updateMaxIterations,
+        updateMaxResultsPerPage,
+        updateTimeoutMinutes,
       }}
     >
       {children}

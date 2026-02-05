@@ -8,7 +8,12 @@ export interface SyncMetadata {
   batch_size: number;
   last_sync_started_at?: string;
   last_sync_completed_at?: string;
+  last_error_message?: string | null;
   max_iterations: number;
+  /** Gmail API の1ページあたり取得件数（最大500） */
+  max_results_per_page: number;
+  /** 同期処理のタイムアウト（分） */
+  timeout_minutes: number;
 }
 
 export interface SyncContextType {
@@ -21,6 +26,8 @@ export interface SyncContextType {
   refreshStatus: () => Promise<void>;
   updateBatchSize: (size: number) => Promise<void>;
   updateMaxIterations: (maxIterations: number) => Promise<void>;
+  updateMaxResultsPerPage: (maxResultsPerPage: number) => Promise<void>;
+  updateTimeoutMinutes: (timeoutMinutes: number) => Promise<void>;
 }
 
 export const SyncContext = createContext<SyncContextType | undefined>(

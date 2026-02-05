@@ -3,9 +3,9 @@ import { DatabaseManager } from '@/lib/database';
 import { Orders } from '@/components/screens/orders';
 import { Sidebar } from '@/components/layout/sidebar';
 import { Dashboard } from '@/components/screens/dashboard';
-import { Sync } from '@/components/screens/sync';
-import { Parse } from '@/components/screens/parse';
+import { Batch } from '@/components/screens/batch';
 import { Logs } from '@/components/screens/logs';
+import { ApiKeys } from '@/components/screens/api-keys';
 import { Settings } from '@/components/screens/settings';
 import { ShopSettings } from '@/components/screens/shop-settings';
 import {
@@ -18,10 +18,6 @@ import {
   OrderEmailsTable,
   OrderHtmlsTable,
   ShopSettingsTable,
-  SyncMetadataTable,
-  WindowSettingsTable,
-  ParseMetadataTable,
-  ParseSkippedTable,
   ProductMasterTable,
 } from '@/components/screens/tables';
 import { NavigationProvider } from '@/contexts/navigation-provider';
@@ -42,14 +38,14 @@ function AppContent() {
         return <Dashboard />;
       case 'orders':
         return <Orders />;
-      case 'sync':
-        return <Sync />;
-      case 'parse':
-        return <Parse />;
+      case 'batch':
+        return <Batch />;
       case 'logs':
         return <Logs />;
       case 'shop-settings':
         return <ShopSettings />;
+      case 'api-keys':
+        return <ApiKeys />;
       case 'settings':
         return <Settings />;
       case 'table-emails':
@@ -66,18 +62,10 @@ function AppContent() {
         return <HtmlsTable />;
       case 'table-order-emails':
         return <OrderEmailsTable />;
-      case 'table-parse-skipped':
-        return <ParseSkippedTable />;
       case 'table-order-htmls':
         return <OrderHtmlsTable />;
       case 'table-shop-settings':
         return <ShopSettingsTable />;
-      case 'table-sync-metadata':
-        return <SyncMetadataTable />;
-      case 'table-window-settings':
-        return <WindowSettingsTable />;
-      case 'table-parse-metadata':
-        return <ParseMetadataTable />;
       case 'table-product-master':
         return <ProductMasterTable />;
       default:

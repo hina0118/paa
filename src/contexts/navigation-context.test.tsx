@@ -24,14 +24,14 @@ describe('NavigationContext', () => {
     expect(result.current.currentScreen).toBe('dashboard');
   });
 
-  it('allows changing to sync screen', () => {
+  it('allows changing to batch screen', () => {
     const { result } = renderHook(() => useNavigation(), { wrapper });
 
     act(() => {
-      result.current.setCurrentScreen('sync');
+      result.current.setCurrentScreen('batch');
     });
 
-    expect(result.current.currentScreen).toBe('sync');
+    expect(result.current.currentScreen).toBe('batch');
   });
 
   it('allows changing to settings screen', () => {
@@ -75,9 +75,9 @@ describe('NavigationContext', () => {
     expect(result.current.currentScreen).toBe('dashboard');
 
     act(() => {
-      result.current.setCurrentScreen('sync');
+      result.current.setCurrentScreen('batch');
     });
-    expect(result.current.currentScreen).toBe('sync');
+    expect(result.current.currentScreen).toBe('batch');
 
     act(() => {
       result.current.setCurrentScreen('settings');

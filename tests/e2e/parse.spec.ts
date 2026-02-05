@@ -1,15 +1,17 @@
 import { test, expect } from './fixtures';
 import { navigateToScreen, expectSidebarVisible } from './helpers';
 
-test.describe('Parse画面', () => {
+test.describe('Parse画面（Batch内）', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await expectSidebarVisible(page);
-    await navigateToScreen(page, 'Parse');
+    await navigateToScreen(page, 'Batch');
   });
 
-  test('Parse画面が表示される', async ({ page }) => {
-    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  test('パースセクションが表示される', async ({ page }) => {
+    await expect(
+      page.getByRole('heading', { name: '2. メールパース' })
+    ).toBeVisible();
   });
 
   test('パースを開始ボタンが表示される', async ({ page }) => {

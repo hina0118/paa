@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { ScrollText } from 'lucide-react';
 import {
   Card,
   CardContent,
@@ -93,9 +94,16 @@ export function Logs() {
 
   return (
     <div className="flex flex-col h-screen">
-      <div className="container mx-auto py-6 space-y-4 flex-shrink-0">
-        <div className="flex justify-between items-center">
-          <h1 className="text-3xl font-bold">ログビューアー</h1>
+      <div className="container mx-auto py-10 px-6 space-y-4 flex-shrink-0">
+        <div className="mb-8 flex justify-between items-start">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-primary/10">
+              <ScrollText className="h-6 w-6 text-primary" />
+            </div>
+            <h1 className="text-3xl font-bold tracking-tight">
+              ログビューアー
+            </h1>
+          </div>
           <div className="flex gap-2">
             <Button
               variant={autoRefresh ? 'default' : 'outline'}
@@ -166,7 +174,7 @@ export function Logs() {
         </div>
       </div>
 
-      <div className="container mx-auto pb-6 flex-1 flex flex-col min-h-0">
+      <div className="container mx-auto px-6 pb-6 flex-1 flex flex-col min-h-0">
         <Card className="flex-1 flex flex-col min-h-0">
           <CardHeader className="flex-shrink-0">
             <CardTitle>ログ一覧</CardTitle>
