@@ -299,7 +299,7 @@ describe('Sync', () => {
   it('displays completion message when progress is complete without error', async () => {
     let progressCallback: ((e: { payload: unknown }) => void) | null = null;
     mockListen.mockImplementation((event: string, cb: (e: unknown) => void) => {
-      if (event === 'sync-progress') {
+      if (event === 'batch-progress') {
         progressCallback = cb as (e: { payload: unknown }) => void;
       }
       return Promise.resolve(() => {});
@@ -321,10 +321,14 @@ describe('Sync', () => {
     await act(async () => {
       progressCallback?.({
         payload: {
+          task_name: 'メール同期',
           batch_number: 1,
           batch_size: 50,
-          total_synced: 100,
-          newly_saved: 95,
+          total_items: 100,
+          processed_count: 100,
+          success_count: 95,
+          failed_count: 5,
+          progress_percent: 100,
           status_message: 'Complete',
           is_complete: true,
           error: undefined,

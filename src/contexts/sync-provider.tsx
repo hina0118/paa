@@ -1,15 +1,16 @@
 import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
+import { type SyncMetadata, SyncContext } from './sync-context-value';
 import {
-  type SyncProgress,
-  type SyncMetadata,
-  SyncContext,
-} from './sync-context-value';
+  type BatchProgress,
+  BATCH_PROGRESS_EVENT,
+  TASK_NAMES,
+} from './batch-progress-types';
 
 export function SyncProvider({ children }: { children: ReactNode }) {
   const [isSyncing, setIsSyncing] = useState(false);
-  const [progress, setProgress] = useState<SyncProgress | null>(null);
+  const [progress, setProgress] = useState<BatchProgress | null>(null);
   const [metadata, setMetadata] = useState<SyncMetadata | null>(null);
 
   const refreshStatus = useCallback(async () => {
@@ -22,9 +23,16 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // 共通イベント（batch-progress）をリッスン
   useEffect(() => {
-    const unlisten = listen<SyncProgress>('sync-progress', (event) => {
+    const unlisten = listen<BatchProgress>(BATCH_PROGRESS_EVENT, (event) => {
       const data = event.payload;
+
+      // メール同期のイベントのみ処理
+      if (data.task_name !== TASK_NAMES.GMAIL_SYNC) {
+        return;
+      }
+
       setProgress(data);
 
       if (data.is_complete) {

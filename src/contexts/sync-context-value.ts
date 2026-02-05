@@ -1,15 +1,5 @@
 import { createContext } from 'react';
-
-export interface SyncProgress {
-  batch_number: number;
-  batch_size: number;
-  total_synced: number;
-  /** INSERT または ON CONFLICT DO UPDATE で保存された件数（新規のみではない） */
-  newly_saved: number;
-  status_message: string;
-  is_complete: boolean;
-  error?: string;
-}
+import type { BatchProgress } from './batch-progress-types';
 
 export interface SyncMetadata {
   sync_status: 'idle' | 'syncing' | 'paused' | 'error';
@@ -23,7 +13,8 @@ export interface SyncMetadata {
 
 export interface SyncContextType {
   isSyncing: boolean;
-  progress: SyncProgress | null;
+  /** 共通の進捗型 */
+  progress: BatchProgress | null;
   metadata: SyncMetadata | null;
   startSync: () => Promise<void>;
   cancelSync: () => Promise<void>;

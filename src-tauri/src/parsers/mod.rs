@@ -1,3 +1,4 @@
+use crate::batch_runner::BatchProgressEvent;
 use crate::logic::email_parser::extract_domain;
 use crate::logic::sync_logic::extract_email_address;
 use crate::repository::{
@@ -10,6 +11,9 @@ use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, SqlitePool};
 use std::sync::{Arc, Mutex};
 use tauri::Emitter;
+
+// 定数はemail_parse_taskモジュールからエクスポート
+pub use email_parse_task::{EMAIL_PARSE_EVENT_NAME, EMAIL_PARSE_TASK_NAME};
 
 /// パース対象メールの情報（get_unparsed_emails の戻り値）
 #[derive(Debug, Clone, FromRow)]
@@ -32,6 +36,12 @@ pub mod hobbysearch_change_yoyaku;
 pub mod hobbysearch_confirm;
 pub mod hobbysearch_confirm_yoyaku;
 pub mod hobbysearch_send;
+
+// BatchTask 実装
+pub mod email_parse_task;
+pub use email_parse_task::{
+    EmailParseContext, EmailParseInput, EmailParseOutput, EmailParseTask, ShopSettingsCache,
+};
 
 /// パース状態管理
 #[derive(Clone)]
@@ -236,19 +246,6 @@ pub struct ParseMetadata {
     pub batch_size: i64,
 }
 
-/// パース進捗イベント
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ParseProgressEvent {
-    pub batch_number: usize,
-    pub total_emails: usize,
-    pub parsed_count: usize,
-    pub success_count: usize,
-    pub failed_count: usize,
-    pub status_message: String,
-    pub is_complete: bool,
-    pub error: Option<String>,
-}
-
 /// バッチパース処理（メールから注文情報を抽出）
 /// NOTE: 商品名のAI解析（Gemini API）は別コマンド start_product_name_parse で実行
 pub async fn batch_parse_emails(
@@ -327,17 +324,14 @@ pub async fn batch_parse_emails(
             parse_state.finish();
 
             // キャンセルイベントを送信
-            let cancel_event = ParseProgressEvent {
-                batch_number: iteration,
-                total_emails: total_email_count as usize,
-                parsed_count: overall_parsed_count,
-                success_count: overall_success_count,
-                failed_count: overall_failed_count,
-                status_message: "パースがキャンセルされました".to_string(),
-                is_complete: true,
-                error: Some("Cancelled by user".to_string()),
-            };
-            let _ = app_handle.emit("parse-progress", cancel_event);
+            let cancel_event = BatchProgressEvent::cancelled(
+                EMAIL_PARSE_TASK_NAME,
+                total_email_count as usize,
+                overall_parsed_count,
+                overall_success_count,
+                overall_failed_count,
+            );
+            let _ = app_handle.emit(EMAIL_PARSE_EVENT_NAME, cancel_event);
 
             // ステータスをidleに戻す
             let parse_metadata_repo = SqliteParseMetadataRepository::new(pool.clone());
@@ -560,21 +554,21 @@ pub async fn batch_parse_emails(
         overall_success_count += success_count;
         overall_failed_count += failed_count;
 
-        let progress = ParseProgressEvent {
-            batch_number: iteration,
-            total_emails: total_email_count as usize,
-            parsed_count: overall_parsed_count,
-            success_count: overall_success_count,
-            failed_count: overall_failed_count,
-            status_message: format!(
+        let progress = BatchProgressEvent::progress(
+            EMAIL_PARSE_TASK_NAME,
+            iteration,
+            batch_email_count,
+            total_email_count as usize,
+            overall_parsed_count,
+            overall_success_count,
+            overall_failed_count,
+            format!(
                 "パース中... ({}/{})",
                 overall_parsed_count, total_email_count
             ),
-            is_complete: false,
-            error: None,
-        };
+        );
 
-        let _ = app_handle.emit("parse-progress", progress);
+        let _ = app_handle.emit(EMAIL_PARSE_EVENT_NAME, progress);
 
         log::info!(
             "Iteration {} completed: success={}, failed={}",
@@ -585,21 +579,18 @@ pub async fn batch_parse_emails(
     }
 
     // 完了イベントを送信
-    let final_progress = ParseProgressEvent {
-        batch_number: iteration,
-        total_emails: total_email_count as usize,
-        parsed_count: overall_parsed_count,
-        success_count: overall_success_count,
-        failed_count: overall_failed_count,
-        status_message: format!(
+    let final_progress = BatchProgressEvent::complete(
+        EMAIL_PARSE_TASK_NAME,
+        total_email_count as usize,
+        overall_success_count,
+        overall_failed_count,
+        format!(
             "パース完了: 成功 {}, 失敗 {}",
             overall_success_count, overall_failed_count
         ),
-        is_complete: true,
-        error: None,
-    };
+    );
 
-    let _ = app_handle.emit("parse-progress", final_progress);
+    let _ = app_handle.emit(EMAIL_PARSE_EVENT_NAME, final_progress);
 
     // メタデータを更新
     parse_metadata_repo
@@ -857,41 +848,6 @@ mod tests {
         assert_eq!(metadata.batch_size, 100);
     }
 
-    #[test]
-    fn test_parse_progress_event_structure() {
-        let event = ParseProgressEvent {
-            batch_number: 1,
-            total_emails: 100,
-            parsed_count: 50,
-            success_count: 45,
-            failed_count: 5,
-            status_message: "Processing...".to_string(),
-            is_complete: false,
-            error: None,
-        };
-
-        assert_eq!(event.batch_number, 1);
-        assert_eq!(event.total_emails, 100);
-        assert!(!event.is_complete);
-    }
-
-    #[test]
-    fn test_parse_progress_event_with_error() {
-        let event = ParseProgressEvent {
-            batch_number: 2,
-            total_emails: 100,
-            parsed_count: 30,
-            success_count: 25,
-            failed_count: 5,
-            status_message: "Error occurred".to_string(),
-            is_complete: true,
-            error: Some("Database connection failed".to_string()),
-        };
-
-        assert!(event.is_complete);
-        assert!(event.error.is_some());
-    }
-
     // ==================== Serialization Tests ====================
 
     #[test]
@@ -930,26 +886,6 @@ mod tests {
 
         assert_eq!(deserialized.parse_status, "running");
         assert_eq!(deserialized.total_parsed_count, 50);
-    }
-
-    #[test]
-    fn test_parse_progress_event_serialization() {
-        let event = ParseProgressEvent {
-            batch_number: 5,
-            total_emails: 500,
-            parsed_count: 250,
-            success_count: 240,
-            failed_count: 10,
-            status_message: "Half done".to_string(),
-            is_complete: false,
-            error: None,
-        };
-
-        let json = serde_json::to_string(&event).unwrap();
-        let deserialized: ParseProgressEvent = serde_json::from_str(&json).unwrap();
-
-        assert_eq!(deserialized.batch_number, 5);
-        assert_eq!(deserialized.success_count, 240);
     }
 
     #[test]

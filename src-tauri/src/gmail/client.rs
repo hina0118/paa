@@ -8,9 +8,14 @@
 //! - **メトリクスのみ**: ログに出力できるのは文字数、件数、処理時間などの統計情報のみ
 //! - **本番環境**: リリースビルドではWarnレベル以上のログのみが出力されます
 
+use crate::batch_runner::BatchProgressEvent;
 use crate::gmail_client::GmailClientTrait;
 use crate::logic::sync_logic::{build_sync_query, extract_sender_addresses};
 use crate::repository::{EmailRepository, ShopSettingsRepository};
+
+/// メール同期のタスク名とイベント名
+const GMAIL_SYNC_TASK_NAME: &str = "メール同期";
+const GMAIL_SYNC_EVENT_NAME: &str = "batch-progress";
 use async_trait::async_trait;
 use google_gmail1::{hyper_rustls, Gmail};
 use hyper_util::client::legacy::connect::HttpConnector;
@@ -75,18 +80,6 @@ pub struct FetchResult {
     pub fetched_count: usize,
     pub saved_count: usize,
     pub skipped_count: usize,
-}
-
-#[derive(Debug, Serialize, Clone)]
-pub struct SyncProgressEvent {
-    pub batch_number: usize,
-    pub batch_size: usize,
-    pub total_synced: usize,
-    /// INSERT または ON CONFLICT DO UPDATE で保存された件数（重複の更新も含む。「新規のみ」ではない）
-    pub newly_saved: usize,
-    pub status_message: String,
-    pub is_complete: bool,
-    pub error: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -249,7 +242,7 @@ pub struct SyncGuard<'a> {
 }
 
 impl<'a> SyncGuard<'a> {
-    const fn new(sync_state: &'a SyncState) -> Self {
+    pub const fn new(sync_state: &'a SyncState) -> Self {
         Self { sync_state }
     }
 }
@@ -1100,19 +1093,20 @@ pub async fn sync_gmail_incremental_with_client(
 
         next_page_token = fetched_next_token;
         // Emit progress event
-        let progress = SyncProgressEvent {
+        let progress = BatchProgressEvent::progress(
+            GMAIL_SYNC_TASK_NAME,
             batch_number,
-            batch_size: messages_len,
-            total_synced: total_synced as usize,
-            newly_saved: result.saved_count,
-            status_message: format!(
-                "Batch {} complete: {} emails saved (inserted or updated)",
+            messages_len,
+            total_synced as usize, // メール同期では total_items = total_synced（事前に全体数がわからないため）
+            total_synced as usize,
+            result.saved_count,
+            0, // 同期ではfailed_countは使用しない
+            format!(
+                "バッチ {} 完了: {} 件保存",
                 batch_number, result.saved_count
             ),
-            is_complete: false,
-            error: None,
-        };
-        if let Err(e) = app_handle.emit("sync-progress", progress) {
+        );
+        if let Err(e) = app_handle.emit(GMAIL_SYNC_EVENT_NAME, progress) {
             let _ = email_repo.update_sync_error_status().await;
             return Err(format!("Failed to emit progress: {e}"));
         }
@@ -1134,20 +1128,24 @@ pub async fn sync_gmail_incremental_with_client(
     }
 
     // Emit completion event
-    let completion = SyncProgressEvent {
-        batch_number,
-        batch_size: 0,
-        total_synced: total_synced as usize,
-        newly_saved: 0,
-        status_message: if sync_state.should_stop() {
-            "Sync cancelled by user".to_string()
-        } else {
-            "Sync completed successfully".to_string()
-        },
-        is_complete: true,
-        error: None,
+    let completion = if sync_state.should_stop() {
+        BatchProgressEvent::cancelled(
+            GMAIL_SYNC_TASK_NAME,
+            total_synced as usize,
+            total_synced as usize,
+            total_synced as usize,
+            0,
+        )
+    } else {
+        BatchProgressEvent::complete(
+            GMAIL_SYNC_TASK_NAME,
+            total_synced as usize,
+            total_synced as usize,
+            0,
+            "同期が正常に完了しました".to_string(),
+        )
     };
-    if let Err(e) = app_handle.emit("sync-progress", completion) {
+    if let Err(e) = app_handle.emit(GMAIL_SYNC_EVENT_NAME, completion) {
         return Err(format!("Failed to emit completion: {e}"));
     }
 
@@ -1700,26 +1698,6 @@ mod tests {
     }
 
     #[test]
-    fn test_sync_progress_event_structure() {
-        let event = SyncProgressEvent {
-            batch_number: 5,
-            batch_size: 50,
-            total_synced: 250,
-            newly_saved: 45,
-            status_message: "Batch 5 complete".to_string(),
-            is_complete: false,
-            error: None,
-        };
-
-        assert_eq!(event.batch_number, 5);
-        assert_eq!(event.batch_size, 50);
-        assert_eq!(event.total_synced, 250);
-        assert_eq!(event.newly_saved, 45);
-        assert!(!event.is_complete);
-        assert!(event.error.is_none());
-    }
-
-    #[test]
     fn test_sync_metadata_structure() {
         let metadata = SyncMetadata {
             sync_status: "idle".to_string(),
@@ -2249,23 +2227,6 @@ mod tests {
     }
 
     #[test]
-    fn test_sync_progress_event_with_error() {
-        let event = SyncProgressEvent {
-            batch_number: 3,
-            batch_size: 50,
-            total_synced: 100,
-            newly_saved: 0,
-            status_message: "Error occurred".to_string(),
-            is_complete: true,
-            error: Some("Network timeout".to_string()),
-        };
-
-        assert!(event.is_complete);
-        assert!(event.error.is_some());
-        assert_eq!(event.error.unwrap(), "Network timeout");
-    }
-
-    #[test]
     fn test_sync_metadata_default_values() {
         let metadata = SyncMetadata {
             sync_status: "idle".to_string(),
@@ -2782,24 +2743,6 @@ mod tests {
         assert!(body_plain.is_some());
         assert!(body_plain.as_ref().unwrap().contains('\u{FFFD}'));
         assert_eq!(body_html, None);
-    }
-
-    #[test]
-    fn test_sync_progress_event_serialization() {
-        // SyncProgressEventがシリアライズ可能であることを確認
-        let event = SyncProgressEvent {
-            batch_number: 1,
-            batch_size: 50,
-            total_synced: 100,
-            newly_saved: 50,
-            status_message: "Progress".to_string(),
-            is_complete: false,
-            error: None,
-        };
-
-        let json = serde_json::to_string(&event).unwrap();
-        assert!(json.contains("\"batch_number\":1"));
-        assert!(json.contains("\"total_synced\":100"));
     }
 
     // ==================== sync_gmail_incremental_with_client Error Handling Tests ====================
