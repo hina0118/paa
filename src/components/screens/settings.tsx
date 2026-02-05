@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { Settings as SettingsIcon } from 'lucide-react';
 import { useSync } from '@/contexts/use-sync';
 import { useParse } from '@/contexts/use-parse';
 import {
@@ -247,8 +248,15 @@ export function Settings() {
   };
 
   return (
-    <div className="container mx-auto py-10 space-y-6">
-      <h1 className="text-3xl font-bold">設定</h1>
+    <div className="container mx-auto py-10 px-6 space-y-6">
+      <div className="mb-8 space-y-2">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-primary/10">
+            <SettingsIcon className="h-6 w-6 text-primary" />
+          </div>
+          <h1 className="text-3xl font-bold tracking-tight">設定</h1>
+        </div>
+      </div>
 
       {successMessage && (
         <div
