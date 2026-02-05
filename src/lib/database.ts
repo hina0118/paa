@@ -1,5 +1,5 @@
 import Database from '@tauri-apps/plugin-sql';
-import { appDataDir, join } from '@tauri-apps/api/path';
+import { appConfigDir, join } from '@tauri-apps/api/path';
 import { createE2EMockDb } from './e2e-mock-db';
 
 // Re-export for backward compatibility (table-viewer, etc.)
@@ -119,8 +119,10 @@ export class DatabaseManager {
         return mockDb;
       }
 
-      const appDataDirPath = await appDataDir();
-      const dbPath = await join(appDataDirPath, 'paa_data.db');
+      // DB は app_config_dir に配置。画像は app_data_dir (useImageUrl, assetProtocol) のまま。
+      // 設計意図: 設定系データ(DB)とユーザーデータ(画像)を分離し、それぞれ一貫したパスで管理。
+      const appConfigDirPath = await appConfigDir();
+      const dbPath = await join(appConfigDirPath, 'paa_data.db');
       const db = await Database.load(`sqlite:${dbPath}`);
 
       // Check again if we started closing while initializing

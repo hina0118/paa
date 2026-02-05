@@ -43,6 +43,7 @@ cargo install cargo-llvm-cov
 #### 基本的な使用方法
 
 HTMLレポート生成：
+
 ```bash
 cargo llvm-cov --all-features --workspace --html
 ```
@@ -50,16 +51,19 @@ cargo llvm-cov --all-features --workspace --html
 HTMLレポートは `target/llvm-cov/html/index.html` に生成されます。
 
 テキスト形式でコンソール出力：
+
 ```bash
 cargo llvm-cov --all-features --workspace
 ```
 
 LCOV形式（CI/CDで使用）：
+
 ```bash
 cargo llvm-cov --all-features --workspace --lcov --output-path coverage.lcov
 ```
 
 JSON形式：
+
 ```bash
 cargo llvm-cov --all-features --workspace --json --output-path coverage.json
 ```
@@ -67,11 +71,13 @@ cargo llvm-cov --all-features --workspace --json --output-path coverage.json
 #### 簡易スクリプト
 
 PowerShell（Windows）:
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File coverage.ps1
 ```
 
 Git Bash:
+
 ```bash
 bash coverage.sh
 ```
@@ -79,16 +85,19 @@ bash coverage.sh
 #### よく使うコマンド
 
 古いカバレッジデータをクリーンアップ：
+
 ```bash
 cargo llvm-cov clean
 ```
 
 特定のテストのみでカバレッジ計測：
+
 ```bash
 cargo llvm-cov --html --test gmail_tests
 ```
 
 カバレッジ閾値チェック：
+
 ```bash
 cargo llvm-cov --fail-under-lines 85
 ```
@@ -105,12 +114,14 @@ cargo llvm-cov --fail-under-lines 85
 ## 現在のテストケース
 
 ### gmail.rs のテスト
+
 - `test_gmail_message_structure` - GmailMessage構造体のテスト
 - `test_fetch_result_structure` - FetchResult構造体のテスト
 - `test_sync_state_*` - 同期状態管理のテスト（7件）
 - `test_save_messages_to_db_*` - データベース保存機能のテスト（5件）
 
 ### lib.rs のテスト
+
 - `test_greet` - greet関数の基本動作
 - `test_greet_empty` - 空文字列の処理
 - `test_greet_special_characters` - 特殊文字（日本語）の処理
@@ -143,7 +154,7 @@ GitHub ActionsなどのCI環境では、以下のようにカバレッジを計�
 現在のカバレッジを向上させるため、以下の領域のテストを追加することを推奨します：
 
 1. **GmailClient** - Gmail APIとの通信処理（モック使用）
-2. **sync_gmail_incremental** - 増分同期ロジック
+2. **BatchRunner<GmailSyncTask>** - メール同期ロジック（start_sync 経由）
 3. **エラーハンドリング** - 各種エラーケースの処理
 4. **Tauriコマンド** - フロントエンドからの呼び出し（統合テスト）
 
