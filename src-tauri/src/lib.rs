@@ -653,7 +653,7 @@ pub fn run() {
 
             log::info!("Database path: {}", db_path.display());
 
-            // tauri-plugin-sqlを登録（preloadで起動時にマイグレーション実行、キーは "sqlite:paa_data.db"）
+            // tauri-plugin-sqlを登録。preload の "sqlite:paa_data.db" は app_config_dir 基準で解決される（Tauri SQL プラグイン仕様）。
             app.handle().plugin(
                 tauri_plugin_sql::Builder::default()
                     .add_migrations("sqlite:paa_data.db", migrations)
