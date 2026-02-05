@@ -433,8 +433,7 @@ where
                     }
                 }
                 Err(e) => {
-                    // パース失敗: エラーメッセージからemail_idを抽出できないため、
-                    // BatchRunnerがすでに失敗をカウントしているのでここではログのみ
+                    // パース失敗: BatchRunnerがすでに失敗をカウントしているのでここではログのみ
                     log::debug!("[{}] Parse failed: {}", self.name(), e);
                 }
             }

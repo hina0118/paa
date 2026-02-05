@@ -80,6 +80,10 @@ pub trait EmailRepository: Send + Sync {
     /// 既存のメッセージIDを取得
     async fn get_existing_message_ids(&self) -> Result<Vec<String>, String>;
 
+    /// 指定されたメッセージIDのうち、emails テーブルに存在しないもののみを返す。
+    /// メモリ効率のため、SQL の NOT IN を使用して DB 側でフィルタリングする。
+    async fn filter_new_message_ids(&self, message_ids: &[String]) -> Result<Vec<String>, String>;
+
     /// メッセージ数を取得
     async fn get_message_count(&self) -> Result<i64, String>;
 
@@ -1028,6 +1032,64 @@ impl EmailRepository for SqliteEmailRepository {
         Ok(rows.into_iter().map(|(id,)| id).collect())
     }
 
+    async fn filter_new_message_ids(&self, message_ids: &[String]) -> Result<Vec<String>, String> {
+        if message_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // トランザクション内で実行（TEMP テーブルは接続ごとのため、プールでは同一接続を保証する必要がある）
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| format!("Failed to begin transaction: {e}"))?;
+
+        // 一時テーブルを作成
+        sqlx::query(
+            "CREATE TEMP TABLE IF NOT EXISTS temp_filter_ids (message_id TEXT PRIMARY KEY)",
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("Failed to create temp table: {e}"))?;
+
+        // SQLite の SQLITE_MAX_VARIABLE_NUMBER (999) を考慮してチャンク処理
+        const CHUNK_SIZE: usize = 900;
+        let mut new_ids = Vec::new();
+
+        for chunk in message_ids.chunks(CHUNK_SIZE) {
+            sqlx::query("DELETE FROM temp_filter_ids")
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| format!("Failed to clear temp table: {e}"))?;
+
+            // チャンクを一時テーブルに INSERT
+            let mut q = sqlx::QueryBuilder::new("INSERT INTO temp_filter_ids (message_id) ");
+            q.push_values(chunk, |mut b, id| {
+                b.push_bind(id);
+            });
+            q.build()
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| format!("Failed to insert into temp table: {e}"))?;
+
+            // NOT IN でフィルタリング
+            let rows: Vec<(String,)> = sqlx::query_as(
+                "SELECT message_id FROM temp_filter_ids WHERE message_id NOT IN (SELECT message_id FROM emails)",
+            )
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|e| format!("Failed to filter new IDs: {e}"))?;
+
+            new_ids.extend(rows.into_iter().map(|(id,)| id));
+        }
+
+        tx.commit()
+            .await
+            .map_err(|e| format!("Failed to commit transaction: {e}"))?;
+
+        Ok(new_ids)
+    }
+
     async fn get_message_count(&self) -> Result<i64, String> {
         let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM emails")
             .fetch_one(&self.pool)
@@ -1608,7 +1670,6 @@ impl ProductMasterRepository for SqliteProductMasterRepository {
         parsed: &ParsedProduct,
         platform_hint: Option<String>,
     ) -> Result<i64, String> {
-        // Avoid logging user/product data (raw_name, maker, series, name); keep logs metrics-only.
         log::debug!("Saving product_master entry");
 
         let id: i64 = sqlx::query_scalar(
@@ -1999,6 +2060,24 @@ mod tests {
         assert_eq!(ids.len(), 2);
         assert!(ids.contains(&"test123".to_string()));
         assert!(ids.contains(&"test456".to_string()));
+
+        // filter_new_message_ids: 既存IDは除外され、新規IDのみ返る
+        let input_ids = vec![
+            "test123".to_string(),
+            "test456".to_string(),
+            "new_id_1".to_string(),
+            "new_id_2".to_string(),
+        ];
+        let new_ids = repo.filter_new_message_ids(&input_ids).await.unwrap();
+        assert_eq!(new_ids.len(), 2);
+        assert!(new_ids.contains(&"new_id_1".to_string()));
+        assert!(new_ids.contains(&"new_id_2".to_string()));
+        assert!(!new_ids.contains(&"test123".to_string()));
+        assert!(!new_ids.contains(&"test456".to_string()));
+
+        // 空配列の場合は空を返す
+        let empty = repo.filter_new_message_ids(&[]).await.unwrap();
+        assert!(empty.is_empty());
     }
 
     #[tokio::test]

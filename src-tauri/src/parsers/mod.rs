@@ -397,7 +397,7 @@ pub async fn batch_parse_emails(
                 log::debug!(
                     "No parser found for address: {:?} with subject: {:?}",
                     row.from_address.as_deref().unwrap_or("(null)"),
-                    row.subject
+                    row.subject.as_deref(),
                 );
                 parse_repo
                     .mark_parse_skipped(row.email_id, skip_reason)
