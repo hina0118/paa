@@ -23,13 +23,13 @@ import {
 export function Parse() {
   const {
     isParsing,
-    batchProgress,
+    progress,
     metadata,
     startParse,
     cancelParse,
     refreshStatus,
     isProductNameParsing,
-    productNameBatchProgress,
+    productNameProgress,
     startProductNameParse,
     geminiApiKeyStatus,
   } = useParse();
@@ -228,11 +228,11 @@ export function Parse() {
           </p>
 
           {/* Product Name Parse Progress */}
-          {(isProductNameParsing || productNameBatchProgress) &&
-            productNameBatchProgress && (
+          {(isProductNameParsing || productNameProgress) &&
+            productNameProgress && (
               <div className="pt-4 border-t">
                 <BatchProgressBar
-                  progress={productNameBatchProgress}
+                  progress={productNameProgress}
                   completeMessage="商品名解析が完了しました"
                 />
               </div>
@@ -247,15 +247,15 @@ export function Parse() {
       </Card>
 
       {/* Progress Display */}
-      {(isParsing || batchProgress) && (
+      {(isParsing || progress) && (
         <Card>
           <CardHeader>
             <CardTitle>パース進捗</CardTitle>
           </CardHeader>
           <CardContent>
-            {batchProgress && (
+            {progress && (
               <BatchProgressBar
-                progress={batchProgress}
+                progress={progress}
                 completeMessage="パースが完了しました"
               />
             )}
@@ -299,7 +299,7 @@ export function Parse() {
       )}
 
       {/* Error Display */}
-      {(error || batchProgress?.error || metadata?.last_error_message) && (
+      {(error || progress?.error || metadata?.last_error_message) && (
         <Card
           className="border-red-200 bg-red-50"
           data-testid="error-message"
@@ -310,7 +310,7 @@ export function Parse() {
           </CardHeader>
           <CardContent>
             <p className="text-sm text-red-700">
-              {error || batchProgress?.error || metadata?.last_error_message}
+              {error || progress?.error || metadata?.last_error_message}
             </p>
           </CardContent>
         </Card>

@@ -35,7 +35,6 @@ pub use config::{
 
 // BatchTask実装をre-export
 pub use gmail_sync_task::{
-    create_sync_input, fetch_all_message_ids, GmailSyncContext, GmailSyncInput,
-    GmailSyncOutput, GmailSyncTask, ShopSettingsCacheForSync, GMAIL_SYNC_EVENT_NAME,
-    GMAIL_SYNC_TASK_NAME,
+    create_sync_input, fetch_all_message_ids, GmailSyncContext, GmailSyncInput, GmailSyncOutput,
+    GmailSyncTask, ShopSettingsCacheForSync, GMAIL_SYNC_EVENT_NAME, GMAIL_SYNC_TASK_NAME,
 };

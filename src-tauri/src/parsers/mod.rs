@@ -40,8 +40,7 @@ pub mod hobbysearch_send;
 // BatchTask 実装
 pub mod email_parse_task;
 pub use email_parse_task::{
-    EmailParseContext, EmailParseInput, EmailParseOutput, EmailParseTask,
-    ShopSettingsCache,
+    EmailParseContext, EmailParseInput, EmailParseOutput, EmailParseTask, ShopSettingsCache,
 };
 
 /// パース状態管理

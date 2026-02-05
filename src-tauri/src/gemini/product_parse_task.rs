@@ -211,7 +211,11 @@ where
         }
 
         if cache_misses.is_empty() {
-            log::info!("[{}] All {} items were cache hits", self.name(), inputs.len());
+            log::info!(
+                "[{}] All {} items were cache hits",
+                self.name(),
+                inputs.len()
+            );
             return results;
         }
 
@@ -230,8 +234,10 @@ where
 
         // parse_single_chunk は内部で GEMINI_BATCH_SIZE 件まで処理
         // BatchRunner がすでにチャンク分割しているので、ここではそのまま呼び出す
-        let api_results: Option<Vec<ParsedProduct>> =
-            context.gemini_client.parse_single_chunk(&names_to_parse).await;
+        let api_results: Option<Vec<ParsedProduct>> = context
+            .gemini_client
+            .parse_single_chunk(&names_to_parse)
+            .await;
 
         match api_results {
             Some(parsed_products) => {
@@ -244,11 +250,14 @@ where
                     );
                     // フォールバック: エラーとして返す
                     for (idx, input) in &cache_misses {
-                        results[*idx] = Err(format!("API result count mismatch for: {}", input.raw_name));
+                        results[*idx] =
+                            Err(format!("API result count mismatch for: {}", input.raw_name));
                     }
                 } else {
                     // API 結果を results に反映
-                    for ((idx, input), parsed) in cache_misses.iter().zip(parsed_products.into_iter()) {
+                    for ((idx, input), parsed) in
+                        cache_misses.iter().zip(parsed_products.into_iter())
+                    {
                         results[*idx] = Ok(ProductNameParseOutput {
                             input: input.clone(),
                             parsed,
