@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useSync } from '@/contexts/use-sync';
 import { formatDateTime } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
+import { SimpleBatchProgressBar } from '@/components/ui/batch-progress-bar';
 import {
   Card,
   CardContent,
@@ -68,16 +68,6 @@ export function Sync() {
       setError(err instanceof Error ? err.message : String(err));
     }
   };
-
-  const progressPercentage =
-    progress?.total_synced && metadata?.total_synced_count
-      ? Math.min(
-          (progress.total_synced /
-            Math.max(metadata.total_synced_count, progress.total_synced)) *
-            100,
-          100
-        )
-      : 0;
 
   const getStatusBadgeClass = (status?: string) => {
     switch (status) {
@@ -189,17 +179,7 @@ export function Sync() {
           <CardContent className="space-y-4">
             {progress && (
               <>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span>バッチ {progress.batch_number}</span>
-                    <span>{progress.total_synced} 件取得済み</span>
-                  </div>
-                  <Progress value={progressPercentage} />
-                </div>
-
-                <div className="text-sm text-muted-foreground">
-                  {progress.status_message}
-                </div>
+                <SimpleBatchProgressBar progress={progress} />
 
                 {progress.is_complete && !progress.error && (
                   <div

@@ -1,21 +1,21 @@
 import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
+import { type ParseMetadata, ParseContext } from './parse-context-value';
 import {
-  type ParseProgress,
-  type ParseMetadata,
-  type ProductNameParseProgress,
-  ParseContext,
-} from './parse-context-value';
+  type BatchProgress,
+  BATCH_PROGRESS_EVENT,
+  TASK_NAMES,
+} from './batch-progress-types';
 
 export function ParseProvider({ children }: { children: ReactNode }) {
   const [isParsing, setIsParsing] = useState(false);
-  const [progress, setProgress] = useState<ParseProgress | null>(null);
+  const [progress, setProgress] = useState<BatchProgress | null>(null);
   const [metadata, setMetadata] = useState<ParseMetadata | null>(null);
   // 商品名パース (Gemini API)
   const [isProductNameParsing, setIsProductNameParsing] = useState(false);
   const [productNameProgress, setProductNameProgress] =
-    useState<ProductNameParseProgress | null>(null);
+    useState<BatchProgress | null>(null);
   const [geminiApiKeyStatus, setGeminiApiKeyStatus] = useState<
     'checking' | 'available' | 'unavailable' | 'error'
   >('checking');
@@ -41,14 +41,28 @@ export function ParseProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // 共通イベント（batch-progress）をリッスン
   useEffect(() => {
-    const unlisten = listen<ParseProgress>('parse-progress', (event) => {
+    const unlisten = listen<BatchProgress>(BATCH_PROGRESS_EVENT, (event) => {
       const data = event.payload;
-      setProgress(data);
 
-      if (data.is_complete) {
-        setIsParsing(false);
-        refreshStatus();
+      // メールパースのイベント
+      if (data.task_name === TASK_NAMES.EMAIL_PARSE) {
+        setProgress(data);
+
+        if (data.is_complete) {
+          setIsParsing(false);
+          refreshStatus();
+        }
+      }
+
+      // 商品名パースのイベント
+      if (data.task_name === TASK_NAMES.PRODUCT_NAME_PARSE) {
+        setProductNameProgress(data);
+
+        if (data.is_complete) {
+          setIsProductNameParsing(false);
+        }
       }
     });
 
@@ -56,25 +70,6 @@ export function ParseProvider({ children }: { children: ReactNode }) {
       unlisten.then((fn) => fn());
     };
   }, [refreshStatus]);
-
-  // 商品名パース進捗イベントをリッスン
-  useEffect(() => {
-    const unlisten = listen<ProductNameParseProgress>(
-      'product-name-parse-progress',
-      (event) => {
-        const data = event.payload;
-        setProductNameProgress(data);
-
-        if (data.is_complete) {
-          setIsProductNameParsing(false);
-        }
-      }
-    );
-
-    return () => {
-      unlisten.then((fn) => fn());
-    };
-  }, []);
 
   useEffect(() => {
     refreshStatus();

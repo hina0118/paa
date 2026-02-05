@@ -11,11 +11,21 @@ const mockSyncMetadata = {
   batch_size: 50,
 };
 
-const _mockSyncProgress = {
+import {
+  BATCH_PROGRESS_EVENT,
+  TASK_NAMES,
+  type BatchProgress,
+} from './batch-progress-types';
+
+const _mockBatchProgress: BatchProgress = {
+  task_name: TASK_NAMES.GMAIL_SYNC,
   batch_number: 1,
   batch_size: 50,
-  total_synced: 50,
-  newly_saved: 45,
+  total_items: 100,
+  processed_count: 50,
+  success_count: 45,
+  failed_count: 5,
+  progress_percent: 50,
   status_message: 'Batch 1 complete: 45 new emails',
   is_complete: false,
 };
@@ -145,15 +155,12 @@ describe('SyncContext', () => {
     consoleSpy.mockRestore();
   });
 
-  it('handles sync-progress event without is_complete (no refresh)', async () => {
-    let progressCallback:
-      | ((e: { payload: { is_complete: boolean } }) => void)
-      | null = null;
+  it('handles batch-progress event without is_complete (no refresh)', async () => {
+    let progressCallback: ((e: { payload: BatchProgress }) => void) | null =
+      null;
     mockListen.mockImplementation((event: string, cb: (e: unknown) => void) => {
-      if (event === 'sync-progress') {
-        progressCallback = cb as (e: {
-          payload: { is_complete: boolean };
-        }) => void;
+      if (event === BATCH_PROGRESS_EVENT) {
+        progressCallback = cb as (e: { payload: BatchProgress }) => void;
       }
       return Promise.resolve(() => {});
     });
@@ -179,10 +186,14 @@ describe('SyncContext', () => {
     await act(async () => {
       progressCallback?.({
         payload: {
+          task_name: TASK_NAMES.GMAIL_SYNC,
           batch_number: 1,
           batch_size: 50,
-          total_synced: 50,
-          newly_saved: 45,
+          total_items: 100,
+          processed_count: 50,
+          success_count: 45,
+          failed_count: 5,
+          progress_percent: 50,
           status_message: 'In progress',
           is_complete: false,
         },
@@ -193,15 +204,12 @@ describe('SyncContext', () => {
     expect(getSyncStatusCallCount).toBe(countBefore);
   });
 
-  it('handles sync-progress event with is_complete', async () => {
-    let progressCallback:
-      | ((e: { payload: { is_complete: boolean } }) => void)
-      | null = null;
+  it('handles batch-progress event with is_complete', async () => {
+    let progressCallback: ((e: { payload: BatchProgress }) => void) | null =
+      null;
     mockListen.mockImplementation((event: string, cb: (e: unknown) => void) => {
-      if (event === 'sync-progress') {
-        progressCallback = cb as (e: {
-          payload: { is_complete: boolean };
-        }) => void;
+      if (event === BATCH_PROGRESS_EVENT) {
+        progressCallback = cb as (e: { payload: BatchProgress }) => void;
       }
       return Promise.resolve(() => {});
     });
@@ -224,10 +232,14 @@ describe('SyncContext', () => {
     await act(async () => {
       progressCallback?.({
         payload: {
+          task_name: TASK_NAMES.GMAIL_SYNC,
           batch_number: 1,
           batch_size: 50,
-          total_synced: 50,
-          newly_saved: 45,
+          total_items: 100,
+          processed_count: 100,
+          success_count: 95,
+          failed_count: 5,
+          progress_percent: 100,
           status_message: 'Complete',
           is_complete: true,
         },

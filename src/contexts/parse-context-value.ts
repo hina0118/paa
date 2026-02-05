@@ -1,25 +1,5 @@
 import { createContext } from 'react';
-
-export interface ParseProgress {
-  batch_number: number;
-  total_emails: number;
-  parsed_count: number;
-  success_count: number;
-  failed_count: number;
-  status_message: string;
-  is_complete: boolean;
-  error?: string;
-}
-
-export interface ProductNameParseProgress {
-  total_items: number;
-  parsed_count: number;
-  success_count: number;
-  failed_count: number;
-  status_message: string;
-  is_complete: boolean;
-  error?: string;
-}
+import type { BatchProgress } from './batch-progress-types';
 
 export interface ParseMetadata {
   parse_status: 'idle' | 'running' | 'completed' | 'error';
@@ -32,7 +12,8 @@ export interface ParseMetadata {
 
 export interface ParseContextType {
   isParsing: boolean;
-  progress: ParseProgress | null;
+  /** 共通の進捗型 */
+  progress: BatchProgress | null;
   metadata: ParseMetadata | null;
   startParse: (batchSize?: number) => Promise<void>;
   cancelParse: () => Promise<void>;
@@ -40,7 +21,8 @@ export interface ParseContextType {
   updateBatchSize: (size: number) => Promise<void>;
   // 商品名パース (Gemini API)
   isProductNameParsing: boolean;
-  productNameProgress: ProductNameParseProgress | null;
+  /** 共通の進捗型（商品名パース用） */
+  productNameProgress: BatchProgress | null;
   startProductNameParse: () => Promise<void>;
   geminiApiKeyStatus: 'checking' | 'available' | 'unavailable' | 'error';
   hasGeminiApiKey: boolean; // geminiApiKeyStatus === 'available' のエイリアス
