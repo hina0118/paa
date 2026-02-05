@@ -111,6 +111,7 @@ client_secret.json
 # Test coverage
 coverage/
 coverage-e2e/
+coverage-e2e-tauri/
 coverage.json
 *.profraw
 *.profdata
