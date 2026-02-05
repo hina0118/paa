@@ -10,6 +10,7 @@ use tauri_plugin_sql::{Migration, MigrationKind};
 
 pub mod batch_runner;
 pub mod config;
+pub mod e2e_mocks;
 pub mod gemini;
 pub mod gmail;
 pub mod gmail_client;
@@ -22,6 +23,10 @@ use crate::batch_runner::{BatchProgressEvent, BatchRunner};
 use crate::gemini::{
     create_product_parse_input, GeminiClient, ProductNameParseCache, ProductNameParseContext,
     ProductNameParseTask, PRODUCT_NAME_PARSE_EVENT_NAME, PRODUCT_NAME_PARSE_TASK_NAME,
+};
+use crate::e2e_mocks::{
+    is_e2e_mock_mode, E2EMockGmailClient, E2EMockGeminiClient, E2EMockImageSearchClient,
+    GmailClientForE2E, GeminiClientForE2E,
 };
 use crate::gmail::{
     create_sync_input, fetch_all_message_ids, GmailSyncContext, GmailSyncTask,
@@ -137,22 +142,27 @@ async fn start_sync(
             50
         };
 
-        // Gmail クライアントを初期化
-        let gmail_client = match gmail::GmailClient::new(&app_clone).await {
-            Ok(c) => c,
-            Err(e) => {
-                log::error!("Failed to create Gmail client: {}", e);
-                sync_state_clone.set_error(&e);
-                let error_event = BatchProgressEvent::error(
-                    GMAIL_SYNC_TASK_NAME,
-                    0,
-                    0,
-                    0,
-                    0,
-                    format!("Failed to create Gmail client: {}", e),
-                );
-                let _ = app_clone.emit(GMAIL_SYNC_EVENT_NAME, error_event);
-                return;
+        // Gmail クライアントを初期化（E2Eモック時は外部APIを呼ばない）
+        let gmail_client = if is_e2e_mock_mode() {
+            log::info!("Using E2E mock Gmail client");
+            GmailClientForE2E::Mock(E2EMockGmailClient)
+        } else {
+            match gmail::GmailClient::new(&app_clone).await {
+                Ok(c) => GmailClientForE2E::Real(c),
+                Err(e) => {
+                    log::error!("Failed to create Gmail client: {}", e);
+                    sync_state_clone.set_error(&e);
+                    let error_event = BatchProgressEvent::error(
+                        GMAIL_SYNC_TASK_NAME,
+                        0,
+                        0,
+                        0,
+                        0,
+                        format!("Failed to create Gmail client: {}", e),
+                    );
+                    let _ = app_clone.emit(GMAIL_SYNC_EVENT_NAME, error_event);
+                    return;
+                }
             }
         };
 
@@ -230,7 +240,7 @@ async fn start_sync(
 
         // BatchRunner と Context を構築
         let task: GmailSyncTask<
-            gmail::GmailClient,
+            GmailClientForE2E,
             SqliteEmailRepository,
             SqliteShopSettingsRepository,
         > = GmailSyncTask::new();
@@ -1557,14 +1567,20 @@ async fn start_product_name_parse(
         .app_data_dir()
         .map_err(|e| format!("Failed to get app data dir: {e}"))?;
 
-    if !gemini::has_api_key(&app_data_dir) {
-        return Err(
-            "Gemini APIキーが設定されていません。設定画面でAPIキーを設定してください。".to_string(),
-        );
-    }
-
-    let api_key = gemini::load_api_key(&app_data_dir)?;
-    let gemini_client = GeminiClient::new(api_key)?;
+    // E2Eモック時はAPIキー不要
+    let gemini_client = if is_e2e_mock_mode() {
+        log::info!("Using E2E mock Gemini client");
+        GeminiClientForE2E::Mock(E2EMockGeminiClient)
+    } else {
+        if !gemini::has_api_key(&app_data_dir) {
+            return Err(
+                "Gemini APIキーが設定されていません。設定画面でAPIキーを設定してください。"
+                    .to_string(),
+            );
+        }
+        let api_key = gemini::load_api_key(&app_data_dir)?;
+        GeminiClientForE2E::Real(GeminiClient::new(api_key)?)
+    };
     let product_repo = SqliteProductMasterRepository::new(pool.inner().clone());
 
     // 多重実行ガード（初期化成功後にのみ取得）
@@ -1650,7 +1666,7 @@ async fn start_product_name_parse(
         let gemini_delay_ms = (config.gemini.delay_seconds.clamp(0, 60)) as u64 * 1000;
 
         // BatchRunner と Context を構築
-        let task: ProductNameParseTask<GeminiClient, SqliteProductMasterRepository> =
+        let task: ProductNameParseTask<GeminiClientForE2E, SqliteProductMasterRepository> =
             ProductNameParseTask::new();
         let context = ProductNameParseContext {
             gemini_client: Arc::new(gemini_client),
@@ -1746,6 +1762,15 @@ async fn search_product_images(
 ) -> Result<Vec<google_search::ImageSearchResult>, String> {
     use google_search::ImageSearchClientTrait;
 
+    let num = num_results.unwrap_or(10);
+
+    // E2Eモック時は外部APIを呼ばない
+    if is_e2e_mock_mode() {
+        log::info!("Using E2E mock image search");
+        let client = E2EMockImageSearchClient;
+        return client.search_images(&query, num).await;
+    }
+
     let app_data_dir = app_handle
         .path()
         .app_data_dir()
@@ -1760,9 +1785,7 @@ async fn search_product_images(
     let api_key = google_search::load_api_key(&app_data_dir)?;
 
     let client = google_search::SerpApiClient::new(api_key)?;
-    client
-        .search_images(&query, num_results.unwrap_or(10))
-        .await
+    client.search_images(&query, num).await
 }
 
 /// 画像ダウンロード用URLの検証（SSRF対策）
