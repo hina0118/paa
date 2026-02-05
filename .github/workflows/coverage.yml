@@ -195,7 +195,7 @@ jobs:
           RUSTFLAGS: "--cfg ci"
 
       - name: Run E2E tests (Tauri) with coverage
-        run: xvfb-run npm run test:e2e:tauri
+        run: xvfb-run npm run test:e2e:tauri 2>&1 | tee coverage-e2e-tauri-test.log
         env:
           PAA_E2E_COVERAGE: "1"
           RUSTFLAGS: "-Cinstrument-coverage"
@@ -203,22 +203,36 @@ jobs:
       - name: Merge profraw and generate coverage report
         run: |
           PROFRAW_DIR="coverage-e2e-tauri"
-          PROFRAW_FILES=$(find "$PROFRAW_DIR" -name "*.profraw" 2>/dev/null | tr '\n' ' ')
-          if [ -z "$PROFRAW_FILES" ]; then
-            echo "::warning::No profraw files found in $PROFRAW_DIR"
-            exit 0
-          fi
-          LLVM_PROFDATA=$(find "$HOME/.rustup/toolchains" -name "llvm-profdata" 2>/dev/null | head -1)
-          if [ -z "$LLVM_PROFDATA" ]; then
-            echo "::error::llvm-profdata not found"
+          echo "=== coverage-e2e-tauri contents ==="
+          ls -la "$PROFRAW_DIR" 2>/dev/null || echo "Directory not found or empty"
+          find "$PROFRAW_DIR" -name "*.profraw" 2>/dev/null | head -20
+          PROFRAW_COUNT=$(find "$PROFRAW_DIR" -name "*.profraw" 2>/dev/null | wc -l)
+          echo "Profraw file count: $PROFRAW_COUNT"
+          if [ "$PROFRAW_COUNT" -eq 0 ]; then
+            echo "::error::No profraw files found. Build may not have used -Cinstrument-coverage."
             exit 1
           fi
-          "$LLVM_PROFDATA" merge -sparse $PROFRAW_FILES -o "$PROFRAW_DIR/merged.profdata"
+          # cargo llvm-cov report は target/ 内の profraw を参照するためコピー
+          cp "$PROFRAW_DIR"/*.profraw src-tauri/target/ 2>/dev/null || true
           cd src-tauri
-          cargo llvm-cov report --no-run --all-features -C "profile-use=../$PROFRAW_DIR/merged.profdata" --lcov --output-path "../$PROFRAW_DIR/lcov.info"
-          cargo llvm-cov report --no-run --all-features -C "profile-use=../$PROFRAW_DIR/merged.profdata" --text
-        env:
-          RUSTFLAGS: "-Cinstrument-coverage"
+          cargo llvm-cov report --all-features --lcov --output-path "../$PROFRAW_DIR/lcov.info"
+          cargo llvm-cov report --all-features --text
+
+      - name: Upload coverage artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-e2e-tauri-debug
+          path: |
+            coverage-e2e-tauri/
+            coverage-e2e-tauri-test.log
+          retention-days: 14
+
+      - name: Print troubleshooting hint on failure
+        if: failure()
+        run: |
+          echo "::notice::coverage-e2e-tauri が失敗しました。解析手順は docs/COVERAGE_E2E_TAURI_TROUBLESHOOTING.md を参照してください。"
+          echo "::notice::Artifacts から coverage-e2e-tauri-debug をダウンロードして解析できます。"
 
   coverage-status-check:
     name: Coverage Status Check
