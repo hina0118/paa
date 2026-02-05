@@ -113,9 +113,11 @@ export const config = {
     const tauriDriverArgs = nativeDriverPath
       ? ['--native-driver', nativeDriverPath]
       : [];
+    // 外部API（Gmail, Gemini, SerpApi）をモックに置き換える
+    const env = { ...process.env, PAA_E2E_MOCK: '1' };
     tauriDriver = spawn(tauriDriverPath, tauriDriverArgs, {
       stdio: ['ignore', process.stdout, process.stderr],
-      env: { ...process.env },
+      env,
     });
     tauriDriver.on('error', (err) => {
       console.error('tauri-driver error:', err);

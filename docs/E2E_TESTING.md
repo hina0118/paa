@@ -19,6 +19,7 @@ E2Eテストは、実際のブラウザを使用してアプリケーション�
 - **コマンド**: `npm run test:e2e:tauri`
 - **対象**: Tauri アプリを起動し、その WebView を WebDriver で操作。フロント + Rust の両方が動く。
 - **用途**: 設定の保存など Tauri コマンド経由の動作まで含めた E2E 検証。
+- **外部APIモック**: 実行時に `PAA_E2E_MOCK=1` が自動設定され、Gmail・Gemini・SerpApi の実際のAPI呼び出しがモックに置き換わる。CIやローカルで外部依存なしにテスト可能。
 
 ## テストスタック
 
@@ -144,6 +145,11 @@ GitHub Actionsで自動的に実行されます。以下のトリガーで実行
 - Pull Request作成時（main, master, developブランチへのPR）
 - プッシュ時（main, master, developブランチへのプッシュ）
 - 手動実行（workflow_dispatch）
+
+**実行されるE2Eテスト**:
+
+1. **Playwright（フロントのみ）** - `ubuntu-latest` で Vite + Chromium
+2. **Tauri（WebdriverIO + tauri-driver）** - `ubuntu-latest` と `windows-latest` で Tauri アプリ全体
 
 ## テストファイルの構造
 
