@@ -1,5 +1,6 @@
--- 001_init: 統合スキーマ (旧 001-006 をすべて反映)
+-- 001_init: 統合スキーマ
 -- 注: CREATE TABLE IF NOT EXISTS のため、既存DBには適用されない。新規インストール時のみ有効。
+-- sync_metadata, parse_metadata, parse_skipped, window_settings は paa_config.json で管理するため作成しない。
 
 -- -----------------------------------------------------------------------------
 -- emails
@@ -21,7 +22,6 @@ CREATE INDEX IF NOT EXISTS idx_emails_analysis_status ON emails(analysis_status)
 CREATE INDEX IF NOT EXISTS idx_emails_internal_date ON emails(internal_date);
 CREATE INDEX IF NOT EXISTS idx_emails_from_address ON emails(from_address);
 CREATE INDEX IF NOT EXISTS idx_emails_subject ON emails(subject);
--- get_unparsed_emails クエリのパフォーマンス改善（body_plain, from_address が NULL でない行に限定）
 CREATE INDEX IF NOT EXISTS idx_emails_unparsed_filter ON emails(internal_date)
 WHERE body_plain IS NOT NULL AND from_address IS NOT NULL;
 
@@ -95,8 +95,6 @@ END;
 
 -- -----------------------------------------------------------------------------
 -- images (file_name のみ、app_data_dir/images/ に実体保存)
--- item_name_normalized: リレーションキー。正規化商品名で関連付け、パース再実行時も画像を維持
--- 正規化できない商品名（NULL）の item には画像を登録できない
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS images (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -176,61 +174,6 @@ CREATE INDEX IF NOT EXISTS idx_order_htmls_order_id ON order_htmls(order_id);
 CREATE INDEX IF NOT EXISTS idx_order_htmls_html_id ON order_htmls(html_id);
 
 -- -----------------------------------------------------------------------------
--- parse_skipped（パース失敗メールの記録、無限ループ防止）
--- -----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS parse_skipped (
-    email_id INTEGER PRIMARY KEY,
-    error_message TEXT,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE
-);
-
--- -----------------------------------------------------------------------------
--- sync_metadata
--- -----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS sync_metadata (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    oldest_fetched_date TEXT,
-    sync_status TEXT NOT NULL DEFAULT 'idle' CHECK(sync_status IN ('idle', 'syncing', 'paused', 'error')),
-    total_synced_count INTEGER NOT NULL DEFAULT 0,
-    batch_size INTEGER NOT NULL DEFAULT 50,
-    max_iterations INTEGER NOT NULL DEFAULT 1000,
-    last_sync_started_at TEXT,
-    last_sync_completed_at TEXT,
-    last_error_message TEXT,
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now'))
-);
-INSERT INTO sync_metadata (id, sync_status) VALUES (1, 'idle');
-CREATE TRIGGER update_sync_metadata_timestamp
-    AFTER UPDATE ON sync_metadata
-    FOR EACH ROW
-BEGIN
-    UPDATE sync_metadata SET updated_at = datetime('now') WHERE id = 1;
-END;
-
--- -----------------------------------------------------------------------------
--- window_settings
--- -----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS window_settings (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    width INTEGER NOT NULL DEFAULT 800,
-    height INTEGER NOT NULL DEFAULT 600,
-    x INTEGER,
-    y INTEGER,
-    maximized INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now'))
-);
-INSERT OR IGNORE INTO window_settings (id, width, height) VALUES (1, 800, 600);
-CREATE TRIGGER update_window_settings_timestamp
-    AFTER UPDATE ON window_settings
-    FOR EACH ROW
-BEGIN
-    UPDATE window_settings SET updated_at = datetime('now') WHERE id = 1;
-END;
-
--- -----------------------------------------------------------------------------
 -- shop_settings
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS shop_settings (
@@ -247,9 +190,6 @@ CREATE TABLE IF NOT EXISTS shop_settings (
 CREATE INDEX IF NOT EXISTS idx_shop_settings_sender_address ON shop_settings(sender_address);
 CREATE INDEX IF NOT EXISTS idx_shop_settings_is_enabled ON shop_settings(is_enabled);
 
--- 同一送信元・件名に複数パーサーを登録する場合: change/change_yoyaku, confirm/confirm_yoyaku は
--- 本文構造が異なり（[ご購入内容] vs [ご予約内容]）、試行順序は shop_name, id で一意に決まる
--- INSERT OR IGNORE でマイグレーションの冪等性を確保（二重実行時に重複キーエラーを回避）
 INSERT OR IGNORE INTO shop_settings (shop_name, sender_address, parser_type, subject_filters, is_enabled) VALUES
     ('ホビーサーチ', 'hs-support@1999.co.jp', 'hobbysearch_send', '["【ホビーサーチ】ご注文の発送が完了しました"]', 1),
     ('ホビーサーチ', 'hs-support@1999.co.jp', 'hobbysearch_change', '["【ホビーサーチ】ご注文が組み替えられました"]', 1),
@@ -260,15 +200,24 @@ INSERT OR IGNORE INTO shop_settings (shop_name, sender_address, parser_type, sub
     ('ホビーサーチ', 'hs-order@1999.co.jp', 'hobbysearch_confirm', '["【ホビーサーチ】注文確認メール"]', 1);
 
 -- -----------------------------------------------------------------------------
--- parse_metadata
+-- product_master (Gemini AI による商品名解析結果のキャッシュ)
 -- -----------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS parse_metadata (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    parse_status TEXT NOT NULL DEFAULT 'idle' CHECK(parse_status IN ('idle', 'running', 'completed', 'error')),
-    last_parse_started_at DATETIME,
-    last_parse_completed_at DATETIME,
-    total_parsed_count INTEGER NOT NULL DEFAULT 0,
-    last_error_message TEXT,
-    batch_size INTEGER NOT NULL DEFAULT 100
+CREATE TABLE IF NOT EXISTS product_master (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    raw_name TEXT UNIQUE NOT NULL,
+    normalized_name TEXT NOT NULL,
+    maker TEXT,
+    series TEXT,
+    product_name TEXT,
+    scale TEXT,
+    is_reissue INTEGER NOT NULL DEFAULT 0 CHECK(is_reissue IN (0, 1)),
+    platform_hint TEXT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
-INSERT OR IGNORE INTO parse_metadata (id, parse_status) VALUES (1, 'idle');
+CREATE INDEX IF NOT EXISTS idx_product_master_normalized_name ON product_master(normalized_name);
+CREATE INDEX IF NOT EXISTS idx_product_master_maker ON product_master(maker) WHERE maker IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_product_master_series ON product_master(series) WHERE series IS NOT NULL;
+CREATE TRIGGER IF NOT EXISTS product_master_updated_at AFTER UPDATE ON product_master BEGIN
+    UPDATE product_master SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+END;
