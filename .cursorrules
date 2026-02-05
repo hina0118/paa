@@ -56,7 +56,7 @@ AIがコードを提案・レビューする際は、以下の優先度ラベル
   example:
     /resolve_comment
   instructions:
-    - PR上の対応したコメントを解決済みにする
+    - graphQLを使用してPR上の対応したコメントを解決済みにする
 /ci_plan
   description: CI成功のためチェックする
   example:
@@ -67,6 +67,7 @@ AIがコードを提案・レビューする際は、以下の優先度ラベル
     - CIの設定に沿って結果を確認する
     - コマンド実行中に作成した一時ファイルは削除する
     - タイムアウトを検知したら該当処理を再チェックする
+    - ファイルロックがあった場合、cleanしてから実行する
 /push_plan
   description: 対応内容をプッシュする
   example:
