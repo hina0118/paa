@@ -6,6 +6,7 @@ export type Screen =
   | 'batch'
   | 'logs'
   | 'shop-settings'
+  | 'api-keys'
   | 'settings'
   | 'table-emails'
   | 'table-orders'

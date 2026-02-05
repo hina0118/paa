@@ -87,6 +87,10 @@ pub struct SyncMetadata {
     pub last_sync_started_at: Option<String>,
     pub last_sync_completed_at: Option<String>,
     pub max_iterations: i64,
+    /// Gmail API の1ページあたり取得件数（最大500）
+    pub max_results_per_page: i64,
+    /// 同期処理のタイムアウト（分）
+    pub timeout_minutes: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_error_message: Option<String>,
 }
@@ -1397,6 +1401,8 @@ mod tests {
             last_sync_started_at: Some("2024-01-15T10:00:00Z".to_string()),
             last_sync_completed_at: Some("2024-01-15T10:30:00Z".to_string()),
             max_iterations: 100,
+            max_results_per_page: 100,
+            timeout_minutes: 30,
             last_error_message: None,
         };
 
@@ -1811,6 +1817,8 @@ mod tests {
             last_sync_started_at: None,
             last_sync_completed_at: None,
             max_iterations: 100,
+            max_results_per_page: 100,
+            timeout_minutes: 30,
             last_error_message: None,
         };
 
@@ -2327,6 +2335,8 @@ mod tests {
             last_sync_started_at: Some("2024-01-15T10:00:00Z".to_string()),
             last_sync_completed_at: Some("2024-01-15T11:00:00Z".to_string()),
             max_iterations: 100,
+            max_results_per_page: 100,
+            timeout_minutes: 30,
             last_error_message: None,
         };
 

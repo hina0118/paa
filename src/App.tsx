@@ -5,6 +5,7 @@ import { Sidebar } from '@/components/layout/sidebar';
 import { Dashboard } from '@/components/screens/dashboard';
 import { Batch } from '@/components/screens/batch';
 import { Logs } from '@/components/screens/logs';
+import { ApiKeys } from '@/components/screens/api-keys';
 import { Settings } from '@/components/screens/settings';
 import { ShopSettings } from '@/components/screens/shop-settings';
 import {
@@ -43,6 +44,8 @@ function AppContent() {
         return <Logs />;
       case 'shop-settings':
         return <ShopSettings />;
+      case 'api-keys':
+        return <ApiKeys />;
       case 'settings':
         return <Settings />;
       case 'table-emails':
