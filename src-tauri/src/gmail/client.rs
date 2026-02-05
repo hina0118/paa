@@ -8,15 +8,12 @@
 //! - **メトリクスのみ**: ログに出力できるのは文字数、件数、処理時間などの統計情報のみ
 //! - **本番環境**: リリースビルドではWarnレベル以上のログのみが出力されます
 
-use crate::batch_runner::BatchProgressEvent;
 use crate::gmail_client::GmailClientTrait;
-use crate::logic::sync_logic::{build_sync_query, extract_sender_addresses};
-use crate::repository::{EmailRepository, ShopSettingsRepository};
-
-/// メール同期のタスク名とイベント名
-const GMAIL_SYNC_TASK_NAME: &str = "メール同期";
-const GMAIL_SYNC_EVENT_NAME: &str = "batch-progress";
+#[cfg(test)]
+use crate::logic::sync_logic::build_sync_query;
+use crate::repository::EmailRepository;
 use async_trait::async_trait;
+use google_gmail1::api::Scope;
 use google_gmail1::{hyper_rustls, Gmail};
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::client::legacy::Client;
@@ -25,8 +22,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqlitePool;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Emitter, Manager};
-use tauri_plugin_notification::NotificationExt;
+use tauri::{AppHandle, Manager};
 use yup_oauth2 as oauth2;
 
 // カスタムInstalledFlowDelegateでブラウザを自動的に開く
@@ -296,12 +292,22 @@ impl GmailClient {
 
         // トークンを取得して認証を確実にする
         // gmail.readonlyスコープのみを使用（デスクトップアプリケーションに必要な最小限の権限）
+        // ※get_token が None を返すと Authorization ヘッダーが付与されず 403 エラーになる
         log::info!("Requesting OAuth token...");
-        let _token = auth
+        let token = auth
             .token(&["https://www.googleapis.com/auth/gmail.readonly"])
             .await
             .map_err(|e| format!("Failed to get OAuth token: {e}"))?;
-        log::info!("OAuth token obtained successfully");
+        let token_str = token.token().unwrap_or("");
+        if token_str.is_empty() {
+            return Err(
+                "OAuth token is empty. Please re-authenticate: delete gmail_token.json and run sync again.".to_string(),
+            );
+        }
+        log::info!(
+            "OAuth token obtained successfully (len={}, Authorization: Bearer will be set)",
+            token_str.len()
+        );
 
         // Gmail Hub用のHTTPコネクタとクライアントを作成
         let https = hyper_rustls::HttpsConnectorBuilder::new()
@@ -422,6 +428,7 @@ impl GmailClient {
             .hub
             .users()
             .messages_get("me", message_id)
+            .add_scope(Scope::Readonly)
             .format("full")
             .doit()
             .await
@@ -829,18 +836,8 @@ pub async fn save_messages_to_db_with_repo(
     })
 }
 
-// Helper function to fetch a batch of messages using GmailClientTrait
-async fn fetch_batch(
-    client: &dyn GmailClientTrait,
-    query: &str,
-    max_results: usize,
-    page_token: Option<&str>,
-) -> Result<(Vec<GmailMessage>, Option<String>), String> {
-    crate::logic::sync_logic::fetch_batch_with_client(client, query, max_results, page_token).await
-}
-
-// Helper function to format timestamp as RFC3339
-// Returns empty string if timestamp is invalid, which will cause the query to omit the date filter
+/// Helper function to format timestamp as RFC3339 (used by tests)
+#[cfg(test)]
 fn format_timestamp(internal_date: i64) -> String {
     chrono::DateTime::from_timestamp_millis(internal_date)
         .map(|dt| dt.to_rfc3339())
@@ -852,320 +849,8 @@ fn format_timestamp(internal_date: i64) -> String {
         })
 }
 
-// Main incremental sync function
-pub async fn sync_gmail_incremental(
-    app_handle: &tauri::AppHandle,
-    pool: &SqlitePool,
-    sync_state: &SyncState,
-    batch_size: usize,
-) -> Result<(), String> {
-    // Create repository instances first (needed for error handling)
-    let email_repo = crate::repository::SqliteEmailRepository::new(pool.clone());
-    let shop_repo = crate::repository::SqliteShopSettingsRepository::new(pool.clone());
-
-    // Initialize Gmail client
-    let client = match GmailClient::new(app_handle).await {
-        Ok(c) => c,
-        Err(e) => {
-            let _ = email_repo.update_sync_error_status().await;
-            return Err(e);
-        }
-    };
-
-    // Delegate to trait-based implementation
-    sync_gmail_incremental_with_client(
-        app_handle,
-        sync_state,
-        batch_size,
-        &client,
-        &email_repo,
-        &shop_repo,
-    )
-    .await
-}
-
-/// GmailClientTrait経由でメールを同期する（テスト可能なバージョン）
-///
-/// # Arguments
-/// * `app_handle` - Tauriアプリケーションハンドル
-/// * `sync_state` - 同期状態管理
-/// * `batch_size` - バッチサイズ（0の場合はデフォルト値を使用）
-/// * `client` - GmailClientTraitを実装したクライアント
-/// * `email_repo` - EmailRepositoryを実装したリポジトリ
-/// * `shop_repo` - ShopSettingsRepositoryを実装したリポジトリ
-pub async fn sync_gmail_incremental_with_client(
-    app_handle: &tauri::AppHandle,
-    sync_state: &SyncState,
-    batch_size: usize,
-    client: &dyn GmailClientTrait,
-    email_repo: &dyn EmailRepository,
-    shop_repo: &dyn ShopSettingsRepository,
-) -> Result<(), String> {
-    const DEFAULT_BATCH_SIZE: usize = 50;
-    // NOTE: MAX_ITERATIONS and SYNC_TIMEOUT_MINUTES are intentionally hard-coded safety limits.
-    // - MAX_ITERATIONS prevents a logic error from causing an infinite incremental sync loop.
-    // - SYNC_TIMEOUT_MINUTES bounds how long a single sync attempt may run to avoid monopolizing resources.
-    //
-    // The effective upper bound on how many messages a single incremental sync invocation will process is:
-    //     MAX_ITERATIONS * batch_size
-    // With the current defaults (MAX_ITERATIONS = 1000 and DEFAULT_BATCH_SIZE = 50), a single run is
-    // therefore expected to handle up to approximately 50,000 messages.
-    //
-    // For deployments with significantly larger mailboxes, consider:
-    //   * Increasing `batch_size` via the existing configuration/caller of this function, and/or
-    //   * Relying on multiple incremental sync runs to cover the full mailbox.
-    //
-    // The constants below are intentionally conservative safety limits. Changing them affects behavior
-    // (e.g., by allowing longer or larger sync runs) and should be treated as a deliberate behavior change
-    // and tracked in the external issue tracker rather than via an in-code TODO.
-    //
-    // FUTURE ENHANCEMENT: Consider making these configurable via the database `sync_metadata` table
-    // (similar to `batch_size`) or through application configuration, with these values as sensible
-    // defaults. This would allow operators to adjust limits for their deployment without code changes.
-    const MAX_ITERATIONS: usize = 1000; // Prevent infinite loops
-    const SYNC_TIMEOUT_MINUTES: i64 = 30; // Maximum sync duration (in minutes) for a single sync attempt
-
-    let batch_size = if batch_size > 0 {
-        batch_size
-    } else {
-        DEFAULT_BATCH_SIZE
-    };
-
-    // Atomically check and set running flag (also resets cancellation flag internally)
-    if !sync_state.try_start() {
-        return Err("Sync is already in progress".to_string());
-    }
-
-    // Create RAII guard to ensure running flag is cleared on function exit
-    let _guard = SyncGuard::new(sync_state);
-
-    // Get enabled shop settings to build sender address list (via repository)
-    let enabled_shops = match shop_repo.get_enabled().await {
-        Ok(shops) => shops,
-        Err(e) => {
-            let _ = email_repo.update_sync_error_status().await;
-            return Err(format!("Failed to fetch shop settings: {e}"));
-        }
-    };
-
-    let sender_addresses: Vec<String> = extract_sender_addresses(&enabled_shops);
-
-    log::info!(
-        "Starting sync with {} enabled sender addresses",
-        sender_addresses.len()
-    );
-
-    // Update sync status to 'syncing' and sync started timestamp atomically (via repository)
-    if let Err(e) = email_repo.start_sync().await {
-        let _ = email_repo.update_sync_error_status().await;
-        return Err(format!("Failed to start sync: {e}"));
-    }
-
-    // Get sync metadata (via repository)
-    let metadata = match email_repo.get_sync_metadata().await {
-        Ok(m) => m,
-        Err(e) => {
-            let _ = email_repo.update_sync_error_status().await;
-            return Err(format!("Failed to fetch sync metadata: {e}"));
-        }
-    };
-
-    let mut total_synced = metadata.total_synced_count;
-    let db_batch_size = metadata.batch_size;
-    let db_max_iterations = metadata.max_iterations;
-    let effective_batch_size = if db_batch_size > 0 {
-        db_batch_size as usize
-    } else {
-        batch_size
-    };
-    let effective_max_iterations = if db_max_iterations > 0 {
-        db_max_iterations as usize
-    } else {
-        MAX_ITERATIONS
-    };
-
-    let mut batch_number = 0;
-    let mut has_more = true;
-    let sync_start_time = chrono::Utc::now();
-    let query = build_sync_query(&sender_addresses, &None);
-    let mut next_page_token: Option<String> = None;
-    while has_more && !sync_state.should_stop() {
-        batch_number += 1;
-        if batch_number > effective_max_iterations {
-            log::warn!(
-                "Reached maximum iteration limit ({effective_max_iterations}), stopping sync"
-            );
-            break;
-        }
-        let elapsed = chrono::Utc::now().signed_duration_since(sync_start_time);
-        if elapsed.num_minutes() > SYNC_TIMEOUT_MINUTES {
-            log::warn!("Sync timeout reached ({SYNC_TIMEOUT_MINUTES} minutes), stopping sync");
-            break;
-        }
-        log::info!("Batch {batch_number}: Fetching up to {effective_batch_size} messages");
-        let (messages, fetched_next_token) = match fetch_batch(
-            client,
-            &query,
-            effective_batch_size,
-            next_page_token.as_deref(),
-        )
-        .await
-        {
-            Ok(r) => r,
-            Err(e) => {
-                let _ = email_repo.update_sync_error_status().await;
-                return Err(e);
-            }
-        };
-        if messages.is_empty() {
-            log::info!("No more messages to fetch");
-            break;
-        }
-        log::info!(
-            "Batch {}: Fetched {} messages",
-            batch_number,
-            messages.len()
-        );
-
-        let messages_len = messages.len();
-        let new_oldest = if let Some(ts) = messages
-            .iter()
-            .min_by_key(|m| m.internal_date)
-            .map(|m| format_timestamp(m.internal_date))
-        {
-            ts
-        } else {
-            let _ = email_repo.update_sync_error_status().await;
-            return Err(format!(
-                "Logic error: min_by_key returned None on non-empty messages while updating sync metadata. batch_number={}, messages_len={}",
-                batch_number,
-                messages_len
-            ));
-        };
-
-        // Save to database with subject filtering (via repository, takes ownership)
-        let result = match save_messages_to_db_with_repo(email_repo, messages, &enabled_shops).await
-        {
-            Ok(r) => r,
-            Err(e) => {
-                let _ = email_repo.update_sync_error_status().await;
-                return Err(e);
-            }
-        };
-        total_synced = total_synced.saturating_add(result.saved_count as i64);
-
-        // Validate timestamp BEFORE updating database to avoid persisting invalid data
-        // Validate that new_oldest is a reasonable timestamp (not unreasonably far in the future)
-        match chrono::DateTime::parse_from_rfc3339(&new_oldest) {
-            Ok(new_oldest_dt) => {
-                let now = chrono::Utc::now();
-                // Allow a small clock skew tolerance (e.g., 5 minutes) between client and Gmail servers
-                let new_oldest_utc = new_oldest_dt.with_timezone(&chrono::Utc);
-                let skew_tolerance = chrono::Duration::minutes(5);
-                if new_oldest_utc > now + skew_tolerance {
-                    log::error!(
-                        "Invalid timestamp detected: new_oldest ({new_oldest}) is significantly in the future, indicates timestamp parsing failure"
-                    );
-                    let _ = email_repo.update_sync_error_status().await;
-                    return Err("Invalid message timestamp detected (future date beyond allowed clock skew). This indicates a data integrity issue.".to_string());
-                }
-            }
-            Err(e) => {
-                // Parsing failure indicates a data integrity or formatting issue - treat as error
-                log::error!(
-                    "Failed to parse new_oldest timestamp as RFC3339 (value: '{new_oldest}'): {e}"
-                );
-                let _ = email_repo.update_sync_error_status().await;
-                return Err("Failed to parse message timestamp (RFC3339). This indicates a data integrity or formatting issue.".to_string());
-            }
-        }
-
-        // nextPageToken によりページングするため、日付境界での抜け漏れや無限ループの心配はない
-
-        // All validations passed - now safe to update database (via repository)
-        if let Err(e) = email_repo
-            .update_sync_metadata(Some(new_oldest.clone()), total_synced, "syncing")
-            .await
-        {
-            let _ = email_repo.update_sync_error_status().await;
-            return Err(format!("Failed to update metadata: {e}"));
-        }
-
-        next_page_token = fetched_next_token;
-        // Emit progress event
-        let progress = BatchProgressEvent::progress(
-            GMAIL_SYNC_TASK_NAME,
-            batch_number,
-            messages_len,
-            total_synced as usize, // メール同期では total_items = total_synced（事前に全体数がわからないため）
-            total_synced as usize,
-            result.saved_count,
-            0, // 同期ではfailed_countは使用しない
-            format!(
-                "バッチ {} 完了: {} 件保存",
-                batch_number, result.saved_count
-            ),
-        );
-        if let Err(e) = app_handle.emit(GMAIL_SYNC_EVENT_NAME, progress) {
-            let _ = email_repo.update_sync_error_status().await;
-            return Err(format!("Failed to emit progress: {e}"));
-        }
-        // nextPageToken がなければ全ページ取得済み
-        if next_page_token.is_none() {
-            has_more = false;
-            log::info!("No more pages, sync complete");
-        }
-    }
-    // Determine final status
-    let final_status = if sync_state.should_stop() {
-        "paused"
-    } else {
-        "idle"
-    };
-    // Update sync metadata atomically (via repository)
-    if let Err(e) = email_repo.complete_sync(final_status).await {
-        return Err(format!("Failed to complete sync: {e}"));
-    }
-
-    // Emit completion event
-    let completion = if sync_state.should_stop() {
-        BatchProgressEvent::cancelled(
-            GMAIL_SYNC_TASK_NAME,
-            total_synced as usize,
-            total_synced as usize,
-            total_synced as usize,
-            0,
-        )
-    } else {
-        BatchProgressEvent::complete(
-            GMAIL_SYNC_TASK_NAME,
-            total_synced as usize,
-            total_synced as usize,
-            0,
-            "同期が正常に完了しました".to_string(),
-        )
-    };
-    if let Err(e) = app_handle.emit(GMAIL_SYNC_EVENT_NAME, completion) {
-        return Err(format!("Failed to emit completion: {e}"));
-    }
-
-    // Send desktop notification on completion (only if not cancelled)
-    if !sync_state.should_stop() {
-        let notification_body =
-            format!("同期完了：新たに{total_synced}件の注文情報を取り込みました");
-        if let Err(e) = app_handle
-            .notification()
-            .builder()
-            .title("Gmail同期完了")
-            .body(&notification_body)
-            .show()
-        {
-            log::warn!("Failed to send notification: {e}");
-        }
-    }
-
-    Ok(())
-}
+// sync_gmail_incremental and sync_gmail_incremental_with_client removed.
+// Use BatchRunner<GmailSyncTask> via start_sync command instead.
 
 // ============================================================================
 // Parser Type Routing Functions
@@ -2674,13 +2359,9 @@ mod tests {
         assert!(state.is_running());
     }
 
-    // has_more未読変数の警告を解消するためのテスト
     #[tokio::test]
     async fn test_sync_loop_termination() {
-        // sync_gmail_incrementalのループ終了条件のテスト
-        // 実際のAPIテストは困難なため、ループロジックの確認のみ
-
-        // テストケース: messagesが空の場合、has_moreはfalseになりループが終了する
+        // ループ終了条件のテスト（messagesが空の場合、has_moreはfalse）
         let mut has_more = true;
         let messages: Vec<String> = vec![];
 
@@ -2744,14 +2425,6 @@ mod tests {
         assert!(body_plain.as_ref().unwrap().contains('\u{FFFD}'));
         assert_eq!(body_html, None);
     }
-
-    // ==================== sync_gmail_incremental_with_client Error Handling Tests ====================
-    //
-    // sync_gmail_incremental_with_client関数のテストは、AppHandleを必要とするため、
-    // 統合テストとして実装する必要があります。
-    // 統合テストは tests/command_tests.rs に実装されています。
-    //
-    // 単体テストでは、AppHandleに依存しない部分のみをテストします。
 
     #[test]
     fn test_sync_metadata_serialization() {

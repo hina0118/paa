@@ -54,7 +54,6 @@ async fn start_sync(
     pool: tauri::State<'_, SqlitePool>,
     sync_state: tauri::State<'_, gmail::SyncState>,
 ) -> Result<(), String> {
-    use std::collections::HashSet;
     use std::sync::Arc;
     use tauri::Emitter;
     use tauri_plugin_notification::NotificationExt;
@@ -204,11 +203,11 @@ async fn start_sync(
 
         log::info!("Fetched {} message IDs from Gmail", all_ids.len());
 
-        // emails テーブルから既存の message_id を取得
-        let existing_ids: HashSet<String> = match email_repo.get_existing_message_ids().await {
-            Ok(ids) => ids.into_iter().collect(),
+        // SQL の NOT IN で未処理のIDのみフィルタ（メモリ効率のため DB 側でフィルタリング）
+        let new_ids: Vec<String> = match email_repo.filter_new_message_ids(&all_ids).await {
+            Ok(ids) => ids,
             Err(e) => {
-                log::error!("Failed to fetch existing message IDs: {}", e);
+                log::error!("Failed to filter new message IDs: {}", e);
                 let _ = email_repo.update_sync_error_status().await;
                 let error_event = BatchProgressEvent::error(
                     GMAIL_SYNC_TASK_NAME,
@@ -216,23 +215,12 @@ async fn start_sync(
                     0,
                     0,
                     0,
-                    format!("Failed to fetch existing message IDs: {}", e),
+                    format!("Failed to filter new message IDs: {}", e),
                 );
                 let _ = app_clone.emit(GMAIL_SYNC_EVENT_NAME, error_event);
                 return;
             }
         };
-
-        log::info!(
-            "Found {} existing message IDs in database",
-            existing_ids.len()
-        );
-
-        // 未処理のIDのみフィルタ
-        let new_ids: Vec<String> = all_ids
-            .into_iter()
-            .filter(|id| !existing_ids.contains(id))
-            .collect();
 
         log::info!("Found {} new messages to sync", new_ids.len());
 
@@ -444,19 +432,20 @@ async fn save_window_settings(
     repo.save_window_settings(settings).await
 }
 
+/// Gmail メール取得（BatchRunner 経由で start_sync と同等の処理を実行）
 #[tauri::command]
 async fn fetch_gmail_emails(
     app_handle: tauri::AppHandle,
     pool: tauri::State<'_, SqlitePool>,
     sync_state: tauri::State<'_, gmail::SyncState>,
 ) -> Result<gmail::FetchResult, String> {
-    log::info!("Starting Gmail email fetch (via start_sync)...");
+    log::info!("Starting Gmail email fetch (via start_sync / BatchRunner)...");
     log::info!("If a browser window doesn't open automatically, please check the console for the authentication URL.");
 
-    // Use the new incremental sync internally
-    gmail::sync_gmail_incremental(&app_handle, pool.inner(), sync_state.inner(), 50).await?;
+    // BatchRunner を使用する start_sync に委譲
+    start_sync(app_handle, pool, sync_state).await?;
 
-    // Return a simple result (actual progress is sent via events)
+    // 進捗は batch-progress イベントで通知される
     Ok(gmail::FetchResult {
         fetched_count: 0,
         saved_count: 0,
@@ -652,21 +641,22 @@ pub fn run() {
                 })
                 .init();
 
-            let app_data_dir = app
+            // DBはapp_config_dirに配置（tauri-plugin-sqlのpreloadとパスを統一）
+            let app_config_dir = app
                 .path()
-                .app_data_dir()
-                .expect("failed to get app data dir");
-            std::fs::create_dir_all(&app_data_dir).expect("failed to create app data dir");
+                .app_config_dir()
+                .expect("failed to get app config dir");
+            std::fs::create_dir_all(&app_config_dir).expect("failed to create app config dir");
 
-            let db_path = app_data_dir.join("paa_data.db");
+            let db_path = app_config_dir.join("paa_data.db");
             let db_url = format!("sqlite:{}", db_path.to_string_lossy());
 
             log::info!("Database path: {}", db_path.display());
 
-            // tauri-plugin-sqlを登録（フロントエンド用、マイグレーションも管理）
+            // tauri-plugin-sqlを登録。preload の "sqlite:paa_data.db" は app_config_dir 基準で解決される（Tauri SQL プラグイン仕様）。
             app.handle().plugin(
                 tauri_plugin_sql::Builder::default()
-                    .add_migrations(&db_url, migrations)
+                    .add_migrations("sqlite:paa_data.db", migrations)
                     .build(),
             )?;
 

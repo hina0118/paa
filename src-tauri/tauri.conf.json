@@ -11,21 +11,18 @@
   },
   "app": {
     "windows": [
-      {
-        "title": "paa",
-        "width": 800,
-        "height": 600,
-        "label": "main"
-      }
+      { "title": "paa", "width": 800, "height": 600, "label": "main" }
     ],
     "security": {
       "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost",
-      "assetProtocol": {
-        "enable": true,
-        "scope": ["$APPDATA/images/**"]
-      }
+      "assetProtocol": { "enable": true, "scope": ["$APPDATA/images/**"] }
     },
     "withGlobalTauri": true
+  },
+  "plugins": {
+    "sql": {
+      "preload": ["sqlite:paa_data.db"]
+    }
   },
   "bundle": {
     "active": true,
