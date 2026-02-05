@@ -17,11 +17,13 @@ test.describe('ナビゲーション', () => {
     // ナビゲーション項目が表示されることを確認
     await expect(page.getByRole('button', { name: 'Dashboard' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Orders' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Sync' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Parse' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Batch' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Logs' })).toBeVisible();
     await expect(
       page.getByRole('button', { name: 'Shop Settings' })
+    ).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'API Keys', exact: true })
     ).toBeVisible();
     // "Settings"はexact matchを使用（"Shop Settings"と区別するため）
     await expect(
@@ -39,15 +41,9 @@ test.describe('ナビゲーション', () => {
     await expectScreenTitle(page, '商品一覧');
   });
 
-  test('Sync画面に遷移できる', async ({ page }) => {
-    await navigateToScreen(page, 'Sync');
-    await expectScreenTitle(page, 'Gmail同期');
-  });
-
-  test('Parse画面に遷移できる', async ({ page }) => {
-    await navigateToScreen(page, 'Parse');
-    // Parse画面のタイトルを確認
-    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  test('Batch画面に遷移できる', async ({ page }) => {
+    await navigateToScreen(page, 'Batch');
+    await expectScreenTitle(page, 'バッチ処理');
   });
 
   test('Logs画面に遷移できる', async ({ page }) => {

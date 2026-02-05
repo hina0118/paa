@@ -2,13 +2,7 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use std::str::FromStr;
 
 // 型エイリアス：sync_metadataクエリの結果（003で batch_size, max_iterations を削除、設定は paa_config.json で管理）
-type SyncMetadataRow = (
-    String,
-    Option<String>,
-    i64,
-    Option<String>,
-    Option<String>,
-);
+type SyncMetadataRow = (String, Option<String>, i64, Option<String>, Option<String>);
 
 // テスト用のデータベースプールを作成
 async fn create_test_pool() -> sqlx::SqlitePool {

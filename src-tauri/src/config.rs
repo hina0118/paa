@@ -106,9 +106,7 @@ impl Default for AppConfig {
                 max_results_per_page: 100,
                 timeout_minutes: 30,
             },
-            parse: ParseConfig {
-                batch_size: 100,
-            },
+            parse: ParseConfig { batch_size: 100 },
             window: WindowConfig::default(),
             gemini: GeminiConfig::default(),
         }
@@ -120,8 +118,8 @@ pub fn load(config_dir: &Path) -> Result<AppConfig, String> {
     let path = config_dir.join(CONFIG_FILENAME);
 
     if path.exists() {
-        let contents = fs::read_to_string(&path)
-            .map_err(|e| format!("Failed to read config file: {e}"))?;
+        let contents =
+            fs::read_to_string(&path).map_err(|e| format!("Failed to read config file: {e}"))?;
         serde_json::from_str(&contents).map_err(|e| format!("Invalid config JSON: {e}"))
     } else {
         let config = AppConfig::default();
@@ -196,7 +194,7 @@ mod tests {
         assert_eq!(loaded.sync.timeout_minutes, 60);
         assert_eq!(loaded.parse.batch_size, 200);
         assert_eq!(loaded.window.width, 1024);
-        assert_eq!(loaded.window.maximized, true);
+        assert!(loaded.window.maximized);
         assert_eq!(loaded.gemini.batch_size, 20);
         assert_eq!(loaded.gemini.delay_seconds, 5);
     }
