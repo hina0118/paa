@@ -334,15 +334,18 @@ Tauri アプリを起動して E2E テストを実行しながら Rust のカバ
 RUSTFLAGS="-Cinstrument-coverage" npm run test:e2e:tauri:coverage
 ```
 
-**実行後のカバレッジレポート生成**（ローカル）:
+**実行後のカバレッジレポート生成**（ローカル、profraw が正のサイズの場合）:
 
 ```bash
-# profraw をマージしてレポート生成
-llvm-profdata merge -sparse coverage-e2e-tauri/*.profraw -o coverage-e2e-tauri/merged.profdata
-cd src-tauri && cargo llvm-cov report --no-run --all-features -C "profile-use=../coverage-e2e-tauri/merged.profdata" --text
+# profraw を target/ にコピーしてレポート生成（cargo llvm-cov が target/ 内を参照）
+cp coverage-e2e-tauri/*.profraw src-tauri/target/
+cd src-tauri && cargo llvm-cov report --lcov --output-path ../coverage-e2e-tauri/lcov.info
+cargo llvm-cov report --text
 ```
 
-**出力**: `coverage-e2e-tauri/lcov.info`（CI で生成）、`coverage-e2e-tauri/merged.profdata`
+**出力**: `coverage-e2e-tauri/lcov.info`（CI で生成）
+
+**CI 失敗時の解析**: `docs/COVERAGE_E2E_TAURI_TROUBLESHOOTING.md` を参照
 
 ## トラブルシューティング
 

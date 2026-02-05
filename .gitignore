@@ -125,3 +125,7 @@ playwright/.cache/
 
 # sample file
 sample/
+
+# msedgedriver (downloaded for Tauri E2E)
+msedgedriver/
+edgedriver.zip

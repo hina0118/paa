@@ -94,10 +94,13 @@ export const config = {
 
   async onPrepare() {
     const coverageEnabled = process.env.PAA_E2E_COVERAGE === '1';
+    const buildEnv = { ...process.env };
     if (coverageEnabled) {
       const coverageDir = path.join(rootDir, 'coverage-e2e-tauri');
       fs.mkdirSync(coverageDir, { recursive: true });
       console.log('Coverage enabled: profraw output ->', coverageDir);
+      // カバレッジ計測のため RUSTFLAGS を明示的に渡す（CI/ローカル両対応）
+      buildEnv.RUSTFLAGS = process.env.RUSTFLAGS || '-Cinstrument-coverage';
     }
     console.log('Building Tauri app (debug, no bundle)...');
     const result = spawnSync(
@@ -107,7 +110,7 @@ export const config = {
         cwd: rootDir,
         stdio: 'inherit',
         shell: isWindows,
-        env: { ...process.env },
+        env: buildEnv,
       }
     );
     if (result.status !== 0) {
