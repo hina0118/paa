@@ -1,11 +1,10 @@
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use std::str::FromStr;
 
-// 型エイリアス：sync_metadataクエリの結果
+// 型エイリアス：sync_metadataクエリの結果（003で batch_size, max_iterations を削除、設定は paa_config.json で管理）
 type SyncMetadataRow = (
     String,
     Option<String>,
-    i64,
     i64,
     Option<String>,
     Option<String>,
@@ -22,7 +21,7 @@ async fn create_test_pool() -> sqlx::SqlitePool {
         .await
         .unwrap();
 
-    // sync_metadataテーブルを作成
+    // sync_metadataテーブル（003 スキーマ、batch_size は設定ファイルで管理）
     sqlx::query(
         r"
         CREATE TABLE IF NOT EXISTS sync_metadata (
@@ -30,7 +29,6 @@ async fn create_test_pool() -> sqlx::SqlitePool {
             sync_status TEXT NOT NULL DEFAULT 'idle',
             oldest_fetched_date TEXT,
             total_synced_count INTEGER NOT NULL DEFAULT 0,
-            batch_size INTEGER NOT NULL DEFAULT 50,
             last_sync_started_at TEXT,
             last_sync_completed_at TEXT,
             last_error_message TEXT
@@ -45,8 +43,8 @@ async fn create_test_pool() -> sqlx::SqlitePool {
     sqlx::query(
         r"
         INSERT OR REPLACE INTO sync_metadata
-        (id, sync_status, total_synced_count, batch_size)
-        VALUES (1, 'idle', 0, 50)
+        (id, sync_status, total_synced_count)
+        VALUES (1, 'idle', 0)
         ",
     )
     .execute(&pool)
@@ -64,9 +62,9 @@ mod command_tests {
     async fn test_get_sync_status_success() {
         let pool = create_test_pool().await;
 
-        // sync_statusを取得
-        let row: (String, Option<String>, i64, i64, Option<String>, Option<String>) = sqlx::query_as(
-            "SELECT sync_status, oldest_fetched_date, total_synced_count, batch_size, last_sync_started_at, last_sync_completed_at FROM sync_metadata WHERE id = 1"
+        // sync_statusを取得（batch_size は設定ファイルで管理）
+        let row: SyncMetadataRow = sqlx::query_as(
+            "SELECT sync_status, oldest_fetched_date, total_synced_count, last_sync_started_at, last_sync_completed_at FROM sync_metadata WHERE id = 1"
         )
         .fetch_one(&pool)
         .await
@@ -75,9 +73,8 @@ mod command_tests {
         assert_eq!(row.0, "idle");
         assert_eq!(row.1, None);
         assert_eq!(row.2, 0);
-        assert_eq!(row.3, 50);
+        assert_eq!(row.3, None);
         assert_eq!(row.4, None);
-        assert_eq!(row.5, None);
     }
 
     #[tokio::test]
@@ -99,9 +96,9 @@ mod command_tests {
         .await
         .unwrap();
 
-        // sync_statusを取得
-        let row: (String, Option<String>, i64, i64, Option<String>, Option<String>) = sqlx::query_as(
-            "SELECT sync_status, oldest_fetched_date, total_synced_count, batch_size, last_sync_started_at, last_sync_completed_at FROM sync_metadata WHERE id = 1"
+        // sync_statusを取得（batch_size は設定ファイルで管理）
+        let row: SyncMetadataRow = sqlx::query_as(
+            "SELECT sync_status, oldest_fetched_date, total_synced_count, last_sync_started_at, last_sync_completed_at FROM sync_metadata WHERE id = 1"
         )
         .fetch_one(&pool)
         .await
@@ -110,9 +107,8 @@ mod command_tests {
         assert_eq!(row.0, "syncing");
         assert_eq!(row.1, Some("2024-01-01".to_string()));
         assert_eq!(row.2, 100);
-        assert_eq!(row.3, 50);
-        assert_eq!(row.4, Some("2024-01-15T10:00:00Z".to_string()));
-        assert_eq!(row.5, None);
+        assert_eq!(row.3, Some("2024-01-15T10:00:00Z".to_string()));
+        assert_eq!(row.4, None);
     }
 
     #[tokio::test]
@@ -180,72 +176,6 @@ mod command_tests {
     }
 
     #[tokio::test]
-    async fn test_update_batch_size_success() {
-        let pool = create_test_pool().await;
-
-        // batch_sizeを更新
-        let new_batch_size = 100i64;
-        sqlx::query("UPDATE sync_metadata SET batch_size = ?1 WHERE id = 1")
-            .bind(new_batch_size)
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        // 検証
-        let batch_size: (i64,) =
-            sqlx::query_as("SELECT batch_size FROM sync_metadata WHERE id = 1")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-
-        assert_eq!(batch_size.0, 100);
-    }
-
-    #[tokio::test]
-    async fn test_update_batch_size_zero() {
-        let pool = create_test_pool().await;
-
-        // batch_sizeを0に更新（境界値テスト）
-        let new_batch_size = 0i64;
-        sqlx::query("UPDATE sync_metadata SET batch_size = ?1 WHERE id = 1")
-            .bind(new_batch_size)
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        // 検証
-        let batch_size: (i64,) =
-            sqlx::query_as("SELECT batch_size FROM sync_metadata WHERE id = 1")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-
-        assert_eq!(batch_size.0, 0);
-    }
-
-    #[tokio::test]
-    async fn test_update_batch_size_large_value() {
-        let pool = create_test_pool().await;
-
-        // 大きなbatch_sizeを設定（境界値テスト）
-        let new_batch_size = 1000i64;
-        sqlx::query("UPDATE sync_metadata SET batch_size = ?1 WHERE id = 1")
-            .bind(new_batch_size)
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        // 検証
-        let batch_size: (i64,) =
-            sqlx::query_as("SELECT batch_size FROM sync_metadata WHERE id = 1")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-
-        assert_eq!(batch_size.0, 1000);
-    }
-
-    #[tokio::test]
     async fn test_get_sync_status_nonexistent_record() {
         let pool = create_test_pool().await;
 
@@ -257,7 +187,7 @@ mod command_tests {
 
         // 存在しないレコードを取得しようとする
         let result: Result<SyncMetadataRow, _> = sqlx::query_as(
-            "SELECT sync_status, oldest_fetched_date, total_synced_count, batch_size, last_sync_started_at, last_sync_completed_at FROM sync_metadata WHERE id = 1"
+            "SELECT sync_status, oldest_fetched_date, total_synced_count, last_sync_started_at, last_sync_completed_at FROM sync_metadata WHERE id = 1"
         )
         .fetch_one(&pool)
         .await;
@@ -334,35 +264,6 @@ mod command_tests {
 
         assert_eq!(result.0, "error");
         assert_eq!(result.1, Some(error_message.to_string()));
-    }
-
-    #[tokio::test]
-    async fn test_batch_size_boundary_values() {
-        let pool = create_test_pool().await;
-
-        // 境界値テスト: 1
-        sqlx::query("UPDATE sync_metadata SET batch_size = 1 WHERE id = 1")
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        let size: (i64,) = sqlx::query_as("SELECT batch_size FROM sync_metadata WHERE id = 1")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        assert_eq!(size.0, 1);
-
-        // 境界値テスト: 500
-        sqlx::query("UPDATE sync_metadata SET batch_size = 500 WHERE id = 1")
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        let size: (i64,) = sqlx::query_as("SELECT batch_size FROM sync_metadata WHERE id = 1")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        assert_eq!(size.0, 500);
     }
 
     #[tokio::test]

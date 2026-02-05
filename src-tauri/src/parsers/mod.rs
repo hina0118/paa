@@ -2,9 +2,8 @@ use crate::batch_runner::BatchProgressEvent;
 use crate::logic::email_parser::extract_domain;
 use crate::logic::sync_logic::extract_email_address;
 use crate::repository::{
-    OrderRepository, ParseMetadataRepository, ParseRepository, ShopSettingsRepository,
-    SqliteOrderRepository, SqliteParseMetadataRepository, SqliteParseRepository,
-    SqliteShopSettingsRepository,
+    OrderRepository, ParseRepository, ShopSettingsRepository, SqliteOrderRepository,
+    SqliteParseRepository, SqliteShopSettingsRepository,
 };
 use chrono::DateTime;
 use serde::{Deserialize, Serialize};
@@ -44,10 +43,15 @@ pub use email_parse_task::{
 };
 
 /// パース状態管理
+///
+/// 進捗テーブル削除後はメモリのみで状態を管理する。
+/// last_error はエラー時に設定され、次回 start でクリアされる。
 #[derive(Clone)]
 pub struct ParseState {
     pub should_cancel: Arc<Mutex<bool>>,
     pub is_running: Arc<Mutex<bool>>,
+    /// 直近のエラーメッセージ（エラー時のみ。start でクリア）
+    pub last_error: Arc<Mutex<Option<String>>>,
 }
 
 impl Default for ParseState {
@@ -55,6 +59,7 @@ impl Default for ParseState {
         Self {
             should_cancel: Arc::new(Mutex::new(false)),
             is_running: Arc::new(Mutex::new(false)),
+            last_error: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -75,6 +80,28 @@ impl ParseState {
         self.should_cancel.lock().map(|c| *c).unwrap_or(false)
     }
 
+    /// エラーを記録（get_parse_status で error として返す）
+    pub fn set_error(&self, msg: &str) {
+        if let Ok(mut err) = self.last_error.lock() {
+            *err = Some(msg.to_string());
+        }
+    }
+
+    /// エラーをクリア
+    pub fn clear_error(&self) {
+        if let Ok(mut err) = self.last_error.lock() {
+            *err = None;
+        }
+    }
+
+    /// 強制的に idle にリセット
+    pub fn force_idle(&self) {
+        if let Ok(mut running) = self.is_running.lock() {
+            *running = false;
+        }
+        self.clear_error();
+    }
+
     pub fn start(&self) -> Result<(), String> {
         let mut running = self.is_running.lock().map_err(|e| e.to_string())?;
         if *running {
@@ -82,6 +109,7 @@ impl ParseState {
         }
         *running = true;
         *self.should_cancel.lock().map_err(|e| e.to_string())? = false;
+        self.clear_error();
         Ok(())
     }
 
@@ -254,19 +282,10 @@ pub async fn batch_parse_emails(
     parse_state: &ParseState,
     batch_size: usize,
 ) -> Result<(), String> {
-    use chrono::Utc;
-
     log::info!("Starting batch parse with batch_size: {}", batch_size);
 
-    // パース状態をチェック・開始
+    // パース状態をチェック・開始（start で is_running=true, clear_error）
     parse_state.start()?;
-
-    // パース状態を「実行中」に更新
-    let parse_metadata_repo = SqliteParseMetadataRepository::new(pool.clone());
-    parse_metadata_repo
-        .update_parse_status("running", Some(Utc::now().to_rfc3339()), None, None, None)
-        .await
-        .map_err(|e| format!("Failed to update parse status: {e}"))?;
 
     // order_emails, deliveries, items, orders テーブルをクリア（パースやり直しのため）
     // 外部キー制約により、order_emails -> deliveries -> items -> orders の順でクリア
@@ -332,10 +351,6 @@ pub async fn batch_parse_emails(
                 overall_failed_count,
             );
             let _ = app_handle.emit(EMAIL_PARSE_EVENT_NAME, cancel_event);
-
-            // ステータスをidleに戻す
-            let parse_metadata_repo = SqliteParseMetadataRepository::new(pool.clone());
-            let _ = parse_metadata_repo.reset_parse_status().await;
 
             return Ok(());
         }
@@ -592,26 +607,13 @@ pub async fn batch_parse_emails(
 
     let _ = app_handle.emit(EMAIL_PARSE_EVENT_NAME, final_progress);
 
-    // メタデータを更新
-    parse_metadata_repo
-        .update_parse_status(
-            "completed",
-            None,
-            Some(Utc::now().to_rfc3339()),
-            Some(overall_success_count as i64),
-            None,
-        )
-        .await
-        .map_err(|e| format!("Failed to update parse metadata: {e}"))?;
+    parse_state.finish();
 
     log::info!(
         "Batch parse completed: success={}, failed={}",
         overall_success_count,
         overall_failed_count
     );
-
-    // パース状態をクリーンアップ
-    parse_state.finish();
 
     Ok(())
 }

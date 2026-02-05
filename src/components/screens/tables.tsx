@@ -44,21 +44,9 @@ export function ShopSettingsTable() {
   );
 }
 
-export function SyncMetadataTable() {
-  return (
-    <TableViewer tableName="sync_metadata" title="Sync Metadata テーブル" />
-  );
-}
-
 export function WindowSettingsTable() {
   return (
     <TableViewer tableName="window_settings" title="Window Settings テーブル" />
-  );
-}
-
-export function ParseMetadataTable() {
-  return (
-    <TableViewer tableName="parse_metadata" title="Parse Metadata テーブル" />
   );
 }
 
