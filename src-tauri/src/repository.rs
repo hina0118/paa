@@ -8,44 +8,8 @@ use crate::parsers::{EmailRow, OrderInfo};
 use async_trait::async_trait;
 #[cfg(test)]
 use mockall::automock;
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqlitePool;
-
-/// parse_skipped に保存する前にエラーメッセージをサニタイズ（パス・接続文字列等をマスク）
-fn sanitize_error_for_parse_skipped(msg: &str) -> String {
-    const MAX_LEN: usize = 500;
-    let mut s = msg.chars().take(MAX_LEN).collect::<String>();
-    if msg.chars().count() > MAX_LEN {
-        s.push_str("...");
-    }
-    // パスや接続文字列をマスク（テーブルビューアで機密情報が露出しないよう）
-    let patterns = [
-        (r"(?i)[A-Za-z]:\\[^\s]*", "[PATH]"), // Windows: C:\...
-        (r"sqlite:file:[^\s]*", "[DB_PATH]"), // sqlite:file:...
-        // Unix: 代表的な絶対パスのみマスク（/home, /var, /etc, /usr 等。スペースが \ でエスケープされている場合も含む）
-        (
-            r#"/(?:home|var|etc|usr|opt|tmp|root|srv|mnt|media|run)(?:/[^\s"']+)+"#,
-            "[PATH]",
-        ),
-    ];
-    for (pat, repl) in patterns {
-        if let Ok(re) = Regex::new(pat) {
-            s = re.replace_all(&s, repl).into_owned();
-        }
-    }
-    s
-}
-
-/// ウィンドウ設定
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WindowSettings {
-    pub width: i64,
-    pub height: i64,
-    pub x: Option<i64>,
-    pub y: Option<i64>,
-    pub maximized: bool,
-}
 
 /// メール統計情報
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -85,17 +49,6 @@ pub trait EmailRepository: Send + Sync {
     async fn get_message_count(&self) -> Result<i64, String>;
 }
 
-/// ウィンドウ設定関連のDB操作を抽象化するトレイト
-#[cfg_attr(test, automock)]
-#[async_trait]
-pub trait WindowSettingsRepository: Send + Sync {
-    /// ウィンドウ設定を取得
-    async fn get_window_settings(&self) -> Result<WindowSettings, String>;
-
-    /// ウィンドウ設定を保存
-    async fn save_window_settings(&self, settings: WindowSettings) -> Result<(), String>;
-}
-
 /// メール統計関連のDB操作を抽象化するトレイト
 #[cfg_attr(test, automock)]
 #[async_trait]
@@ -122,13 +75,10 @@ pub trait OrderRepository: Send + Sync {
 #[cfg_attr(test, automock)]
 #[async_trait]
 pub trait ParseRepository: Send + Sync {
-    /// 未パースのメールを取得（order_emails・parse_skippedに存在しないメール）
+    /// 未パースのメールを取得（order_emails に存在しないメール）
     async fn get_unparsed_emails(&self, batch_size: usize) -> Result<Vec<EmailRow>, String>;
 
-    /// パース失敗したメールを記録（無限ループ防止）
-    async fn mark_parse_skipped(&self, email_id: i64, error_message: &str) -> Result<(), String>;
-
-    /// 注文関連テーブルをクリア（order_emails, parse_skipped, deliveries, items, orders）
+    /// 注文関連テーブルをクリア（order_emails, deliveries, items, orders）
     async fn clear_order_tables(&self) -> Result<(), String>;
 
     /// パース対象の全メール数を取得
@@ -163,65 +113,6 @@ pub struct SqliteEmailRepository {
 impl SqliteEmailRepository {
     pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
-    }
-}
-
-/// SQLiteを使用したWindowSettingsRepositoryの実装
-pub struct SqliteWindowSettingsRepository {
-    pool: SqlitePool,
-}
-
-impl SqliteWindowSettingsRepository {
-    pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
-    }
-}
-
-#[async_trait]
-impl WindowSettingsRepository for SqliteWindowSettingsRepository {
-    async fn get_window_settings(&self) -> Result<WindowSettings, String> {
-        let row: (i64, i64, Option<i64>, Option<i64>, i64) = sqlx::query_as(
-            r#"
-            SELECT width, height, x, y, maximized
-            FROM window_settings
-            WHERE id = 1
-            "#,
-        )
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|e| format!("Failed to get window settings: {e}"))?;
-
-        Ok(WindowSettings {
-            width: row.0,
-            height: row.1,
-            x: row.2,
-            y: row.3,
-            maximized: row.4 != 0,
-        })
-    }
-
-    async fn save_window_settings(&self, settings: WindowSettings) -> Result<(), String> {
-        sqlx::query(
-            r#"
-            UPDATE window_settings
-            SET width = ?,
-                height = ?,
-                x = ?,
-                y = ?,
-                maximized = ?
-            WHERE id = 1
-            "#,
-        )
-        .bind(settings.width)
-        .bind(settings.height)
-        .bind(settings.x)
-        .bind(settings.y)
-        .bind(i32::from(settings.maximized))
-        .execute(&self.pool)
-        .await
-        .map_err(|e| format!("Failed to save window settings: {e}"))?;
-
-        Ok(())
     }
 }
 
@@ -528,11 +419,9 @@ impl ParseRepository for SqliteParseRepository {
             SELECT e.id, e.message_id, e.body_plain, e.from_address, e.subject, e.internal_date
             FROM emails e
             LEFT JOIN order_emails oe ON e.id = oe.email_id
-            LEFT JOIN parse_skipped ps ON e.id = ps.email_id
             WHERE e.body_plain IS NOT NULL
             AND e.from_address IS NOT NULL
             AND oe.email_id IS NULL
-            AND ps.email_id IS NULL
             ORDER BY e.internal_date ASC
             LIMIT ?
             "#,
@@ -543,22 +432,6 @@ impl ParseRepository for SqliteParseRepository {
         .map_err(|e| format!("Failed to fetch unparsed emails: {e}"))?;
 
         Ok(emails)
-    }
-
-    async fn mark_parse_skipped(&self, email_id: i64, error_message: &str) -> Result<(), String> {
-        let sanitized = sanitize_error_for_parse_skipped(error_message);
-        sqlx::query(
-            r#"
-            INSERT OR IGNORE INTO parse_skipped (email_id, error_message)
-            VALUES (?, ?)
-            "#,
-        )
-        .bind(email_id)
-        .bind(&sanitized)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| format!("Failed to mark parse skipped: {e}"))?;
-        Ok(())
     }
 
     async fn clear_order_tables(&self) -> Result<(), String> {
@@ -574,11 +447,6 @@ impl ParseRepository for SqliteParseRepository {
             .execute(&mut *tx)
             .await
             .map_err(|e| format!("Failed to clear order_emails table: {e}"))?;
-
-        sqlx::query("DELETE FROM parse_skipped")
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| format!("Failed to clear parse_skipped table: {e}"))?;
 
         sqlx::query("DELETE FROM deliveries")
             .execute(&mut *tx)
@@ -1244,29 +1112,6 @@ mod tests {
     use crate::gemini::ParsedProduct;
     use sqlx::sqlite::SqlitePoolOptions;
 
-    #[test]
-    fn test_sanitize_error_for_parse_skipped() {
-        assert_eq!(
-            sanitize_error_for_parse_skipped("Order number not found"),
-            "Order number not found"
-        );
-        assert!(
-            sanitize_error_for_parse_skipped("Failed: C:\\Users\\john\\AppData\\paa_data.db")
-                .contains("[PATH]")
-        );
-        assert!(
-            sanitize_error_for_parse_skipped("sqlite:file:/path/to/db.db").contains("[DB_PATH]")
-        );
-        assert!(
-            sanitize_error_for_parse_skipped("error: /home/user/.config/paa/file")
-                .contains("[PATH]")
-        );
-        // /root, /etc, /usr/local 等の絶対パスもマスクされる
-        assert!(sanitize_error_for_parse_skipped("error: /root/.ssh/id_rsa").contains("[PATH]"));
-        assert!(sanitize_error_for_parse_skipped("error: /etc/passwd").contains("[PATH]"));
-        assert!(sanitize_error_for_parse_skipped("error: /usr/local/bin/app").contains("[PATH]"));
-    }
-
     async fn setup_test_db() -> SqlitePool {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
@@ -1296,32 +1141,6 @@ mod tests {
         .execute(&pool)
         .await
         .expect("Failed to create emails table");
-
-        // window_settings テーブル (013 に対応)
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS window_settings (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                width INTEGER NOT NULL DEFAULT 800,
-                height INTEGER NOT NULL DEFAULT 600,
-                x INTEGER,
-                y INTEGER,
-                maximized INTEGER NOT NULL DEFAULT 0 CHECK(maximized IN (0, 1)),
-                created_at TEXT DEFAULT (datetime('now')),
-                updated_at TEXT DEFAULT (datetime('now'))
-            )
-            "#,
-        )
-        .execute(&pool)
-        .await
-        .expect("Failed to create window_settings table");
-
-        sqlx::query(
-            "INSERT OR IGNORE INTO window_settings (id, width, height) VALUES (1, 800, 600)",
-        )
-        .execute(&pool)
-        .await
-        .expect("Failed to insert default window settings");
 
         // orders テーブル (003 に対応、shop_name 含む)
         sqlx::query(
@@ -1402,21 +1221,6 @@ mod tests {
         .execute(&pool)
         .await
         .expect("Failed to create order_emails table");
-
-        // parse_skipped テーブル
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS parse_skipped (
-                email_id INTEGER PRIMARY KEY,
-                error_message TEXT,
-                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE
-            )
-            "#,
-        )
-        .execute(&pool)
-        .await
-        .expect("Failed to create parse_skipped table");
 
         // shop_settings テーブル (014, 015 に対応)
         sqlx::query(
@@ -1609,40 +1413,6 @@ mod tests {
         ids_2000.extend((0..2000).map(|i| format!("chunk_2000_{}", i)));
         let result = repo.filter_new_message_ids(&ids_2000).await.unwrap();
         assert_eq!(result.len(), 2000);
-    }
-
-    #[tokio::test]
-    async fn test_window_settings_repository_get_and_save() {
-        let pool = setup_test_db().await;
-        let repo = SqliteWindowSettingsRepository::new(pool.clone());
-
-        // 初期値確認
-        let settings = repo.get_window_settings().await.unwrap();
-        assert_eq!(settings.width, 800);
-        assert_eq!(settings.height, 600);
-        assert_eq!(settings.x, None);
-        assert_eq!(settings.y, None);
-        assert!(!settings.maximized);
-
-        // 設定を更新
-        let new_settings = WindowSettings {
-            width: 1024,
-            height: 768,
-            x: Some(100),
-            y: Some(200),
-            maximized: true,
-        };
-        repo.save_window_settings(new_settings.clone())
-            .await
-            .unwrap();
-
-        // 更新結果を検証
-        let settings = repo.get_window_settings().await.unwrap();
-        assert_eq!(settings.width, 1024);
-        assert_eq!(settings.height, 768);
-        assert_eq!(settings.x, Some(100));
-        assert_eq!(settings.y, Some(200));
-        assert!(settings.maximized);
     }
 
     #[tokio::test]

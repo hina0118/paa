@@ -14,6 +14,30 @@ const CONFIG_FILENAME: &str = "paa_config.json";
 pub struct AppConfig {
     pub sync: SyncConfig,
     pub parse: ParseConfig,
+    #[serde(default)]
+    pub window: WindowConfig,
+}
+
+/// ウィンドウ設定（サイズ・位置・最大化状態）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WindowConfig {
+    pub width: i64,
+    pub height: i64,
+    pub x: Option<i64>,
+    pub y: Option<i64>,
+    pub maximized: bool,
+}
+
+impl Default for WindowConfig {
+    fn default() -> Self {
+        Self {
+            width: 800,
+            height: 600,
+            x: None,
+            y: None,
+            maximized: false,
+        }
+    }
 }
 
 /// 同期（Gmail）設定
@@ -39,6 +63,7 @@ impl Default for AppConfig {
             parse: ParseConfig {
                 batch_size: 100,
             },
+            window: WindowConfig::default(),
         }
     }
 }
@@ -81,6 +106,8 @@ mod tests {
         assert_eq!(config.sync.batch_size, 50);
         assert_eq!(config.sync.max_iterations, 1000);
         assert_eq!(config.parse.batch_size, 100);
+        assert_eq!(config.window.width, 800);
+        assert_eq!(config.window.height, 600);
 
         // ファイルが作成されている
         assert!(dir.path().join(CONFIG_FILENAME).exists());
@@ -95,6 +122,13 @@ mod tests {
                 max_iterations: 500,
             },
             parse: ParseConfig { batch_size: 200 },
+            window: WindowConfig {
+                width: 1024,
+                height: 768,
+                x: Some(100),
+                y: Some(200),
+                maximized: true,
+            },
         };
 
         save(dir.path(), &config).unwrap();
@@ -102,6 +136,8 @@ mod tests {
         assert_eq!(loaded.sync.batch_size, 100);
         assert_eq!(loaded.sync.max_iterations, 500);
         assert_eq!(loaded.parse.batch_size, 200);
+        assert_eq!(loaded.window.width, 1024);
+        assert_eq!(loaded.window.maximized, true);
     }
 
     #[test]

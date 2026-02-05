@@ -28,12 +28,6 @@ export function OrderEmailsTable() {
   return <TableViewer tableName="order_emails" title="Order-Emails テーブル" />;
 }
 
-export function ParseSkippedTable() {
-  return (
-    <TableViewer tableName="parse_skipped" title="Parse Skipped テーブル" />
-  );
-}
-
 export function OrderHtmlsTable() {
   return <TableViewer tableName="order_htmls" title="Order-HTMLs テーブル" />;
 }
@@ -41,12 +35,6 @@ export function OrderHtmlsTable() {
 export function ShopSettingsTable() {
   return (
     <TableViewer tableName="shop_settings" title="Shop Settings テーブル" />
-  );
-}
-
-export function WindowSettingsTable() {
-  return (
-    <TableViewer tableName="window_settings" title="Window Settings テーブル" />
   );
 }
 

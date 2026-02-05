@@ -223,39 +223,10 @@ export type E2EMockDb = {
   close: () => Promise<void>;
 };
 
-/** parse_skipped 用スキーマ */
-const PARSE_SKIPPED_SCHEMA: SchemaColumn[] = [
-  {
-    cid: 0,
-    name: 'email_id',
-    type: 'INTEGER',
-    notnull: 1,
-    dflt_value: null,
-    pk: 1,
-  },
-  {
-    cid: 1,
-    name: 'error_message',
-    type: 'TEXT',
-    notnull: 0,
-    dflt_value: null,
-    pk: 0,
-  },
-  {
-    cid: 2,
-    name: 'created_at',
-    type: 'DATETIME',
-    notnull: 1,
-    dflt_value: null,
-    pk: 0,
-  },
-];
-
 function getSchemaForTable(tableName: string): SchemaColumn[] {
   if (tableName === 'images') return IMAGES_SCHEMA;
   if (tableName === 'orders') return ORDERS_SCHEMA;
   if (tableName === 'shop_settings') return SHOP_SETTINGS_SCHEMA;
-  if (tableName === 'parse_skipped') return PARSE_SKIPPED_SCHEMA;
   return MINIMAL_SCHEMA;
 }
 
@@ -284,7 +255,6 @@ export function createE2EMockDb(): E2EMockDb {
         let count = 0;
         if (tableName === 'shop_settings') count = SHOP_SETTINGS_ROWS.length;
         else if (tableName === 'orders') count = 1;
-        else if (tableName === 'parse_skipped') count = 0;
         return [{ count }] as unknown as T[];
       }
 

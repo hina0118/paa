@@ -404,26 +404,11 @@ pub async fn batch_parse_emails(
             );
 
             if candidate_parsers.is_empty() {
-                let skip_reason = row
-                    .from_address
-                    .as_ref()
-                    .map(|_| "No matching parser")
-                    .unwrap_or("from_address is null");
                 log::debug!(
                     "No parser found for address: {:?} with subject: {:?}",
                     row.from_address.as_deref().unwrap_or("(null)"),
                     row.subject.as_deref(),
                 );
-                parse_repo
-                    .mark_parse_skipped(row.email_id, skip_reason)
-                    .await
-                    .map_err(|e| {
-                        parse_state.finish();
-                        format!(
-                            "Failed to mark email {} as skipped (DB error): {}. Aborting to prevent infinite parse loop.",
-                            row.email_id, e
-                        )
-                    })?;
                 failed_count += 1;
                 overall_parsed_count += 1;
                 continue;
@@ -514,16 +499,6 @@ pub async fn batch_parse_emails(
                 }
                 Err(e) => {
                     log::error!("Failed to parse email {}: {}", row.email_id, e);
-                    parse_repo
-                        .mark_parse_skipped(row.email_id, &e)
-                        .await
-                        .map_err(|mark_err| {
-                            parse_state.finish();
-                            format!(
-                                "Failed to mark email {} as skipped (DB error): {}. Aborting to prevent infinite parse loop.",
-                                row.email_id, mark_err
-                            )
-                        })?;
                     failed_count += 1;
                     overall_parsed_count += 1;
                 }
@@ -549,16 +524,6 @@ pub async fn batch_parse_emails(
                 }
                 Err(e) => {
                     log::error!("Failed to save order: {}", e);
-                    parse_repo
-                        .mark_parse_skipped(order_data.email_id, &e)
-                        .await
-                        .map_err(|mark_err| {
-                            parse_state.finish();
-                            format!(
-                                "Failed to mark email {} as skipped (DB error): {}. Aborting to prevent infinite parse loop.",
-                                order_data.email_id, mark_err
-                            )
-                        })?;
                     failed_count += 1;
                 }
             }

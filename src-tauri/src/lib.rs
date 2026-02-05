@@ -36,7 +36,6 @@ use crate::repository::{
     EmailRepository, EmailStats, EmailStatsRepository, OrderRepository, ParseRepository,
     ShopSettingsRepository, SqliteEmailRepository, SqliteEmailStatsRepository, SqliteOrderRepository,
     SqliteParseRepository, SqliteProductMasterRepository, SqliteShopSettingsRepository,
-    SqliteWindowSettingsRepository, WindowSettings, WindowSettingsRepository,
 };
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -396,9 +395,15 @@ async fn update_max_iterations(
 }
 
 #[tauri::command]
-async fn get_window_settings(pool: tauri::State<'_, SqlitePool>) -> Result<WindowSettings, String> {
-    let repo = SqliteWindowSettingsRepository::new(pool.inner().clone());
-    repo.get_window_settings().await
+async fn get_window_settings(
+    app_handle: tauri::AppHandle,
+) -> Result<config::WindowConfig, String> {
+    let app_config_dir = app_handle
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("Failed to get app config dir: {e}"))?;
+    let config = config::load(&app_config_dir)?;
+    Ok(config.window)
 }
 
 /// ウィンドウサイズのバリデーション（最小200、最大10000）
@@ -421,7 +426,7 @@ pub fn validate_window_size(width: i64, height: i64) -> Result<(), String> {
 
 #[tauri::command]
 async fn save_window_settings(
-    pool: tauri::State<'_, SqlitePool>,
+    app_handle: tauri::AppHandle,
     width: i64,
     height: i64,
     x: Option<i64>,
@@ -430,15 +435,19 @@ async fn save_window_settings(
 ) -> Result<(), String> {
     validate_window_size(width, height)?;
 
-    let repo = SqliteWindowSettingsRepository::new(pool.inner().clone());
-    let settings = WindowSettings {
+    let app_config_dir = app_handle
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("Failed to get app config dir: {e}"))?;
+    let mut config = config::load(&app_config_dir)?;
+    config.window = config::WindowConfig {
         width,
         height,
         x,
         y,
         maximized,
     };
-    repo.save_window_settings(settings).await
+    config::save(&app_config_dir, &config)
 }
 
 /// Gmail メール取得（BatchRunner 経由で start_sync と同等の処理を実行）
@@ -616,6 +625,18 @@ pub fn run() {
             sql: include_str!("../migrations/004_remove_metadata_tables.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 5,
+            description: "remove_parse_skipped",
+            sql: include_str!("../migrations/005_remove_parse_skipped.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 6,
+            description: "remove_window_settings",
+            sql: include_str!("../migrations/006_remove_window_settings.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
@@ -730,36 +751,49 @@ pub fn run() {
                 }
             });
 
-            let pool_for_window = pool;
+            let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                let repo = SqliteWindowSettingsRepository::new(pool_for_window.clone());
-                if let Ok(settings) = repo.get_window_settings().await {
-                    // Set window size
-                    let _ = window.set_size(tauri::LogicalSize {
-                        width: settings.width as u32,
-                        height: settings.height as u32,
+                let app_config_dir = match app_handle.path().app_config_dir() {
+                    Ok(p) => p,
+                    Err(e) => {
+                        log::error!("Failed to get app config dir: {e}");
+                        return;
+                    }
+                };
+                let config = match config::load(&app_config_dir) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        log::error!("Failed to load config: {e}");
+                        return;
+                    }
+                };
+                let settings = &config.window;
+
+                // Set window size
+                let _ = window.set_size(tauri::LogicalSize {
+                    width: settings.width as u32,
+                    height: settings.height as u32,
+                });
+
+                // Set window position if available
+                if let (Some(x_pos), Some(y_pos)) = (settings.x, settings.y) {
+                    #[allow(clippy::cast_possible_truncation)]
+                    let _ = window.set_position(tauri::LogicalPosition {
+                        x: x_pos as i32,
+                        y: y_pos as i32,
                     });
-
-                    // Set window position if available
-                    if let (Some(x_pos), Some(y_pos)) = (settings.x, settings.y) {
-                        #[allow(clippy::cast_possible_truncation)]
-                        let _ = window.set_position(tauri::LogicalPosition {
-                            x: x_pos as i32,
-                            y: y_pos as i32,
-                        });
-                    }
-
-                    // Set maximized state
-                    if settings.maximized {
-                        let _ = window.maximize();
-                    }
-
-                    log::info!(
-                        "Window settings restored: {}x{}",
-                        settings.width,
-                        settings.height
-                    );
                 }
+
+                // Set maximized state
+                if settings.maximized {
+                    let _ = window.maximize();
+                }
+
+                log::info!(
+                    "Window settings restored: {}x{}",
+                    settings.width,
+                    settings.height
+                );
             });
 
             // Setup system tray
