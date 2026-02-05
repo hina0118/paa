@@ -423,11 +423,6 @@ where
                                 output.email_id,
                                 e
                             );
-                            // パース失敗としてマーク
-                            let _ = context
-                                .parse_repo
-                                .mark_parse_skipped(output.email_id, &e)
-                                .await;
                             save_errors += 1;
                         }
                     }

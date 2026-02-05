@@ -3,10 +3,10 @@ import { createContext } from 'react';
 export type Screen =
   | 'dashboard'
   | 'orders'
-  | 'sync'
-  | 'parse'
+  | 'batch'
   | 'logs'
   | 'shop-settings'
+  | 'api-keys'
   | 'settings'
   | 'table-emails'
   | 'table-orders'
@@ -16,11 +16,7 @@ export type Screen =
   | 'table-htmls'
   | 'table-order-emails'
   | 'table-order-htmls'
-  | 'table-parse-skipped'
   | 'table-shop-settings'
-  | 'table-sync-metadata'
-  | 'table-window-settings'
-  | 'table-parse-metadata'
   | 'table-product-master';
 
 export type NavigationContextType = {

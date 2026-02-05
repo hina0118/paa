@@ -9,6 +9,7 @@ use tauri::{Listener, Manager};
 use tauri_plugin_sql::{Migration, MigrationKind};
 
 pub mod batch_runner;
+pub mod config;
 pub mod gemini;
 pub mod gmail;
 pub mod gmail_client;
@@ -20,8 +21,7 @@ pub mod repository;
 use crate::batch_runner::{BatchProgressEvent, BatchRunner};
 use crate::gemini::{
     create_product_parse_input, GeminiClient, ProductNameParseCache, ProductNameParseContext,
-    ProductNameParseTask, GEMINI_BATCH_SIZE, GEMINI_DELAY_SECONDS, PRODUCT_NAME_PARSE_EVENT_NAME,
-    PRODUCT_NAME_PARSE_TASK_NAME,
+    ProductNameParseTask, PRODUCT_NAME_PARSE_EVENT_NAME, PRODUCT_NAME_PARSE_TASK_NAME,
 };
 use crate::gmail::{
     create_sync_input, fetch_all_message_ids, GmailSyncContext, GmailSyncTask,
@@ -32,12 +32,13 @@ use crate::parsers::{
     EmailParseContext, EmailParseTask, EMAIL_PARSE_EVENT_NAME, EMAIL_PARSE_TASK_NAME,
 };
 use crate::repository::{
-    EmailRepository, EmailStats, EmailStatsRepository, OrderRepository, ParseMetadataRepository,
-    ParseRepository, ShopSettingsRepository, SqliteEmailRepository, SqliteEmailStatsRepository,
-    SqliteOrderRepository, SqliteParseMetadataRepository, SqliteParseRepository,
-    SqliteProductMasterRepository, SqliteShopSettingsRepository, SqliteSyncMetadataRepository,
-    SqliteWindowSettingsRepository, SyncMetadataRepository, WindowSettings,
-    WindowSettingsRepository,
+    DeliveryStats, DeliveryStatsRepository, EmailRepository, EmailStats, EmailStatsRepository,
+    MiscStats, MiscStatsRepository, OrderRepository, OrderStats, OrderStatsRepository,
+    ParseRepository, ProductMasterStats, ProductMasterStatsRepository, ShopSettingsRepository,
+    SqliteDeliveryStatsRepository, SqliteEmailRepository, SqliteEmailStatsRepository,
+    SqliteMiscStatsRepository, SqliteOrderRepository, SqliteOrderStatsRepository,
+    SqliteParseRepository, SqliteProductMasterRepository, SqliteProductMasterStatsRepository,
+    SqliteShopSettingsRepository,
 };
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -87,14 +88,13 @@ async fn start_sync(
 
         let email_repo = SqliteEmailRepository::new(pool_clone.clone());
         let shop_repo = SqliteShopSettingsRepository::new(pool_clone.clone());
-        let _sync_metadata_repo = SqliteSyncMetadataRepository::new(pool_clone.clone());
 
         // shop_settings から sender_addresses を取得
         let enabled_shops = match shop_repo.get_enabled().await {
             Ok(shops) => shops,
             Err(e) => {
                 log::error!("Failed to fetch shop settings: {}", e);
-                let _ = email_repo.update_sync_error_status().await;
+                sync_state_clone.set_error(&e);
                 let error_event = BatchProgressEvent::error(
                     GMAIL_SYNC_TASK_NAME,
                     0,
@@ -118,43 +118,21 @@ async fn start_sync(
             sender_addresses.len()
         );
 
-        // 同期ステータスを 'syncing' に更新
-        if let Err(e) = email_repo.start_sync().await {
-            log::error!("Failed to start sync: {}", e);
-            let _ = email_repo.update_sync_error_status().await;
-            let error_event = BatchProgressEvent::error(
-                GMAIL_SYNC_TASK_NAME,
-                0,
-                0,
-                0,
-                0,
-                format!("Failed to start sync: {}", e),
-            );
-            let _ = app_clone.emit(GMAIL_SYNC_EVENT_NAME, error_event);
-            return;
-        }
-
-        // sync_metadata から batch_size を取得
-        let metadata = match email_repo.get_sync_metadata().await {
-            Ok(m) => m,
-            Err(e) => {
-                log::error!("Failed to fetch sync metadata: {}", e);
-                let _ = email_repo.update_sync_error_status().await;
-                let error_event = BatchProgressEvent::error(
-                    GMAIL_SYNC_TASK_NAME,
-                    0,
-                    0,
-                    0,
-                    0,
-                    format!("Failed to fetch sync metadata: {}", e),
-                );
-                let _ = app_clone.emit(GMAIL_SYNC_EVENT_NAME, error_event);
-                return;
-            }
-        };
-
-        let batch_size = if metadata.batch_size > 0 {
-            metadata.batch_size as usize
+        // 設定ファイルから batch_size を取得
+        let app_config_dir = app_clone
+            .path()
+            .app_config_dir()
+            .map_err(|e| format!("Failed to get app config dir: {e}"))
+            .unwrap_or_else(|e| {
+                log::error!("{e}");
+                std::path::PathBuf::new()
+            });
+        let config = config::load(&app_config_dir).unwrap_or_else(|e| {
+            log::error!("Failed to load config: {}", e);
+            config::AppConfig::default()
+        });
+        let batch_size = if config.sync.batch_size > 0 {
+            config.sync.batch_size as usize
         } else {
             50
         };
@@ -164,7 +142,7 @@ async fn start_sync(
             Ok(c) => c,
             Err(e) => {
                 log::error!("Failed to create Gmail client: {}", e);
-                let _ = email_repo.update_sync_error_status().await;
+                sync_state_clone.set_error(&e);
                 let error_event = BatchProgressEvent::error(
                     GMAIL_SYNC_TASK_NAME,
                     0,
@@ -183,11 +161,12 @@ async fn start_sync(
 
         // 全メッセージIDを取得
         log::info!("Fetching all message IDs from Gmail...");
-        let all_ids = match fetch_all_message_ids(&gmail_client, &query, 100, None).await {
+        let max_results = (config.sync.max_results_per_page.clamp(1, 500)) as u32;
+        let all_ids = match fetch_all_message_ids(&gmail_client, &query, max_results, None).await {
             Ok(ids) => ids,
             Err(e) => {
                 log::error!("Failed to fetch message IDs: {}", e);
-                let _ = email_repo.update_sync_error_status().await;
+                sync_state_clone.set_error(&e);
                 let error_event = BatchProgressEvent::error(
                     GMAIL_SYNC_TASK_NAME,
                     0,
@@ -208,7 +187,7 @@ async fn start_sync(
             Ok(ids) => ids,
             Err(e) => {
                 log::error!("Failed to filter new message IDs: {}", e);
-                let _ = email_repo.update_sync_error_status().await;
+                sync_state_clone.set_error(&e);
                 let error_event = BatchProgressEvent::error(
                     GMAIL_SYNC_TASK_NAME,
                     0,
@@ -226,7 +205,6 @@ async fn start_sync(
 
         if new_ids.is_empty() {
             log::info!("No new messages to sync");
-            let _ = email_repo.complete_sync("idle").await;
             let complete_event = BatchProgressEvent::complete(
                 GMAIL_SYNC_TASK_NAME,
                 0,
@@ -264,8 +242,9 @@ async fn start_sync(
             shop_settings_cache: Arc::new(Mutex::new(ShopSettingsCacheForSync::default())),
         };
 
-        // BatchRunner で実行（30分タイムアウト、ディレイなし）
-        let runner = BatchRunner::new(task, batch_size, 0).with_timeout(30);
+        // BatchRunner で実行（タイムアウト・ディレイは設定ファイルから）
+        let timeout_minutes = config.sync.timeout_minutes.clamp(1, 120);
+        let runner = BatchRunner::new(task, batch_size, 0).with_timeout(timeout_minutes as u64);
         let sync_state_for_cancel = sync_state_clone.clone();
 
         match runner
@@ -280,15 +259,6 @@ async fn start_sync(
                     batch_result.success_count,
                     batch_result.failed_count
                 );
-
-                // 同期完了
-                let final_status = if sync_state_clone.should_stop() {
-                    "paused"
-                } else {
-                    "idle"
-                };
-                let email_repo = SqliteEmailRepository::new(pool_clone.clone());
-                let _ = email_repo.complete_sync(final_status).await;
 
                 // 完了イベント（BatchRunnerが既に送信しているが、通知用に再度確認）
                 if !sync_state_clone.should_stop() {
@@ -307,8 +277,7 @@ async fn start_sync(
             }
             Err(e) => {
                 log::error!("BatchRunner failed: {}", e);
-                let email_repo = SqliteEmailRepository::new(pool_clone.clone());
-                let _ = email_repo.update_sync_error_status().await;
+                sync_state_clone.set_error(&e);
 
                 let error_event = BatchProgressEvent::error(
                     GMAIL_SYNC_TASK_NAME,
@@ -335,35 +304,73 @@ async fn cancel_sync(sync_state: tauri::State<'_, gmail::SyncState>) -> Result<(
 
 #[tauri::command]
 async fn get_sync_status(
-    pool: tauri::State<'_, SqlitePool>,
+    app_handle: tauri::AppHandle,
+    sync_state: tauri::State<'_, gmail::SyncState>,
 ) -> Result<gmail::SyncMetadata, String> {
-    let repo = SqliteSyncMetadataRepository::new(pool.inner().clone());
-    let metadata = repo.get_sync_metadata().await?;
-    Ok(metadata)
+    let app_config_dir = app_handle
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("Failed to get app config dir: {e}"))?;
+    let config = config::load(&app_config_dir)?;
+
+    let sync_status = if sync_state.inner().is_running() {
+        "syncing"
+    } else if sync_state
+        .inner()
+        .last_error
+        .lock()
+        .map(|g| g.is_some())
+        .unwrap_or(false)
+    {
+        "error"
+    } else {
+        "idle"
+    };
+
+    let last_error_message = sync_state
+        .inner()
+        .last_error
+        .lock()
+        .ok()
+        .and_then(|g| g.clone());
+
+    Ok(gmail::SyncMetadata {
+        sync_status: sync_status.to_string(),
+        oldest_fetched_date: None,
+        total_synced_count: 0,
+        batch_size: config.sync.batch_size,
+        last_sync_started_at: None,
+        last_sync_completed_at: None,
+        max_iterations: config.sync.max_iterations,
+        max_results_per_page: config.sync.max_results_per_page,
+        timeout_minutes: config.sync.timeout_minutes,
+        last_error_message,
+    })
 }
 
 #[tauri::command]
-async fn reset_sync_status(pool: tauri::State<'_, SqlitePool>) -> Result<(), String> {
-    log::info!("Resetting stuck sync status to 'idle'");
-    let repo = SqliteSyncMetadataRepository::new(pool.inner().clone());
-    repo.reset_sync_status().await
+async fn reset_sync_status(sync_state: tauri::State<'_, gmail::SyncState>) -> Result<(), String> {
+    log::info!("Resetting sync status to 'idle'");
+    sync_state.inner().force_idle();
+    Ok(())
 }
 
 #[tauri::command]
-async fn reset_sync_date(pool: tauri::State<'_, SqlitePool>) -> Result<(), String> {
-    log::info!("Resetting oldest_fetched_date to allow re-sync from latest emails");
-    let repo = SqliteSyncMetadataRepository::new(pool.inner().clone());
-    repo.reset_sync_date().await
+async fn reset_sync_date() -> Result<(), String> {
+    log::info!("reset_sync_date: no-op (oldest_fetched_date は未使用)");
+    Ok(())
 }
 
 #[tauri::command]
-async fn update_batch_size(
-    pool: tauri::State<'_, SqlitePool>,
-    batch_size: i64,
-) -> Result<(), String> {
-    log::info!("Updating batch size to: {batch_size}");
-    let repo = SqliteSyncMetadataRepository::new(pool.inner().clone());
-    repo.update_batch_size(batch_size).await
+async fn update_batch_size(app_handle: tauri::AppHandle, batch_size: i64) -> Result<(), String> {
+    log::info!("Updating sync batch size to: {batch_size}");
+    let app_config_dir = app_handle
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("Failed to get app config dir: {e}"))?;
+    let mut config = config::load(&app_config_dir)?;
+    config.sync.batch_size = batch_size;
+    config::save(&app_config_dir, &config)
 }
 
 /// 最大繰り返し回数のバリデーション（1以上である必要がある）
@@ -376,20 +383,111 @@ pub fn validate_max_iterations(max_iterations: i64) -> Result<(), String> {
 
 #[tauri::command]
 async fn update_max_iterations(
-    pool: tauri::State<'_, SqlitePool>,
+    app_handle: tauri::AppHandle,
     max_iterations: i64,
 ) -> Result<(), String> {
     validate_max_iterations(max_iterations)?;
 
     log::info!("Updating max iterations to: {max_iterations}");
-    let repo = SqliteSyncMetadataRepository::new(pool.inner().clone());
-    repo.update_max_iterations(max_iterations).await
+    let app_config_dir = app_handle
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("Failed to get app config dir: {e}"))?;
+    let mut config = config::load(&app_config_dir)?;
+    config.sync.max_iterations = max_iterations;
+    config::save(&app_config_dir, &config)
 }
 
 #[tauri::command]
-async fn get_window_settings(pool: tauri::State<'_, SqlitePool>) -> Result<WindowSettings, String> {
-    let repo = SqliteWindowSettingsRepository::new(pool.inner().clone());
-    repo.get_window_settings().await
+async fn update_max_results_per_page(
+    app_handle: tauri::AppHandle,
+    max_results_per_page: i64,
+) -> Result<(), String> {
+    if !(1..=500).contains(&max_results_per_page) {
+        return Err("1ページあたり取得件数は1〜500の範囲である必要があります".to_string());
+    }
+    log::info!("Updating max results per page to: {max_results_per_page}");
+    let app_config_dir = app_handle
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("Failed to get app config dir: {e}"))?;
+    let mut config = config::load(&app_config_dir)?;
+    config.sync.max_results_per_page = max_results_per_page;
+    config::save(&app_config_dir, &config)
+}
+
+#[tauri::command]
+async fn update_timeout_minutes(
+    app_handle: tauri::AppHandle,
+    timeout_minutes: i64,
+) -> Result<(), String> {
+    if !(1..=120).contains(&timeout_minutes) {
+        return Err("同期タイムアウトは1〜120分の範囲である必要があります".to_string());
+    }
+    log::info!("Updating sync timeout to: {timeout_minutes} minutes");
+    let app_config_dir = app_handle
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("Failed to get app config dir: {e}"))?;
+    let mut config = config::load(&app_config_dir)?;
+    config.sync.timeout_minutes = timeout_minutes;
+    config::save(&app_config_dir, &config)
+}
+
+#[tauri::command]
+async fn get_gemini_config(app_handle: tauri::AppHandle) -> Result<config::GeminiConfig, String> {
+    let app_config_dir = app_handle
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("Failed to get app config dir: {e}"))?;
+    let config = config::load(&app_config_dir)?;
+    Ok(config.gemini)
+}
+
+#[tauri::command]
+async fn update_gemini_batch_size(
+    app_handle: tauri::AppHandle,
+    batch_size: i64,
+) -> Result<(), String> {
+    if !(1..=50).contains(&batch_size) {
+        return Err("商品名パースのバッチサイズは1〜50の範囲である必要があります".to_string());
+    }
+    log::info!("Updating Gemini batch size to: {batch_size}");
+    let app_config_dir = app_handle
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("Failed to get app config dir: {e}"))?;
+    let mut config = config::load(&app_config_dir)?;
+    config.gemini.batch_size = batch_size;
+    config::save(&app_config_dir, &config)
+}
+
+#[tauri::command]
+async fn update_gemini_delay_seconds(
+    app_handle: tauri::AppHandle,
+    delay_seconds: i64,
+) -> Result<(), String> {
+    if !(0..=60).contains(&delay_seconds) {
+        return Err("リクエスト間の待機秒数は0〜60の範囲である必要があります".to_string());
+    }
+    log::info!("Updating Gemini delay to: {delay_seconds} seconds");
+    let app_config_dir = app_handle
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("Failed to get app config dir: {e}"))?;
+    let mut config = config::load(&app_config_dir)?;
+    config.gemini.delay_seconds = delay_seconds;
+    config::save(&app_config_dir, &config)
+}
+
+#[tauri::command]
+async fn get_window_settings(app_handle: tauri::AppHandle) -> Result<config::WindowConfig, String> {
+    let app_config_dir = app_handle
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("Failed to get app config dir: {e}"))?;
+    let config = config::load(&app_config_dir)?;
+    Ok(config.window)
 }
 
 /// ウィンドウサイズのバリデーション（最小200、最大10000）
@@ -412,7 +510,7 @@ pub fn validate_window_size(width: i64, height: i64) -> Result<(), String> {
 
 #[tauri::command]
 async fn save_window_settings(
-    pool: tauri::State<'_, SqlitePool>,
+    app_handle: tauri::AppHandle,
     width: i64,
     height: i64,
     x: Option<i64>,
@@ -421,15 +519,19 @@ async fn save_window_settings(
 ) -> Result<(), String> {
     validate_window_size(width, height)?;
 
-    let repo = SqliteWindowSettingsRepository::new(pool.inner().clone());
-    let settings = WindowSettings {
+    let app_config_dir = app_handle
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("Failed to get app config dir: {e}"))?;
+    let mut config = config::load(&app_config_dir)?;
+    config.window = config::WindowConfig {
         width,
         height,
         x,
         y,
         maximized,
     };
-    repo.save_window_settings(settings).await
+    config::save(&app_config_dir, &config)
 }
 
 /// Gmail メール取得（BatchRunner 経由で start_sync と同等の処理を実行）
@@ -458,6 +560,36 @@ async fn fetch_gmail_emails(
 async fn get_email_stats(pool: tauri::State<'_, SqlitePool>) -> Result<EmailStats, String> {
     let repo = SqliteEmailStatsRepository::new(pool.inner().clone());
     repo.get_email_stats().await
+}
+
+/// 注文・商品サマリを取得
+#[tauri::command]
+async fn get_order_stats(pool: tauri::State<'_, SqlitePool>) -> Result<OrderStats, String> {
+    let repo = SqliteOrderStatsRepository::new(pool.inner().clone());
+    repo.get_order_stats().await
+}
+
+/// 配送状況サマリを取得
+#[tauri::command]
+async fn get_delivery_stats(pool: tauri::State<'_, SqlitePool>) -> Result<DeliveryStats, String> {
+    let repo = SqliteDeliveryStatsRepository::new(pool.inner().clone());
+    repo.get_delivery_stats().await
+}
+
+/// 商品名解析進捗を取得
+#[tauri::command]
+async fn get_product_master_stats(
+    pool: tauri::State<'_, SqlitePool>,
+) -> Result<ProductMasterStats, String> {
+    let repo = SqliteProductMasterStatsRepository::new(pool.inner().clone());
+    repo.get_product_master_stats().await
+}
+
+/// 店舗設定・画像サマリを取得
+#[tauri::command]
+async fn get_misc_stats(pool: tauri::State<'_, SqlitePool>) -> Result<MiscStats, String> {
+    let repo = SqliteMiscStatsRepository::new(pool.inner().clone());
+    repo.get_misc_stats().await
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -582,20 +714,12 @@ fn get_logs(level_filter: Option<String>, limit: Option<usize>) -> Result<Vec<Lo
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let migrations = vec![
-        Migration {
-            version: 1,
-            description: "init",
-            sql: include_str!("../migrations/001_init.sql"),
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 2,
-            description: "product_master",
-            sql: include_str!("../migrations/002_product_master.sql"),
-            kind: MigrationKind::Up,
-        },
-    ];
+    let migrations = vec![Migration {
+        version: 1,
+        description: "init",
+        sql: include_str!("../migrations/001_init.sql"),
+        kind: MigrationKind::Up,
+    }];
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -709,36 +833,49 @@ pub fn run() {
                 }
             });
 
-            let pool_for_window = pool;
+            let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                let repo = SqliteWindowSettingsRepository::new(pool_for_window.clone());
-                if let Ok(settings) = repo.get_window_settings().await {
-                    // Set window size
-                    let _ = window.set_size(tauri::LogicalSize {
-                        width: settings.width as u32,
-                        height: settings.height as u32,
+                let app_config_dir = match app_handle.path().app_config_dir() {
+                    Ok(p) => p,
+                    Err(e) => {
+                        log::error!("Failed to get app config dir: {e}");
+                        return;
+                    }
+                };
+                let config = match config::load(&app_config_dir) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        log::error!("Failed to load config: {e}");
+                        return;
+                    }
+                };
+                let settings = &config.window;
+
+                // Set window size
+                let _ = window.set_size(tauri::LogicalSize {
+                    width: settings.width as u32,
+                    height: settings.height as u32,
+                });
+
+                // Set window position if available
+                if let (Some(x_pos), Some(y_pos)) = (settings.x, settings.y) {
+                    #[allow(clippy::cast_possible_truncation)]
+                    let _ = window.set_position(tauri::LogicalPosition {
+                        x: x_pos as i32,
+                        y: y_pos as i32,
                     });
-
-                    // Set window position if available
-                    if let (Some(x_pos), Some(y_pos)) = (settings.x, settings.y) {
-                        #[allow(clippy::cast_possible_truncation)]
-                        let _ = window.set_position(tauri::LogicalPosition {
-                            x: x_pos as i32,
-                            y: y_pos as i32,
-                        });
-                    }
-
-                    // Set maximized state
-                    if settings.maximized {
-                        let _ = window.maximize();
-                    }
-
-                    log::info!(
-                        "Window settings restored: {}x{}",
-                        settings.width,
-                        settings.height
-                    );
                 }
+
+                // Set maximized state
+                if settings.maximized {
+                    let _ = window.maximize();
+                }
+
+                log::info!(
+                    "Window settings restored: {}x{}",
+                    settings.width,
+                    settings.height
+                );
             });
 
             // Setup system tray
@@ -809,11 +946,17 @@ pub fn run() {
             get_sync_status,
             update_batch_size,
             update_max_iterations,
+            update_max_results_per_page,
+            update_timeout_minutes,
             reset_sync_status,
             reset_sync_date,
             get_window_settings,
             save_window_settings,
             get_email_stats,
+            get_order_stats,
+            get_delivery_stats,
+            get_product_master_stats,
+            get_misc_stats,
             get_logs,
             get_all_shop_settings,
             create_shop_setting,
@@ -825,6 +968,9 @@ pub fn run() {
             cancel_parse,
             get_parse_status,
             update_parse_batch_size,
+            get_gemini_config,
+            update_gemini_batch_size,
+            update_gemini_delay_seconds,
             // Gemini API commands
             has_gemini_api_key,
             save_gemini_api_key,
@@ -989,13 +1135,16 @@ async fn start_batch_parse(
 
     log::info!("Starting batch parse with BatchRunner<EmailParseTask>...");
 
-    // batch_sizeが指定されていない場合はparse_metadataから取得
-    let size = if let Some(size) = batch_size {
-        size
+    // batch_sizeが指定されていない場合は設定ファイルから取得
+    let size = if let Some(s) = batch_size {
+        s
     } else {
-        let repo = SqliteParseMetadataRepository::new(pool.inner().clone());
-        let batch_size = repo.get_batch_size().await?;
-        batch_size as usize
+        let app_config_dir = app_handle
+            .path()
+            .app_config_dir()
+            .map_err(|e| format!("Failed to get app config dir: {e}"))?;
+        let config = config::load(&app_config_dir)?;
+        config.parse.batch_size as usize
     };
 
     let pool_clone = pool.inner().clone();
@@ -1017,35 +1166,9 @@ async fn start_batch_parse(
             return;
         }
 
-        let parse_metadata_repo = SqliteParseMetadataRepository::new(pool_clone.clone());
         let parse_repo = SqliteParseRepository::new(pool_clone.clone());
         let order_repo = SqliteOrderRepository::new(pool_clone.clone());
         let shop_settings_repo = SqliteShopSettingsRepository::new(pool_clone.clone());
-
-        // パース状態を「実行中」に更新
-        if let Err(e) = parse_metadata_repo
-            .update_parse_status(
-                "running",
-                Some(chrono::Utc::now().to_rfc3339()),
-                None,
-                None,
-                None,
-            )
-            .await
-        {
-            log::error!("Failed to update parse status: {}", e);
-            parse_state_clone.finish();
-            let error_event = BatchProgressEvent::error(
-                EMAIL_PARSE_TASK_NAME,
-                0,
-                0,
-                0,
-                0,
-                format!("Failed to update parse status: {}", e),
-            );
-            let _ = app_handle.emit(EMAIL_PARSE_EVENT_NAME, error_event);
-            return;
-        }
 
         // 注文関連テーブルをクリア
         log::info!(
@@ -1054,9 +1177,7 @@ async fn start_batch_parse(
         if let Err(e) = parse_repo.clear_order_tables().await {
             log::error!("Failed to clear order tables: {}", e);
             parse_state_clone.finish();
-            let _ = parse_metadata_repo
-                .update_parse_status("error", None, None, None, Some(e.clone()))
-                .await;
+            parse_state_clone.set_error(&e);
             let error_event = BatchProgressEvent::error(
                 EMAIL_PARSE_TASK_NAME,
                 0,
@@ -1075,9 +1196,7 @@ async fn start_batch_parse(
             Err(e) => {
                 log::error!("Failed to fetch shop settings: {}", e);
                 parse_state_clone.finish();
-                let _ = parse_metadata_repo
-                    .update_parse_status("error", None, None, None, Some(e.clone()))
-                    .await;
+                parse_state_clone.set_error(&e);
                 let error_event = BatchProgressEvent::error(
                     EMAIL_PARSE_TASK_NAME,
                     0,
@@ -1094,15 +1213,7 @@ async fn start_batch_parse(
         if enabled_settings.is_empty() {
             log::warn!("No enabled shop settings found");
             parse_state_clone.finish();
-            let _ = parse_metadata_repo
-                .update_parse_status(
-                    "error",
-                    None,
-                    None,
-                    None,
-                    Some("No enabled shop settings found".to_string()),
-                )
-                .await;
+            parse_state_clone.set_error("No enabled shop settings found");
             let error_event = BatchProgressEvent::error(
                 EMAIL_PARSE_TASK_NAME,
                 0,
@@ -1121,9 +1232,7 @@ async fn start_batch_parse(
             Err(e) => {
                 log::error!("Failed to count emails: {}", e);
                 parse_state_clone.finish();
-                let _ = parse_metadata_repo
-                    .update_parse_status("error", None, None, None, Some(e.clone()))
-                    .await;
+                parse_state_clone.set_error(&e);
                 let error_event = BatchProgressEvent::error(
                     EMAIL_PARSE_TASK_NAME,
                     0,
@@ -1142,15 +1251,6 @@ async fn start_batch_parse(
         if total_email_count == 0 {
             log::info!("No emails to parse");
             parse_state_clone.finish();
-            let _ = parse_metadata_repo
-                .update_parse_status(
-                    "completed",
-                    None,
-                    Some(chrono::Utc::now().to_rfc3339()),
-                    Some(0),
-                    None,
-                )
-                .await;
             let complete_event = BatchProgressEvent::complete(
                 EMAIL_PARSE_TASK_NAME,
                 0,
@@ -1168,9 +1268,7 @@ async fn start_batch_parse(
             Err(e) => {
                 log::error!("Failed to fetch unparsed emails: {}", e);
                 parse_state_clone.finish();
-                let _ = parse_metadata_repo
-                    .update_parse_status("error", None, None, None, Some(e.clone()))
-                    .await;
+                parse_state_clone.set_error(&e);
                 let error_event = BatchProgressEvent::error(
                     EMAIL_PARSE_TASK_NAME,
                     total_email_count,
@@ -1218,29 +1316,16 @@ async fn start_batch_parse(
             })
             .await
         {
-            Ok(batch_result) => {
+            Ok(_batch_result) => {
                 log::info!(
                     "Email parse completed: success={}, failed={}",
-                    batch_result.success_count,
-                    batch_result.failed_count
+                    _batch_result.success_count,
+                    _batch_result.failed_count
                 );
-
-                // メタデータを更新
-                let _ = parse_metadata_repo
-                    .update_parse_status(
-                        "completed",
-                        None,
-                        Some(chrono::Utc::now().to_rfc3339()),
-                        Some(batch_result.success_count as i64),
-                        None,
-                    )
-                    .await;
             }
             Err(e) => {
                 log::error!("BatchRunner failed: {}", e);
-                let _ = parse_metadata_repo
-                    .update_parse_status("error", None, None, None, Some(e.clone()))
-                    .await;
+                parse_state_clone.set_error(&e);
             }
         }
 
@@ -1260,20 +1345,65 @@ async fn cancel_parse(parse_state: tauri::State<'_, parsers::ParseState>) -> Res
 
 #[tauri::command]
 async fn get_parse_status(
-    pool: tauri::State<'_, SqlitePool>,
+    app_handle: tauri::AppHandle,
+    parse_state: tauri::State<'_, parsers::ParseState>,
 ) -> Result<parsers::ParseMetadata, String> {
-    let repo = SqliteParseMetadataRepository::new(pool.inner().clone());
-    repo.get_parse_metadata().await
+    let app_config_dir = app_handle
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("Failed to get app config dir: {e}"))?;
+    let config = config::load(&app_config_dir)?;
+
+    let parse_status = if parse_state
+        .inner()
+        .is_running
+        .lock()
+        .map(|g| *g)
+        .unwrap_or(false)
+    {
+        "running"
+    } else if parse_state
+        .inner()
+        .last_error
+        .lock()
+        .map(|g| g.is_some())
+        .unwrap_or(false)
+    {
+        "error"
+    } else {
+        "idle"
+    };
+
+    let last_error_message = parse_state
+        .inner()
+        .last_error
+        .lock()
+        .ok()
+        .and_then(|g| g.clone());
+
+    Ok(parsers::ParseMetadata {
+        parse_status: parse_status.to_string(),
+        last_parse_started_at: None,
+        last_parse_completed_at: None,
+        total_parsed_count: 0,
+        last_error_message,
+        batch_size: config.parse.batch_size,
+    })
 }
 
 #[tauri::command]
 async fn update_parse_batch_size(
-    pool: tauri::State<'_, SqlitePool>,
+    app_handle: tauri::AppHandle,
     batch_size: i64,
 ) -> Result<(), String> {
     log::info!("Updating parse batch size to: {batch_size}");
-    let repo = SqliteParseMetadataRepository::new(pool.inner().clone());
-    repo.update_batch_size(batch_size).await
+    let app_config_dir = app_handle
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("Failed to get app config dir: {e}"))?;
+    let mut config = config::load(&app_config_dir)?;
+    config.parse.batch_size = batch_size;
+    config::save(&app_config_dir, &config)
 }
 
 // =============================================================================
@@ -1506,6 +1636,19 @@ async fn start_product_name_parse(
             .map(|(raw_name, platform_hint)| create_product_parse_input(raw_name, platform_hint))
             .collect();
 
+        // 設定ファイルから Gemini のバッチサイズ・ディレイを取得
+        let config = app_handle
+            .path()
+            .app_config_dir()
+            .ok()
+            .and_then(|dir| config::load(&dir).ok())
+            .unwrap_or_else(|| {
+                log::warn!("Failed to load config, using Gemini defaults");
+                config::AppConfig::default()
+            });
+        let gemini_batch_size = (config.gemini.batch_size.clamp(1, 50)) as usize;
+        let gemini_delay_ms = (config.gemini.delay_seconds.clamp(0, 60)) as u64 * 1000;
+
         // BatchRunner と Context を構築
         let task: ProductNameParseTask<GeminiClient, SqliteProductMasterRepository> =
             ProductNameParseTask::new();
@@ -1515,8 +1658,8 @@ async fn start_product_name_parse(
             cache: Arc::new(Mutex::new(ProductNameParseCache::default())),
         };
 
-        // BatchRunner で実行（GEMINI_BATCH_SIZE 件ずつ、GEMINI_DELAY_SECONDS 秒のディレイ）
-        let runner = BatchRunner::new(task, GEMINI_BATCH_SIZE, GEMINI_DELAY_SECONDS * 1000);
+        // BatchRunner で実行
+        let runner = BatchRunner::new(task, gemini_batch_size, gemini_delay_ms);
 
         // 商品名パースは現在キャンセル機能がないため、常にfalseを返す
         match runner.run(&app_handle, inputs, &context, || false).await {

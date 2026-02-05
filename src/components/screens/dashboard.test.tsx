@@ -3,10 +3,15 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Dashboard } from './dashboard';
 import { ParseProvider } from '@/contexts/parse-provider';
+import { SyncProvider } from '@/contexts/sync-provider';
 import { mockInvoke, mockListen } from '@/test/setup';
 
 const renderWithProviders = (ui: React.ReactElement) => {
-  return render(<ParseProvider>{ui}</ParseProvider>);
+  return render(
+    <SyncProvider>
+      <ParseProvider>{ui}</ParseProvider>
+    </SyncProvider>
+  );
 };
 
 const defaultEmailStats = {
@@ -27,6 +32,46 @@ const defaultParseStatus = {
   total_parsed_count: 0,
 };
 
+const defaultSyncStatus = {
+  sync_status: 'idle',
+  total_synced_count: 0,
+  batch_size: 100,
+  max_iterations: 10,
+  last_sync_started_at: null,
+  last_sync_completed_at: null,
+  last_error_message: null,
+};
+
+const defaultOrderStats = {
+  total_orders: 50,
+  total_items: 120,
+  total_amount: 150000,
+};
+
+const defaultDeliveryStats = {
+  not_shipped: 7,
+  preparing: 5,
+  shipped: 15,
+  in_transit: 3,
+  out_for_delivery: 2,
+  delivered: 12,
+  failed: 1,
+  returned: 0,
+  cancelled: 2,
+};
+
+const defaultProductMasterStats = {
+  product_master_count: 25,
+  distinct_items_with_normalized: 75,
+  items_with_parsed: 20,
+};
+
+const defaultMiscStats = {
+  shop_settings_count: 8,
+  shop_settings_enabled_count: 6,
+  images_count: 15,
+};
+
 describe('Dashboard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -37,6 +82,21 @@ describe('Dashboard', () => {
       }
       if (cmd === 'get_parse_status') {
         return Promise.resolve(defaultParseStatus);
+      }
+      if (cmd === 'get_sync_status') {
+        return Promise.resolve(defaultSyncStatus);
+      }
+      if (cmd === 'get_order_stats') {
+        return Promise.resolve(defaultOrderStats);
+      }
+      if (cmd === 'get_delivery_stats') {
+        return Promise.resolve(defaultDeliveryStats);
+      }
+      if (cmd === 'get_product_master_stats') {
+        return Promise.resolve(defaultProductMasterStats);
+      }
+      if (cmd === 'get_misc_stats') {
+        return Promise.resolve(defaultMiscStats);
       }
       return Promise.resolve(null);
     });
@@ -102,6 +162,21 @@ describe('Dashboard', () => {
       if (cmd === 'get_parse_status') {
         return Promise.resolve(defaultParseStatus);
       }
+      if (cmd === 'get_sync_status') {
+        return Promise.resolve(defaultSyncStatus);
+      }
+      if (cmd === 'get_order_stats') {
+        return Promise.resolve(defaultOrderStats);
+      }
+      if (cmd === 'get_delivery_stats') {
+        return Promise.resolve(defaultDeliveryStats);
+      }
+      if (cmd === 'get_product_master_stats') {
+        return Promise.resolve(defaultProductMasterStats);
+      }
+      if (cmd === 'get_misc_stats') {
+        return Promise.resolve(defaultMiscStats);
+      }
       return Promise.resolve(null);
     });
 
@@ -112,7 +187,7 @@ describe('Dashboard', () => {
     });
 
     expect(consoleSpy).toHaveBeenCalledWith(
-      'Failed to load email stats:',
+      'Failed to load dashboard stats:',
       expect.any(Error)
     );
     consoleSpy.mockRestore();
@@ -127,6 +202,21 @@ describe('Dashboard', () => {
       }
       if (cmd === 'get_parse_status') {
         return Promise.resolve(defaultParseStatus);
+      }
+      if (cmd === 'get_sync_status') {
+        return Promise.resolve(defaultSyncStatus);
+      }
+      if (cmd === 'get_order_stats') {
+        return Promise.resolve(defaultOrderStats);
+      }
+      if (cmd === 'get_delivery_stats') {
+        return Promise.resolve(defaultDeliveryStats);
+      }
+      if (cmd === 'get_product_master_stats') {
+        return Promise.resolve(defaultProductMasterStats);
+      }
+      if (cmd === 'get_misc_stats') {
+        return Promise.resolve(defaultMiscStats);
       }
       return Promise.resolve(null);
     });
@@ -186,6 +276,21 @@ describe('Dashboard', () => {
       if (cmd === 'get_parse_status') {
         return Promise.resolve(defaultParseStatus);
       }
+      if (cmd === 'get_sync_status') {
+        return Promise.resolve(defaultSyncStatus);
+      }
+      if (cmd === 'get_order_stats') {
+        return Promise.resolve(defaultOrderStats);
+      }
+      if (cmd === 'get_delivery_stats') {
+        return Promise.resolve(defaultDeliveryStats);
+      }
+      if (cmd === 'get_product_master_stats') {
+        return Promise.resolve(defaultProductMasterStats);
+      }
+      if (cmd === 'get_misc_stats') {
+        return Promise.resolve(defaultMiscStats);
+      }
       return Promise.resolve(null);
     });
 
@@ -212,6 +317,21 @@ describe('Dashboard', () => {
       if (cmd === 'get_parse_status') {
         return Promise.resolve(defaultParseStatus);
       }
+      if (cmd === 'get_sync_status') {
+        return Promise.resolve(defaultSyncStatus);
+      }
+      if (cmd === 'get_order_stats') {
+        return Promise.resolve(defaultOrderStats);
+      }
+      if (cmd === 'get_delivery_stats') {
+        return Promise.resolve(defaultDeliveryStats);
+      }
+      if (cmd === 'get_product_master_stats') {
+        return Promise.resolve(defaultProductMasterStats);
+      }
+      if (cmd === 'get_misc_stats') {
+        return Promise.resolve(defaultMiscStats);
+      }
       return Promise.resolve(null);
     });
 
@@ -235,6 +355,21 @@ describe('Dashboard', () => {
       }
       if (cmd === 'get_parse_status') {
         return Promise.resolve(defaultParseStatus);
+      }
+      if (cmd === 'get_sync_status') {
+        return Promise.resolve(defaultSyncStatus);
+      }
+      if (cmd === 'get_order_stats') {
+        return Promise.resolve(defaultOrderStats);
+      }
+      if (cmd === 'get_delivery_stats') {
+        return Promise.resolve(defaultDeliveryStats);
+      }
+      if (cmd === 'get_product_master_stats') {
+        return Promise.resolve(defaultProductMasterStats);
+      }
+      if (cmd === 'get_misc_stats') {
+        return Promise.resolve(defaultMiscStats);
       }
       return Promise.resolve(null);
     });
@@ -260,6 +395,21 @@ describe('Dashboard', () => {
           parse_status: 'running',
         });
       }
+      if (cmd === 'get_sync_status') {
+        return Promise.resolve(defaultSyncStatus);
+      }
+      if (cmd === 'get_order_stats') {
+        return Promise.resolve(defaultOrderStats);
+      }
+      if (cmd === 'get_delivery_stats') {
+        return Promise.resolve(defaultDeliveryStats);
+      }
+      if (cmd === 'get_product_master_stats') {
+        return Promise.resolve(defaultProductMasterStats);
+      }
+      if (cmd === 'get_misc_stats') {
+        return Promise.resolve(defaultMiscStats);
+      }
       return Promise.resolve(null);
     });
 
@@ -281,6 +431,21 @@ describe('Dashboard', () => {
           ...defaultParseStatus,
           parse_status: 'completed',
         });
+      }
+      if (cmd === 'get_sync_status') {
+        return Promise.resolve(defaultSyncStatus);
+      }
+      if (cmd === 'get_order_stats') {
+        return Promise.resolve(defaultOrderStats);
+      }
+      if (cmd === 'get_delivery_stats') {
+        return Promise.resolve(defaultDeliveryStats);
+      }
+      if (cmd === 'get_product_master_stats') {
+        return Promise.resolve(defaultProductMasterStats);
+      }
+      if (cmd === 'get_misc_stats') {
+        return Promise.resolve(defaultMiscStats);
       }
       return Promise.resolve(null);
     });
@@ -304,6 +469,21 @@ describe('Dashboard', () => {
           parse_status: 'error',
           last_error_message: 'Parse error occurred',
         });
+      }
+      if (cmd === 'get_sync_status') {
+        return Promise.resolve(defaultSyncStatus);
+      }
+      if (cmd === 'get_order_stats') {
+        return Promise.resolve(defaultOrderStats);
+      }
+      if (cmd === 'get_delivery_stats') {
+        return Promise.resolve(defaultDeliveryStats);
+      }
+      if (cmd === 'get_product_master_stats') {
+        return Promise.resolve(defaultProductMasterStats);
+      }
+      if (cmd === 'get_misc_stats') {
+        return Promise.resolve(defaultMiscStats);
       }
       return Promise.resolve(null);
     });
@@ -331,6 +511,21 @@ describe('Dashboard', () => {
           last_parse_completed_at: completedAt,
         });
       }
+      if (cmd === 'get_sync_status') {
+        return Promise.resolve(defaultSyncStatus);
+      }
+      if (cmd === 'get_order_stats') {
+        return Promise.resolve(defaultOrderStats);
+      }
+      if (cmd === 'get_delivery_stats') {
+        return Promise.resolve(defaultDeliveryStats);
+      }
+      if (cmd === 'get_product_master_stats') {
+        return Promise.resolve(defaultProductMasterStats);
+      }
+      if (cmd === 'get_misc_stats') {
+        return Promise.resolve(defaultMiscStats);
+      }
       return Promise.resolve(null);
     });
 
@@ -352,6 +547,21 @@ describe('Dashboard', () => {
           ...defaultParseStatus,
           total_parsed_count: 250,
         });
+      }
+      if (cmd === 'get_sync_status') {
+        return Promise.resolve(defaultSyncStatus);
+      }
+      if (cmd === 'get_order_stats') {
+        return Promise.resolve(defaultOrderStats);
+      }
+      if (cmd === 'get_delivery_stats') {
+        return Promise.resolve(defaultDeliveryStats);
+      }
+      if (cmd === 'get_product_master_stats') {
+        return Promise.resolve(defaultProductMasterStats);
+      }
+      if (cmd === 'get_misc_stats') {
+        return Promise.resolve(defaultMiscStats);
       }
       return Promise.resolve(null);
     });

@@ -63,7 +63,9 @@ export function Orders() {
     }
   }, [getDb]);
 
-  const loadItems = useCallback(async () => {
+  const loadItems = useCallback(async (): Promise<
+    OrderItemRow[] | undefined
+  > => {
     const requestId = (loadItemsRequestId.current += 1);
     setLoading(true);
     try {
@@ -79,12 +81,15 @@ export function Orders() {
       });
       if (requestId === loadItemsRequestId.current) {
         setItems(rows);
+        return rows;
       }
+      return undefined;
     } catch (err) {
       if (requestId === loadItemsRequestId.current) {
         console.error('Failed to load order items:', err);
         setItems([]);
       }
+      return undefined;
     } finally {
       if (requestId === loadItemsRequestId.current) {
         setLoading(false);
@@ -117,6 +122,14 @@ export function Orders() {
     setPriceMin('');
     setPriceMax('');
   };
+
+  const handleImageUpdated = useCallback(async () => {
+    const newItems = await loadItems();
+    if (newItems && selectedItem) {
+      const updated = newItems.find((i) => i.id === selectedItem.id);
+      if (updated) setSelectedItem(updated);
+    }
+  }, [loadItems, selectedItem]);
 
   return (
     <div className="container mx-auto py-10 px-6">
@@ -292,6 +305,7 @@ export function Orders() {
         item={selectedItem}
         open={drawerOpen}
         onOpenChange={setDrawerOpen}
+        onImageUpdated={handleImageUpdated}
       />
     </div>
   );

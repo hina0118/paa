@@ -50,9 +50,7 @@ test.describe('Tables画面', () => {
       'Order-Emails',
       'Order-HTMLs',
       'Shop Settings',
-      'Sync Metadata',
-      'Window Settings',
-      'Parse Metadata',
+      'Product Master',
     ] as const;
     for (const tableName of tables) {
       await tablesSection

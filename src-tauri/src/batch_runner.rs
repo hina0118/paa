@@ -32,8 +32,19 @@
 use async_trait::async_trait;
 use serde::Serialize;
 use std::time::Duration;
-use tauri::Emitter;
+use tauri::{Emitter, Runtime};
 use tokio::time::sleep;
+
+/// 進捗イベント送信用トレイト（テストでモック可能にするため）
+pub trait BatchEventEmitter: Send + Sync {
+    fn emit_event<S: Serialize + Clone>(&self, event: &str, payload: S);
+}
+
+impl<R: Runtime> BatchEventEmitter for tauri::AppHandle<R> {
+    fn emit_event<S: Serialize + Clone>(&self, event: &str, payload: S) {
+        let _ = self.emit(event, payload);
+    }
+}
 
 /// バッチ処理の1タスクを定義するトレイト
 ///
@@ -352,16 +363,16 @@ impl<T: BatchTask> BatchRunner<T> {
     /// バッチ処理を実行
     ///
     /// # Arguments
-    /// * `app_handle` - Tauriアプリケーションハンドル（進捗イベント送信用）
+    /// * `emitter` - 進捗イベント送信用（AppHandle またはテスト用モック）
     /// * `inputs` - 処理対象の入力データリスト
     /// * `context` - 処理に必要なコンテキスト
     /// * `should_cancel` - キャンセルチェック関数（trueを返すと処理を中断）
     ///
     /// # Returns
     /// バッチ処理の結果
-    pub async fn run(
+    pub async fn run<E: BatchEventEmitter>(
         &self,
-        app_handle: &tauri::AppHandle,
+        emitter: &E,
         inputs: Vec<T::Input>,
         context: &T::Context,
         should_cancel: impl Fn() -> bool,
@@ -389,7 +400,7 @@ impl<T: BatchTask> BatchRunner<T> {
                 0,
                 "処理対象がありません".to_string(),
             );
-            let _ = app_handle.emit(event_name, event);
+            emitter.emit_event(event_name, event);
             return Ok(BatchResult {
                 outputs: Vec::new(),
                 success_count: 0,
@@ -414,7 +425,7 @@ impl<T: BatchTask> BatchRunner<T> {
                     success_count,
                     failed_count,
                 );
-                let _ = app_handle.emit(event_name, event);
+                emitter.emit_event(event_name, event);
                 return Ok(BatchResult {
                     outputs,
                     success_count,
@@ -439,7 +450,7 @@ impl<T: BatchTask> BatchRunner<T> {
                         failed_count,
                         timeout_min,
                     );
-                    let _ = app_handle.emit(event_name, event);
+                    emitter.emit_event(event_name, event);
                     return Ok(BatchResult {
                         outputs,
                         success_count,
@@ -481,7 +492,7 @@ impl<T: BatchTask> BatchRunner<T> {
                     failed_count,
                     format!("before_batch エラー: {}", e),
                 );
-                let _ = app_handle.emit(event_name, event);
+                emitter.emit_event(event_name, event);
                 return Err(e);
             }
 
@@ -522,7 +533,7 @@ impl<T: BatchTask> BatchRunner<T> {
                     failed_count,
                     format!("after_batch エラー: {}", e),
                 );
-                let _ = app_handle.emit(event_name, event);
+                emitter.emit_event(event_name, event);
                 return Err(e);
             }
 
@@ -543,7 +554,7 @@ impl<T: BatchTask> BatchRunner<T> {
                     batch_number, batch_success, batch_failed
                 ),
             );
-            let _ = app_handle.emit(event_name, event);
+            emitter.emit_event(event_name, event);
 
             log::info!(
                 "[{}] Batch {} complete: {} success, {} failed",
@@ -565,7 +576,7 @@ impl<T: BatchTask> BatchRunner<T> {
                 success_count, failed_count
             ),
         );
-        let _ = app_handle.emit(event_name, event);
+        emitter.emit_event(event_name, event);
 
         log::info!(
             "[{}] Batch processing complete: {} success, {} failed",
@@ -579,6 +590,17 @@ impl<T: BatchTask> BatchRunner<T> {
             success_count,
             failed_count,
         })
+    }
+}
+
+/// テスト用の No-op イベントエミッター（emit を何もしない）
+#[cfg(test)]
+struct NoopEmitter;
+
+#[cfg(test)]
+impl BatchEventEmitter for NoopEmitter {
+    fn emit_event<S: Serialize + Clone>(&self, _event: &str, _payload: S) {
+        // テストではイベント送信をスキップ
     }
 }
 
@@ -708,5 +730,81 @@ mod tests {
         assert!(event.is_complete);
         assert_eq!(event.error, Some("Timeout after 30 minutes".to_string()));
         assert_eq!(event.status_message, "タイムアウト（30分）に達しました");
+    }
+
+    #[tokio::test]
+    async fn test_run_empty_inputs() {
+        let task = MockTask {
+            fail_indices: vec![],
+        };
+        let runner = BatchRunner::new(task, 10, 0);
+        let emitter = NoopEmitter;
+
+        let result = runner.run(&emitter, vec![], &(), || false).await.unwrap();
+
+        assert_eq!(result.outputs.len(), 0);
+        assert_eq!(result.success_count, 0);
+        assert_eq!(result.failed_count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_run_success() {
+        let task = MockTask {
+            fail_indices: vec![],
+        };
+        let runner = BatchRunner::new(task, 2, 0);
+        let emitter = NoopEmitter;
+
+        let inputs = vec![0, 1, 2, 3];
+        let result = runner.run(&emitter, inputs, &(), || false).await.unwrap();
+
+        assert_eq!(result.outputs.len(), 4);
+        assert_eq!(result.outputs[0], "Result for 0");
+        assert_eq!(result.outputs[3], "Result for 3");
+        assert_eq!(result.success_count, 4);
+        assert_eq!(result.failed_count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_run_partial_failure() {
+        let task = MockTask {
+            fail_indices: vec![1, 3],
+        };
+        let runner = BatchRunner::new(task, 2, 0);
+        let emitter = NoopEmitter;
+
+        let inputs = vec![0, 1, 2, 3];
+        let result = runner.run(&emitter, inputs, &(), || false).await.unwrap();
+
+        assert_eq!(result.outputs.len(), 2);
+        assert_eq!(result.outputs[0], "Result for 0");
+        assert_eq!(result.outputs[1], "Result for 2");
+        assert_eq!(result.success_count, 2);
+        assert_eq!(result.failed_count, 2);
+    }
+
+    #[tokio::test]
+    async fn test_run_cancelled() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let task = MockTask {
+            fail_indices: vec![],
+        };
+        let runner = BatchRunner::new(task, 2, 0);
+        let emitter = NoopEmitter;
+
+        let inputs = vec![0, 1, 2, 3, 4, 5];
+        let call_count = AtomicUsize::new(0);
+        let result = runner
+            .run(&emitter, inputs, &(), || {
+                call_count.fetch_add(1, Ordering::SeqCst) >= 1 // 2バッチ目でキャンセル
+            })
+            .await
+            .unwrap();
+
+        // 1バッチ目(0,1)は処理、2バッチ目でキャンセル
+        assert_eq!(result.outputs.len(), 2);
+        assert_eq!(result.success_count, 2);
+        assert_eq!(result.failed_count, 0);
     }
 }
