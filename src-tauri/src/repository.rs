@@ -1083,6 +1083,11 @@ impl EmailRepository for SqliteEmailRepository {
             new_ids.extend(rows.into_iter().map(|(id,)| id));
         }
 
+        sqlx::query("DROP TABLE IF EXISTS temp_filter_ids")
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| format!("Failed to drop temp table: {e}"))?;
+
         tx.commit()
             .await
             .map_err(|e| format!("Failed to commit transaction: {e}"))?;
@@ -2078,6 +2083,78 @@ mod tests {
         // 空配列の場合は空を返す
         let empty = repo.filter_new_message_ids(&[]).await.unwrap();
         assert!(empty.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_filter_new_message_ids_chunk_boundaries() {
+        // CHUNK_SIZE (900) を超える件数、境界値、全既存、全新規のエッジケース
+        let pool = setup_test_db().await;
+        let repo = SqliteEmailRepository::new(pool);
+
+        // 既存メッセージを3件保存
+        let existing = vec![
+            GmailMessage {
+                message_id: "existing_1".to_string(),
+                snippet: "".to_string(),
+                subject: None,
+                body_plain: None,
+                body_html: None,
+                internal_date: 0,
+                from_address: None,
+            },
+            GmailMessage {
+                message_id: "existing_2".to_string(),
+                snippet: "".to_string(),
+                subject: None,
+                body_plain: None,
+                body_html: None,
+                internal_date: 0,
+                from_address: None,
+            },
+            GmailMessage {
+                message_id: "existing_3".to_string(),
+                snippet: "".to_string(),
+                subject: None,
+                body_plain: None,
+                body_html: None,
+                internal_date: 0,
+                from_address: None,
+            },
+        ];
+        repo.save_messages(&existing).await.unwrap();
+
+        // 全既存ID → 空を返す
+        let all_existing = vec![
+            "existing_1".to_string(),
+            "existing_2".to_string(),
+            "existing_3".to_string(),
+        ];
+        let result = repo.filter_new_message_ids(&all_existing).await.unwrap();
+        assert!(result.is_empty(), "all existing should return empty");
+
+        // 全新規ID → 全て返す
+        let all_new: Vec<String> = (0..5).map(|i| format!("new_only_{}", i)).collect();
+        let result = repo.filter_new_message_ids(&all_new).await.unwrap();
+        assert_eq!(result.len(), 5);
+        assert_eq!(result, all_new);
+
+        // CHUNK_SIZE ちょうど (900件): 既存3 + 新規897
+        let mut ids_900: Vec<String> = vec!["existing_1".into(), "existing_2".into(), "existing_3".into()];
+        ids_900.extend((0..897).map(|i| format!("chunk_900_{}", i)));
+        let result = repo.filter_new_message_ids(&ids_900).await.unwrap();
+        assert_eq!(result.len(), 897);
+
+        // CHUNK_SIZE 超え (1000件): 既存3 + 新規997
+        let mut ids_1000: Vec<String> = vec!["existing_1".into(), "existing_2".into(), "existing_3".into()];
+        ids_1000.extend((0..997).map(|i| format!("chunk_1000_{}", i)));
+        let result = repo.filter_new_message_ids(&ids_1000).await.unwrap();
+        assert_eq!(result.len(), 997);
+
+        // 2000件超: 既存3 + 新規2000
+        let mut ids_2000: Vec<String> = vec!["existing_1".into(), "existing_2".into(), "existing_3".into()];
+        ids_2000.extend((0..2000).map(|i| format!("chunk_2000_{}", i)));
+        let result = repo.filter_new_message_ids(&ids_2000).await.unwrap();
+        assert_eq!(result.len(), 2000);
     }
 
     #[tokio::test]
