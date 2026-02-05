@@ -740,10 +740,7 @@ mod tests {
         let runner = BatchRunner::new(task, 10, 0);
         let emitter = NoopEmitter;
 
-        let result = runner
-            .run(&emitter, vec![], &(), || false)
-            .await
-            .unwrap();
+        let result = runner.run(&emitter, vec![], &(), || false).await.unwrap();
 
         assert_eq!(result.outputs.len(), 0);
         assert_eq!(result.success_count, 0);
@@ -759,10 +756,7 @@ mod tests {
         let emitter = NoopEmitter;
 
         let inputs = vec![0, 1, 2, 3];
-        let result = runner
-            .run(&emitter, inputs, &(), || false)
-            .await
-            .unwrap();
+        let result = runner.run(&emitter, inputs, &(), || false).await.unwrap();
 
         assert_eq!(result.outputs.len(), 4);
         assert_eq!(result.outputs[0], "Result for 0");
@@ -780,10 +774,7 @@ mod tests {
         let emitter = NoopEmitter;
 
         let inputs = vec![0, 1, 2, 3];
-        let result = runner
-            .run(&emitter, inputs, &(), || false)
-            .await
-            .unwrap();
+        let result = runner.run(&emitter, inputs, &(), || false).await.unwrap();
 
         assert_eq!(result.outputs.len(), 2);
         assert_eq!(result.outputs[0], "Result for 0");
