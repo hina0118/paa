@@ -20,6 +20,7 @@ E2Eテストは、実際のブラウザを使用してアプリケーション�
 - **対象**: Tauri アプリを起動し、その WebView を WebDriver で操作。フロント + Rust の両方が動く。
 - **用途**: 設定の保存など Tauri コマンド経由の動作まで含めた E2E 検証。
 - **外部APIモック**: 実行時に `PAA_E2E_MOCK=1` が自動設定され、Gmail・Gemini・SerpApi の実際のAPI呼び出しがモックに置き換わる。CIやローカルで外部依存なしにテスト可能。
+- **Rustカバレッジ**: `PAA_E2E_COVERAGE=1` と `RUSTFLAGS="-Cinstrument-coverage"` を設定して実行すると、E2E 実行時の Rust コードのカバレッジを収集できる。CI の `coverage-e2e-tauri` ジョブで自動実行される。
 
 ## テストスタック
 
@@ -323,6 +324,25 @@ cargo install cargo-llvm-cov
 - フロントエンド: `coverage-e2e/coverage-data.json`
 - Rust HTML: `src-tauri/target/llvm-cov/html/index.html`
 - Rust LCOV: `coverage-e2e/rust-coverage.lcov`
+
+### Tauri E2E の Rust カバレッジ
+
+Tauri アプリを起動して E2E テストを実行しながら Rust のカバレッジを収集できます。CI の `coverage-e2e-tauri` ジョブで自動実行されます。
+
+```bash
+# ローカル実行（RUSTFLAGS を設定してビルド）
+RUSTFLAGS="-Cinstrument-coverage" npm run test:e2e:tauri:coverage
+```
+
+**実行後のカバレッジレポート生成**（ローカル）:
+
+```bash
+# profraw をマージしてレポート生成
+llvm-profdata merge -sparse coverage-e2e-tauri/*.profraw -o coverage-e2e-tauri/merged.profdata
+cd src-tauri && cargo llvm-cov report --no-run --all-features -C "profile-use=../coverage-e2e-tauri/merged.profdata" --text
+```
+
+**出力**: `coverage-e2e-tauri/lcov.info`（CI で生成）、`coverage-e2e-tauri/merged.profdata`
 
 ## トラブルシューティング
 

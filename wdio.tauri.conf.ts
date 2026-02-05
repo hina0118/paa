@@ -11,6 +11,7 @@
  */
 
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { spawn, spawnSync } from 'child_process';
 import os from 'os';
@@ -92,6 +93,12 @@ export const config = {
   },
 
   async onPrepare() {
+    const coverageEnabled = process.env.PAA_E2E_COVERAGE === '1';
+    if (coverageEnabled) {
+      const coverageDir = path.join(rootDir, 'coverage-e2e-tauri');
+      fs.mkdirSync(coverageDir, { recursive: true });
+      console.log('Coverage enabled: profraw output ->', coverageDir);
+    }
     console.log('Building Tauri app (debug, no bundle)...');
     const result = spawnSync(
       'npm',
@@ -100,6 +107,7 @@ export const config = {
         cwd: rootDir,
         stdio: 'inherit',
         shell: isWindows,
+        env: { ...process.env },
       }
     );
     if (result.status !== 0) {
@@ -114,7 +122,15 @@ export const config = {
       ? ['--native-driver', nativeDriverPath]
       : [];
     // 外部API（Gmail, Gemini, SerpApi）をモックに置き換える
-    const env = { ...process.env, PAA_E2E_MOCK: '1' };
+    const env: NodeJS.ProcessEnv = { ...process.env, PAA_E2E_MOCK: '1' };
+    if (process.env.PAA_E2E_COVERAGE === '1') {
+      const profrawPath = path.join(
+        rootDir,
+        'coverage-e2e-tauri',
+        'profraw-%p.profraw'
+      );
+      env.LLVM_PROFILE_FILE = profrawPath;
+    }
     tauriDriver = spawn(tauriDriverPath, tauriDriverArgs, {
       stdio: ['ignore', process.stdout, process.stderr],
       env,

@@ -112,15 +112,15 @@ jobs:
             webkit2gtk-driver \
             xvfb
 
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Install msedgedriver (Windows)
         if: matrix.platform == 'windows-latest'
         run: |
           cargo install --git https://github.com/chippers/msedgedriver-tool
           & "$env:USERPROFILE\.cargo\bin\msedgedriver-tool.exe"
           $PWD.Path >> $env:GITHUB_PATH
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
 
       - name: Setup Rust cache
         uses: Swatinem/rust-cache@v2
