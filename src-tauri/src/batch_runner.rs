@@ -382,7 +382,13 @@ impl<T: BatchTask> BatchRunner<T> {
         let start_time = std::time::Instant::now();
 
         if total_items == 0 {
-            let event = BatchProgressEvent::complete(task_name, 0, 0, 0, "処理対象がありません".to_string());
+            let event = BatchProgressEvent::complete(
+                task_name,
+                0,
+                0,
+                0,
+                "処理対象がありません".to_string(),
+            );
             let _ = app_handle.emit(event_name, event);
             return Ok(BatchResult {
                 outputs: Vec::new(),
@@ -502,7 +508,11 @@ impl<T: BatchTask> BatchRunner<T> {
             }
 
             // after_batch フックを呼び出し
-            if let Err(e) = self.task.after_batch(batch_number, &batch_results, context).await {
+            if let Err(e) = self
+                .task
+                .after_batch(batch_number, &batch_results, context)
+                .await
+            {
                 log::error!("[{}] after_batch failed: {}", task_name, e);
                 let event = BatchProgressEvent::error(
                     task_name,
@@ -595,7 +605,11 @@ mod tests {
             "test-progress"
         }
 
-        async fn process(&self, input: Self::Input, _ctx: &Self::Context) -> Result<Self::Output, String> {
+        async fn process(
+            &self,
+            input: Self::Input,
+            _ctx: &Self::Context,
+        ) -> Result<Self::Output, String> {
             if self.fail_indices.contains(&input) {
                 Err(format!("Failed for index {}", input))
             } else {
@@ -662,7 +676,9 @@ mod tests {
 
     #[test]
     fn test_batch_runner_new() {
-        let task = MockTask { fail_indices: vec![] };
+        let task = MockTask {
+            fail_indices: vec![],
+        };
         let runner = BatchRunner::new(task, 10, 1000);
         assert_eq!(runner.batch_size, 10);
         assert_eq!(runner.delay_ms, 1000);
@@ -671,7 +687,9 @@ mod tests {
 
     #[test]
     fn test_batch_runner_with_timeout() {
-        let task = MockTask { fail_indices: vec![] };
+        let task = MockTask {
+            fail_indices: vec![],
+        };
         let runner = BatchRunner::new(task, 10, 1000).with_timeout(30);
         assert_eq!(runner.batch_size, 10);
         assert_eq!(runner.delay_ms, 1000);

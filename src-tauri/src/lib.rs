@@ -23,11 +23,11 @@ use crate::gemini::{
     ProductNameParseTask, GEMINI_BATCH_SIZE, GEMINI_DELAY_SECONDS, PRODUCT_NAME_PARSE_EVENT_NAME,
     PRODUCT_NAME_PARSE_TASK_NAME,
 };
-use crate::logic::email_parser::get_candidate_parsers;
 use crate::gmail::{
     create_sync_input, fetch_all_message_ids, GmailSyncContext, GmailSyncTask,
     ShopSettingsCacheForSync, GMAIL_SYNC_EVENT_NAME, GMAIL_SYNC_TASK_NAME,
 };
+use crate::logic::email_parser::get_candidate_parsers;
 use crate::parsers::{
     EmailParseContext, EmailParseTask, EMAIL_PARSE_EVENT_NAME, EMAIL_PARSE_TASK_NAME,
 };
@@ -36,7 +36,8 @@ use crate::repository::{
     ParseRepository, ShopSettingsRepository, SqliteEmailRepository, SqliteEmailStatsRepository,
     SqliteOrderRepository, SqliteParseMetadataRepository, SqliteParseRepository,
     SqliteProductMasterRepository, SqliteShopSettingsRepository, SqliteSyncMetadataRepository,
-    SqliteWindowSettingsRepository, SyncMetadataRepository, WindowSettings, WindowSettingsRepository,
+    SqliteWindowSettingsRepository, SyncMetadataRepository, WindowSettings,
+    WindowSettingsRepository,
 };
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -222,7 +223,10 @@ async fn start_sync(
             }
         };
 
-        log::info!("Found {} existing message IDs in database", existing_ids.len());
+        log::info!(
+            "Found {} existing message IDs in database",
+            existing_ids.len()
+        );
 
         // 未処理のIDのみフィルタ
         let new_ids: Vec<String> = all_ids
@@ -277,7 +281,9 @@ async fn start_sync(
         let sync_state_for_cancel = sync_state_clone.clone();
 
         match runner
-            .run(&app_clone, inputs, &context, || sync_state_for_cancel.should_stop())
+            .run(&app_clone, inputs, &context, || {
+                sync_state_for_cancel.should_stop()
+            })
             .await
         {
             Ok(batch_result) => {
@@ -1052,7 +1058,9 @@ async fn start_batch_parse(
         }
 
         // 注文関連テーブルをクリア
-        log::info!("Clearing order_emails, deliveries, items, and orders tables for fresh parse...");
+        log::info!(
+            "Clearing order_emails, deliveries, items, and orders tables for fresh parse..."
+        );
         if let Err(e) = parse_repo.clear_order_tables().await {
             log::error!("Failed to clear order tables: {}", e);
             parse_state_clone.finish();
@@ -1145,7 +1153,13 @@ async fn start_batch_parse(
             log::info!("No emails to parse");
             parse_state_clone.finish();
             let _ = parse_metadata_repo
-                .update_parse_status("completed", None, Some(chrono::Utc::now().to_rfc3339()), Some(0), None)
+                .update_parse_status(
+                    "completed",
+                    None,
+                    Some(chrono::Utc::now().to_rfc3339()),
+                    Some(0),
+                    None,
+                )
                 .await;
             let complete_event = BatchProgressEvent::complete(
                 EMAIL_PARSE_TASK_NAME,
@@ -1181,7 +1195,10 @@ async fn start_batch_parse(
         };
 
         // EmailParseInput に変換
-        let inputs: Vec<_> = all_unparsed_emails.into_iter().map(|row| row.into()).collect();
+        let inputs: Vec<_> = all_unparsed_emails
+            .into_iter()
+            .map(|row| row.into())
+            .collect();
         let inputs_len = inputs.len();
 
         log::info!("Fetched {} unparsed emails", inputs_len);
@@ -1197,9 +1214,7 @@ async fn start_batch_parse(
             order_repo: Arc::new(order_repo),
             parse_repo: Arc::new(parse_repo),
             shop_settings_repo: Arc::new(shop_settings_repo),
-            shop_settings_cache: Arc::new(Mutex::new(
-                crate::parsers::ShopSettingsCache::default(),
-            )),
+            shop_settings_cache: Arc::new(Mutex::new(crate::parsers::ShopSettingsCache::default())),
             parse_state: Arc::new(parse_state_clone.clone()),
         };
 
@@ -1208,7 +1223,9 @@ async fn start_batch_parse(
         let parse_state_for_cancel = parse_state_clone.clone();
 
         match runner
-            .run(&app_handle, inputs, &context, || parse_state_for_cancel.is_cancelled())
+            .run(&app_handle, inputs, &context, || {
+                parse_state_for_cancel.is_cancelled()
+            })
             .await
         {
             Ok(batch_result) => {
@@ -1512,10 +1529,7 @@ async fn start_product_name_parse(
         let runner = BatchRunner::new(task, GEMINI_BATCH_SIZE, GEMINI_DELAY_SECONDS * 1000);
 
         // 商品名パースは現在キャンセル機能がないため、常にfalseを返す
-        match runner
-            .run(&app_handle, inputs, &context, || false)
-            .await
-        {
+        match runner.run(&app_handle, inputs, &context, || false).await {
             Ok(batch_result) => {
                 log::info!(
                     "Product name parse completed: success={}, failed={}",
@@ -2128,6 +2142,37 @@ mod tests {
         assert_eq!(order_info.items.len(), 1);
         assert_eq!(order_info.items[0].unit_price, 3000);
         assert_eq!(order_info.items[0].quantity, 2);
+    }
+
+    /// hobbysearch_confirm_yoyaku パーサーのテスト（CIで実行、ダミーデータ使用）
+    const SAMPLE_HOBBYSEARCH_CONFIRM_YOYAKU: &str = r#"
+[注文番号] 25-0505-2222
+
+[お届け先情報]
+〒300-0003
+東京都港区六本木1-2-3
+予約 次郎 様
+
+[ご予約内容]
+バンダイ 3456789 テスト商品D (プラモデル) RGシリーズ
+単価：2,500円 × 個数：2 = 5,000円
+
+予約商品合計 5,000円
+"#;
+
+    #[test]
+    fn test_parse_email_hobbysearch_confirm_yoyaku() {
+        let result = parse_email(
+            "hobbysearch_confirm_yoyaku".to_string(),
+            SAMPLE_HOBBYSEARCH_CONFIRM_YOYAKU.to_string(),
+        );
+        assert!(result.is_ok());
+        let order_info = result.unwrap();
+        assert_eq!(order_info.order_number, "25-0505-2222");
+        assert_eq!(order_info.items.len(), 1);
+        assert_eq!(order_info.items[0].unit_price, 2500);
+        assert_eq!(order_info.items[0].quantity, 2);
+        assert_eq!(order_info.subtotal, Some(5000));
     }
 
     /// hobbysearch_send パーサーのテスト（CIで実行、ダミーデータ使用）

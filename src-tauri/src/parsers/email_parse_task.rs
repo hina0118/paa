@@ -235,10 +235,7 @@ where
         _inputs: &[Self::Input],
         context: &Self::Context,
     ) -> Result<(), String> {
-        log::debug!(
-            "[{}] before_batch: Loading shop settings",
-            self.name()
-        );
+        log::debug!("[{}] before_batch: Loading shop settings", self.name());
 
         // ショップ設定を取得
         let enabled_settings = context
@@ -253,7 +250,14 @@ where
 
         let settings: Vec<(String, String, Option<String>, String)> = enabled_settings
             .into_iter()
-            .map(|s| (s.sender_address, s.parser_type, s.subject_filters, s.shop_name))
+            .map(|s| {
+                (
+                    s.sender_address,
+                    s.parser_type,
+                    s.subject_filters,
+                    s.shop_name,
+                )
+            })
             .collect();
 
         // キャッシュに保存
@@ -290,8 +294,7 @@ where
             if candidate_parsers.is_empty() {
                 results.push(Err(format!(
                     "No matching parser for email {} (from: {:?})",
-                    input.email_id,
-                    input.from_address
+                    input.email_id, input.from_address
                 )));
                 continue;
             }
@@ -330,7 +333,8 @@ where
                                     None => {
                                         log::warn!(
                                             "Failed to parse internal_date {} for email {}",
-                                            ts_ms, input.email_id
+                                            ts_ms,
+                                            input.email_id
                                         );
                                         chrono::Utc::now()
                                     }
@@ -460,7 +464,10 @@ where
     ) -> Result<Self::Output, String> {
         // process_batch を1件で呼び出す
         let results = self.process_batch(vec![input], context).await;
-        results.into_iter().next().unwrap_or(Err("No result".to_string()))
+        results
+            .into_iter()
+            .next()
+            .unwrap_or(Err("No result".to_string()))
     }
 }
 
@@ -492,7 +499,10 @@ mod tests {
 
         let result = get_candidate_parsers(&settings, Some("shop@example.com"), None);
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0], ("hobbysearch_confirm".to_string(), "TestShop".to_string()));
+        assert_eq!(
+            result[0],
+            ("hobbysearch_confirm".to_string(), "TestShop".to_string())
+        );
     }
 
     #[test]

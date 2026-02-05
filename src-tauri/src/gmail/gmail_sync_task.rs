@@ -183,10 +183,7 @@ where
         _inputs: &[Self::Input],
         context: &Self::Context,
     ) -> Result<(), String> {
-        log::debug!(
-            "[{}] before_batch: Loading shop settings",
-            self.name()
-        );
+        log::debug!("[{}] before_batch: Loading shop settings", self.name());
 
         // ショップ設定を取得
         let enabled_shops = context
@@ -329,10 +326,7 @@ where
         input: Self::Input,
         context: &Self::Context,
     ) -> Result<Self::Output, String> {
-        let message = context
-            .gmail_client
-            .get_message(&input.message_id)
-            .await?;
+        let message = context.gmail_client.get_message(&input.message_id).await?;
 
         Ok(GmailSyncOutput {
             message,
@@ -361,8 +355,11 @@ mod tests {
         use crate::gmail_client::MockGmailClientTrait;
         use crate::repository::{MockEmailRepository, MockShopSettingsRepository};
 
-        let task: GmailSyncTask<MockGmailClientTrait, MockEmailRepository, MockShopSettingsRepository> =
-            GmailSyncTask::new();
+        let task: GmailSyncTask<
+            MockGmailClientTrait,
+            MockEmailRepository,
+            MockShopSettingsRepository,
+        > = GmailSyncTask::new();
         assert_eq!(task.name(), "メール同期");
         assert_eq!(task.event_name(), "batch-progress");
     }
