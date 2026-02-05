@@ -3,8 +3,7 @@ import { DatabaseManager } from '@/lib/database';
 import { Orders } from '@/components/screens/orders';
 import { Sidebar } from '@/components/layout/sidebar';
 import { Dashboard } from '@/components/screens/dashboard';
-import { Sync } from '@/components/screens/sync';
-import { Parse } from '@/components/screens/parse';
+import { Batch } from '@/components/screens/batch';
 import { Logs } from '@/components/screens/logs';
 import { Settings } from '@/components/screens/settings';
 import { ShopSettings } from '@/components/screens/shop-settings';
@@ -38,10 +37,8 @@ function AppContent() {
         return <Dashboard />;
       case 'orders':
         return <Orders />;
-      case 'sync':
-        return <Sync />;
-      case 'parse':
-        return <Parse />;
+      case 'batch':
+        return <Batch />;
       case 'logs':
         return <Logs />;
       case 'shop-settings':

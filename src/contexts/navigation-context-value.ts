@@ -3,8 +3,7 @@ import { createContext } from 'react';
 export type Screen =
   | 'dashboard'
   | 'orders'
-  | 'sync'
-  | 'parse'
+  | 'batch'
   | 'logs'
   | 'shop-settings'
   | 'settings'

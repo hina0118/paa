@@ -1,12 +1,11 @@
 import {
   LayoutDashboard,
   ShoppingCart,
-  RefreshCw,
+  Layers,
   Settings,
   Database,
   ScrollText,
   Store,
-  FileText,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useNavigation } from '@/contexts/use-navigation';
@@ -15,14 +14,7 @@ import { useState } from 'react';
 type NavigationItem = {
   name: string;
   icon: React.ComponentType<{ className?: string }>;
-  id:
-    | 'dashboard'
-    | 'orders'
-    | 'sync'
-    | 'parse'
-    | 'settings'
-    | 'logs'
-    | 'shop-settings';
+  id: 'dashboard' | 'orders' | 'batch' | 'settings' | 'logs' | 'shop-settings';
 };
 
 type TableItem = {
@@ -43,8 +35,7 @@ type TableItem = {
 const navigationItems: NavigationItem[] = [
   { name: 'Dashboard', icon: LayoutDashboard, id: 'dashboard' },
   { name: 'Orders', icon: ShoppingCart, id: 'orders' },
-  { name: 'Sync', icon: RefreshCw, id: 'sync' },
-  { name: 'Parse', icon: FileText, id: 'parse' },
+  { name: 'Batch', icon: Layers, id: 'batch' },
   { name: 'Logs', icon: ScrollText, id: 'logs' },
   { name: 'Shop Settings', icon: Store, id: 'shop-settings' },
   { name: 'Settings', icon: Settings, id: 'settings' },
