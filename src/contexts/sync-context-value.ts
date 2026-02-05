@@ -8,6 +8,7 @@ export interface SyncMetadata {
   batch_size: number;
   last_sync_started_at?: string;
   last_sync_completed_at?: string;
+  last_error_message?: string | null;
   max_iterations: number;
 }
 

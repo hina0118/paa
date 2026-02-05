@@ -32,9 +32,13 @@ use crate::parsers::{
     EmailParseContext, EmailParseTask, EMAIL_PARSE_EVENT_NAME, EMAIL_PARSE_TASK_NAME,
 };
 use crate::repository::{
-    EmailRepository, EmailStats, EmailStatsRepository, OrderRepository, ParseRepository,
-    ShopSettingsRepository, SqliteEmailRepository, SqliteEmailStatsRepository, SqliteOrderRepository,
-    SqliteParseRepository, SqliteProductMasterRepository, SqliteShopSettingsRepository,
+    DeliveryStats, DeliveryStatsRepository, EmailRepository, EmailStats, EmailStatsRepository,
+    MiscStats, MiscStatsRepository, OrderRepository, OrderStats, OrderStatsRepository,
+    ParseRepository, ProductMasterStats, ProductMasterStatsRepository, ShopSettingsRepository,
+    SqliteDeliveryStatsRepository, SqliteEmailRepository, SqliteEmailStatsRepository,
+    SqliteMiscStatsRepository, SqliteOrderRepository, SqliteOrderStatsRepository,
+    SqliteParseRepository, SqliteProductMasterRepository, SqliteProductMasterStatsRepository,
+    SqliteShopSettingsRepository,
 };
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -479,6 +483,36 @@ async fn get_email_stats(pool: tauri::State<'_, SqlitePool>) -> Result<EmailStat
     repo.get_email_stats().await
 }
 
+/// 注文・商品サマリを取得
+#[tauri::command]
+async fn get_order_stats(pool: tauri::State<'_, SqlitePool>) -> Result<OrderStats, String> {
+    let repo = SqliteOrderStatsRepository::new(pool.inner().clone());
+    repo.get_order_stats().await
+}
+
+/// 配送状況サマリを取得
+#[tauri::command]
+async fn get_delivery_stats(pool: tauri::State<'_, SqlitePool>) -> Result<DeliveryStats, String> {
+    let repo = SqliteDeliveryStatsRepository::new(pool.inner().clone());
+    repo.get_delivery_stats().await
+}
+
+/// 商品名解析進捗を取得
+#[tauri::command]
+async fn get_product_master_stats(
+    pool: tauri::State<'_, SqlitePool>,
+) -> Result<ProductMasterStats, String> {
+    let repo = SqliteProductMasterStatsRepository::new(pool.inner().clone());
+    repo.get_product_master_stats().await
+}
+
+/// 店舗設定・画像サマリを取得
+#[tauri::command]
+async fn get_misc_stats(pool: tauri::State<'_, SqlitePool>) -> Result<MiscStats, String> {
+    let repo = SqliteMiscStatsRepository::new(pool.inner().clone());
+    repo.get_misc_stats().await
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogEntry {
     pub timestamp: String,
@@ -838,6 +872,10 @@ pub fn run() {
             get_window_settings,
             save_window_settings,
             get_email_stats,
+            get_order_stats,
+            get_delivery_stats,
+            get_product_master_stats,
+            get_misc_stats,
             get_logs,
             get_all_shop_settings,
             create_shop_setting,
