@@ -2,6 +2,7 @@ import {
   LayoutDashboard,
   ShoppingCart,
   Layers,
+  Key,
   Settings,
   Database,
   ScrollText,
@@ -14,7 +15,14 @@ import { useState } from 'react';
 type NavigationItem = {
   name: string;
   icon: React.ComponentType<{ className?: string }>;
-  id: 'dashboard' | 'orders' | 'batch' | 'settings' | 'logs' | 'shop-settings';
+  id:
+    | 'dashboard'
+    | 'orders'
+    | 'batch'
+    | 'api-keys'
+    | 'settings'
+    | 'logs'
+    | 'shop-settings';
 };
 
 type TableItem = {
@@ -38,6 +46,7 @@ const navigationItems: NavigationItem[] = [
   { name: 'Batch', icon: Layers, id: 'batch' },
   { name: 'Logs', icon: ScrollText, id: 'logs' },
   { name: 'Shop Settings', icon: Store, id: 'shop-settings' },
+  { name: 'API Keys', icon: Key, id: 'api-keys' },
   { name: 'Settings', icon: Settings, id: 'settings' },
 ];
 

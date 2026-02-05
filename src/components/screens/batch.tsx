@@ -428,9 +428,9 @@ export function Batch() {
                 <Button
                   variant="link"
                   className="p-0 h-auto ml-1 text-amber-800 underline"
-                  onClick={() => setCurrentScreen('settings')}
+                  onClick={() => setCurrentScreen('api-keys')}
                 >
-                  設定へ →
+                  APIキー設定へ →
                 </Button>
               </div>
             )}

@@ -342,6 +342,8 @@ async fn get_sync_status(
         last_sync_started_at: None,
         last_sync_completed_at: None,
         max_iterations: config.sync.max_iterations,
+        max_results_per_page: config.sync.max_results_per_page,
+        timeout_minutes: config.sync.timeout_minutes,
         last_error_message,
     })
 }
@@ -396,6 +398,90 @@ async fn update_max_iterations(
         .map_err(|e| format!("Failed to get app config dir: {e}"))?;
     let mut config = config::load(&app_config_dir)?;
     config.sync.max_iterations = max_iterations;
+    config::save(&app_config_dir, &config)
+}
+
+#[tauri::command]
+async fn update_max_results_per_page(
+    app_handle: tauri::AppHandle,
+    max_results_per_page: i64,
+) -> Result<(), String> {
+    if !(1..=500).contains(&max_results_per_page) {
+        return Err("1ページあたり取得件数は1〜500の範囲である必要があります".to_string());
+    }
+    log::info!("Updating max results per page to: {max_results_per_page}");
+    let app_config_dir = app_handle
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("Failed to get app config dir: {e}"))?;
+    let mut config = config::load(&app_config_dir)?;
+    config.sync.max_results_per_page = max_results_per_page;
+    config::save(&app_config_dir, &config)
+}
+
+#[tauri::command]
+async fn update_timeout_minutes(
+    app_handle: tauri::AppHandle,
+    timeout_minutes: i64,
+) -> Result<(), String> {
+    if !(1..=120).contains(&timeout_minutes) {
+        return Err("同期タイムアウトは1〜120分の範囲である必要があります".to_string());
+    }
+    log::info!("Updating sync timeout to: {timeout_minutes} minutes");
+    let app_config_dir = app_handle
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("Failed to get app config dir: {e}"))?;
+    let mut config = config::load(&app_config_dir)?;
+    config.sync.timeout_minutes = timeout_minutes;
+    config::save(&app_config_dir, &config)
+}
+
+#[tauri::command]
+async fn get_gemini_config(
+    app_handle: tauri::AppHandle,
+) -> Result<config::GeminiConfig, String> {
+    let app_config_dir = app_handle
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("Failed to get app config dir: {e}"))?;
+    let config = config::load(&app_config_dir)?;
+    Ok(config.gemini)
+}
+
+#[tauri::command]
+async fn update_gemini_batch_size(
+    app_handle: tauri::AppHandle,
+    batch_size: i64,
+) -> Result<(), String> {
+    if !(1..=50).contains(&batch_size) {
+        return Err("商品名パースのバッチサイズは1〜50の範囲である必要があります".to_string());
+    }
+    log::info!("Updating Gemini batch size to: {batch_size}");
+    let app_config_dir = app_handle
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("Failed to get app config dir: {e}"))?;
+    let mut config = config::load(&app_config_dir)?;
+    config.gemini.batch_size = batch_size;
+    config::save(&app_config_dir, &config)
+}
+
+#[tauri::command]
+async fn update_gemini_delay_seconds(
+    app_handle: tauri::AppHandle,
+    delay_seconds: i64,
+) -> Result<(), String> {
+    if !(0..=60).contains(&delay_seconds) {
+        return Err("リクエスト間の待機秒数は0〜60の範囲である必要があります".to_string());
+    }
+    log::info!("Updating Gemini delay to: {delay_seconds} seconds");
+    let app_config_dir = app_handle
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("Failed to get app config dir: {e}"))?;
+    let mut config = config::load(&app_config_dir)?;
+    config.gemini.delay_seconds = delay_seconds;
     config::save(&app_config_dir, &config)
 }
 
@@ -867,6 +953,8 @@ pub fn run() {
             get_sync_status,
             update_batch_size,
             update_max_iterations,
+            update_max_results_per_page,
+            update_timeout_minutes,
             reset_sync_status,
             reset_sync_date,
             get_window_settings,
@@ -887,6 +975,9 @@ pub fn run() {
             cancel_parse,
             get_parse_status,
             update_parse_batch_size,
+            get_gemini_config,
+            update_gemini_batch_size,
+            update_gemini_delay_seconds,
             // Gemini API commands
             has_gemini_api_key,
             save_gemini_api_key,
