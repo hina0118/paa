@@ -9,9 +9,9 @@
 //! - **本番環境**: リリースビルドではWarnレベル以上のログのみが出力されます
 
 use crate::gmail_client::GmailClientTrait;
-use crate::repository::EmailRepository;
 #[cfg(test)]
 use crate::logic::sync_logic::build_sync_query;
+use crate::repository::EmailRepository;
 use async_trait::async_trait;
 use google_gmail1::api::Scope;
 use google_gmail1::{hyper_rustls, Gmail};
