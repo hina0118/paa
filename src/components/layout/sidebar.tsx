@@ -36,9 +36,7 @@ type TableItem = {
     | 'table-htmls'
     | 'table-order-emails'
     | 'table-order-htmls'
-    | 'table-parse-skipped'
     | 'table-shop-settings'
-    | 'table-window-settings'
     | 'table-product-master';
 };
 
@@ -60,10 +58,8 @@ const tableItems: TableItem[] = [
   { name: 'Deliveries', id: 'table-deliveries' },
   { name: 'HTMLs', id: 'table-htmls' },
   { name: 'Order-Emails', id: 'table-order-emails' },
-  { name: 'Parse Skipped', id: 'table-parse-skipped' },
   { name: 'Order-HTMLs', id: 'table-order-htmls' },
   { name: 'Shop Settings', id: 'table-shop-settings' },
-  { name: 'Window Settings', id: 'table-window-settings' },
   { name: 'Product Master', id: 'table-product-master' },
 ];
 

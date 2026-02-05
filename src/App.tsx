@@ -18,8 +18,6 @@ import {
   OrderEmailsTable,
   OrderHtmlsTable,
   ShopSettingsTable,
-  WindowSettingsTable,
-  ParseSkippedTable,
   ProductMasterTable,
 } from '@/components/screens/tables';
 import { NavigationProvider } from '@/contexts/navigation-provider';
@@ -64,14 +62,10 @@ function AppContent() {
         return <HtmlsTable />;
       case 'table-order-emails':
         return <OrderEmailsTable />;
-      case 'table-parse-skipped':
-        return <ParseSkippedTable />;
       case 'table-order-htmls':
         return <OrderHtmlsTable />;
       case 'table-shop-settings':
         return <ShopSettingsTable />;
-      case 'table-window-settings':
-        return <WindowSettingsTable />;
       case 'table-product-master':
         return <ProductMasterTable />;
       default:
