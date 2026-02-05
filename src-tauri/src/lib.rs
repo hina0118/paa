@@ -21,8 +21,7 @@ pub mod repository;
 use crate::batch_runner::{BatchProgressEvent, BatchRunner};
 use crate::gemini::{
     create_product_parse_input, GeminiClient, ProductNameParseCache, ProductNameParseContext,
-    ProductNameParseTask, GEMINI_BATCH_SIZE, GEMINI_DELAY_SECONDS, PRODUCT_NAME_PARSE_EVENT_NAME,
-    PRODUCT_NAME_PARSE_TASK_NAME,
+    ProductNameParseTask, PRODUCT_NAME_PARSE_EVENT_NAME, PRODUCT_NAME_PARSE_TASK_NAME,
 };
 use crate::gmail::{
     create_sync_input, fetch_all_message_ids, GmailSyncContext, GmailSyncTask,
@@ -158,7 +157,8 @@ async fn start_sync(
 
         // 全メッセージIDを取得
         log::info!("Fetching all message IDs from Gmail...");
-        let all_ids = match fetch_all_message_ids(&gmail_client, &query, 100, None).await {
+        let max_results = (config.sync.max_results_per_page.max(1).min(500)) as u32;
+        let all_ids = match fetch_all_message_ids(&gmail_client, &query, max_results, None).await {
             Ok(ids) => ids,
             Err(e) => {
                 log::error!("Failed to fetch message IDs: {}", e);
@@ -238,8 +238,9 @@ async fn start_sync(
             shop_settings_cache: Arc::new(Mutex::new(ShopSettingsCacheForSync::default())),
         };
 
-        // BatchRunner で実行（30分タイムアウト、ディレイなし）
-        let runner = BatchRunner::new(task, batch_size, 0).with_timeout(30);
+        // BatchRunner で実行（タイムアウト・ディレイは設定ファイルから）
+        let timeout_minutes = config.sync.timeout_minutes.max(1).min(120);
+        let runner = BatchRunner::new(task, batch_size, 0).with_timeout(timeout_minutes as u64);
         let sync_state_for_cancel = sync_state_clone.clone();
 
         match runner
@@ -1545,6 +1546,19 @@ async fn start_product_name_parse(
             .map(|(raw_name, platform_hint)| create_product_parse_input(raw_name, platform_hint))
             .collect();
 
+        // 設定ファイルから Gemini のバッチサイズ・ディレイを取得
+        let config = app_handle
+            .path()
+            .app_config_dir()
+            .ok()
+            .and_then(|dir| config::load(&dir).ok())
+            .unwrap_or_else(|| {
+                log::warn!("Failed to load config, using Gemini defaults");
+                config::AppConfig::default()
+            });
+        let gemini_batch_size = (config.gemini.batch_size.max(1).min(50)) as usize;
+        let gemini_delay_ms = (config.gemini.delay_seconds.max(0).min(60)) as u64 * 1000;
+
         // BatchRunner と Context を構築
         let task: ProductNameParseTask<GeminiClient, SqliteProductMasterRepository> =
             ProductNameParseTask::new();
@@ -1554,8 +1568,8 @@ async fn start_product_name_parse(
             cache: Arc::new(Mutex::new(ProductNameParseCache::default())),
         };
 
-        // BatchRunner で実行（GEMINI_BATCH_SIZE 件ずつ、GEMINI_DELAY_SECONDS 秒のディレイ）
-        let runner = BatchRunner::new(task, GEMINI_BATCH_SIZE, GEMINI_DELAY_SECONDS * 1000);
+        // BatchRunner で実行
+        let runner = BatchRunner::new(task, gemini_batch_size, gemini_delay_ms);
 
         // 商品名パースは現在キャンセル機能がないため、常にfalseを返す
         match runner.run(&app_handle, inputs, &context, || false).await {
