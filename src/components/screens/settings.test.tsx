@@ -505,6 +505,313 @@ describe('Settings', () => {
     });
   });
 
+  // 1ページあたり取得件数更新テスト
+  describe('handleSaveMaxResultsPerPage', () => {
+    it('saves max results per page successfully', async () => {
+      const user = userEvent.setup();
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status') {
+          return Promise.resolve({
+            ...defaultSyncMetadata,
+            max_results_per_page: 200,
+          });
+        }
+        if (cmd === 'get_parse_status') {
+          return Promise.resolve(defaultParseMetadata);
+        }
+        if (cmd === 'update_max_results_per_page') {
+          return Promise.resolve(undefined);
+        }
+        if (cmd === 'get_gemini_config') {
+          return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
+        }
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(
+          document.getElementById('max-results-per-page')
+        ).toBeInTheDocument();
+      });
+
+      await user.click(
+        screen.getByRole('button', { name: '1ページあたり取得件数を保存' })
+      );
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith('update_max_results_per_page', {
+          maxResultsPerPage: 200,
+        });
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('1ページあたり取得件数を更新しました')
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('shows validation error for out of range max results per page', async () => {
+      const user = userEvent.setup();
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status') {
+          return Promise.resolve({
+            ...defaultSyncMetadata,
+            max_results_per_page: 600,
+          });
+        }
+        if (cmd === 'get_parse_status') {
+          return Promise.resolve(defaultParseMetadata);
+        }
+        if (cmd === 'get_gemini_config') {
+          return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
+        }
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(
+          document.getElementById('max-results-per-page')
+        ).toBeInTheDocument();
+      });
+
+      await user.click(
+        screen.getByRole('button', { name: '1ページあたり取得件数を保存' })
+      );
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            '1ページあたり取得件数は1〜500の範囲で入力してください'
+          )
+        ).toBeInTheDocument();
+      });
+    });
+  });
+
+  // 同期タイムアウト更新テスト
+  describe('handleSaveTimeoutMinutes', () => {
+    it('saves timeout minutes successfully', async () => {
+      const user = userEvent.setup();
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status') {
+          return Promise.resolve({
+            ...defaultSyncMetadata,
+            timeout_minutes: 60,
+          });
+        }
+        if (cmd === 'get_parse_status') {
+          return Promise.resolve(defaultParseMetadata);
+        }
+        if (cmd === 'update_timeout_minutes') {
+          return Promise.resolve(undefined);
+        }
+        if (cmd === 'get_gemini_config') {
+          return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
+        }
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(document.getElementById('timeout-minutes')).toBeInTheDocument();
+      });
+
+      await user.click(
+        screen.getByRole('button', { name: '同期タイムアウトを保存' })
+      );
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith('update_timeout_minutes', {
+          timeoutMinutes: 60,
+        });
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('同期タイムアウトを更新しました')
+        ).toBeInTheDocument();
+      });
+    });
+  });
+
+  // 商品名パースバッチサイズ更新テスト
+  describe('handleSaveGeminiBatchSize', () => {
+    it('saves gemini batch size successfully', async () => {
+      const user = userEvent.setup();
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status') {
+          return Promise.resolve(defaultSyncMetadata);
+        }
+        if (cmd === 'get_parse_status') {
+          return Promise.resolve(defaultParseMetadata);
+        }
+        if (cmd === 'update_gemini_batch_size') {
+          return Promise.resolve(undefined);
+        }
+        if (cmd === 'get_gemini_config') {
+          return Promise.resolve({ batch_size: 20, delay_seconds: 10 });
+        }
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(
+          document.getElementById('gemini-batch-size')
+        ).toBeInTheDocument();
+      });
+
+      await user.click(
+        screen.getByRole('button', {
+          name: '商品名パースのバッチサイズを保存',
+        })
+      );
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith('update_gemini_batch_size', {
+          batchSize: 20,
+        });
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('商品名パースのバッチサイズを更新しました')
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('shows validation error for out of range gemini batch size', async () => {
+      const user = userEvent.setup();
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status') {
+          return Promise.resolve(defaultSyncMetadata);
+        }
+        if (cmd === 'get_parse_status') {
+          return Promise.resolve(defaultParseMetadata);
+        }
+        if (cmd === 'get_gemini_config') {
+          return Promise.resolve({ batch_size: 100, delay_seconds: 10 });
+        }
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(
+          document.getElementById('gemini-batch-size')
+        ).toBeInTheDocument();
+      });
+
+      await user.click(
+        screen.getByRole('button', {
+          name: '商品名パースのバッチサイズを保存',
+        })
+      );
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            '商品名パースのバッチサイズは1〜50の範囲で入力してください'
+          )
+        ).toBeInTheDocument();
+      });
+    });
+  });
+
+  // リクエスト間待機秒数更新テスト
+  describe('handleSaveGeminiDelaySeconds', () => {
+    it('saves gemini delay seconds successfully', async () => {
+      const user = userEvent.setup();
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status') {
+          return Promise.resolve(defaultSyncMetadata);
+        }
+        if (cmd === 'get_parse_status') {
+          return Promise.resolve(defaultParseMetadata);
+        }
+        if (cmd === 'update_gemini_delay_seconds') {
+          return Promise.resolve(undefined);
+        }
+        if (cmd === 'get_gemini_config') {
+          return Promise.resolve({ batch_size: 10, delay_seconds: 5 });
+        }
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(
+          document.getElementById('gemini-delay-seconds')
+        ).toBeInTheDocument();
+      });
+
+      await user.click(
+        screen.getByRole('button', {
+          name: 'リクエスト間の待機秒数を保存',
+        })
+      );
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith('update_gemini_delay_seconds', {
+          delaySeconds: 5,
+        });
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('リクエスト間の待機秒数を更新しました')
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('shows validation error for out of range gemini delay seconds', async () => {
+      const user = userEvent.setup();
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status') {
+          return Promise.resolve(defaultSyncMetadata);
+        }
+        if (cmd === 'get_parse_status') {
+          return Promise.resolve(defaultParseMetadata);
+        }
+        if (cmd === 'get_gemini_config') {
+          return Promise.resolve({ batch_size: 10, delay_seconds: 90 });
+        }
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(
+          document.getElementById('gemini-delay-seconds')
+        ).toBeInTheDocument();
+      });
+
+      await user.click(
+        screen.getByRole('button', {
+          name: 'リクエスト間の待機秒数を保存',
+        })
+      );
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            'リクエスト間の待機秒数は0〜60の範囲で入力してください'
+          )
+        ).toBeInTheDocument();
+      });
+    });
+  });
+
   // 最大取得件数の表示テスト
   it('displays calculated max fetch count', async () => {
     renderWithProviders(<Settings />);

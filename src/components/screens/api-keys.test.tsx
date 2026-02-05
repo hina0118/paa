@@ -328,6 +328,89 @@ describe('ApiKeys', () => {
         expect(screen.getByText('無効なJSON形式です')).toBeInTheDocument();
       });
     });
+
+    it('deletes Gmail OAuth credentials when confirm is accepted', async () => {
+      const user = userEvent.setup();
+      vi.stubGlobal(
+        'confirm',
+        vi.fn(() => true)
+      );
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+        if (cmd === 'is_google_search_configured')
+          return Promise.resolve(false);
+        if (cmd === 'has_gmail_oauth_credentials') return Promise.resolve(true);
+        if (cmd === 'delete_gmail_oauth_credentials')
+          return Promise.resolve(undefined);
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<ApiKeys />);
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', {
+            name: 'Gmail OAuth認証情報を削除',
+          })
+        ).toBeInTheDocument();
+      });
+
+      await user.click(
+        screen.getByRole('button', { name: 'Gmail OAuth認証情報を削除' })
+      );
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith(
+          'delete_gmail_oauth_credentials'
+        );
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/Gmail OAuth認証情報を削除しました/)
+        ).toBeInTheDocument();
+      });
+
+      vi.unstubAllGlobals();
+    });
+
+    it('handles Gmail OAuth save error', async () => {
+      const user = userEvent.setup();
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+        if (cmd === 'is_google_search_configured')
+          return Promise.resolve(false);
+        if (cmd === 'has_gmail_oauth_credentials') return Promise.resolve(true);
+        if (cmd === 'save_gmail_oauth_credentials')
+          return Promise.reject(new Error('Keyring error'));
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<ApiKeys />);
+
+      const validJson = JSON.stringify({
+        installed: {
+          client_id: 'test.apps.googleusercontent.com',
+          client_secret: 'secret',
+        },
+      });
+      const textarea = screen.getByLabelText(/client_secret\.json の内容/);
+      fireEvent.change(textarea, { target: { value: validJson } });
+
+      await user.click(
+        screen.getByRole('button', { name: 'Gmail OAuth認証情報を保存' })
+      );
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/保存に失敗しました.*Keyring error/)
+        ).toBeInTheDocument();
+      });
+    });
   });
 
   describe('handleFileUpload / inputMode', () => {

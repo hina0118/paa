@@ -161,7 +161,7 @@ async fn start_sync(
 
         // 全メッセージIDを取得
         log::info!("Fetching all message IDs from Gmail...");
-        let max_results = (config.sync.max_results_per_page.max(1).min(500)) as u32;
+        let max_results = (config.sync.max_results_per_page.clamp(1, 500)) as u32;
         let all_ids = match fetch_all_message_ids(&gmail_client, &query, max_results, None).await {
             Ok(ids) => ids,
             Err(e) => {
@@ -243,7 +243,7 @@ async fn start_sync(
         };
 
         // BatchRunner で実行（タイムアウト・ディレイは設定ファイルから）
-        let timeout_minutes = config.sync.timeout_minutes.max(1).min(120);
+        let timeout_minutes = config.sync.timeout_minutes.clamp(1, 120);
         let runner = BatchRunner::new(task, batch_size, 0).with_timeout(timeout_minutes as u64);
         let sync_state_for_cancel = sync_state_clone.clone();
 
@@ -362,10 +362,7 @@ async fn reset_sync_date() -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn update_batch_size(
-    app_handle: tauri::AppHandle,
-    batch_size: i64,
-) -> Result<(), String> {
+async fn update_batch_size(app_handle: tauri::AppHandle, batch_size: i64) -> Result<(), String> {
     log::info!("Updating sync batch size to: {batch_size}");
     let app_config_dir = app_handle
         .path()
@@ -438,9 +435,7 @@ async fn update_timeout_minutes(
 }
 
 #[tauri::command]
-async fn get_gemini_config(
-    app_handle: tauri::AppHandle,
-) -> Result<config::GeminiConfig, String> {
+async fn get_gemini_config(app_handle: tauri::AppHandle) -> Result<config::GeminiConfig, String> {
     let app_config_dir = app_handle
         .path()
         .app_config_dir()
@@ -486,9 +481,7 @@ async fn update_gemini_delay_seconds(
 }
 
 #[tauri::command]
-async fn get_window_settings(
-    app_handle: tauri::AppHandle,
-) -> Result<config::WindowConfig, String> {
+async fn get_window_settings(app_handle: tauri::AppHandle) -> Result<config::WindowConfig, String> {
     let app_config_dir = app_handle
         .path()
         .app_config_dir()
@@ -1653,8 +1646,8 @@ async fn start_product_name_parse(
                 log::warn!("Failed to load config, using Gemini defaults");
                 config::AppConfig::default()
             });
-        let gemini_batch_size = (config.gemini.batch_size.max(1).min(50)) as usize;
-        let gemini_delay_ms = (config.gemini.delay_seconds.max(0).min(60)) as u64 * 1000;
+        let gemini_batch_size = (config.gemini.batch_size.clamp(1, 50)) as usize;
+        let gemini_delay_ms = (config.gemini.delay_seconds.clamp(0, 60)) as u64 * 1000;
 
         // BatchRunner と Context を構築
         let task: ProductNameParseTask<GeminiClient, SqliteProductMasterRepository> =
