@@ -16,6 +16,8 @@ pub struct AppConfig {
     pub parse: ParseConfig,
     #[serde(default)]
     pub window: WindowConfig,
+    #[serde(default)]
+    pub gemini: GeminiConfig,
 }
 
 /// ウィンドウ設定（サイズ・位置・最大化状態）
@@ -45,6 +47,48 @@ impl Default for WindowConfig {
 pub struct SyncConfig {
     pub batch_size: i64,
     pub max_iterations: i64,
+    /// Gmail API の1ページあたり取得件数（最大500）
+    #[serde(default = "default_max_results_per_page")]
+    pub max_results_per_page: i64,
+    /// 同期処理のタイムアウト（分）
+    #[serde(default = "default_sync_timeout_minutes")]
+    pub timeout_minutes: i64,
+}
+
+fn default_max_results_per_page() -> i64 {
+    100
+}
+
+fn default_sync_timeout_minutes() -> i64 {
+    30
+}
+
+/// Gemini API（商品名パース）設定
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeminiConfig {
+    /// 1リクエストあたりの商品数
+    #[serde(default = "default_gemini_batch_size")]
+    pub batch_size: i64,
+    /// リクエスト間の待機秒数（レート制限対策）
+    #[serde(default = "default_gemini_delay_seconds")]
+    pub delay_seconds: i64,
+}
+
+fn default_gemini_batch_size() -> i64 {
+    10
+}
+
+fn default_gemini_delay_seconds() -> i64 {
+    10
+}
+
+impl Default for GeminiConfig {
+    fn default() -> Self {
+        Self {
+            batch_size: 10,
+            delay_seconds: 10,
+        }
+    }
 }
 
 /// パース設定
@@ -59,11 +103,14 @@ impl Default for AppConfig {
             sync: SyncConfig {
                 batch_size: 50,
                 max_iterations: 1000,
+                max_results_per_page: 100,
+                timeout_minutes: 30,
             },
             parse: ParseConfig {
                 batch_size: 100,
             },
             window: WindowConfig::default(),
+            gemini: GeminiConfig::default(),
         }
     }
 }
@@ -105,9 +152,13 @@ mod tests {
         let config = load(dir.path()).unwrap();
         assert_eq!(config.sync.batch_size, 50);
         assert_eq!(config.sync.max_iterations, 1000);
+        assert_eq!(config.sync.max_results_per_page, 100);
+        assert_eq!(config.sync.timeout_minutes, 30);
         assert_eq!(config.parse.batch_size, 100);
         assert_eq!(config.window.width, 800);
         assert_eq!(config.window.height, 600);
+        assert_eq!(config.gemini.batch_size, 10);
+        assert_eq!(config.gemini.delay_seconds, 10);
 
         // ファイルが作成されている
         assert!(dir.path().join(CONFIG_FILENAME).exists());
@@ -120,6 +171,8 @@ mod tests {
             sync: SyncConfig {
                 batch_size: 100,
                 max_iterations: 500,
+                max_results_per_page: 200,
+                timeout_minutes: 60,
             },
             parse: ParseConfig { batch_size: 200 },
             window: WindowConfig {
@@ -129,15 +182,23 @@ mod tests {
                 y: Some(200),
                 maximized: true,
             },
+            gemini: GeminiConfig {
+                batch_size: 20,
+                delay_seconds: 5,
+            },
         };
 
         save(dir.path(), &config).unwrap();
         let loaded = load(dir.path()).unwrap();
         assert_eq!(loaded.sync.batch_size, 100);
         assert_eq!(loaded.sync.max_iterations, 500);
+        assert_eq!(loaded.sync.max_results_per_page, 200);
+        assert_eq!(loaded.sync.timeout_minutes, 60);
         assert_eq!(loaded.parse.batch_size, 200);
         assert_eq!(loaded.window.width, 1024);
         assert_eq!(loaded.window.maximized, true);
+        assert_eq!(loaded.gemini.batch_size, 20);
+        assert_eq!(loaded.gemini.delay_seconds, 5);
     }
 
     #[test]
