@@ -2140,19 +2140,31 @@ mod tests {
         assert_eq!(result, all_new);
 
         // CHUNK_SIZE ちょうど (900件): 既存3 + 新規897
-        let mut ids_900: Vec<String> = vec!["existing_1".into(), "existing_2".into(), "existing_3".into()];
+        let mut ids_900: Vec<String> = vec![
+            "existing_1".into(),
+            "existing_2".into(),
+            "existing_3".into(),
+        ];
         ids_900.extend((0..897).map(|i| format!("chunk_900_{}", i)));
         let result = repo.filter_new_message_ids(&ids_900).await.unwrap();
         assert_eq!(result.len(), 897);
 
         // CHUNK_SIZE 超え (1000件): 既存3 + 新規997
-        let mut ids_1000: Vec<String> = vec!["existing_1".into(), "existing_2".into(), "existing_3".into()];
+        let mut ids_1000: Vec<String> = vec![
+            "existing_1".into(),
+            "existing_2".into(),
+            "existing_3".into(),
+        ];
         ids_1000.extend((0..997).map(|i| format!("chunk_1000_{}", i)));
         let result = repo.filter_new_message_ids(&ids_1000).await.unwrap();
         assert_eq!(result.len(), 997);
 
         // 2000件超: 既存3 + 新規2000
-        let mut ids_2000: Vec<String> = vec!["existing_1".into(), "existing_2".into(), "existing_3".into()];
+        let mut ids_2000: Vec<String> = vec![
+            "existing_1".into(),
+            "existing_2".into(),
+            "existing_3".into(),
+        ];
         ids_2000.extend((0..2000).map(|i| format!("chunk_2000_{}", i)));
         let result = repo.filter_new_message_ids(&ids_2000).await.unwrap();
         assert_eq!(result.len(), 2000);
