@@ -13,8 +13,6 @@ pub use client::{
     get_enabled_shop_settings,
     save_messages_to_db,
     save_messages_to_db_with_repo,
-    sync_gmail_incremental,
-    sync_gmail_incremental_with_client,
     update_shop_setting,
     CreateShopSettings,
     FetchResult,

@@ -39,25 +39,25 @@ AIがコードを提案・レビューする際は、以下の優先度ラベル
     /plan_pr 59
   instructions:
     - 未対応コメントを確認して対応計画を立てる
-/do_plan
+/do_plan:
   description: 対応計画を実行する
   example:
     /do_plan
   instructions:
     - チャット上で提示された対応計画を順次実行する
-/commit_plan
+/commit_plan:
   description: 対応内容をコミットする
   example:
     /commit_plan
   instructions:
     - チャット上で対応した変更をコミットする
-/resolve_comment
+/resolve_comment:
   description: 対応したコメントを解決済みにする
   example:
     /resolve_comment
   instructions:
     - graphQLを使用してPR上の対応したコメントを解決済みにする
-/ci_plan
+/ci_plan:
   description: CI成功のためチェックする
   example:
     /ci_plan
@@ -68,7 +68,7 @@ AIがコードを提案・レビューする際は、以下の優先度ラベル
     - コマンド実行中に作成した一時ファイルは削除する
     - タイムアウトを検知したら該当処理を再チェックする
     - ファイルロックがあった場合、cleanしてから実行する
-/push_plan
+/push_plan:
   description: 対応内容をプッシュする
   example:
     /push_plan
