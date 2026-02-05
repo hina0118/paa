@@ -38,9 +38,7 @@ type TableItem = {
     | 'table-order-htmls'
     | 'table-parse-skipped'
     | 'table-shop-settings'
-    | 'table-sync-metadata'
     | 'table-window-settings'
-    | 'table-parse-metadata'
     | 'table-product-master';
 };
 
@@ -65,9 +63,7 @@ const tableItems: TableItem[] = [
   { name: 'Parse Skipped', id: 'table-parse-skipped' },
   { name: 'Order-HTMLs', id: 'table-order-htmls' },
   { name: 'Shop Settings', id: 'table-shop-settings' },
-  { name: 'Sync Metadata', id: 'table-sync-metadata' },
   { name: 'Window Settings', id: 'table-window-settings' },
-  { name: 'Parse Metadata', id: 'table-parse-metadata' },
   { name: 'Product Master', id: 'table-product-master' },
 ];
 

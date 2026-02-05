@@ -20,9 +20,7 @@ export const VALID_TABLES = [
   'order_htmls',
   'parse_skipped',
   'shop_settings',
-  'sync_metadata',
   'window_settings',
-  'parse_metadata',
   'product_master',
 ] as const;
 

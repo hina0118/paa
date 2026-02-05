@@ -18,9 +18,7 @@ import {
   OrderEmailsTable,
   OrderHtmlsTable,
   ShopSettingsTable,
-  SyncMetadataTable,
   WindowSettingsTable,
-  ParseMetadataTable,
   ParseSkippedTable,
   ProductMasterTable,
 } from '@/components/screens/tables';
@@ -72,12 +70,8 @@ function AppContent() {
         return <OrderHtmlsTable />;
       case 'table-shop-settings':
         return <ShopSettingsTable />;
-      case 'table-sync-metadata':
-        return <SyncMetadataTable />;
       case 'table-window-settings':
         return <WindowSettingsTable />;
-      case 'table-parse-metadata':
-        return <ParseMetadataTable />;
       case 'table-product-master':
         return <ProductMasterTable />;
       default:

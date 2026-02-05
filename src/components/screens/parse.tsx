@@ -52,7 +52,7 @@ export function Parse() {
     setShowConfirmDialog(false);
     setError(null);
     try {
-      // batch_sizeを指定せずに呼び出すとparse_metadataの値が使われる
+      // batch_size は設定ファイル (paa_config.json) から取得される
       await startParse();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
