@@ -1675,6 +1675,7 @@ impl ProductMasterRepository for SqliteProductMasterRepository {
         parsed: &ParsedProduct,
         platform_hint: Option<String>,
     ) -> Result<i64, String> {
+        // Avoid logging user/product data (raw_name, maker, series, name); keep logs metrics-only.
         log::debug!("Saving product_master entry");
 
         let id: i64 = sqlx::query_scalar(
