@@ -82,21 +82,6 @@ pub struct FetchResult {
     pub skipped_count: usize,
 }
 
-/// 同期進捗イベント（後方互換性のため残す）
-/// 新しいコードでは BatchProgressEvent を使用してください
-#[derive(Debug, Serialize, Clone)]
-#[deprecated(note = "Use BatchProgressEvent instead")]
-pub struct SyncProgressEvent {
-    pub batch_number: usize,
-    pub batch_size: usize,
-    pub total_synced: usize,
-    /// INSERT または ON CONFLICT DO UPDATE で保存された件数（重複の更新も含む。「新規のみ」ではない）
-    pub newly_saved: usize,
-    pub status_message: String,
-    pub is_complete: bool,
-    pub error: Option<String>,
-}
-
 #[derive(Debug, Serialize)]
 pub struct SyncMetadata {
     pub sync_status: String,
@@ -1321,7 +1306,6 @@ pub async fn delete_shop_setting(pool: &SqlitePool, id: i64) -> Result<(), Strin
 }
 
 #[cfg(test)]
-#[allow(deprecated)]
 mod tests {
     use super::*;
     use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
@@ -1711,26 +1695,6 @@ mod tests {
         // 重複(msg007)も新規(msg008)も ON CONFLICT DO UPDATE で rows_affected=1 のため saved としてカウント
         assert_eq!(result.saved_count, 2);
         assert_eq!(result.skipped_count, 0);
-    }
-
-    #[test]
-    fn test_sync_progress_event_structure() {
-        let event = SyncProgressEvent {
-            batch_number: 5,
-            batch_size: 50,
-            total_synced: 250,
-            newly_saved: 45,
-            status_message: "Batch 5 complete".to_string(),
-            is_complete: false,
-            error: None,
-        };
-
-        assert_eq!(event.batch_number, 5);
-        assert_eq!(event.batch_size, 50);
-        assert_eq!(event.total_synced, 250);
-        assert_eq!(event.newly_saved, 45);
-        assert!(!event.is_complete);
-        assert!(event.error.is_none());
     }
 
     #[test]
@@ -2263,23 +2227,6 @@ mod tests {
     }
 
     #[test]
-    fn test_sync_progress_event_with_error() {
-        let event = SyncProgressEvent {
-            batch_number: 3,
-            batch_size: 50,
-            total_synced: 100,
-            newly_saved: 0,
-            status_message: "Error occurred".to_string(),
-            is_complete: true,
-            error: Some("Network timeout".to_string()),
-        };
-
-        assert!(event.is_complete);
-        assert!(event.error.is_some());
-        assert_eq!(event.error.unwrap(), "Network timeout");
-    }
-
-    #[test]
     fn test_sync_metadata_default_values() {
         let metadata = SyncMetadata {
             sync_status: "idle".to_string(),
@@ -2796,24 +2743,6 @@ mod tests {
         assert!(body_plain.is_some());
         assert!(body_plain.as_ref().unwrap().contains('\u{FFFD}'));
         assert_eq!(body_html, None);
-    }
-
-    #[test]
-    fn test_sync_progress_event_serialization() {
-        // SyncProgressEventがシリアライズ可能であることを確認
-        let event = SyncProgressEvent {
-            batch_number: 1,
-            batch_size: 50,
-            total_synced: 100,
-            newly_saved: 50,
-            status_message: "Progress".to_string(),
-            is_complete: false,
-            error: None,
-        };
-
-        let json = serde_json::to_string(&event).unwrap();
-        assert!(json.contains("\"batch_number\":1"));
-        assert!(json.contains("\"total_synced\":100"));
     }
 
     // ==================== sync_gmail_incremental_with_client Error Handling Tests ====================

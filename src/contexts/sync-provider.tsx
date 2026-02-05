@@ -1,12 +1,7 @@
 import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
-import {
-  type SyncProgress,
-  type SyncMetadata,
-  SyncContext,
-  batchProgressToSyncProgress,
-} from './sync-context-value';
+import { type SyncMetadata, SyncContext } from './sync-context-value';
 import {
   type BatchProgress,
   BATCH_PROGRESS_EVENT,
@@ -15,10 +10,7 @@ import {
 
 export function SyncProvider({ children }: { children: ReactNode }) {
   const [isSyncing, setIsSyncing] = useState(false);
-  const [progress, setProgress] = useState<SyncProgress | null>(null);
-  const [batchProgress, setBatchProgress] = useState<BatchProgress | null>(
-    null
-  );
+  const [progress, setProgress] = useState<BatchProgress | null>(null);
   const [metadata, setMetadata] = useState<SyncMetadata | null>(null);
 
   const refreshStatus = useCallback(async () => {
@@ -31,7 +23,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // 新しい共通イベント（batch-progress）をリッスン
+  // 共通イベント（batch-progress）をリッスン
   useEffect(() => {
     const unlisten = listen<BatchProgress>(BATCH_PROGRESS_EVENT, (event) => {
       const data = event.payload;
@@ -41,27 +33,6 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // BatchProgress を保存
-      setBatchProgress(data);
-      // BatchProgress を SyncProgress に変換（後方互換性）
-      const syncProgress = batchProgressToSyncProgress(data);
-      setProgress(syncProgress);
-
-      if (data.is_complete) {
-        setIsSyncing(false);
-        refreshStatus();
-      }
-    });
-
-    return () => {
-      unlisten.then((fn) => fn());
-    };
-  }, [refreshStatus]);
-
-  // 後方互換性のため、古いイベント（sync-progress）もリッスン
-  useEffect(() => {
-    const unlisten = listen<SyncProgress>('sync-progress', (event) => {
-      const data = event.payload;
       setProgress(data);
 
       if (data.is_complete) {
@@ -105,7 +76,6 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     try {
       setIsSyncing(true);
       setProgress(null);
-      setBatchProgress(null);
       await invoke('start_sync');
     } catch (error) {
       setIsSyncing(false);
@@ -147,7 +117,6 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       value={{
         isSyncing,
         progress,
-        batchProgress,
         metadata,
         startSync,
         cancelSync,

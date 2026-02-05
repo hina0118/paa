@@ -1,14 +1,7 @@
 import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
-import {
-  type ParseProgress,
-  type ParseMetadata,
-  type ProductNameParseProgress,
-  ParseContext,
-  batchProgressToParseProgress,
-  batchProgressToProductNameParseProgress,
-} from './parse-context-value';
+import { type ParseMetadata, ParseContext } from './parse-context-value';
 import {
   type BatchProgress,
   BATCH_PROGRESS_EVENT,
@@ -17,16 +10,11 @@ import {
 
 export function ParseProvider({ children }: { children: ReactNode }) {
   const [isParsing, setIsParsing] = useState(false);
-  const [progress, setProgress] = useState<ParseProgress | null>(null);
-  const [batchProgress, setBatchProgress] = useState<BatchProgress | null>(
-    null
-  );
+  const [progress, setProgress] = useState<BatchProgress | null>(null);
   const [metadata, setMetadata] = useState<ParseMetadata | null>(null);
   // 商品名パース (Gemini API)
   const [isProductNameParsing, setIsProductNameParsing] = useState(false);
   const [productNameProgress, setProductNameProgress] =
-    useState<ProductNameParseProgress | null>(null);
-  const [productNameBatchProgress, setProductNameBatchProgress] =
     useState<BatchProgress | null>(null);
   const [geminiApiKeyStatus, setGeminiApiKeyStatus] = useState<
     'checking' | 'available' | 'unavailable' | 'error'
@@ -53,16 +41,14 @@ export function ParseProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // 新しい共通イベント（batch-progress）をリッスン
+  // 共通イベント（batch-progress）をリッスン
   useEffect(() => {
     const unlisten = listen<BatchProgress>(BATCH_PROGRESS_EVENT, (event) => {
       const data = event.payload;
 
       // メールパースのイベント
       if (data.task_name === TASK_NAMES.EMAIL_PARSE) {
-        setBatchProgress(data);
-        const parseProgress = batchProgressToParseProgress(data);
-        setProgress(parseProgress);
+        setProgress(data);
 
         if (data.is_complete) {
           setIsParsing(false);
@@ -72,56 +58,18 @@ export function ParseProvider({ children }: { children: ReactNode }) {
 
       // 商品名パースのイベント
       if (data.task_name === TASK_NAMES.PRODUCT_NAME_PARSE) {
-        setProductNameBatchProgress(data);
-        const productProgress = batchProgressToProductNameParseProgress(data);
-        setProductNameProgress(productProgress);
-
-        if (data.is_complete) {
-          setIsProductNameParsing(false);
-        }
-      }
-    });
-
-    return () => {
-      unlisten.then((fn) => fn());
-    };
-  }, [refreshStatus]);
-
-  // 後方互換性のため、古いイベント（parse-progress）もリッスン
-  useEffect(() => {
-    const unlisten = listen<ParseProgress>('parse-progress', (event) => {
-      const data = event.payload;
-      setProgress(data);
-
-      if (data.is_complete) {
-        setIsParsing(false);
-        refreshStatus();
-      }
-    });
-
-    return () => {
-      unlisten.then((fn) => fn());
-    };
-  }, [refreshStatus]);
-
-  // 後方互換性のため、古いイベント（product-name-parse-progress）もリッスン
-  useEffect(() => {
-    const unlisten = listen<ProductNameParseProgress>(
-      'product-name-parse-progress',
-      (event) => {
-        const data = event.payload;
         setProductNameProgress(data);
 
         if (data.is_complete) {
           setIsProductNameParsing(false);
         }
       }
-    );
+    });
 
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, []);
+  }, [refreshStatus]);
 
   useEffect(() => {
     refreshStatus();
@@ -135,7 +83,6 @@ export function ParseProvider({ children }: { children: ReactNode }) {
     try {
       setIsParsing(true);
       setProgress(null);
-      setBatchProgress(null);
       await invoke('start_batch_parse', { batchSize });
     } catch (error) {
       setIsParsing(false);
@@ -166,7 +113,6 @@ export function ParseProvider({ children }: { children: ReactNode }) {
     try {
       setIsProductNameParsing(true);
       setProductNameProgress(null);
-      setProductNameBatchProgress(null);
       await invoke('start_product_name_parse');
     } catch (error) {
       setIsProductNameParsing(false);
@@ -179,7 +125,6 @@ export function ParseProvider({ children }: { children: ReactNode }) {
       value={{
         isParsing,
         progress,
-        batchProgress,
         metadata,
         startParse,
         cancelParse,
@@ -187,7 +132,6 @@ export function ParseProvider({ children }: { children: ReactNode }) {
         updateBatchSize,
         isProductNameParsing,
         productNameProgress,
-        productNameBatchProgress,
         startProductNameParse,
         geminiApiKeyStatus,
         hasGeminiApiKey: geminiApiKeyStatus === 'available',
