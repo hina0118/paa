@@ -5,7 +5,6 @@ pub mod config;
 pub mod gmail_sync_task;
 
 // clientモジュールから公開されている型と関数をre-export
-#[allow(deprecated)]
 pub use client::{
     // 関数
     create_shop_setting,
@@ -24,7 +23,6 @@ pub use client::{
     ShopSettings,
     SyncGuard,
     SyncMetadata,
-    SyncProgressEvent,
     SyncState,
     UpdateShopSettings,
 };

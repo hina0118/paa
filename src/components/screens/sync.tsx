@@ -15,7 +15,7 @@ import {
 export function Sync() {
   const {
     isSyncing,
-    batchProgress,
+    progress,
     metadata,
     startSync,
     cancelSync,
@@ -171,17 +171,17 @@ export function Sync() {
       </Card>
 
       {/* Progress Display */}
-      {(isSyncing || batchProgress) && (
+      {(isSyncing || progress) && (
         <Card>
           <CardHeader>
             <CardTitle>同期進捗</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {batchProgress && (
+            {progress && (
               <>
-                <SimpleBatchProgressBar progress={batchProgress} />
+                <SimpleBatchProgressBar progress={progress} />
 
-                {batchProgress.is_complete && !batchProgress.error && (
+                {progress.is_complete && !progress.error && (
                   <div
                     className="p-3 bg-green-50 border border-green-200 rounded text-sm text-green-800"
                     data-testid="success-message"
@@ -238,7 +238,7 @@ export function Sync() {
       )}
 
       {/* Error Display */}
-      {(error || batchProgress?.error) && (
+      {(error || progress?.error) && (
         <Card
           className="border-red-200 bg-red-50"
           data-testid="error-message"
@@ -248,9 +248,7 @@ export function Sync() {
             <CardTitle className="text-red-800">エラー</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-red-700">
-              {error || batchProgress?.error}
-            </p>
+            <p className="text-sm text-red-700">{error || progress?.error}</p>
           </CardContent>
         </Card>
       )}

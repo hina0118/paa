@@ -4,6 +4,11 @@ import { ParseProvider } from './parse-provider';
 import { useParse } from './use-parse';
 import { mockInvoke, mockListen } from '@/test/setup';
 import { ReactNode } from 'react';
+import {
+  BATCH_PROGRESS_EVENT,
+  TASK_NAMES,
+  type BatchProgress,
+} from './batch-progress-types';
 
 const mockParseMetadata = {
   parse_status: 'idle' as const,
@@ -349,15 +354,12 @@ describe('ParseContext', () => {
     );
   });
 
-  it('handles parse-progress event without is_complete (no refresh)', async () => {
-    let progressCallback:
-      | ((e: { payload: { is_complete: boolean } }) => void)
-      | null = null;
+  it('handles batch-progress event without is_complete (no refresh)', async () => {
+    let progressCallback: ((e: { payload: BatchProgress }) => void) | null =
+      null;
     mockListen.mockImplementation((event: string, cb: (e: unknown) => void) => {
-      if (event === 'parse-progress') {
-        progressCallback = cb as (e: {
-          payload: { is_complete: boolean };
-        }) => void;
+      if (event === BATCH_PROGRESS_EVENT) {
+        progressCallback = cb as (e: { payload: BatchProgress }) => void;
       }
       return Promise.resolve(() => {});
     });
@@ -383,11 +385,14 @@ describe('ParseContext', () => {
     await act(async () => {
       progressCallback?.({
         payload: {
+          task_name: TASK_NAMES.EMAIL_PARSE,
           batch_number: 1,
-          total_emails: 100,
-          parsed_count: 50,
+          batch_size: 100,
+          total_items: 100,
+          processed_count: 50,
           success_count: 48,
           failed_count: 2,
+          progress_percent: 50,
           status_message: 'In progress',
           is_complete: false,
         },
@@ -398,15 +403,12 @@ describe('ParseContext', () => {
     expect(getParseStatusCallCount).toBe(countBefore);
   });
 
-  it('handles parse-progress event with is_complete', async () => {
-    let progressCallback:
-      | ((e: { payload: { is_complete: boolean } }) => void)
-      | null = null;
+  it('handles batch-progress event with is_complete', async () => {
+    let progressCallback: ((e: { payload: BatchProgress }) => void) | null =
+      null;
     mockListen.mockImplementation((event: string, cb: (e: unknown) => void) => {
-      if (event === 'parse-progress') {
-        progressCallback = cb as (e: {
-          payload: { is_complete: boolean };
-        }) => void;
+      if (event === BATCH_PROGRESS_EVENT) {
+        progressCallback = cb as (e: { payload: BatchProgress }) => void;
       }
       return Promise.resolve(() => {});
     });
@@ -429,11 +431,14 @@ describe('ParseContext', () => {
     await act(async () => {
       progressCallback?.({
         payload: {
+          task_name: TASK_NAMES.EMAIL_PARSE,
           batch_number: 1,
-          total_emails: 100,
-          parsed_count: 100,
+          batch_size: 100,
+          total_items: 100,
+          processed_count: 100,
           success_count: 98,
           failed_count: 2,
+          progress_percent: 100,
           status_message: 'Done',
           is_complete: true,
         },

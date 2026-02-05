@@ -247,21 +247,6 @@ pub struct ParseMetadata {
     pub batch_size: i64,
 }
 
-/// パース進捗イベント（後方互換性のため残す）
-/// 新しいコードでは BatchProgressEvent を使用してください
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[deprecated(note = "Use BatchProgressEvent instead")]
-pub struct ParseProgressEvent {
-    pub batch_number: usize,
-    pub total_emails: usize,
-    pub parsed_count: usize,
-    pub success_count: usize,
-    pub failed_count: usize,
-    pub status_message: String,
-    pub is_complete: bool,
-    pub error: Option<String>,
-}
-
 /// バッチパース処理（メールから注文情報を抽出）
 /// NOTE: 商品名のAI解析（Gemini API）は別コマンド start_product_name_parse で実行
 pub async fn batch_parse_emails(
@@ -633,7 +618,6 @@ pub async fn batch_parse_emails(
 }
 
 #[cfg(test)]
-#[allow(deprecated)]
 mod tests {
     use super::*;
 
@@ -865,41 +849,6 @@ mod tests {
         assert_eq!(metadata.batch_size, 100);
     }
 
-    #[test]
-    fn test_parse_progress_event_structure() {
-        let event = ParseProgressEvent {
-            batch_number: 1,
-            total_emails: 100,
-            parsed_count: 50,
-            success_count: 45,
-            failed_count: 5,
-            status_message: "Processing...".to_string(),
-            is_complete: false,
-            error: None,
-        };
-
-        assert_eq!(event.batch_number, 1);
-        assert_eq!(event.total_emails, 100);
-        assert!(!event.is_complete);
-    }
-
-    #[test]
-    fn test_parse_progress_event_with_error() {
-        let event = ParseProgressEvent {
-            batch_number: 2,
-            total_emails: 100,
-            parsed_count: 30,
-            success_count: 25,
-            failed_count: 5,
-            status_message: "Error occurred".to_string(),
-            is_complete: true,
-            error: Some("Database connection failed".to_string()),
-        };
-
-        assert!(event.is_complete);
-        assert!(event.error.is_some());
-    }
-
     // ==================== Serialization Tests ====================
 
     #[test]
@@ -938,26 +887,6 @@ mod tests {
 
         assert_eq!(deserialized.parse_status, "running");
         assert_eq!(deserialized.total_parsed_count, 50);
-    }
-
-    #[test]
-    fn test_parse_progress_event_serialization() {
-        let event = ParseProgressEvent {
-            batch_number: 5,
-            total_emails: 500,
-            parsed_count: 250,
-            success_count: 240,
-            failed_count: 10,
-            status_message: "Half done".to_string(),
-            is_complete: false,
-            error: None,
-        };
-
-        let json = serde_json::to_string(&event).unwrap();
-        let deserialized: ParseProgressEvent = serde_json::from_str(&json).unwrap();
-
-        assert_eq!(deserialized.batch_number, 5);
-        assert_eq!(deserialized.success_count, 240);
     }
 
     #[test]
