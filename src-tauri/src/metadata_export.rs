@@ -74,7 +74,19 @@ pub async fn export_metadata(
         .app_data_dir()
         .map_err(|e| format!("Failed to get app data dir: {e}"))?;
     let images_dir = app_data_dir.join("images");
+    let file = File::create(save_path).map_err(|e| format!("Failed to create file: {e}"))?;
+    export_metadata_to_writer(pool, &images_dir, file).await
+}
 
+/// エクスポート処理本体（テスト可能）。writer に ZIP を書き込む。
+pub(crate) async fn export_metadata_to_writer<W>(
+    pool: &SqlitePool,
+    images_dir: &Path,
+    writer: W,
+) -> Result<ExportResult, String>
+where
+    W: Write + Seek,
+{
     // 1. テーブルデータを取得
     let images_rows: Vec<(i64, String, Option<String>, String)> =
         sqlx::query_as("SELECT id, item_name_normalized, file_name, created_at FROM images")
@@ -121,8 +133,7 @@ pub async fn export_metadata(
         .map_err(|e| format!("Failed to serialize manifest: {e}"))?;
 
     // 3. ZIP に書き込み
-    let file = File::create(save_path).map_err(|e| format!("Failed to create file: {e}"))?;
-    let mut zip_writer = zip::ZipWriter::new(file);
+    let mut zip_writer = zip::ZipWriter::new(writer);
     let options: zip::write::FileOptions<()> = FileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated)
         .unix_permissions(0o644);
@@ -198,9 +209,21 @@ pub async fn import_metadata(
         .map_err(|e| format!("Failed to get app data dir: {e}"))?;
     let images_dir = app_data_dir.join("images");
     fs::create_dir_all(&images_dir).map_err(|e| format!("Failed to create images dir: {e}"))?;
-
     let file = File::open(zip_path).map_err(|e| format!("Failed to open zip: {e}"))?;
-    let mut zip_archive = ZipArchive::new(file).map_err(|e| format!("Failed to read zip: {e}"))?;
+    import_metadata_from_reader(pool, &images_dir, file).await
+}
+
+/// インポート処理本体（テスト可能）。reader から ZIP を読み込む。
+pub(crate) async fn import_metadata_from_reader<R>(
+    pool: &SqlitePool,
+    images_dir: &Path,
+    reader: R,
+) -> Result<ImportResult, String>
+where
+    R: Read + Seek,
+{
+    fs::create_dir_all(images_dir).map_err(|e| format!("Failed to create images dir: {e}"))?;
+    let mut zip_archive = ZipArchive::new(reader).map_err(|e| format!("Failed to read zip: {e}"))?;
 
     // images.json
     let images_json = read_zip_entry(&mut zip_archive, "images.json")?;
@@ -363,3 +386,171 @@ struct JsonProductMasterRow(
     Option<String>, // created_at (未使用)
     Option<String>, // updated_at (未使用)
 );
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+    use std::io::Cursor;
+    use std::str::FromStr;
+    use tempfile::TempDir;
+
+    const SCHEMA_IMAGES: &str = r"
+        CREATE TABLE IF NOT EXISTS images (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_name_normalized TEXT NOT NULL,
+            file_name TEXT,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (item_name_normalized)
+        );
+    ";
+    const SCHEMA_SHOP_SETTINGS: &str = r"
+        CREATE TABLE IF NOT EXISTS shop_settings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            shop_name TEXT NOT NULL,
+            sender_address TEXT NOT NULL,
+            parser_type TEXT NOT NULL,
+            is_enabled INTEGER NOT NULL DEFAULT 1 CHECK(is_enabled IN (0, 1)),
+            subject_filters TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (sender_address, parser_type)
+        );
+    ";
+    const SCHEMA_PRODUCT_MASTER: &str = r"
+        CREATE TABLE IF NOT EXISTS product_master (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            raw_name TEXT UNIQUE NOT NULL,
+            normalized_name TEXT NOT NULL,
+            maker TEXT,
+            series TEXT,
+            product_name TEXT,
+            scale TEXT,
+            is_reissue INTEGER NOT NULL DEFAULT 0 CHECK(is_reissue IN (0, 1)),
+            platform_hint TEXT,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+    ";
+
+    async fn create_test_pool() -> SqlitePool {
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .create_if_missing(true);
+        let pool = SqlitePoolOptions::new()
+            .connect_with(options)
+            .await
+            .unwrap();
+        sqlx::query(SCHEMA_IMAGES).execute(&pool).await.unwrap();
+        sqlx::query(SCHEMA_SHOP_SETTINGS)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(SCHEMA_PRODUCT_MASTER)
+            .execute(&pool)
+            .await
+            .unwrap();
+        pool
+    }
+
+    #[tokio::test]
+    async fn test_export_import_roundtrip() {
+        let pool = create_test_pool().await;
+
+        // テストデータを挿入
+        sqlx::query(
+            r"INSERT INTO images (item_name_normalized, file_name, created_at)
+              VALUES ('item1', 'img1.png', '2024-01-01 00:00:00'), ('item2', NULL, '2024-01-02 00:00:00')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO shop_settings (shop_name, sender_address, parser_type, is_enabled, subject_filters) \
+             VALUES ('ShopA', 'a@test.com', 'parser1', 1, '[\"filter1\"]')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r"INSERT INTO product_master (raw_name, normalized_name, maker, is_reissue)
+              VALUES ('RawProduct', 'NormProduct', 'Maker1', 0)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let tmp = TempDir::new().unwrap();
+        let images_dir = tmp.path().join("images");
+        std::fs::create_dir_all(&images_dir).unwrap();
+
+        // エクスポート（ZIP をメモリに書き込み）
+        let mut buf = Cursor::new(Vec::new());
+        let result = export_metadata_to_writer(&pool, &images_dir, &mut buf).await;
+        assert!(result.is_ok(), "export failed: {:?}", result.err());
+        let export_result = result.unwrap();
+        assert_eq!(export_result.images_count, 2);
+        assert_eq!(export_result.shop_settings_count, 1);
+        assert_eq!(export_result.product_master_count, 1);
+        assert_eq!(export_result.image_files_count, 0); // img1.png は存在しない
+
+        // インポート先の新規 DB
+        let pool2 = create_test_pool().await;
+        buf.set_position(0);
+
+        let import_result =
+            import_metadata_from_reader(&pool2, &images_dir, buf).await;
+        assert!(import_result.is_ok(), "import failed: {:?}", import_result.err());
+        let import_result = import_result.unwrap();
+        assert_eq!(import_result.images_inserted, 2);
+        assert_eq!(import_result.shop_settings_inserted, 1);
+        assert_eq!(import_result.product_master_inserted, 1);
+
+        // データが正しく復元されているか確認
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM images")
+            .fetch_one(&pool2)
+            .await
+            .unwrap();
+        assert_eq!(count.0, 2);
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM shop_settings")
+            .fetch_one(&pool2)
+            .await
+            .unwrap();
+        assert_eq!(count.0, 1);
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM product_master")
+            .fetch_one(&pool2)
+            .await
+            .unwrap();
+        assert_eq!(count.0, 1);
+    }
+
+    #[tokio::test]
+    async fn test_import_insert_or_ignore_duplicate() {
+        let pool = create_test_pool().await;
+
+        // 初期データ
+        sqlx::query(
+            r"INSERT INTO images (item_name_normalized, file_name, created_at)
+              VALUES ('dup_item', 'dup.png', '2024-01-01 00:00:00')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let tmp = TempDir::new().unwrap();
+        let images_dir = tmp.path().join("images");
+        std::fs::create_dir_all(&images_dir).unwrap();
+
+        let mut buf = Cursor::new(Vec::new());
+        export_metadata_to_writer(&pool, &images_dir, &mut buf)
+            .await
+            .unwrap();
+        buf.set_position(0);
+
+        // 同じ DB に再インポート → 重複は無視
+        let import_result = import_metadata_from_reader(&pool, &images_dir, buf).await;
+        assert!(import_result.is_ok());
+        let r = import_result.unwrap();
+        assert_eq!(r.images_inserted, 0, "duplicate should be ignored");
+    }
+}
