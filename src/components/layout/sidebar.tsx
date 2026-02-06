@@ -11,20 +11,26 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useNavigation } from '@/contexts/use-navigation';
+import type { Screen } from '@/contexts/navigation-context-value';
 import { useState } from 'react';
+
+/** サイドバーナビゲーションで表示する画面（Screen のサブセット） */
+type NavigationScreen = Extract<
+  Screen,
+  | 'dashboard'
+  | 'orders'
+  | 'batch'
+  | 'logs'
+  | 'shop-settings'
+  | 'backup'
+  | 'api-keys'
+  | 'settings'
+>;
 
 type NavigationItem = {
   name: string;
   icon: React.ComponentType<{ className?: string }>;
-  id:
-    | 'dashboard'
-    | 'orders'
-    | 'batch'
-    | 'api-keys'
-    | 'settings'
-    | 'logs'
-    | 'shop-settings'
-    | 'backup';
+  id: NavigationScreen;
 };
 
 type TableItem = {
