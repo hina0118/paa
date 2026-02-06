@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqlitePool;
+use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{Read, Seek, Write};
 use std::path::Path;
@@ -66,6 +67,8 @@ pub struct ExportResult {
     pub shop_settings_count: usize,
     pub product_master_count: usize,
     pub image_files_count: usize,
+    /// スキップした画像数（不正な file_name、サイズ超過、ファイル不存在）
+    pub images_skipped: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -186,31 +189,36 @@ where
         .map_err(|e| format!("Failed to write product_master: {e}"))?;
 
     let mut image_files_count = 0usize;
+    let mut images_skipped = 0usize;
     for (_, _norm, file_name_opt, _) in &images_rows {
         if let Some(ref file_name) = file_name_opt {
             if !is_safe_file_name(file_name) {
-                continue; // パストラバーサル対策: 不正な file_name はスキップ
+                images_skipped += 1; // パストラバーサル対策: 不正な file_name はスキップ
+                continue;
             }
             let src = images_dir.join(file_name);
-            if src.exists() {
-                let metadata = fs::metadata(&src).ok();
-                if metadata
-                    .map(|m| m.len() > MAX_IMAGE_ENTRY_SIZE)
-                    .unwrap_or(true)
-                {
-                    continue; // サイズ不明 or 超過はスキップ
-                }
-                let data = fs::read(&src)
-                    .map_err(|e| format!("Failed to read image {}: {e}", file_name))?;
-                let zip_path = format!("images/{}", file_name);
-                zip_writer
-                    .start_file(&zip_path, options)
-                    .map_err(|e| format!("Failed to add image {}: {e}", file_name))?;
-                zip_writer
-                    .write_all(&data)
-                    .map_err(|e| format!("Failed to write image {}: {e}", file_name))?;
-                image_files_count += 1;
+            if !src.exists() {
+                images_skipped += 1;
+                continue;
             }
+            let metadata = fs::metadata(&src).ok();
+            if metadata
+                .map(|m| m.len() > MAX_IMAGE_ENTRY_SIZE)
+                .unwrap_or(true)
+            {
+                images_skipped += 1; // サイズ不明 or 超過はスキップ
+                continue;
+            }
+            let data = fs::read(&src)
+                .map_err(|e| format!("Failed to read image {}: {e}", file_name))?;
+            let zip_path = format!("images/{}", file_name);
+            zip_writer
+                .start_file(&zip_path, options)
+                .map_err(|e| format!("Failed to add image {}: {e}", file_name))?;
+            zip_writer
+                .write_all(&data)
+                .map_err(|e| format!("Failed to write image {}: {e}", file_name))?;
+            image_files_count += 1;
         }
     }
 
@@ -223,6 +231,7 @@ where
         shop_settings_count: shop_settings_rows.len(),
         product_master_count: product_master_rows.len(),
         image_files_count,
+        images_skipped,
     })
 }
 
@@ -281,6 +290,19 @@ where
     let product_master_rows: Vec<JsonProductMasterRow> = serde_json::from_str(&product_master_json)
         .map_err(|e| format!("Failed to parse product_master.json: {e}"))?;
 
+    // images.json に登場する安全な file_name のみをコピー対象とする（DoS 対策）
+    let allowed_image_files: HashSet<String> = images_rows
+        .iter()
+        .filter_map(|r| r.2.as_ref())
+        .filter(|s| is_safe_file_name(s))
+        .cloned()
+        .collect();
+
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| format!("Failed to begin transaction: {e}"))?;
+
     let mut images_inserted = 0usize;
     for row in &images_rows {
         // パストラバーサル対策: 不正な file_name は None にして DB に保存しない
@@ -298,7 +320,7 @@ where
         .bind(&row.1)
         .bind(file_name_for_db)
         .bind(&row.3)
-        .execute(pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| format!("Failed to insert image: {e}"))?;
         if result.rows_affected() > 0 {
@@ -319,7 +341,7 @@ where
         .bind(&row.3)
         .bind(row.4)
         .bind(&row.5)
-        .execute(pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| format!("Failed to insert shop_setting: {e}"))?;
         if result.rows_affected() > 0 {
@@ -343,13 +365,17 @@ where
         .bind(&row.6)
         .bind(row.7)
         .bind(&row.8)
-        .execute(pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| format!("Failed to insert product_master: {e}"))?;
         if result.rows_affected() > 0 {
             product_master_inserted += 1;
         }
     }
+
+    tx.commit()
+        .await
+        .map_err(|e| format!("Failed to commit transaction: {e}"))?;
 
     let mut image_files_copied = 0usize;
     for i in 0..zip_archive.len() {
@@ -370,6 +396,14 @@ where
         let Some(file_name) = enclosed_path.file_name() else {
             continue; // ディレクトリエントリ等はスキップ
         };
+
+        // images.json に登場する file_name のみコピー（意図しない大量ファイルの DoS 対策）
+        if !file_name
+            .to_str()
+            .is_some_and(|s| allowed_image_files.contains(s))
+        {
+            continue;
+        }
 
         let dest = images_dir.join(file_name);
         if dest.exists() {
@@ -564,6 +598,7 @@ mod tests {
         assert_eq!(export_result.shop_settings_count, 1);
         assert_eq!(export_result.product_master_count, 1);
         assert_eq!(export_result.image_files_count, 0); // img1.png は存在しない
+        assert_eq!(export_result.images_skipped, 1); // img1.png が存在しないためスキップ
 
         // インポート先の新規 DB
         let pool2 = create_test_pool().await;
@@ -644,9 +679,10 @@ mod tests {
         std::fs::create_dir_all(&images_dir).unwrap();
 
         let mut buf = Cursor::new(Vec::new());
-        export_metadata_to_writer(&pool, &images_dir, &mut buf)
+        let export_result = export_metadata_to_writer(&pool, &images_dir, &mut buf)
             .await
             .unwrap();
+        assert_eq!(export_result.images_skipped, 1); // img1.png は存在しない
         buf.set_position(0);
 
         // ZIP 内容を検証
@@ -739,6 +775,7 @@ mod tests {
         // 3件の images レコードはあるが、ZIP に含まれる画像は normal.png のみ（../evil.png, subdir/file.png はスキップ）
         assert_eq!(result.images_count, 3);
         assert_eq!(result.image_files_count, 1);
+        assert_eq!(result.images_skipped, 2);
     }
 
     #[tokio::test]

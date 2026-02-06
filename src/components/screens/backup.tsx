@@ -17,6 +17,7 @@ interface ExportResult {
   shop_settings_count: number;
   product_master_count: number;
   image_files_count: number;
+  images_skipped: number;
 }
 
 interface ImportResult {
@@ -48,6 +49,11 @@ export function Backup() {
       toast.success(
         `バックアップを保存しました（images: ${result.images_count}、shop_settings: ${result.shop_settings_count}、product_master: ${result.product_master_count}、画像ファイル: ${result.image_files_count}）`
       );
+      if (result.images_skipped > 0) {
+        toast.warning(
+          `${result.images_skipped}件の画像をスキップしました（不正なファイル名、サイズ超過、またはファイルが存在しません）`
+        );
+      }
     } catch (error) {
       toast.error(
         `エクスポートに失敗しました: ${error instanceof Error ? error.message : String(error)}`
