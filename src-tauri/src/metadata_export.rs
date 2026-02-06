@@ -348,7 +348,7 @@ fn read_zip_entry<R: Read + Seek>(
     Ok(s)
 }
 
-/// JSON デシリアライズ用（タプル形式、id 除く）
+/// JSON デシリアライズ用（タプル形式、id を含むがインポート時は未使用）
 #[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct JsonImageRow(
