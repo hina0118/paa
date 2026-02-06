@@ -166,7 +166,7 @@ async fn start_sync(
             GmailClientForE2E::Mock(E2EMockGmailClient)
         } else {
             match gmail::GmailClient::new(&app_clone).await {
-                Ok(c) => GmailClientForE2E::Real(c),
+                Ok(c) => GmailClientForE2E::Real(Box::new(c)),
                 Err(e) => {
                     log::error!("Failed to create Gmail client: {}", e);
                     sync_state_clone.set_error(&e);
@@ -1610,7 +1610,7 @@ async fn start_product_name_parse(
             );
         }
         let api_key = gemini::load_api_key(&app_data_dir)?;
-        GeminiClientForE2E::Real(GeminiClient::new(api_key)?)
+        GeminiClientForE2E::Real(Box::new(GeminiClient::new(api_key)?))
     };
     let product_repo = SqliteProductMasterRepository::new(pool.inner().clone());
 

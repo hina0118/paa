@@ -126,7 +126,7 @@ pub fn is_e2e_mock_mode() -> bool {
 
 /// Gmail クライアントの E2E 対応ラッパー（実機 or モックを切り替え）
 pub enum GmailClientForE2E {
-    Real(crate::gmail::GmailClient),
+    Real(Box<crate::gmail::GmailClient>),
     Mock(E2EMockGmailClient),
 }
 
@@ -154,7 +154,7 @@ impl GmailClientTrait for GmailClientForE2E {
 
 /// Gemini クライアントの E2E 対応ラッパー（実機 or モックを切り替え）
 pub enum GeminiClientForE2E {
-    Real(crate::gemini::GeminiClient),
+    Real(Box<crate::gemini::GeminiClient>),
     Mock(E2EMockGeminiClient),
 }
 
