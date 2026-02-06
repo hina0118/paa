@@ -17,6 +17,7 @@ pub mod gmail;
 pub mod gmail_client;
 pub mod google_search;
 pub mod logic;
+pub mod metadata_export;
 pub mod parsers;
 pub mod repository;
 
@@ -753,6 +754,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             // 二重起動が検知された場合、既存のウィンドウを最前面に表示
@@ -1031,6 +1033,8 @@ pub fn run() {
             delete_google_search_config,
             search_product_images,
             save_image_from_url,
+            export_metadata,
+            import_metadata,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -2105,6 +2109,28 @@ async fn save_image_from_url(
     }
 
     Ok(file_name)
+}
+
+/// メタデータ（images, shop_settings, product_master）と画像ファイルをZIPにエクスポート
+#[tauri::command]
+async fn export_metadata(
+    app: tauri::AppHandle,
+    pool: tauri::State<'_, SqlitePool>,
+    save_path: String,
+) -> Result<metadata_export::ExportResult, String> {
+    metadata_export::export_metadata(&app, pool.inner(), std::path::Path::new(&save_path))
+        .await
+}
+
+/// ZIPからメタデータをインポート（INSERT OR IGNORE でマージ）
+#[tauri::command]
+async fn import_metadata(
+    app: tauri::AppHandle,
+    pool: tauri::State<'_, SqlitePool>,
+    zip_path: String,
+) -> Result<metadata_export::ImportResult, String> {
+    metadata_export::import_metadata(&app, pool.inner(), std::path::Path::new(&zip_path))
+        .await
 }
 
 #[cfg(test)]

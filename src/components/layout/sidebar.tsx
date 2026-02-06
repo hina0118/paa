@@ -7,6 +7,7 @@ import {
   Database,
   ScrollText,
   Store,
+  Archive,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useNavigation } from '@/contexts/use-navigation';
@@ -22,7 +23,8 @@ type NavigationItem = {
     | 'api-keys'
     | 'settings'
     | 'logs'
-    | 'shop-settings';
+    | 'shop-settings'
+    | 'backup';
 };
 
 type TableItem = {
@@ -46,6 +48,7 @@ const navigationItems: NavigationItem[] = [
   { name: 'Batch', icon: Layers, id: 'batch' },
   { name: 'Logs', icon: ScrollText, id: 'logs' },
   { name: 'Shop Settings', icon: Store, id: 'shop-settings' },
+  { name: 'データのバックアップ', icon: Archive, id: 'backup' },
   { name: 'API Keys', icon: Key, id: 'api-keys' },
   { name: 'Settings', icon: Settings, id: 'settings' },
 ];
