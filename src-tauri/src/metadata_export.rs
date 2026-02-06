@@ -465,7 +465,6 @@ mod tests {
     use std::io::{Cursor, Write};
     use std::str::FromStr;
     use tempfile::TempDir;
-    use zip::read::ZipArchive;
 
     const SCHEMA_IMAGES: &str = r"
         CREATE TABLE IF NOT EXISTS images (
