@@ -202,23 +202,24 @@ jobs:
 
       - name: Merge profraw and generate coverage report
         run: |
+          TARGET_DIR="src-tauri/target"
           PROFRAW_DIR="coverage-e2e-tauri"
-          echo "=== coverage-e2e-tauri contents ==="
-          ls -la "$PROFRAW_DIR" 2>/dev/null || echo "Directory not found or empty"
-          find "$PROFRAW_DIR" -name "*.profraw" 2>/dev/null | head -20
-          PROFRAW_COUNT=$(find "$PROFRAW_DIR" -name "*.profraw" 2>/dev/null | wc -l)
+          echo "=== $TARGET_DIR profraw contents ==="
+          find "$TARGET_DIR" -name "*.profraw" 2>/dev/null | head -20
+          PROFRAW_COUNT=$(find "$TARGET_DIR" -name "*.profraw" 2>/dev/null | wc -l)
           echo "Profraw file count: $PROFRAW_COUNT"
           if [ "$PROFRAW_COUNT" -eq 0 ]; then
-            echo "::error::No profraw files found. Build may not have used -Cinstrument-coverage."
+            echo "::error::No profraw files found. LLVM_PROFILE_FILE may not reach the Tauri app."
             exit 1
           fi
-          # cargo llvm-cov report は target/ 内の profraw を参照するためコピー
-          cp "$PROFRAW_DIR"/*.profraw src-tauri/target/ 2>/dev/null || true
+          mkdir -p "$PROFRAW_DIR"
           cd src-tauri
-          # --no-run: E2E で生成した profraw を使用（テスト再実行しない）
+          # --no-run: E2E で生成した profraw を使用（wdio が target/ に出力するよう設定済み）
           # --fail-under-lines 0: E2E カバレッジはユニットより低いため閾値チェックを無効化
           cargo llvm-cov report --no-run --all-features --fail-under-lines 0 --lcov --output-path "../$PROFRAW_DIR/lcov.info"
           cargo llvm-cov report --no-run --all-features --fail-under-lines 0 --text
+          # 失敗時アーティファクト用に profraw をコピー
+          cp target/*.profraw "../$PROFRAW_DIR/" 2>/dev/null || true
 
       - name: Upload coverage artifacts on failure
         if: failure()

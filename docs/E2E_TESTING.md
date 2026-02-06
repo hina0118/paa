@@ -343,10 +343,9 @@ RUSTFLAGS="-Cinstrument-coverage" npm run test:e2e:tauri:coverage
 **実行後のカバレッジレポート生成**（ローカル、profraw が正のサイズの場合）:
 
 ```bash
-# profraw を target/ にコピーしてレポート生成（cargo llvm-cov が target/ 内を参照）
-cp coverage-e2e-tauri/*.profraw src-tauri/target/
-cd src-tauri && cargo llvm-cov report --lcov --output-path ../coverage-e2e-tauri/lcov.info
-cargo llvm-cov report --text
+# wdio が target/ に profraw を出力するためコピー不要。レポート生成:
+cd src-tauri && cargo llvm-cov report --no-run --all-features --lcov --output-path ../coverage-e2e-tauri/lcov.info
+cargo llvm-cov report --no-run --all-features --text
 ```
 
 **出力**: `coverage-e2e-tauri/lcov.info`（CI で生成）
