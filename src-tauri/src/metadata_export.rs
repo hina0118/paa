@@ -76,12 +76,11 @@ pub async fn export_metadata(
     let images_dir = app_data_dir.join("images");
 
     // 1. テーブルデータを取得
-    let images_rows: Vec<(i64, String, Option<String>, String)> = sqlx::query_as(
-        "SELECT id, item_name_normalized, file_name, created_at FROM images",
-    )
-    .fetch_all(pool)
-    .await
-    .map_err(|e| format!("Failed to fetch images: {e}"))?;
+    let images_rows: Vec<(i64, String, Option<String>, String)> =
+        sqlx::query_as("SELECT id, item_name_normalized, file_name, created_at FROM images")
+            .fetch_all(pool)
+            .await
+            .map_err(|e| format!("Failed to fetch images: {e}"))?;
 
     let shop_settings_rows: Vec<ShopSettingsRow> = sqlx::query_as(
         r#"
@@ -161,7 +160,8 @@ pub async fn export_metadata(
         if let Some(ref file_name) = file_name_opt {
             let src = images_dir.join(file_name);
             if src.exists() {
-                let data = fs::read(&src).map_err(|e| format!("Failed to read image {}: {e}", file_name))?;
+                let data = fs::read(&src)
+                    .map_err(|e| format!("Failed to read image {}: {e}", file_name))?;
                 let zip_path = format!("images/{}", file_name);
                 zip_writer
                     .start_file(&zip_path, options)
@@ -204,8 +204,8 @@ pub async fn import_metadata(
 
     // images.json
     let images_json = read_zip_entry(&mut zip_archive, "images.json")?;
-    let images_rows: Vec<JsonImageRow> =
-        serde_json::from_str(&images_json).map_err(|e| format!("Failed to parse images.json: {e}"))?;
+    let images_rows: Vec<JsonImageRow> = serde_json::from_str(&images_json)
+        .map_err(|e| format!("Failed to parse images.json: {e}"))?;
 
     // shop_settings.json
     let shop_settings_json = read_zip_entry(&mut zip_archive, "shop_settings.json")?;
@@ -283,7 +283,9 @@ pub async fn import_metadata(
 
     let mut image_files_copied = 0usize;
     for i in 0..zip_archive.len() {
-        let mut entry = zip_archive.by_index(i).map_err(|e| format!("Failed to read zip entry: {e}"))?;
+        let mut entry = zip_archive
+            .by_index(i)
+            .map_err(|e| format!("Failed to read zip entry: {e}"))?;
         let name = entry.name().to_string();
         if name.starts_with("images/") && !name.ends_with('/') {
             let file_name = name.trim_start_matches("images/");
@@ -292,8 +294,11 @@ pub async fn import_metadata(
                 continue; // 既存を維持（スキップ）
             }
             let mut data = Vec::new();
-            entry.read_to_end(&mut data).map_err(|e| format!("Failed to read image {}: {e}", name))?;
-            fs::write(&dest, &data).map_err(|e| format!("Failed to write image {}: {e}", dest.display()))?;
+            entry
+                .read_to_end(&mut data)
+                .map_err(|e| format!("Failed to read image {}: {e}", name))?;
+            fs::write(&dest, &data)
+                .map_err(|e| format!("Failed to write image {}: {e}", dest.display()))?;
             image_files_copied += 1;
         }
     }
@@ -324,37 +329,37 @@ fn read_zip_entry<R: Read + Seek>(
 #[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct JsonImageRow(
-    i64,              // id (未使用)
-    String,           // item_name_normalized
-    Option<String>,   // file_name
-    Option<String>,   // created_at
+    i64,            // id (未使用)
+    String,         // item_name_normalized
+    Option<String>, // file_name
+    Option<String>, // created_at
 );
 
 #[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct JsonShopSettingsRow(
-    i64,              // id (未使用)
-    String,           // shop_name
-    String,           // sender_address
-    String,           // parser_type
-    i32,              // is_enabled
-    Option<String>,   // subject_filters
-    Option<String>,   // created_at (未使用)
-    Option<String>,   // updated_at (未使用)
+    i64,            // id (未使用)
+    String,         // shop_name
+    String,         // sender_address
+    String,         // parser_type
+    i32,            // is_enabled
+    Option<String>, // subject_filters
+    Option<String>, // created_at (未使用)
+    Option<String>, // updated_at (未使用)
 );
 
 #[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct JsonProductMasterRow(
-    i64,              // id (未使用)
-    String,           // raw_name
-    String,           // normalized_name
-    Option<String>,   // maker
-    Option<String>,   // series
-    Option<String>,   // product_name
-    Option<String>,   // scale
-    i32,              // is_reissue
-    Option<String>,   // platform_hint
-    Option<String>,   // created_at (未使用)
-    Option<String>,   // updated_at (未使用)
+    i64,            // id (未使用)
+    String,         // raw_name
+    String,         // normalized_name
+    Option<String>, // maker
+    Option<String>, // series
+    Option<String>, // product_name
+    Option<String>, // scale
+    i32,            // is_reissue
+    Option<String>, // platform_hint
+    Option<String>, // created_at (未使用)
+    Option<String>, // updated_at (未使用)
 );
