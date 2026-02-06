@@ -195,7 +195,9 @@ jobs:
           RUSTFLAGS: "--cfg ci"
 
       - name: Run E2E tests (Tauri) with coverage
-        run: xvfb-run npm run test:e2e:tauri 2>&1 | tee coverage-e2e-tauri-test.log
+        run: |
+          chmod +x scripts/run-paa-with-coverage.sh
+          xvfb-run npm run test:e2e:tauri 2>&1 | tee coverage-e2e-tauri-test.log
         env:
           PAA_E2E_COVERAGE: "1"
           RUSTFLAGS: "-Cinstrument-coverage"

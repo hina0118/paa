@@ -27,6 +27,12 @@ const tauriAppPath = path.resolve(
   'debug',
   tauriBinaryName
 );
+// CI (Linux) で LLVM_PROFILE_FILE を渡すラッパー（tauri-driver は子プロセスに env を継承しない）
+const coverageWrapperPath = path.resolve(
+  rootDir,
+  'scripts',
+  'run-paa-with-coverage.sh'
+);
 
 const cargoBin = path.join(os.homedir(), '.cargo', 'bin');
 const tauriDriverPath = path.join(
@@ -80,7 +86,11 @@ export const config = {
     {
       maxInstances: 1,
       'tauri:options': {
-        application: tauriAppPath,
+        // カバレッジ時はラッパーを使用（LLVM_PROFILE_FILE を設定してから paa を起動）
+        application:
+          process.env.PAA_E2E_COVERAGE === '1' && !isWindows
+            ? coverageWrapperPath
+            : tauriAppPath,
       },
     },
   ],
@@ -128,16 +138,7 @@ export const config = {
       : [];
     // 外部API（Gmail, Gemini, SerpApi）をモックに置き換える
     const env: NodeJS.ProcessEnv = { ...process.env, PAA_E2E_MOCK: '1' };
-    if (process.env.PAA_E2E_COVERAGE === '1') {
-      // cargo-llvm-cov report --no-run が参照するパスに合わせる（target/ 直下）
-      const profrawPath = path.join(
-        rootDir,
-        'src-tauri',
-        'target',
-        'src-tauri-%p-%m.profraw'
-      );
-      env.LLVM_PROFILE_FILE = profrawPath;
-    }
+    // カバレッジ時は application にラッパースクリプトを指定（LLVM_PROFILE_FILE を設定）
     tauriDriver = spawn(tauriDriverPath, tauriDriverArgs, {
       stdio: ['ignore', process.stdout, process.stderr],
       env,
