@@ -2118,8 +2118,7 @@ async fn export_metadata(
     pool: tauri::State<'_, SqlitePool>,
     save_path: String,
 ) -> Result<metadata_export::ExportResult, String> {
-    metadata_export::export_metadata(&app, pool.inner(), std::path::Path::new(&save_path))
-        .await
+    metadata_export::export_metadata(&app, pool.inner(), std::path::Path::new(&save_path)).await
 }
 
 /// ZIPからメタデータをインポート（INSERT OR IGNORE でマージ）
@@ -2129,8 +2128,7 @@ async fn import_metadata(
     pool: tauri::State<'_, SqlitePool>,
     zip_path: String,
 ) -> Result<metadata_export::ImportResult, String> {
-    metadata_export::import_metadata(&app, pool.inner(), std::path::Path::new(&zip_path))
-        .await
+    metadata_export::import_metadata(&app, pool.inner(), std::path::Path::new(&zip_path)).await
 }
 
 #[cfg(test)]
