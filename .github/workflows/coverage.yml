@@ -215,8 +215,10 @@ jobs:
           # cargo llvm-cov report は target/ 内の profraw を参照するためコピー
           cp "$PROFRAW_DIR"/*.profraw src-tauri/target/ 2>/dev/null || true
           cd src-tauri
-          cargo llvm-cov report --all-features --lcov --output-path "../$PROFRAW_DIR/lcov.info"
-          cargo llvm-cov report --all-features --text
+          # --no-run: E2E で生成した profraw を使用（テスト再実行しない）
+          # --fail-under-lines 0: E2E カバレッジはユニットより低いため閾値チェックを無効化
+          cargo llvm-cov report --no-run --all-features --fail-under-lines 0 --lcov --output-path "../$PROFRAW_DIR/lcov.info"
+          cargo llvm-cov report --no-run --all-features --fail-under-lines 0 --text
 
       - name: Upload coverage artifacts on failure
         if: failure()

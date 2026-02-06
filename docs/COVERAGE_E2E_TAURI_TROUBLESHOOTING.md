@@ -65,12 +65,12 @@ npm run test:e2e:tauri
 
 ## 4. よくある失敗パターン
 
-| 症状                           | 対処                                                                                                           |
-| ------------------------------ | -------------------------------------------------------------------------------------------------------------- |
-| `No profraw files found`       | wdio.tauri.conf.ts の onPrepare で RUSTFLAGS が渡っているか確認。CI の env に RUSTFLAGS が設定されているか確認 |
-| `llvm-profdata not found`      | `rustup component add llvm-tools-preview` が実行されているか確認                                               |
-| `cargo llvm-cov report` エラー | profraw を `src-tauri/target/` にコピーしてから report を実行しているか確認                                    |
-| E2E テスト失敗（PAA 要素なし） | タイミング問題の可能性。`expectSidebarVisible` の待機時間を延長する検討                                        |
+| 症状                           | 対処                                                                                                                                                     |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `No profraw files found`       | wdio.tauri.conf.ts の onPrepare で RUSTFLAGS が渡っているか確認。CI の env に RUSTFLAGS が設定されているか確認                                           |
+| `llvm-profdata not found`      | `rustup component add llvm-tools-preview` が実行されているか確認                                                                                         |
+| `cargo llvm-cov report` エラー | profraw を `src-tauri/target/` にコピーしてから report を実行しているか確認。`--no-run` を付与して E2E の profraw を使用すること（テスト再実行を避ける） |
+| E2E テスト失敗（PAA 要素なし） | タイミング問題の可能性。`expectSidebarVisible` の待機時間を延長する検討                                                                                  |
 
 ## 5. 関連ファイル
 
