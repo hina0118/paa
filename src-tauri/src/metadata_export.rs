@@ -209,8 +209,8 @@ where
                 images_skipped += 1; // サイズ不明 or 超過はスキップ
                 continue;
             }
-            let data = fs::read(&src)
-                .map_err(|e| format!("Failed to read image {}: {e}", file_name))?;
+            let data =
+                fs::read(&src).map_err(|e| format!("Failed to read image {}: {e}", file_name))?;
             let zip_path = format!("images/{}", file_name);
             zip_writer
                 .start_file(&zip_path, options)
