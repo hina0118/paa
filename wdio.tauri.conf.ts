@@ -27,6 +27,12 @@ const tauriAppPath = path.resolve(
   'debug',
   tauriBinaryName
 );
+// CI (Linux) で LLVM_PROFILE_FILE を渡すラッパー（tauri-driver は子プロセスに env を継承しない）
+const coverageWrapperPath = path.resolve(
+  rootDir,
+  'scripts',
+  'run-paa-with-coverage.sh'
+);
 
 const cargoBin = path.join(os.homedir(), '.cargo', 'bin');
 const tauriDriverPath = path.join(
@@ -80,7 +86,11 @@ export const config = {
     {
       maxInstances: 1,
       'tauri:options': {
-        application: tauriAppPath,
+        // カバレッジ時はラッパーを使用（LLVM_PROFILE_FILE を設定してから paa を起動）
+        application:
+          process.env.PAA_E2E_COVERAGE === '1' && !isWindows
+            ? coverageWrapperPath
+            : tauriAppPath,
       },
     },
   ],
@@ -92,6 +102,18 @@ export const config = {
   },
 
   async onPrepare() {
+    const coverageEnabled = process.env.PAA_E2E_COVERAGE === '1';
+    const buildEnv = { ...process.env };
+    if (coverageEnabled) {
+      const profrawDir = path.join(rootDir, 'src-tauri', 'target');
+      console.log(
+        'Coverage enabled: profraw output ->',
+        profrawDir,
+        '(src-tauri-%p-%m.profraw)'
+      );
+      // カバレッジ計測のため RUSTFLAGS を明示的に渡す（CI/ローカル両対応）
+      buildEnv.RUSTFLAGS = process.env.RUSTFLAGS || '-Cinstrument-coverage';
+    }
     console.log('Building Tauri app (debug, no bundle)...');
     const result = spawnSync(
       'npm',
@@ -100,6 +122,7 @@ export const config = {
         cwd: rootDir,
         stdio: 'inherit',
         shell: isWindows,
+        env: buildEnv,
       }
     );
     if (result.status !== 0) {
@@ -113,9 +136,12 @@ export const config = {
     const tauriDriverArgs = nativeDriverPath
       ? ['--native-driver', nativeDriverPath]
       : [];
+    // 外部API（Gmail, Gemini, SerpApi）をモックに置き換える
+    const env: NodeJS.ProcessEnv = { ...process.env, PAA_E2E_MOCK: '1' };
+    // カバレッジ時は application にラッパースクリプトを指定（LLVM_PROFILE_FILE を設定）
     tauriDriver = spawn(tauriDriverPath, tauriDriverArgs, {
       stdio: ['ignore', process.stdout, process.stderr],
-      env: { ...process.env },
+      env,
     });
     tauriDriver.on('error', (err) => {
       console.error('tauri-driver error:', err);

@@ -19,6 +19,8 @@ E2Eテストは、実際のブラウザを使用してアプリケーション�
 - **コマンド**: `npm run test:e2e:tauri`
 - **対象**: Tauri アプリを起動し、その WebView を WebDriver で操作。フロント + Rust の両方が動く。
 - **用途**: 設定の保存など Tauri コマンド経由の動作まで含めた E2E 検証。
+- **外部APIモック**: 実行時に `PAA_E2E_MOCK=1` が自動設定され、Gmail・Gemini・SerpApi の実際のAPI呼び出しがモックに置き換わる。CIやローカルで外部依存なしにテスト可能。
+- **Rustカバレッジ**: `PAA_E2E_COVERAGE=1` と `RUSTFLAGS="-Cinstrument-coverage"` を設定して実行すると、E2E 実行時の Rust コードのカバレッジを収集できる。CI の `coverage-e2e-tauri` ジョブで自動実行される。
 
 ## テストスタック
 
@@ -75,6 +77,10 @@ npm run test:e2e:tauri
 1. `npm run tauri build -- --debug --no-bundle` で Tauri アプリをビルド
 2. tauri-driver を起動
 3. `tests/e2e-tauri/**/*.spec.ts` のスペックを WebdriverIO で実行
+
+**テスト用 DB**: `PAA_E2E_MOCK=1` で実行時、開発用 `paa_data.db` とは別の `paa_e2e.db` を使用する。意図しないデータ混入を防ぐ。
+
+**テスト用 DB シード**: 上記 E2E モード時、DB が空なら自動でテストデータ（orders, items, deliveries, emails）を投入する。ダッシュボード統計・Tables 画面が正常に表示される。
 
 テストファイルは `tests/e2e-tauri/` にあります（Playwright の `tests/e2e/` とは別）。
 
@@ -144,6 +150,13 @@ GitHub Actionsで自動的に実行されます。以下のトリガーで実行
 - Pull Request作成時（main, master, developブランチへのPR）
 - プッシュ時（main, master, developブランチへのプッシュ）
 - 手動実行（workflow_dispatch）
+
+**実行されるE2Eテスト**:
+
+1. **Playwright（フロントのみ）** - `ubuntu-latest` で Vite + Chromium
+2. **Tauri（WebdriverIO + tauri-driver）** - `ubuntu-latest` のみで Tauri アプリ全体
+
+**Windows での Tauri E2E**: CI では Linux のみ実行。Windows での検証はローカルで `npm run test:e2e:tauri` を実行する（[Windows: msedgedriver の用意](#windows-msedgedriver-の用意)を参照）。
 
 ## テストファイルの構造
 
@@ -317,6 +330,27 @@ cargo install cargo-llvm-cov
 - フロントエンド: `coverage-e2e/coverage-data.json`
 - Rust HTML: `src-tauri/target/llvm-cov/html/index.html`
 - Rust LCOV: `coverage-e2e/rust-coverage.lcov`
+
+### Tauri E2E の Rust カバレッジ
+
+Tauri アプリを起動して E2E テストを実行しながら Rust のカバレッジを収集できます。CI の `coverage-e2e-tauri` ジョブで自動実行されます。
+
+```bash
+# ローカル実行（RUSTFLAGS を設定してビルド）
+RUSTFLAGS="-Cinstrument-coverage" npm run test:e2e:tauri:coverage
+```
+
+**実行後のカバレッジレポート生成**（ローカル、profraw が正のサイズの場合）:
+
+```bash
+# wdio が target/ に profraw を出力するためコピー不要。レポート生成:
+cd src-tauri && cargo llvm-cov report --no-run --all-features --lcov --output-path ../coverage-e2e-tauri/lcov.info
+cargo llvm-cov report --no-run --all-features --text
+```
+
+**出力**: `coverage-e2e-tauri/lcov.info`（CI で生成）
+
+**CI 失敗時の解析**: `docs/COVERAGE_E2E_TAURI_TROUBLESHOOTING.md` を参照
 
 ## トラブルシューティング
 

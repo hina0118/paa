@@ -92,6 +92,8 @@ function App() {
         const manager = DatabaseManager.getInstance();
         const db = await manager.getDatabase();
         await db.select('SELECT 1');
+        // E2E モード時はテスト用シードを投入（マイグレーション完了後）
+        await invoke('seed_e2e_db').catch(() => {});
       } catch (error) {
         console.error('Failed to initialize database:', error);
       }
