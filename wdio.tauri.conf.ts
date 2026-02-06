@@ -11,7 +11,6 @@
  */
 
 import path from 'path';
-import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { spawn, spawnSync } from 'child_process';
 import os from 'os';
@@ -96,9 +95,12 @@ export const config = {
     const coverageEnabled = process.env.PAA_E2E_COVERAGE === '1';
     const buildEnv = { ...process.env };
     if (coverageEnabled) {
-      const coverageDir = path.join(rootDir, 'coverage-e2e-tauri');
-      fs.mkdirSync(coverageDir, { recursive: true });
-      console.log('Coverage enabled: profraw output ->', coverageDir);
+      const profrawDir = path.join(rootDir, 'src-tauri', 'target');
+      console.log(
+        'Coverage enabled: profraw output ->',
+        profrawDir,
+        '(src-tauri-%p-%m.profraw)'
+      );
       // カバレッジ計測のため RUSTFLAGS を明示的に渡す（CI/ローカル両対応）
       buildEnv.RUSTFLAGS = process.env.RUSTFLAGS || '-Cinstrument-coverage';
     }
@@ -127,10 +129,12 @@ export const config = {
     // 外部API（Gmail, Gemini, SerpApi）をモックに置き換える
     const env: NodeJS.ProcessEnv = { ...process.env, PAA_E2E_MOCK: '1' };
     if (process.env.PAA_E2E_COVERAGE === '1') {
+      // cargo-llvm-cov report --no-run が参照するパスに合わせる（target/ 直下）
       const profrawPath = path.join(
         rootDir,
-        'coverage-e2e-tauri',
-        'profraw-%p.profraw'
+        'src-tauri',
+        'target',
+        'src-tauri-%p-%m.profraw'
       );
       env.LLVM_PROFILE_FILE = profrawPath;
     }
