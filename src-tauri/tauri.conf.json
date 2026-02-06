@@ -21,7 +21,7 @@
   },
   "plugins": {
     "sql": {
-      "preload": ["sqlite:paa_data.db"]
+      "preload": ["sqlite:paa_data.db", "sqlite:paa_e2e.db"]
     }
   },
   "bundle": {

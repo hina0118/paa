@@ -78,6 +78,10 @@ npm run test:e2e:tauri
 2. tauri-driver を起動
 3. `tests/e2e-tauri/**/*.spec.ts` のスペックを WebdriverIO で実行
 
+**テスト用 DB**: `PAA_E2E_MOCK=1` で実行時、開発用 `paa_data.db` とは別の `paa_e2e.db` を使用する。意図しないデータ混入を防ぐ。
+
+**テスト用 DB シード**: 上記 E2E モード時、DB が空なら自動でテストデータ（orders, items, deliveries, emails）を投入する。ダッシュボード統計・Tables 画面が正常に表示される。
+
 テストファイルは `tests/e2e-tauri/` にあります（Playwright の `tests/e2e/` とは別）。
 
 ##### Windows: msedgedriver の用意
@@ -150,7 +154,9 @@ GitHub Actionsで自動的に実行されます。以下のトリガーで実行
 **実行されるE2Eテスト**:
 
 1. **Playwright（フロントのみ）** - `ubuntu-latest` で Vite + Chromium
-2. **Tauri（WebdriverIO + tauri-driver）** - `ubuntu-latest` と `windows-latest` で Tauri アプリ全体
+2. **Tauri（WebdriverIO + tauri-driver）** - `ubuntu-latest` のみで Tauri アプリ全体
+
+**Windows での Tauri E2E**: CI では Linux のみ実行。Windows での検証はローカルで `npm run test:e2e:tauri` を実行する（[Windows: msedgedriver の用意](#windows-msedgedriver-の用意)を参照）。
 
 ## テストファイルの構造
 

@@ -28,11 +28,12 @@ export async function expectScreenTitle(title: string) {
 
 /**
  * サイドバーが表示されていることを確認する
+ * 注意: *=PAA は partial link text で <a> のみ対象。PAA は <h2> 内にあるため h2=PAA を使用
  */
 export async function expectSidebarVisible() {
   const sidebar = await $('aside');
   await expect(sidebar).toBeDisplayed();
-  const paa = await $('*=PAA');
+  const paa = await $('h2*=PAA');
   await expect(paa).toBeDisplayed();
 }
 
@@ -53,11 +54,13 @@ export async function expandTablesSection() {
 
 /**
  * Tables セクション内のサブメニューをクリックする
+ * 注: トップレベルに同名の「Orders」があるため、Tables 展開後の ul.ml-4 内のボタンのみ対象にする
  */
 export async function navigateToTable(tableName: string) {
   await expandTablesSection();
-  const buttons = await $$('button');
-  const btn = await buttons.find(
+  // Tables 展開後のサブメニューは ul.ml-4 内にある（トップレベルと区別）
+  const tableButtons = await $$('aside ul.ml-4 button');
+  const btn = await tableButtons.find(
     async (el) => (await el.getText()) === tableName
   );
   if (!btn) throw new Error(`Table button "${tableName}" not found`);

@@ -17,15 +17,16 @@ describe('ダッシュボード (Tauri)', () => {
   });
 
   it('統計を読み込みボタンが表示される', async () => {
-    const loadBtn = await $('button*=読み込み');
+    // ダッシュボードのボタンは「更新」または「読み込み中...」
+    const loadBtn = await $('button*=更新');
     await expect(loadBtn).toBeDisplayed({ wait: 5000 });
   });
 
   it('統計を読み込みボタンをクリックできる', async () => {
-    const loadBtn = await $('button*=読み込み');
+    const loadBtn = await $('button*=更新');
     await loadBtn.waitForDisplayed({ timeout: 5000 });
     await loadBtn.click();
-    // 読み込み中または統計表示（Tauri invoke が動く）
+    // クリック後は「読み込み中...」または「更新」に戻る
     await expect(loadBtn).toBeDisplayed();
   });
 });

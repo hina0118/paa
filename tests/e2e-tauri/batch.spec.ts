@@ -48,7 +48,8 @@ describe('バッチ処理 (Tauri)', () => {
   });
 
   it('商品名パースセクションが表示される', async () => {
-    const heading = await $('h2*=商品名パース');
+    // UI では「商品名解析」(解析) と表記。h2 は "3. 商品名解析 (AI)"
+    const heading = await $('h2*=商品名解析');
     await expect(heading).toBeDisplayed();
   });
 });
