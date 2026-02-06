@@ -14,6 +14,9 @@ use zip::ZipArchive;
 
 const MANIFEST_VERSION: u32 = 1;
 
+/// 画像ファイル1件あたりの最大サイズ（バイト）。巨大エントリによるメモリ消費を防ぐ。
+const MAX_IMAGE_ENTRY_SIZE: u64 = 10 * 1024 * 1024; // 10MB
+
 /// shop_settings テーブル行 (id, shop_name, sender_address, parser_type, is_enabled, subject_filters, created_at, updated_at)
 type ShopSettingsRow = (
     i64,
@@ -223,7 +226,19 @@ where
     R: Read + Seek,
 {
     fs::create_dir_all(images_dir).map_err(|e| format!("Failed to create images dir: {e}"))?;
-    let mut zip_archive = ZipArchive::new(reader).map_err(|e| format!("Failed to read zip: {e}"))?;
+    let mut zip_archive =
+        ZipArchive::new(reader).map_err(|e| format!("Failed to read zip: {e}"))?;
+
+    // manifest.json の読み取りとバージョン検証
+    let manifest_json = read_zip_entry(&mut zip_archive, "manifest.json")?;
+    let manifest: Manifest = serde_json::from_str(&manifest_json)
+        .map_err(|e| format!("Failed to parse manifest.json: {e}"))?;
+    if manifest.version != MANIFEST_VERSION {
+        return Err(format!(
+            "Unsupported backup version: expected {}, got {}",
+            MANIFEST_VERSION, manifest.version
+        ));
+    }
 
     // images.json
     let images_json = read_zip_entry(&mut zip_archive, "images.json")?;
@@ -309,21 +324,39 @@ where
         let mut entry = zip_archive
             .by_index(i)
             .map_err(|e| format!("Failed to read zip entry: {e}"))?;
-        let name = entry.name().to_string();
-        if name.starts_with("images/") && !name.ends_with('/') {
-            let file_name = name.trim_start_matches("images/");
-            let dest = images_dir.join(file_name);
-            if dest.exists() {
-                continue; // 既存を維持（スキップ）
-            }
-            let mut data = Vec::new();
-            entry
-                .read_to_end(&mut data)
-                .map_err(|e| format!("Failed to read image {}: {e}", name))?;
-            fs::write(&dest, &data)
-                .map_err(|e| format!("Failed to write image {}: {e}", dest.display()))?;
-            image_files_copied += 1;
+
+        // Zip Slip 対策: enclosed_name() で正規化された相対パスのみを扱う
+        let Some(enclosed_path) = entry.enclosed_name() else {
+            continue; // パストラバーサルや絶対パスなど、不正なパスはスキップ
+        };
+
+        // 期待するパス構造: images/<file_name> （images 直下のみを許可）
+        if enclosed_path.parent() != Some(Path::new("images")) {
+            continue;
         }
+
+        let Some(file_name) = enclosed_path.file_name() else {
+            continue; // ディレクトリエントリ等はスキップ
+        };
+
+        let dest = images_dir.join(file_name);
+        if dest.exists() {
+            continue; // 既存を維持（スキップ）
+        }
+
+        // 巨大エントリによるメモリ消費を防ぐ
+        let size = entry.size();
+        if size > MAX_IMAGE_ENTRY_SIZE {
+            continue; // サイズ上限超過はスキップ
+        }
+
+        let mut data = Vec::new();
+        entry
+            .read_to_end(&mut data)
+            .map_err(|e| format!("Failed to read image {:?}: {e}", enclosed_path))?;
+        fs::write(&dest, &data)
+            .map_err(|e| format!("Failed to write image {}: {e}", dest.display()))?;
+        image_files_copied += 1;
     }
 
     Ok(ImportResult {
@@ -391,9 +424,10 @@ struct JsonProductMasterRow(
 mod tests {
     use super::*;
     use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
-    use std::io::Cursor;
+    use std::io::{Cursor, Write};
     use std::str::FromStr;
     use tempfile::TempDir;
+    use zip::read::ZipArchive;
 
     const SCHEMA_IMAGES: &str = r"
         CREATE TABLE IF NOT EXISTS images (
@@ -498,9 +532,12 @@ mod tests {
         let pool2 = create_test_pool().await;
         buf.set_position(0);
 
-        let import_result =
-            import_metadata_from_reader(&pool2, &images_dir, buf).await;
-        assert!(import_result.is_ok(), "import failed: {:?}", import_result.err());
+        let import_result = import_metadata_from_reader(&pool2, &images_dir, buf).await;
+        assert!(
+            import_result.is_ok(),
+            "import failed: {:?}",
+            import_result.err()
+        );
         let import_result = import_result.unwrap();
         assert_eq!(import_result.images_inserted, 2);
         assert_eq!(import_result.shop_settings_inserted, 1);
@@ -552,5 +589,124 @@ mod tests {
         assert!(import_result.is_ok());
         let r = import_result.unwrap();
         assert_eq!(r.images_inserted, 0, "duplicate should be ignored");
+    }
+
+    #[tokio::test]
+    async fn test_export_zip_contents() {
+        let pool = create_test_pool().await;
+        sqlx::query(
+            r"INSERT INTO images (item_name_normalized, file_name, created_at)
+              VALUES ('item1', 'img1.png', '2024-01-01 00:00:00')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let tmp = TempDir::new().unwrap();
+        let images_dir = tmp.path().join("images");
+        std::fs::create_dir_all(&images_dir).unwrap();
+
+        let mut buf = Cursor::new(Vec::new());
+        export_metadata_to_writer(&pool, &images_dir, &mut buf)
+            .await
+            .unwrap();
+        buf.set_position(0);
+
+        // ZIP 内容を検証
+        let mut zip = ZipArchive::new(buf).unwrap();
+        let names: Vec<String> = (0..zip.len())
+            .map(|i| zip.by_index(i).unwrap().name().to_string())
+            .collect();
+
+        assert!(
+            names.contains(&"manifest.json".to_string()),
+            "manifest.json should exist, got: {:?}",
+            names
+        );
+        assert!(
+            names.contains(&"images.json".to_string()),
+            "images.json should exist, got: {:?}",
+            names
+        );
+        assert!(
+            names.contains(&"shop_settings.json".to_string()),
+            "shop_settings.json should exist, got: {:?}",
+            names
+        );
+        assert!(
+            names.contains(&"product_master.json".to_string()),
+            "product_master.json should exist, got: {:?}",
+            names
+        );
+    }
+
+    #[tokio::test]
+    async fn test_import_with_image_files() {
+        let pool = create_test_pool().await;
+        sqlx::query(
+            r"INSERT INTO images (item_name_normalized, file_name, created_at)
+              VALUES ('item_with_img', 'test_img.png', '2024-01-01 00:00:00')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let tmp = TempDir::new().unwrap();
+        let images_dir = tmp.path().join("images");
+        std::fs::create_dir_all(&images_dir).unwrap();
+        // 実際の画像ファイルを作成
+        let img_path = images_dir.join("test_img.png");
+        std::fs::write(&img_path, b"fake png content").unwrap();
+
+        let mut buf = Cursor::new(Vec::new());
+        let export_result = export_metadata_to_writer(&pool, &images_dir, &mut buf)
+            .await
+            .unwrap();
+        assert_eq!(export_result.image_files_count, 1);
+
+        // 空の DB にインポート
+        let pool2 = create_test_pool().await;
+        let images_dir2 = tmp.path().join("images_import");
+        std::fs::create_dir_all(&images_dir2).unwrap();
+        buf.set_position(0);
+
+        let import_result = import_metadata_from_reader(&pool2, &images_dir2, buf)
+            .await
+            .unwrap();
+        assert_eq!(import_result.image_files_copied, 1);
+        assert!(images_dir2.join("test_img.png").exists());
+    }
+
+    #[tokio::test]
+    async fn test_import_rejects_wrong_manifest_version() {
+        use zip::write::FileOptions;
+
+        let pool = create_test_pool().await;
+        let tmp = TempDir::new().unwrap();
+        let images_dir = tmp.path().join("images");
+        std::fs::create_dir_all(&images_dir).unwrap();
+
+        // 不正なバージョンの manifest を含む ZIP を作成
+        let mut buf = Cursor::new(Vec::new());
+        {
+            let mut zip = zip::ZipWriter::new(&mut buf);
+            let options: zip::write::FileOptions<()> =
+                FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+            zip.start_file("manifest.json", options).unwrap();
+            zip.write_all(b"{\"version\": 999, \"exported_at\": \"2024-01-01 00:00:00\"}")
+                .unwrap();
+            zip.start_file("images.json", options).unwrap();
+            zip.write_all(b"[]").unwrap();
+            zip.start_file("shop_settings.json", options).unwrap();
+            zip.write_all(b"[]").unwrap();
+            zip.start_file("product_master.json", options).unwrap();
+            zip.write_all(b"[]").unwrap();
+            zip.finish().unwrap();
+        }
+        buf.set_position(0);
+
+        let result = import_metadata_from_reader(&pool, &images_dir, buf).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unsupported backup version"));
     }
 }
