@@ -7,6 +7,7 @@ import { Batch } from '@/components/screens/batch';
 import { Logs } from '@/components/screens/logs';
 import { ApiKeys } from '@/components/screens/api-keys';
 import { Settings } from '@/components/screens/settings';
+import { Backup } from '@/components/screens/backup';
 import { ShopSettings } from '@/components/screens/shop-settings';
 import {
   EmailsTable,
@@ -44,6 +45,8 @@ function AppContent() {
         return <Logs />;
       case 'shop-settings':
         return <ShopSettings />;
+      case 'backup':
+        return <Backup />;
       case 'api-keys':
         return <ApiKeys />;
       case 'settings':
