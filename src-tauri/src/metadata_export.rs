@@ -14,6 +14,33 @@ use zip::ZipArchive;
 
 const MANIFEST_VERSION: u32 = 1;
 
+/// shop_settings テーブル行 (id, shop_name, sender_address, parser_type, is_enabled, subject_filters, created_at, updated_at)
+type ShopSettingsRow = (
+    i64,
+    String,
+    String,
+    String,
+    i32,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+/// product_master テーブル行 (id, raw_name, normalized_name, maker, series, product_name, scale, is_reissue, platform_hint, created_at, updated_at)
+type ProductMasterRow = (
+    i64,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    i32,
+    Option<String>,
+    String,
+    String,
+);
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ExportResult {
     pub images_count: usize,
@@ -56,16 +83,7 @@ pub async fn export_metadata(
     .await
     .map_err(|e| format!("Failed to fetch images: {e}"))?;
 
-    let shop_settings_rows: Vec<(
-        i64,
-        String,
-        String,
-        String,
-        i32,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-    )> = sqlx::query_as(
+    let shop_settings_rows: Vec<ShopSettingsRow> = sqlx::query_as(
         r#"
         SELECT id, shop_name, sender_address, parser_type, is_enabled,
                subject_filters, created_at, updated_at FROM shop_settings
@@ -75,19 +93,7 @@ pub async fn export_metadata(
     .await
     .map_err(|e| format!("Failed to fetch shop_settings: {e}"))?;
 
-    let product_master_rows: Vec<(
-        i64,
-        String,
-        String,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        i32,
-        Option<String>,
-        String,
-        String,
-    )> = sqlx::query_as(
+    let product_master_rows: Vec<ProductMasterRow> = sqlx::query_as(
         r#"
         SELECT id, raw_name, normalized_name, maker, series, product_name, scale,
                is_reissue, platform_hint, created_at, updated_at FROM product_master
