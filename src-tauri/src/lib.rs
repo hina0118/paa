@@ -11,6 +11,7 @@ use tauri_plugin_sql::{Migration, MigrationKind};
 pub mod batch_runner;
 pub mod config;
 pub mod e2e_mocks;
+pub mod e2e_seed;
 pub mod gemini;
 pub mod gmail;
 pub mod gmail_client;
@@ -50,6 +51,23 @@ use crate::repository::{
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {name}! You've been greeted from Rust!")
+}
+
+/// E2E モード時に DB シードを実行。フロントエンドのマウント後に呼ぶ（マイグレーション完了後）
+#[tauri::command]
+async fn seed_e2e_db(pool: tauri::State<'_, SqlitePool>) -> Result<(), String> {
+    e2e_seed::seed_if_e2e_and_empty(pool.inner()).await;
+    Ok(())
+}
+
+/// DB ファイル名を返す。E2E モード時は paa_e2e.db（開発用と分離）、通常時は paa_data.db
+#[tauri::command]
+fn get_db_filename() -> &'static str {
+    if crate::e2e_mocks::is_e2e_mock_mode() {
+        "paa_e2e.db"
+    } else {
+        "paa_data.db"
+    }
 }
 
 /// Gmail同期処理を開始
@@ -724,12 +742,14 @@ fn get_logs(level_filter: Option<String>, limit: Option<usize>) -> Result<Vec<Lo
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let migrations = vec![Migration {
-        version: 1,
-        description: "init",
-        sql: include_str!("../migrations/001_init.sql"),
-        kind: MigrationKind::Up,
-    }];
+    let migrations = || {
+        vec![Migration {
+            version: 1,
+            description: "init",
+            sql: include_str!("../migrations/001_init.sql"),
+            kind: MigrationKind::Up,
+        }]
+    };
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -776,21 +796,28 @@ pub fn run() {
                 .init();
 
             // DBはapp_config_dirに配置（tauri-plugin-sqlのpreloadとパスを統一）
+            // E2E モード時は paa_e2e.db を使用し、開発用 paa_data.db と分離する
             let app_config_dir = app
                 .path()
                 .app_config_dir()
                 .expect("failed to get app config dir");
             std::fs::create_dir_all(&app_config_dir).expect("failed to create app config dir");
 
-            let db_path = app_config_dir.join("paa_data.db");
+            let db_filename = if crate::e2e_mocks::is_e2e_mock_mode() {
+                "paa_e2e.db"
+            } else {
+                "paa_data.db"
+            };
+            let db_path = app_config_dir.join(db_filename);
             let db_url = format!("sqlite:{}", db_path.to_string_lossy());
 
-            log::info!("Database path: {}", db_path.display());
+            log::info!("Database path: {} (E2E={})", db_path.display(), crate::e2e_mocks::is_e2e_mock_mode());
 
-            // tauri-plugin-sqlを登録。preload の "sqlite:paa_data.db" は app_config_dir 基準で解決される（Tauri SQL プラグイン仕様）。
+            // tauri-plugin-sqlを登録。両DBにマイグレーションを登録（E2E/通常でどちらか一方のみ使用）
             app.handle().plugin(
                 tauri_plugin_sql::Builder::default()
-                    .add_migrations("sqlite:paa_data.db", migrations)
+                    .add_migrations("sqlite:paa_data.db", migrations())
+                    .add_migrations("sqlite:paa_e2e.db", migrations())
                     .build(),
             )?;
 
@@ -816,6 +843,8 @@ pub fn run() {
 
             app.manage(pool.clone());
             log::info!("sqlx pool created for backend use");
+
+            // E2E シードはフロントエンドの initDb 完了後に seed_e2e_db コマンドで実行
 
             // Initialize sync state
             app.manage(gmail::SyncState::new());
@@ -950,6 +979,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             greet,
+            seed_e2e_db,
+            get_db_filename,
             fetch_gmail_emails,
             start_sync,
             cancel_sync,

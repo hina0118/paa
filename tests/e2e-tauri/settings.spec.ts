@@ -30,7 +30,7 @@ describe('設定画面 (Tauri)', () => {
     // Tauri アプリなので invoke が動き、成功メッセージが出る（テキストで識別）
     const success = await $('div*=バッチサイズを更新しました');
     await expect(success).toBeDisplayed({ wait: 10000 });
-    await expect(success).toHaveTextContaining('バッチサイズを更新しました');
+    // expect-webdriverio では toHaveText で部分一致する場合がある。セレクタで既に特定しているため表示確認で十分
   });
 
   it('パースバッチサイズを変更して保存できる', async () => {

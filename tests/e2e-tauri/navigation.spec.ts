@@ -13,8 +13,11 @@ import {
 describe('ナビゲーション (Tauri)', () => {
   it('サイドバーが表示される', async () => {
     await expectSidebarVisible();
+    // WebdriverIO の $$ は ElementArray を返す。Array.from でイテラブルに変換
     const buttons = await $$('button');
-    const texts = await Promise.all(buttons.map((b) => b.getText()));
+    const texts = await Promise.all(
+      Array.from(buttons).map((b) => b.getText())
+    );
     expect(texts).toContain('Dashboard');
     expect(texts).toContain('Orders');
     expect(texts).toContain('Batch');

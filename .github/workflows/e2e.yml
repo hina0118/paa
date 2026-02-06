@@ -82,21 +82,17 @@ jobs:
           path: test-results/**/*.zip
           retention-days: 7
 
+  # Tauri E2E: CI では Linux のみ。Windows での実行はローカルで行う（docs/E2E_TESTING.md 参照）
   e2e-tauri:
     name: E2E Tests (Tauri)
-    runs-on: ${{ matrix.platform }}
+    runs-on: ubuntu-latest
     timeout-minutes: 25
-    strategy:
-      fail-fast: false
-      matrix:
-        platform: [ubuntu-latest, windows-latest]
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Tauri dependencies (Linux)
-        if: matrix.platform == 'ubuntu-latest'
         run: |
           sudo apt-get update &&
           sudo apt-get install -y \
@@ -114,13 +110,6 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-
-      - name: Install msedgedriver (Windows)
-        if: matrix.platform == 'windows-latest'
-        run: |
-          cargo install --git https://github.com/chippers/msedgedriver-tool
-          & "$env:USERPROFILE\.cargo\bin\msedgedriver-tool.exe"
-          $PWD.Path >> $env:GITHUB_PATH
 
       - name: Setup Rust cache
         uses: Swatinem/rust-cache@v2
@@ -145,10 +134,5 @@ jobs:
       - name: Install tauri-driver
         run: cargo install tauri-driver --locked
 
-      - name: Run E2E tests (Tauri, Linux)
-        if: matrix.platform == 'ubuntu-latest'
+      - name: Run E2E tests (Tauri)
         run: xvfb-run npm run test:e2e:tauri
-
-      - name: Run E2E tests (Tauri, Windows)
-        if: matrix.platform == 'windows-latest'
-        run: npm run test:e2e:tauri
