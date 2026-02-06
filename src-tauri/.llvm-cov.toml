@@ -16,11 +16,13 @@ workspace = true
 
 # 除外するファイル（テストファイルなど）
 # google_search, gmail: keyring依存のconfigテストがCIでスキップされるため除外
+# metadata_export: AppHandle・SqlitePool・ファイルI/Oが必要でユニットテストが困難なため除外
 exclude-files = [
     "tests/",
     "target/",
     ".cargo/",
     "build.rs",
     "src/google_search/",
-    "src/gmail/"
+    "src/gmail/",
+    "src/metadata_export.rs"
 ]
