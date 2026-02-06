@@ -17,6 +17,22 @@ const MANIFEST_VERSION: u32 = 1;
 /// 画像ファイル1件あたりの最大サイズ（バイト）。巨大エントリによるメモリ消費を防ぐ。
 const MAX_IMAGE_ENTRY_SIZE: u64 = 10 * 1024 * 1024; // 10MB
 
+/// JSON エントリ1件あたりの最大サイズ（バイト）。巨大 ZIP による DoS を防ぐ。
+const MAX_JSON_ENTRY_SIZE: u64 = 10 * 1024 * 1024; // 10MB
+
+/// file_name が安全な単一ファイル名か検証（パストラバーサル対策）
+fn is_safe_file_name(file_name: &str) -> bool {
+    !file_name.is_empty()
+        && !file_name.contains('/')
+        && !file_name.contains('\\')
+        && !file_name.contains("..")
+        && Path::new(file_name)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|s| s == file_name)
+            .unwrap_or(false)
+}
+
 /// shop_settings テーブル行 (id, shop_name, sender_address, parser_type, is_enabled, subject_filters, created_at, updated_at)
 type ShopSettingsRow = (
     i64,
@@ -172,8 +188,18 @@ where
     let mut image_files_count = 0usize;
     for (_, _norm, file_name_opt, _) in &images_rows {
         if let Some(ref file_name) = file_name_opt {
+            if !is_safe_file_name(file_name) {
+                continue; // パストラバーサル対策: 不正な file_name はスキップ
+            }
             let src = images_dir.join(file_name);
             if src.exists() {
+                let metadata = fs::metadata(&src).ok();
+                if metadata
+                    .map(|m| m.len() > MAX_IMAGE_ENTRY_SIZE)
+                    .unwrap_or(true)
+                {
+                    continue; // サイズ不明 or 超過はスキップ
+                }
                 let data = fs::read(&src)
                     .map_err(|e| format!("Failed to read image {}: {e}", file_name))?;
                 let zip_path = format!("images/{}", file_name);
@@ -257,6 +283,12 @@ where
 
     let mut images_inserted = 0usize;
     for row in &images_rows {
+        // パストラバーサル対策: 不正な file_name は None にして DB に保存しない
+        let file_name_for_db = row
+            .2
+            .as_ref()
+            .filter(|s| is_safe_file_name(s))
+            .map(|s| s.as_str());
         let result = sqlx::query(
             r#"
             INSERT OR IGNORE INTO images (item_name_normalized, file_name, created_at)
@@ -264,7 +296,7 @@ where
             "#,
         )
         .bind(&row.1)
-        .bind(&row.2)
+        .bind(file_name_for_db)
         .bind(&row.3)
         .execute(pool)
         .await
@@ -374,6 +406,12 @@ fn read_zip_entry<R: Read + Seek>(
     let mut entry = archive
         .by_name(name)
         .map_err(|e| format!("Missing {} in zip: {e}", name))?;
+    if entry.size() > MAX_JSON_ENTRY_SIZE {
+        return Err(format!(
+            "{} exceeds size limit (max {} bytes)",
+            name, MAX_JSON_ENTRY_SIZE
+        ));
+    }
     let mut s = String::new();
     entry
         .read_to_string(&mut s)
@@ -675,6 +713,86 @@ mod tests {
             .unwrap();
         assert_eq!(import_result.image_files_copied, 1);
         assert!(images_dir2.join("test_img.png").exists());
+    }
+
+    #[tokio::test]
+    async fn test_export_skips_unsafe_file_name() {
+        let pool = create_test_pool().await;
+        sqlx::query(
+            r"INSERT INTO images (item_name_normalized, file_name, created_at)
+              VALUES ('item1', 'normal.png', '2024-01-01 00:00:00'),
+                     ('item2', '../evil.png', '2024-01-02 00:00:00'),
+                     ('item3', 'subdir/file.png', '2024-01-03 00:00:00')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let tmp = TempDir::new().unwrap();
+        let images_dir = tmp.path().join("images");
+        std::fs::create_dir_all(&images_dir).unwrap();
+        std::fs::write(images_dir.join("normal.png"), b"ok").unwrap();
+
+        let mut buf = Cursor::new(Vec::new());
+        let result = export_metadata_to_writer(&pool, &images_dir, &mut buf)
+            .await
+            .unwrap();
+        // 3件の images レコードはあるが、ZIP に含まれる画像は normal.png のみ（../evil.png, subdir/file.png はスキップ）
+        assert_eq!(result.images_count, 3);
+        assert_eq!(result.image_files_count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_import_sanitizes_unsafe_file_name() {
+        let pool = create_test_pool().await;
+        let tmp = TempDir::new().unwrap();
+        let images_dir = tmp.path().join("images");
+        std::fs::create_dir_all(&images_dir).unwrap();
+
+        // 不正な file_name を含む images.json を持つ ZIP を作成
+        let mut buf = Cursor::new(Vec::new());
+        {
+            let mut zip = zip::ZipWriter::new(&mut buf);
+            let options: zip::write::FileOptions<()> = zip::write::FileOptions::default()
+                .compression_method(zip::CompressionMethod::Deflated);
+            zip.start_file("manifest.json", options).unwrap();
+            zip.write_all(b"{\"version\": 1, \"exported_at\": \"2024-01-01 00:00:00\"}")
+                .unwrap();
+            zip.start_file("images.json", options).unwrap();
+            zip.write_all(
+                br#"[[1,"safe_item","safe.png","2024-01-01 00:00:00"],[2,"unsafe_item","../evil.png","2024-01-02 00:00:00"]]"#,
+            )
+            .unwrap();
+            zip.start_file("shop_settings.json", options).unwrap();
+            zip.write_all(b"[]").unwrap();
+            zip.start_file("product_master.json", options).unwrap();
+            zip.write_all(b"[]").unwrap();
+            zip.finish().unwrap();
+        }
+        buf.set_position(0);
+
+        let import_result = import_metadata_from_reader(&pool, &images_dir, buf).await;
+        assert!(
+            import_result.is_ok(),
+            "import failed: {:?}",
+            import_result.err()
+        );
+        let r = import_result.unwrap();
+        assert_eq!(r.images_inserted, 2);
+
+        // safe_item は file_name あり、unsafe_item は file_name が None で保存されている
+        let rows: Vec<(String, Option<String>)> = sqlx::query_as(
+            "SELECT item_name_normalized, file_name FROM images ORDER BY item_name_normalized",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(
+            rows[0],
+            ("safe_item".to_string(), Some("safe.png".to_string()))
+        );
+        assert_eq!(rows[1], ("unsafe_item".to_string(), None));
     }
 
     #[tokio::test]
