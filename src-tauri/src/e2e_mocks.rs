@@ -106,10 +106,7 @@ impl ImageSearchClientTrait for E2EMockImageSearchClient {
         Ok((0..count)
             .map(|i| ImageSearchResult {
                 url: format!("https://example.com/e2e-mock-image-{}.png", i + 1),
-                thumbnail_url: Some(format!(
-                    "https://example.com/e2e-mock-thumb-{}.png",
-                    i + 1
-                )),
+                thumbnail_url: Some(format!("https://example.com/e2e-mock-thumb-{}.png", i + 1)),
                 width: Some(100),
                 height: Some(100),
                 title: Some(format!("E2E Mock Image {}", i + 1)),

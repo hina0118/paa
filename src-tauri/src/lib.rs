@@ -21,13 +21,13 @@ pub mod parsers;
 pub mod repository;
 
 use crate::batch_runner::{BatchProgressEvent, BatchRunner};
+use crate::e2e_mocks::{
+    is_e2e_mock_mode, E2EMockGeminiClient, E2EMockGmailClient, E2EMockImageSearchClient,
+    GeminiClientForE2E, GmailClientForE2E,
+};
 use crate::gemini::{
     create_product_parse_input, GeminiClient, ProductNameParseCache, ProductNameParseContext,
     ProductNameParseTask, PRODUCT_NAME_PARSE_EVENT_NAME, PRODUCT_NAME_PARSE_TASK_NAME,
-};
-use crate::e2e_mocks::{
-    is_e2e_mock_mode, E2EMockGmailClient, E2EMockGeminiClient, E2EMockImageSearchClient,
-    GmailClientForE2E, GeminiClientForE2E,
 };
 use crate::gmail::{
     create_sync_input, fetch_all_message_ids, GmailSyncContext, GmailSyncTask,
@@ -811,7 +811,11 @@ pub fn run() {
             let db_path = app_config_dir.join(db_filename);
             let db_url = format!("sqlite:{}", db_path.to_string_lossy());
 
-            log::info!("Database path: {} (E2E={})", db_path.display(), crate::e2e_mocks::is_e2e_mock_mode());
+            log::info!(
+                "Database path: {} (E2E={})",
+                db_path.display(),
+                crate::e2e_mocks::is_e2e_mock_mode()
+            );
 
             // tauri-plugin-sqlを登録。両DBにマイグレーションを登録（E2E/通常でどちらか一方のみ使用）
             app.handle().plugin(
