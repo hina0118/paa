@@ -23,6 +23,7 @@ describe('ナビゲーション (Tauri)', () => {
     expect(texts).toContain('Batch');
     expect(texts).toContain('Logs');
     expect(texts).toContain('Shop Settings');
+    expect(texts).toContain('データのバックアップ');
     expect(texts).toContain('Settings');
   });
 
@@ -51,6 +52,11 @@ describe('ナビゲーション (Tauri)', () => {
     await navigateToScreen('Shop Settings');
     const heading = await $('h1');
     await expect(heading).toBeDisplayed({ wait: 10000 });
+  });
+
+  it('データのバックアップ画面に遷移できる', async () => {
+    await navigateToScreen('データのバックアップ');
+    await expectScreenTitle('データのバックアップ');
   });
 
   it('API Keys 画面に遷移できる', async () => {
