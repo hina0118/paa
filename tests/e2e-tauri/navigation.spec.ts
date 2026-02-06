@@ -8,7 +8,6 @@ import {
   expectScreenTitle,
   expectSidebarVisible,
   expandTablesSection,
-  navigateToTable,
 } from './helpers';
 
 describe('ナビゲーション (Tauri)', () => {
