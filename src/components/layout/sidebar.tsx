@@ -12,6 +12,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { useNavigation } from '@/contexts/use-navigation';
 import type { Screen } from '@/contexts/navigation-context-value';
+import type { ComponentType } from 'react';
 import { useState } from 'react';
 
 /** サイドバーナビゲーションで表示する画面（Screen のサブセット） */
@@ -29,7 +30,7 @@ type NavigationScreen = Extract<
 
 type NavigationItem = {
   name: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: ComponentType<{ className?: string }>;
   id: NavigationScreen;
 };
 
