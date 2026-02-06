@@ -111,6 +111,7 @@ client_secret.json
 # Test coverage
 coverage/
 coverage-e2e/
+coverage-e2e-tauri/
 coverage.json
 *.profraw
 *.profdata
@@ -124,3 +125,7 @@ playwright/.cache/
 
 # sample file
 sample/
+
+# msedgedriver (downloaded for Tauri E2E)
+msedgedriver/
+edgedriver.zip
