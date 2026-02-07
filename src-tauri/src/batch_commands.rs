@@ -52,13 +52,15 @@ pub async fn run_sync_task(app: tauri::AppHandle, pool: SqlitePool, sync_state: 
 
     if !sync_state.try_start() {
         log::warn!("Sync is already in progress");
+        let message = "Sync is already in progress".to_string();
+        sync_state.set_error(&message);
         let error_event = BatchProgressEvent::error(
             GMAIL_SYNC_TASK_NAME,
             0,
             0,
             0,
             0,
-            "Sync is already in progress".to_string(),
+            message,
         );
         let _ = app.emit(GMAIL_SYNC_EVENT_NAME, error_event);
         return;
@@ -273,6 +275,7 @@ pub async fn run_batch_parse_task(
 
     if let Err(e) = parse_state.start() {
         log::error!("Failed to start parse: {}", e);
+        parse_state.set_error(&e);
         let error_event = BatchProgressEvent::error(
             EMAIL_PARSE_TASK_NAME,
             0,
