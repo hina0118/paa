@@ -21,6 +21,7 @@ pub fn is_valid_parser_type(parser_type: &str) -> bool {
             | "hobbysearch_change"
             | "hobbysearch_change_yoyaku"
             | "hobbysearch_send"
+            | "hobbysearch_cancel"
     )
 }
 
@@ -49,6 +50,7 @@ pub fn try_parse(parser: &dyn EmailParser, email_body: &str) -> Result<OrderInfo
 /// # Note
 /// - メールアドレスは正規化（小文字化）して完全一致で比較
 /// - 大文字小文字は無視される
+/// - hobbysearch_cancel はバッチパース専用のため、単一メール用の候補からは除外する
 pub fn get_candidate_parsers<'a>(
     from_address: &str,
     subject: Option<&str>,
@@ -94,6 +96,7 @@ pub fn get_candidate_parsers<'a>(
                 None
             }
         })
+        .filter(|parser_type| *parser_type != "hobbysearch_cancel") // バッチパース専用、get_parser 非対応のため除外
         .collect()
 }
 
@@ -155,6 +158,11 @@ mod tests {
     #[test]
     fn test_is_valid_parser_type_hobbysearch_send() {
         assert!(is_valid_parser_type("hobbysearch_send"));
+    }
+
+    #[test]
+    fn test_is_valid_parser_type_hobbysearch_cancel() {
+        assert!(is_valid_parser_type("hobbysearch_cancel"));
     }
 
     #[test]
@@ -376,5 +384,26 @@ mod tests {
 
         let candidates = get_candidate_parsers("shop@example.com", Some("注文"), &settings);
         assert_eq!(candidates.len(), 1);
+    }
+
+    #[test]
+    fn test_get_candidate_parsers_excludes_hobbysearch_cancel() {
+        // hobbysearch_cancel はバッチパース専用のため、単一メール用の候補からは除外される
+        let settings = vec![(
+            "hs-support@1999.co.jp".to_string(),
+            "hobbysearch_cancel".to_string(),
+            Some(r#"["ご注文のキャンセル"]"#.to_string()),
+        )];
+
+        let candidates = get_candidate_parsers(
+            "hs-support@1999.co.jp",
+            Some("【ホビーサーチ】ご注文のキャンセルが完了致しました"),
+            &settings,
+        );
+
+        assert!(
+            candidates.is_empty(),
+            "hobbysearch_cancel should be excluded from single-email parse candidates"
+        );
     }
 }

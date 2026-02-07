@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS orders (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_orders_shop_domain ON orders(shop_domain);
+CREATE INDEX IF NOT EXISTS idx_orders_order_number_shop_domain ON orders(order_number, shop_domain);
 CREATE INDEX IF NOT EXISTS idx_orders_order_date ON orders(order_date DESC);
 CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at DESC);
 CREATE TRIGGER orders_updated_at AFTER UPDATE ON orders BEGIN
@@ -191,6 +192,7 @@ CREATE INDEX IF NOT EXISTS idx_shop_settings_sender_address ON shop_settings(sen
 CREATE INDEX IF NOT EXISTS idx_shop_settings_is_enabled ON shop_settings(is_enabled);
 
 INSERT OR IGNORE INTO shop_settings (shop_name, sender_address, parser_type, subject_filters, is_enabled) VALUES
+    ('ホビーサーチ', 'hs-support@1999.co.jp', 'hobbysearch_cancel', '["【ホビーサーチ】ご注文のキャンセルが完了致しました"]', 1),
     ('ホビーサーチ', 'hs-support@1999.co.jp', 'hobbysearch_send', '["【ホビーサーチ】ご注文の発送が完了しました"]', 1),
     ('ホビーサーチ', 'hs-support@1999.co.jp', 'hobbysearch_change', '["【ホビーサーチ】ご注文が組み替えられました"]', 1),
     ('ホビーサーチ', 'hs-support@1999.co.jp', 'hobbysearch_change_yoyaku', '["【ホビーサーチ】ご注文が組み替えられました"]', 1),

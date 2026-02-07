@@ -30,6 +30,7 @@ pub struct EmailRow {
 mod hobbysearch_common;
 
 // ホビーサーチ用パーサー
+pub mod hobbysearch_cancel;
 pub mod hobbysearch_change;
 pub mod hobbysearch_change_yoyaku;
 pub mod hobbysearch_confirm;
@@ -379,22 +380,29 @@ pub async fn batch_parse_emails(
             iteration,
             batch_email_count
         );
+        if !emails.is_empty() {
+            let first = &emails[0];
+            let last = emails.last().unwrap();
+            log::debug!(
+                "[DEBUG] batch order: first email_id={} internal_date={:?} subject={:?}",
+                first.email_id,
+                first.internal_date,
+                first.subject.as_deref()
+            );
+            if emails.len() > 1 {
+                log::debug!(
+                    "[DEBUG] batch order: last email_id={} internal_date={:?} subject={:?}",
+                    last.email_id,
+                    last.internal_date,
+                    last.subject.as_deref()
+                );
+            }
+        }
 
         // OrderRepositoryインスタンスをループの外で作成（効率化のため）
         let order_repo = SqliteOrderRepository::new(pool.clone());
 
-        // ===============================================================
-        // フェーズ1: 全メールを正規表現でパースし、成功した注文を収集
-        // ===============================================================
-        struct ParsedOrderData {
-            email_id: i64,
-            order_info: OrderInfo,
-            shop_name: String,
-            shop_domain: Option<String>,
-        }
-
-        let mut parsed_orders: Vec<ParsedOrderData> = Vec::new();
-
+        // 全メールをパース（confirm/change は即時 save_order、cancel は apply_cancel）
         for row in emails.iter() {
             // 送信元アドレスと件名フィルターから候補のパーサー(parser_type, shop_name)を全て取得
             let candidate_parsers = get_candidate_parsers_for_batch(
@@ -417,8 +425,65 @@ pub async fn batch_parse_emails(
             // 複数のパーサーを順番に試す（最初に成功したものを使用）
             let mut parse_result: Option<Result<(OrderInfo, String), String>> = None;
             let mut last_error = String::new();
+            // キャンセルメールとして処理した（成功・失敗いずれも）。通常の OrderInfo フローをスキップする。
+            let mut handled_as_cancel = false;
 
             for (parser_type, shop_name) in &candidate_parsers {
+                // キャンセルメールは専用パーサーで処理（OrderInfo を返さない）
+                if parser_type == "hobbysearch_cancel" {
+                    let cancel_parser = hobbysearch_cancel::HobbySearchCancelParser;
+                    match cancel_parser.parse_cancel(&row.body_plain) {
+                        Ok(cancel_info) => {
+                            log::debug!(
+                                "[DEBUG] cancel email_id={} internal_date={:?} order_number={} subject={:?}",
+                                row.email_id,
+                                row.internal_date,
+                                cancel_info.order_number,
+                                row.subject
+                            );
+                            let from_address = row.from_address.as_deref().unwrap_or("");
+                            let shop_domain = extract_email_address(from_address)
+                                .and_then(|email| extract_domain(&email).map(|s| s.to_string()));
+
+                            match order_repo
+                                .apply_cancel(
+                                    &cancel_info,
+                                    row.email_id,
+                                    shop_domain,
+                                    Some(shop_name.clone()),
+                                )
+                                .await
+                            {
+                                Ok(order_id) => {
+                                    log::info!(
+                                        "Successfully applied cancel for order {} (email {})",
+                                        order_id,
+                                        row.email_id
+                                    );
+                                    success_count += 1;
+                                    overall_parsed_count += 1;
+                                }
+                                Err(e) => {
+                                    // 注文未作成等で失敗した場合、メールは未パースのまま残り次回 run で再試行される
+                                    log::warn!(
+                                        "Failed to apply cancel for email {} (will retry next run): {}",
+                                        row.email_id,
+                                        e
+                                    );
+                                    // failed_count は加算しない（リトライ前提のため）
+                                }
+                            }
+                            handled_as_cancel = true;
+                            break;
+                        }
+                        Err(e) => {
+                            log::debug!("hobbysearch_cancel parser failed: {}", e);
+                            last_error = e;
+                            continue;
+                        }
+                    }
+                }
+
                 let parser = match get_parser(parser_type) {
                     Some(p) => p,
                     None => {
@@ -471,6 +536,10 @@ pub async fn batch_parse_emails(
                 }
             }
 
+            if handled_as_cancel {
+                continue;
+            }
+
             let parse_result = match parse_result {
                 Some(result) => result,
                 None => {
@@ -490,12 +559,27 @@ pub async fn batch_parse_emails(
                     let shop_domain = extract_email_address(from_address)
                         .and_then(|email| extract_domain(&email).map(|s| s.to_string()));
 
-                    parsed_orders.push(ParsedOrderData {
-                        email_id: row.email_id,
-                        order_info,
-                        shop_name,
-                        shop_domain,
-                    });
+                    // 同一バッチ内でキャンセルが先に来た場合に apply_cancel で注文を参照できるよう、
+                    // confirm/change は即時 save_order する（フェーズ2に遅延すると注文が未コミットで見つからない）
+                    match order_repo
+                        .save_order(
+                            &order_info,
+                            Some(row.email_id),
+                            shop_domain.clone(),
+                            Some(shop_name.clone()),
+                        )
+                        .await
+                    {
+                        Ok(order_id) => {
+                            log::info!("Successfully parsed and saved order: {}", order_id);
+                            success_count += 1;
+                        }
+                        Err(e) => {
+                            log::error!("Failed to save order: {}", e);
+                            failed_count += 1;
+                        }
+                    }
+                    overall_parsed_count += 1;
                 }
                 Err(e) => {
                     log::error!("Failed to parse email {}: {}", row.email_id, e);
@@ -503,31 +587,6 @@ pub async fn batch_parse_emails(
                     overall_parsed_count += 1;
                 }
             }
-        }
-
-        // ===============================================================
-        // フェーズ2: 全注文をDBに保存
-        // ===============================================================
-        for order_data in parsed_orders {
-            match order_repo
-                .save_order(
-                    &order_data.order_info,
-                    Some(order_data.email_id),
-                    order_data.shop_domain,
-                    Some(order_data.shop_name),
-                )
-                .await
-            {
-                Ok(order_id) => {
-                    log::info!("Successfully parsed and saved order: {}", order_id);
-                    success_count += 1;
-                }
-                Err(e) => {
-                    log::error!("Failed to save order: {}", e);
-                    failed_count += 1;
-                }
-            }
-            overall_parsed_count += 1;
         }
 
         // バッチ処理完了後に進捗イベントを送信（バッチごとに1回）
