@@ -35,6 +35,15 @@ use crate::repository::{
     SqliteShopSettingsRepository,
 };
 
+/// config.parse.batch_size (i64) を usize へ安全に変換。0 以下は default にフォールバック。
+pub(crate) fn clamp_batch_size(v: i64, default: usize) -> usize {
+    if v <= 0 {
+        default
+    } else {
+        v as usize
+    }
+}
+
 /// Gmail同期タスクの本体。コマンド・トレイ両方から呼ぶ。
 pub async fn run_sync_task(app: tauri::AppHandle, pool: SqlitePool, sync_state: SyncState) {
     log::info!("Starting Gmail sync with BatchRunner<GmailSyncTask>...");
@@ -89,15 +98,10 @@ pub async fn run_sync_task(app: tauri::AppHandle, pool: SqlitePool, sync_state: 
     let app_config_dir = match app.path().app_config_dir() {
         Ok(dir) => dir,
         Err(e) => {
-            log::error!("Failed to get app config dir: {}", e);
-            let error_event = BatchProgressEvent::error(
-                GMAIL_SYNC_TASK_NAME,
-                0,
-                0,
-                0,
-                0,
-                format!("Failed to get app config dir: {}", e),
-            );
+            let message = format!("Failed to get app config dir: {}", e);
+            log::error!("{}", message);
+            sync_state.set_error(&message);
+            let error_event = BatchProgressEvent::error(GMAIL_SYNC_TASK_NAME, 0, 0, 0, 0, message);
             let _ = app.emit(GMAIL_SYNC_EVENT_NAME, error_event);
             return;
         }
@@ -631,35 +635,23 @@ pub async fn run_product_name_parse_task(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
-    fn test_batch_size_clamp_in_run_batch_parse_task() {
-        // run_batch_parse_task では batch_size.max(1) により 0 でも panic しない
-        let batch_size = 0usize;
-        let clamped = batch_size.max(1);
-        assert_eq!(clamped, 1);
-
-        let batch_size = 1usize;
-        let clamped = batch_size.max(1);
-        assert_eq!(clamped, 1);
-
-        let batch_size = 100usize;
-        let clamped = batch_size.max(1);
-        assert_eq!(clamped, 100);
+    fn test_clamp_batch_size() {
+        // clamp_batch_size は本番コード（tray_parse, start_batch_parse）で使用
+        assert_eq!(clamp_batch_size(0, 100), 100);
+        assert_eq!(clamp_batch_size(-1, 100), 100);
+        assert_eq!(clamp_batch_size(50, 100), 50);
+        assert_eq!(clamp_batch_size(200, 100), 200);
+        assert_eq!(clamp_batch_size(i64::MIN, 100), 100);
     }
 
     #[test]
-    fn test_batch_size_validation_for_tray_parse() {
-        // lib.rs の tray_parse では config.parse.batch_size が 0 以下のとき 100 にフォールバック
-        fn clamp_tray_batch_size(v: i32) -> usize {
-            if v <= 0 {
-                100
-            } else {
-                v as usize
-            }
-        }
-        assert_eq!(clamp_tray_batch_size(0), 100);
-        assert_eq!(clamp_tray_batch_size(-1), 100);
-        assert_eq!(clamp_tray_batch_size(50), 50);
-        assert_eq!(clamp_tray_batch_size(200), 200);
+    fn test_batch_size_max1_for_usize() {
+        // run_batch_parse_task では batch_size.max(1) により 0 でも panic しない
+        assert_eq!(0usize.max(1), 1);
+        assert_eq!(1usize.max(1), 1);
+        assert_eq!(100usize.max(1), 100);
     }
 }
