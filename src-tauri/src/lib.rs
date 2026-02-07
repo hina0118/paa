@@ -1007,14 +1007,19 @@ async fn start_batch_parse(
     batch_size: Option<usize>,
 ) -> Result<(), String> {
     let size = if let Some(s) = batch_size {
-        s
+        s.max(1)
     } else {
         let app_config_dir = app_handle
             .path()
             .app_config_dir()
             .map_err(|e| format!("Failed to get app config dir: {e}"))?;
         let config = config::load(&app_config_dir)?;
-        config.parse.batch_size as usize
+        let v = config.parse.batch_size;
+        if v <= 0 {
+            100usize
+        } else {
+            v as usize
+        }
     };
 
     let pool_clone = pool.inner().clone();
