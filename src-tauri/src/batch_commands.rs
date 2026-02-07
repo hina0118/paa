@@ -419,14 +419,14 @@ pub async fn run_batch_parse_task(
     if !inputs.is_empty() {
         let first: &crate::parsers::EmailParseInput = &inputs[0];
         let last = inputs.last().unwrap();
-        log::info!(
+        log::debug!(
             "[batch] first email_id={} internal_date={:?} subject={:?}",
             first.email_id,
             first.internal_date,
             first.subject
         );
         if inputs_len > 1 {
-            log::info!(
+            log::debug!(
                 "[batch] last email_id={} internal_date={:?} subject={:?}",
                 last.email_id,
                 last.internal_date,

@@ -309,7 +309,7 @@ where
             for (parser_type, shop_name) in &candidate_parsers {
                 // キャンセルメールは専用パーサーで処理（OrderInfo を返さない）
                 if parser_type == "hobbysearch_cancel" {
-                    log::info!(
+                    log::debug!(
                         "[cancel] trying hobbysearch_cancel email_id={} subject={:?}",
                         input.email_id,
                         input.subject
@@ -317,7 +317,7 @@ where
                     let cancel_parser = hobbysearch_cancel::HobbySearchCancelParser;
                     match cancel_parser.parse_cancel(&input.body_plain) {
                         Ok(cancel_info) => {
-                            log::info!(
+                            log::debug!(
                                 "[cancel] email_id={} internal_date={:?} order_number={} subject={:?}",
                                 input.email_id,
                                 input.internal_date,
@@ -363,6 +363,8 @@ where
                                     cancel_applied = true;
                                 }
                                 Err(e) => {
+                                    // 注文未存在（キャンセルが confirm/change より先に来た等）の場合。
+                                    // Err を返すと該当メールは未パースのまま残り、次回 run で再試行される。
                                     log::info!(
                                         "[cancel] apply_cancel failed email_id={} order_number={}: {}",
                                         input.email_id,

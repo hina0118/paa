@@ -1557,6 +1557,7 @@ impl ProductMasterRepository for SqliteProductMasterRepository {
 mod tests {
     use super::*;
     use crate::gemini::ParsedProduct;
+    use crate::parsers::hobbysearch_cancel::CancelInfo;
     use sqlx::sqlite::SqlitePoolOptions;
 
     async fn setup_test_db() -> SqlitePool {
@@ -2349,5 +2350,176 @@ mod tests {
         assert_eq!(pm.product_name, Some("商品名B".to_string()));
         assert_eq!(pm.scale, Some("1/144".to_string()));
         assert!(pm.is_reissue);
+    }
+
+    // --- apply_cancel 統合テスト ---
+
+    #[tokio::test]
+    async fn test_apply_cancel_quantity_decrease() {
+        let pool = setup_test_db().await;
+        let repo = SqliteOrderRepository::new(pool.clone());
+
+        // 注文と商品を直接挿入
+        sqlx::query(
+            r#"INSERT INTO orders (order_number, shop_domain, shop_name) VALUES ('99-1111-1111', '1999.co.jp', 'ホビーサーチ')"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert order");
+        let order_id: (i64,) = sqlx::query_as("SELECT id FROM orders WHERE order_number = '99-1111-1111'")
+            .fetch_one(&pool)
+            .await
+            .expect("get order id");
+        sqlx::query(
+            r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, '商品A', 2)"#,
+        )
+        .bind(order_id.0)
+        .execute(&pool)
+        .await
+        .expect("insert item");
+        sqlx::query("INSERT INTO emails (message_id, body_plain) VALUES ('cancel-email-1', '')")
+            .execute(&pool)
+            .await
+            .expect("insert email");
+        let email_id: (i64,) = sqlx::query_as("SELECT id FROM emails WHERE message_id = 'cancel-email-1'")
+            .fetch_one(&pool)
+            .await
+            .expect("get email id");
+
+        let cancel_info = CancelInfo {
+            order_number: "99-1111-1111".to_string(),
+            product_name: "商品A".to_string(),
+            cancel_quantity: 1,
+        };
+        let result = repo
+            .apply_cancel(&cancel_info, email_id.0, Some("1999.co.jp".to_string()), None)
+            .await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), order_id.0);
+
+        let qty: (i64,) = sqlx::query_as("SELECT quantity FROM items WHERE order_id = ? AND item_name = '商品A'")
+            .bind(order_id.0)
+            .fetch_one(&pool)
+            .await
+            .expect("get item");
+        assert_eq!(qty.0, 1);
+    }
+
+    #[tokio::test]
+    async fn test_apply_cancel_item_removed_when_quantity_zero() {
+        let pool = setup_test_db().await;
+        let repo = SqliteOrderRepository::new(pool.clone());
+
+        sqlx::query(
+            r#"INSERT INTO orders (order_number, shop_domain, shop_name) VALUES ('99-2222-2222', '1999.co.jp', 'ホビーサーチ')"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert order");
+        let order_id: (i64,) = sqlx::query_as("SELECT id FROM orders WHERE order_number = '99-2222-2222'")
+            .fetch_one(&pool)
+            .await
+            .expect("get order id");
+        sqlx::query(
+            r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, '商品B', 1)"#,
+        )
+        .bind(order_id.0)
+        .execute(&pool)
+        .await
+        .expect("insert item");
+        sqlx::query("INSERT INTO emails (message_id, body_plain) VALUES ('cancel-email-2', '')")
+            .execute(&pool)
+            .await
+            .expect("insert email");
+        let email_id: (i64,) = sqlx::query_as("SELECT id FROM emails WHERE message_id = 'cancel-email-2'")
+            .fetch_one(&pool)
+            .await
+            .expect("get email id");
+
+        let cancel_info = CancelInfo {
+            order_number: "99-2222-2222".to_string(),
+            product_name: "商品B".to_string(),
+            cancel_quantity: 1,
+        };
+        let result = repo
+            .apply_cancel(&cancel_info, email_id.0, Some("1999.co.jp".to_string()), None)
+            .await;
+        assert!(result.is_ok());
+
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items WHERE order_id = ?")
+            .bind(order_id.0)
+            .fetch_one(&pool)
+            .await
+            .expect("count items");
+        assert_eq!(count.0, 0, "item should be deleted when quantity becomes 0");
+    }
+
+    #[tokio::test]
+    async fn test_apply_cancel_order_not_found() {
+        let pool = setup_test_db().await;
+        let repo = SqliteOrderRepository::new(pool.clone());
+
+        sqlx::query("INSERT INTO emails (message_id, body_plain) VALUES ('cancel-email-3', '')")
+            .execute(&pool)
+            .await
+            .expect("insert email");
+        let email_id: (i64,) = sqlx::query_as("SELECT id FROM emails WHERE message_id = 'cancel-email-3'")
+            .fetch_one(&pool)
+            .await
+            .expect("get email id");
+
+        let cancel_info = CancelInfo {
+            order_number: "99-9999-9999".to_string(),
+            product_name: "商品X".to_string(),
+            cancel_quantity: 1,
+        };
+        let result = repo
+            .apply_cancel(&cancel_info, email_id.0, Some("1999.co.jp".to_string()), None)
+            .await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_apply_cancel_product_not_found() {
+        let pool = setup_test_db().await;
+        let repo = SqliteOrderRepository::new(pool.clone());
+
+        sqlx::query(
+            r#"INSERT INTO orders (order_number, shop_domain, shop_name) VALUES ('99-3333-3333', '1999.co.jp', 'ホビーサーチ')"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert order");
+        let order_id: (i64,) = sqlx::query_as("SELECT id FROM orders WHERE order_number = '99-3333-3333'")
+            .fetch_one(&pool)
+            .await
+            .expect("get order id");
+        sqlx::query(
+            r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, '商品C', 1)"#,
+        )
+        .bind(order_id.0)
+        .execute(&pool)
+        .await
+        .expect("insert item");
+        sqlx::query("INSERT INTO emails (message_id, body_plain) VALUES ('cancel-email-4', '')")
+            .execute(&pool)
+            .await
+            .expect("insert email");
+        let email_id: (i64,) = sqlx::query_as("SELECT id FROM emails WHERE message_id = 'cancel-email-4'")
+            .fetch_one(&pool)
+            .await
+            .expect("get email id");
+
+        let cancel_info = CancelInfo {
+            order_number: "99-3333-3333".to_string(),
+            product_name: "存在しない商品名".to_string(),
+            cancel_quantity: 1,
+        };
+        let result = repo
+            .apply_cancel(&cancel_info, email_id.0, Some("1999.co.jp".to_string()), None)
+            .await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not found"));
     }
 }
