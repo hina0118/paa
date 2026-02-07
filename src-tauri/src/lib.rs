@@ -3,11 +3,12 @@ use sqlx::sqlite::SqlitePool;
 use std::collections::VecDeque;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
-use tauri::menu::{Menu, MenuItem};
+use tauri::menu::{Menu, MenuItem, Submenu};
 use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
 use tauri::{Listener, Manager};
 use tauri_plugin_sql::{Migration, MigrationKind};
 
+pub mod batch_commands;
 pub mod batch_runner;
 pub mod config;
 pub mod e2e_mocks;
@@ -21,31 +22,14 @@ pub mod metadata_export;
 pub mod parsers;
 pub mod repository;
 
-use crate::batch_runner::{BatchProgressEvent, BatchRunner};
-use crate::e2e_mocks::{
-    is_e2e_mock_mode, E2EMockGeminiClient, E2EMockGmailClient, E2EMockImageSearchClient,
-    GeminiClientForE2E, GmailClientForE2E,
-};
-use crate::gemini::{
-    create_product_parse_input, GeminiClient, ProductNameParseCache, ProductNameParseContext,
-    ProductNameParseTask, PRODUCT_NAME_PARSE_EVENT_NAME, PRODUCT_NAME_PARSE_TASK_NAME,
-};
-use crate::gmail::{
-    create_sync_input, fetch_all_message_ids, GmailSyncContext, GmailSyncTask,
-    ShopSettingsCacheForSync, GMAIL_SYNC_EVENT_NAME, GMAIL_SYNC_TASK_NAME,
-};
+use crate::e2e_mocks::{is_e2e_mock_mode, E2EMockImageSearchClient};
 use crate::logic::email_parser::get_candidate_parsers;
-use crate::parsers::{
-    EmailParseContext, EmailParseTask, EMAIL_PARSE_EVENT_NAME, EMAIL_PARSE_TASK_NAME,
-};
 use crate::repository::{
-    DeliveryStats, DeliveryStatsRepository, EmailRepository, EmailStats, EmailStatsRepository,
-    MiscStats, MiscStatsRepository, OrderRepository, OrderStats, OrderStatsRepository,
-    ParseRepository, ProductMasterStats, ProductMasterStatsRepository, ShopSettingsRepository,
-    SqliteDeliveryStatsRepository, SqliteEmailRepository, SqliteEmailStatsRepository,
-    SqliteMiscStatsRepository, SqliteOrderRepository, SqliteOrderStatsRepository,
-    SqliteParseRepository, SqliteProductMasterRepository, SqliteProductMasterStatsRepository,
-    SqliteShopSettingsRepository,
+    DeliveryStats, DeliveryStatsRepository, EmailStats, EmailStatsRepository, MiscStats,
+    MiscStatsRepository, OrderRepository, OrderStats, OrderStatsRepository, ProductMasterStats,
+    ProductMasterStatsRepository, ShopSettingsRepository, SqliteDeliveryStatsRepository,
+    SqliteEmailStatsRepository, SqliteMiscStatsRepository, SqliteOrderRepository,
+    SqliteOrderStatsRepository, SqliteProductMasterStatsRepository, SqliteShopSettingsRepository,
 };
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -79,248 +63,13 @@ async fn start_sync(
     pool: tauri::State<'_, SqlitePool>,
     sync_state: tauri::State<'_, gmail::SyncState>,
 ) -> Result<(), String> {
-    use std::sync::Arc;
-    use tauri::Emitter;
-    use tauri_plugin_notification::NotificationExt;
-    use tokio::sync::Mutex;
-
-    log::info!("Starting Gmail sync with BatchRunner<GmailSyncTask>...");
-
-    // Spawn async task to avoid blocking
     let pool_clone = pool.inner().clone();
     let sync_state_clone = sync_state.inner().clone();
-    let app_clone = app_handle;
-
-    tauri::async_runtime::spawn(async move {
-        // 多重実行防止
-        if !sync_state_clone.try_start() {
-            log::warn!("Sync is already in progress");
-            let error_event = BatchProgressEvent::error(
-                GMAIL_SYNC_TASK_NAME,
-                0,
-                0,
-                0,
-                0,
-                "Sync is already in progress".to_string(),
-            );
-            let _ = app_clone.emit(GMAIL_SYNC_EVENT_NAME, error_event);
-            return;
-        }
-
-        // SyncGuard でクリーンアップ保証
-        let _guard = gmail::SyncGuard::new(&sync_state_clone);
-
-        let email_repo = SqliteEmailRepository::new(pool_clone.clone());
-        let shop_repo = SqliteShopSettingsRepository::new(pool_clone.clone());
-
-        // shop_settings から sender_addresses を取得
-        let enabled_shops = match shop_repo.get_enabled().await {
-            Ok(shops) => shops,
-            Err(e) => {
-                log::error!("Failed to fetch shop settings: {}", e);
-                sync_state_clone.set_error(&e);
-                let error_event = BatchProgressEvent::error(
-                    GMAIL_SYNC_TASK_NAME,
-                    0,
-                    0,
-                    0,
-                    0,
-                    format!("Failed to fetch shop settings: {}", e),
-                );
-                let _ = app_clone.emit(GMAIL_SYNC_EVENT_NAME, error_event);
-                return;
-            }
-        };
-
-        let sender_addresses: Vec<String> = enabled_shops
-            .iter()
-            .map(|s| s.sender_address.clone())
-            .collect();
-
-        log::info!(
-            "Starting sync with {} enabled sender addresses",
-            sender_addresses.len()
-        );
-
-        // 設定ファイルから batch_size を取得
-        let app_config_dir = app_clone
-            .path()
-            .app_config_dir()
-            .map_err(|e| format!("Failed to get app config dir: {e}"))
-            .unwrap_or_else(|e| {
-                log::error!("{e}");
-                std::path::PathBuf::new()
-            });
-        let config = config::load(&app_config_dir).unwrap_or_else(|e| {
-            log::error!("Failed to load config: {}", e);
-            config::AppConfig::default()
-        });
-        let batch_size = if config.sync.batch_size > 0 {
-            config.sync.batch_size as usize
-        } else {
-            50
-        };
-
-        // Gmail クライアントを初期化（E2Eモック時は外部APIを呼ばない）
-        let gmail_client = if is_e2e_mock_mode() {
-            log::info!("Using E2E mock Gmail client");
-            GmailClientForE2E::Mock(E2EMockGmailClient)
-        } else {
-            match gmail::GmailClient::new(&app_clone).await {
-                Ok(c) => GmailClientForE2E::Real(Box::new(c)),
-                Err(e) => {
-                    log::error!("Failed to create Gmail client: {}", e);
-                    sync_state_clone.set_error(&e);
-                    let error_event = BatchProgressEvent::error(
-                        GMAIL_SYNC_TASK_NAME,
-                        0,
-                        0,
-                        0,
-                        0,
-                        format!("Failed to create Gmail client: {}", e),
-                    );
-                    let _ = app_clone.emit(GMAIL_SYNC_EVENT_NAME, error_event);
-                    return;
-                }
-            }
-        };
-
-        // クエリを構築
-        let query = crate::logic::sync_logic::build_sync_query(&sender_addresses, &None);
-
-        // 全メッセージIDを取得
-        log::info!("Fetching all message IDs from Gmail...");
-        let max_results = (config.sync.max_results_per_page.clamp(1, 500)) as u32;
-        let all_ids = match fetch_all_message_ids(&gmail_client, &query, max_results, None).await {
-            Ok(ids) => ids,
-            Err(e) => {
-                log::error!("Failed to fetch message IDs: {}", e);
-                sync_state_clone.set_error(&e);
-                let error_event = BatchProgressEvent::error(
-                    GMAIL_SYNC_TASK_NAME,
-                    0,
-                    0,
-                    0,
-                    0,
-                    format!("Failed to fetch message IDs: {}", e),
-                );
-                let _ = app_clone.emit(GMAIL_SYNC_EVENT_NAME, error_event);
-                return;
-            }
-        };
-
-        log::info!("Fetched {} message IDs from Gmail", all_ids.len());
-
-        // SQL の NOT IN で未処理のIDのみフィルタ（メモリ効率のため DB 側でフィルタリング）
-        let new_ids: Vec<String> = match email_repo.filter_new_message_ids(&all_ids).await {
-            Ok(ids) => ids,
-            Err(e) => {
-                log::error!("Failed to filter new message IDs: {}", e);
-                sync_state_clone.set_error(&e);
-                let error_event = BatchProgressEvent::error(
-                    GMAIL_SYNC_TASK_NAME,
-                    0,
-                    0,
-                    0,
-                    0,
-                    format!("Failed to filter new message IDs: {}", e),
-                );
-                let _ = app_clone.emit(GMAIL_SYNC_EVENT_NAME, error_event);
-                return;
-            }
-        };
-
-        log::info!("Found {} new messages to sync", new_ids.len());
-
-        if new_ids.is_empty() {
-            log::info!("No new messages to sync");
-            let complete_event = BatchProgressEvent::complete(
-                GMAIL_SYNC_TASK_NAME,
-                0,
-                0,
-                0,
-                "同期対象の新規メッセージがありません".to_string(),
-            );
-            let _ = app_clone.emit(GMAIL_SYNC_EVENT_NAME, complete_event);
-
-            // デスクトップ通知
-            let _ = app_clone
-                .notification()
-                .builder()
-                .title("Gmail同期完了")
-                .body("新規メッセージはありませんでした")
-                .show();
-            return;
-        }
-
-        // GmailSyncInput に変換
-        let inputs: Vec<_> = new_ids.into_iter().map(create_sync_input).collect();
-        let total_items = inputs.len();
-
-        // BatchRunner と Context を構築
-        let task: GmailSyncTask<
-            GmailClientForE2E,
-            SqliteEmailRepository,
-            SqliteShopSettingsRepository,
-        > = GmailSyncTask::new();
-
-        let context = GmailSyncContext {
-            gmail_client: Arc::new(gmail_client),
-            email_repo: Arc::new(email_repo),
-            shop_settings_repo: Arc::new(shop_repo),
-            shop_settings_cache: Arc::new(Mutex::new(ShopSettingsCacheForSync::default())),
-        };
-
-        // BatchRunner で実行（タイムアウト・ディレイは設定ファイルから）
-        let timeout_minutes = config.sync.timeout_minutes.clamp(1, 120);
-        let runner = BatchRunner::new(task, batch_size, 0).with_timeout(timeout_minutes as u64);
-        let sync_state_for_cancel = sync_state_clone.clone();
-
-        match runner
-            .run(&app_clone, inputs, &context, || {
-                sync_state_for_cancel.should_stop()
-            })
-            .await
-        {
-            Ok(batch_result) => {
-                log::info!(
-                    "Gmail sync completed: success={}, failed={}",
-                    batch_result.success_count,
-                    batch_result.failed_count
-                );
-
-                // 完了イベント（BatchRunnerが既に送信しているが、通知用に再度確認）
-                if !sync_state_clone.should_stop() {
-                    // デスクトップ通知
-                    let notification_body = format!(
-                        "同期完了：新たに{}件のメールを取り込みました",
-                        batch_result.success_count
-                    );
-                    let _ = app_clone
-                        .notification()
-                        .builder()
-                        .title("Gmail同期完了")
-                        .body(&notification_body)
-                        .show();
-                }
-            }
-            Err(e) => {
-                log::error!("BatchRunner failed: {}", e);
-                sync_state_clone.set_error(&e);
-
-                let error_event = BatchProgressEvent::error(
-                    GMAIL_SYNC_TASK_NAME,
-                    total_items,
-                    0,
-                    0,
-                    0,
-                    format!("Sync error: {}", e),
-                );
-                let _ = app_clone.emit(GMAIL_SYNC_EVENT_NAME, error_event);
-            }
-        }
-    });
-
+    tauri::async_runtime::spawn(batch_commands::run_sync_task(
+        app_handle,
+        pool_clone,
+        sync_state_clone,
+    ));
     Ok(())
 }
 
@@ -925,8 +674,26 @@ pub fn run() {
 
             // Setup system tray
             let show_item = MenuItem::with_id(app, "show", "表示", true, None::<&str>)?;
+            let sync_item =
+                MenuItem::with_id(app, "tray_sync", "Gmail同期", true, None::<&str>)?;
+            let parse_item =
+                MenuItem::with_id(app, "tray_parse", "メールパース", true, None::<&str>)?;
+            let product_item = MenuItem::with_id(
+                app,
+                "tray_product_name_parse",
+                "商品名解析",
+                true,
+                None::<&str>,
+            )?;
+            let batch_submenu = Submenu::with_id_and_items(
+                app,
+                "batch",
+                "バッチ処理",
+                true,
+                &[&sync_item, &parse_item, &product_item],
+            )?;
             let quit_item = MenuItem::with_id(app, "quit", "終了", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+            let menu = Menu::with_items(app, &[&show_item, &batch_submenu, &quit_item])?;
 
             // Initialize tray icon builder and set icon if available to avoid panics
             let mut tray_builder = TrayIconBuilder::new();
@@ -941,17 +708,76 @@ pub fn run() {
             let _tray = tray_builder
                 .menu(&menu)
                 .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "show" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
+                .on_menu_event(|app, event| {
+                    match event.id.as_ref() {
+                        "show" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
                         }
+                        "tray_sync" => {
+                            if let (Some(pool), Some(sync_state)) = (
+                                app.try_state::<SqlitePool>(),
+                                app.try_state::<gmail::SyncState>(),
+                            ) {
+                                let app_clone = app.clone();
+                                let pool_clone = pool.inner().clone();
+                                let sync_state_clone = sync_state.inner().clone();
+                                tauri::async_runtime::spawn(batch_commands::run_sync_task(
+                                    app_clone,
+                                    pool_clone,
+                                    sync_state_clone,
+                                ));
+                            }
+                        }
+                        "tray_parse" => {
+                            if let (Some(pool), Some(parse_state)) = (
+                                app.try_state::<SqlitePool>(),
+                                app.try_state::<parsers::ParseState>(),
+                            ) {
+                                let app_clone = app.clone();
+                                let pool_clone = pool.inner().clone();
+                                let parse_state_clone = parse_state.inner().clone();
+                                let batch_size = app
+                                    .path()
+                                    .app_config_dir()
+                                    .ok()
+                                    .and_then(|dir| config::load(&dir).ok())
+                                    .map(|c| c.parse.batch_size as usize)
+                                    .unwrap_or(100);
+                                tauri::async_runtime::spawn(
+                                    batch_commands::run_batch_parse_task(
+                                        app_clone,
+                                        pool_clone,
+                                        parse_state_clone,
+                                        batch_size,
+                                    ),
+                                );
+                            }
+                        }
+                        "tray_product_name_parse" => {
+                            if let (Some(pool), Some(parse_state)) = (
+                                app.try_state::<SqlitePool>(),
+                                app.try_state::<ProductNameParseState>(),
+                            ) {
+                                let app_clone = app.clone();
+                                let pool_clone = pool.inner().clone();
+                                let parse_state_clone = parse_state.inner().clone();
+                                tauri::async_runtime::spawn(
+                                    batch_commands::run_product_name_parse_task(
+                                        app_clone,
+                                        pool_clone,
+                                        parse_state_clone,
+                                    ),
+                                );
+                            }
+                        }
+                        "quit" => {
+                            app.exit(0);
+                        }
+                        _ => {}
                     }
-                    "quit" => {
-                        app.exit(0);
-                    }
-                    _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
                     if let TrayIconEvent::Click {
@@ -1178,13 +1004,6 @@ async fn start_batch_parse(
     parse_state: tauri::State<'_, parsers::ParseState>,
     batch_size: Option<usize>,
 ) -> Result<(), String> {
-    use std::sync::Arc;
-    use tauri::Emitter;
-    use tokio::sync::Mutex;
-
-    log::info!("Starting batch parse with BatchRunner<EmailParseTask>...");
-
-    // batch_sizeが指定されていない場合は設定ファイルから取得
     let size = if let Some(s) = batch_size {
         s
     } else {
@@ -1198,190 +1017,12 @@ async fn start_batch_parse(
 
     let pool_clone = pool.inner().clone();
     let parse_state_clone = parse_state.inner().clone();
-
-    tauri::async_runtime::spawn(async move {
-        // パース状態をチェック・開始
-        if let Err(e) = parse_state_clone.start() {
-            log::error!("Failed to start parse: {}", e);
-            let error_event = BatchProgressEvent::error(
-                EMAIL_PARSE_TASK_NAME,
-                0,
-                0,
-                0,
-                0,
-                format!("Parse error: {}", e),
-            );
-            let _ = app_handle.emit(EMAIL_PARSE_EVENT_NAME, error_event);
-            return;
-        }
-
-        let parse_repo = SqliteParseRepository::new(pool_clone.clone());
-        let order_repo = SqliteOrderRepository::new(pool_clone.clone());
-        let shop_settings_repo = SqliteShopSettingsRepository::new(pool_clone.clone());
-
-        // 注文関連テーブルをクリア
-        log::info!(
-            "Clearing order_emails, deliveries, items, and orders tables for fresh parse..."
-        );
-        if let Err(e) = parse_repo.clear_order_tables().await {
-            log::error!("Failed to clear order tables: {}", e);
-            parse_state_clone.finish();
-            parse_state_clone.set_error(&e);
-            let error_event = BatchProgressEvent::error(
-                EMAIL_PARSE_TASK_NAME,
-                0,
-                0,
-                0,
-                0,
-                format!("Failed to clear order tables: {}", e),
-            );
-            let _ = app_handle.emit(EMAIL_PARSE_EVENT_NAME, error_event);
-            return;
-        }
-
-        // shop_settingsから有効な店舗設定を取得
-        let enabled_settings = match shop_settings_repo.get_enabled().await {
-            Ok(settings) => settings,
-            Err(e) => {
-                log::error!("Failed to fetch shop settings: {}", e);
-                parse_state_clone.finish();
-                parse_state_clone.set_error(&e);
-                let error_event = BatchProgressEvent::error(
-                    EMAIL_PARSE_TASK_NAME,
-                    0,
-                    0,
-                    0,
-                    0,
-                    format!("Failed to fetch shop settings: {}", e),
-                );
-                let _ = app_handle.emit(EMAIL_PARSE_EVENT_NAME, error_event);
-                return;
-            }
-        };
-
-        if enabled_settings.is_empty() {
-            log::warn!("No enabled shop settings found");
-            parse_state_clone.finish();
-            parse_state_clone.set_error("No enabled shop settings found");
-            let error_event = BatchProgressEvent::error(
-                EMAIL_PARSE_TASK_NAME,
-                0,
-                0,
-                0,
-                0,
-                "No enabled shop settings found".to_string(),
-            );
-            let _ = app_handle.emit(EMAIL_PARSE_EVENT_NAME, error_event);
-            return;
-        }
-
-        // パース対象の全メール数を取得
-        let total_email_count = match parse_repo.get_total_email_count().await {
-            Ok(count) => count as usize,
-            Err(e) => {
-                log::error!("Failed to count emails: {}", e);
-                parse_state_clone.finish();
-                parse_state_clone.set_error(&e);
-                let error_event = BatchProgressEvent::error(
-                    EMAIL_PARSE_TASK_NAME,
-                    0,
-                    0,
-                    0,
-                    0,
-                    format!("Failed to count emails: {}", e),
-                );
-                let _ = app_handle.emit(EMAIL_PARSE_EVENT_NAME, error_event);
-                return;
-            }
-        };
-
-        log::info!("Total emails to parse: {}", total_email_count);
-
-        if total_email_count == 0 {
-            log::info!("No emails to parse");
-            parse_state_clone.finish();
-            let complete_event = BatchProgressEvent::complete(
-                EMAIL_PARSE_TASK_NAME,
-                0,
-                0,
-                0,
-                "パース対象のメールがありません".to_string(),
-            );
-            let _ = app_handle.emit(EMAIL_PARSE_EVENT_NAME, complete_event);
-            return;
-        }
-
-        // 全未パースメールを取得（total_email_countを使ってバッチサイズを設定）
-        let all_unparsed_emails = match parse_repo.get_unparsed_emails(total_email_count).await {
-            Ok(emails) => emails,
-            Err(e) => {
-                log::error!("Failed to fetch unparsed emails: {}", e);
-                parse_state_clone.finish();
-                parse_state_clone.set_error(&e);
-                let error_event = BatchProgressEvent::error(
-                    EMAIL_PARSE_TASK_NAME,
-                    total_email_count,
-                    0,
-                    0,
-                    0,
-                    format!("Failed to fetch unparsed emails: {}", e),
-                );
-                let _ = app_handle.emit(EMAIL_PARSE_EVENT_NAME, error_event);
-                return;
-            }
-        };
-
-        // EmailParseInput に変換
-        let inputs: Vec<_> = all_unparsed_emails
-            .into_iter()
-            .map(|row| row.into())
-            .collect();
-        let inputs_len = inputs.len();
-
-        log::info!("Fetched {} unparsed emails", inputs_len);
-
-        // BatchRunner と Context を構築
-        let task: EmailParseTask<
-            SqliteOrderRepository,
-            SqliteParseRepository,
-            SqliteShopSettingsRepository,
-        > = EmailParseTask::new();
-
-        let context = EmailParseContext {
-            order_repo: Arc::new(order_repo),
-            parse_repo: Arc::new(parse_repo),
-            shop_settings_repo: Arc::new(shop_settings_repo),
-            shop_settings_cache: Arc::new(Mutex::new(crate::parsers::ShopSettingsCache::default())),
-            parse_state: Arc::new(parse_state_clone.clone()),
-        };
-
-        // BatchRunner で実行（メールパースはディレイ不要）
-        let runner = BatchRunner::new(task, size, 0);
-        let parse_state_for_cancel = parse_state_clone.clone();
-
-        match runner
-            .run(&app_handle, inputs, &context, || {
-                parse_state_for_cancel.is_cancelled()
-            })
-            .await
-        {
-            Ok(_batch_result) => {
-                log::info!(
-                    "Email parse completed: success={}, failed={}",
-                    _batch_result.success_count,
-                    _batch_result.failed_count
-                );
-            }
-            Err(e) => {
-                log::error!("BatchRunner failed: {}", e);
-                parse_state_clone.set_error(&e);
-            }
-        }
-
-        // パース状態をクリーンアップ
-        parse_state_clone.finish();
-    });
-
+    tauri::async_runtime::spawn(batch_commands::run_batch_parse_task(
+        app_handle,
+        pool_clone,
+        parse_state_clone,
+        size,
+    ));
     Ok(())
 }
 
@@ -1593,156 +1234,13 @@ async fn start_product_name_parse(
     pool: tauri::State<'_, SqlitePool>,
     parse_state: tauri::State<'_, ProductNameParseState>,
 ) -> Result<(), String> {
-    use std::sync::Arc;
-    use tauri::Emitter;
-    use tokio::sync::Mutex;
-
-    log::info!("Starting product name parse with BatchRunner<ProductNameParseTask>...");
-
-    // 失敗し得る初期化を先に行い、try_start() は spawn 直前に呼ぶ
-    // （早期 return 時に finish() が呼ばれず「実行中」のままになるのを防ぐ）
-    let app_data_dir = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Failed to get app data dir: {e}"))?;
-
-    // E2Eモック時はAPIキー不要
-    let gemini_client = if is_e2e_mock_mode() {
-        log::info!("Using E2E mock Gemini client");
-        GeminiClientForE2E::Mock(E2EMockGeminiClient)
-    } else {
-        if !gemini::has_api_key(&app_data_dir) {
-            return Err(
-                "Gemini APIキーが設定されていません。設定画面でAPIキーを設定してください。"
-                    .to_string(),
-            );
-        }
-        let api_key = gemini::load_api_key(&app_data_dir)?;
-        GeminiClientForE2E::Real(Box::new(GeminiClient::new(api_key)?))
-    };
-    let product_repo = SqliteProductMasterRepository::new(pool.inner().clone());
-
-    // 多重実行ガード（初期化成功後にのみ取得）
-    parse_state.try_start()?;
-
-    let parse_state_clone = parse_state.inner().clone();
     let pool_clone = pool.inner().clone();
-
-    tauri::async_runtime::spawn(async move {
-        // items テーブルから product_master に未登録の商品名のみを取得
-        // 商品名単位で一意にするため GROUP BY TRIM(i.item_name) で集約
-        let items: Vec<(String, Option<String>)> = match sqlx::query_as(
-            r#"
-            SELECT
-              TRIM(i.item_name) AS item_name,
-              MIN(o.shop_domain) AS shop_domain
-            FROM items i
-            JOIN orders o ON i.order_id = o.id
-            LEFT JOIN product_master pm ON TRIM(i.item_name) = pm.raw_name
-            WHERE i.item_name IS NOT NULL
-              AND i.item_name != ''
-              AND TRIM(i.item_name) != ''
-              AND pm.id IS NULL
-            GROUP BY TRIM(i.item_name)
-            "#,
-        )
-        .fetch_all(&pool_clone)
-        .await
-        {
-            Ok(rows) => rows,
-            Err(e) => {
-                log::error!("Failed to fetch unparsed items: {}", e);
-                let error_event = BatchProgressEvent::error(
-                    PRODUCT_NAME_PARSE_TASK_NAME,
-                    0,
-                    0,
-                    0,
-                    0,
-                    format!("商品情報の取得に失敗: {}", e),
-                );
-                let _ = app_handle.emit(PRODUCT_NAME_PARSE_EVENT_NAME, error_event);
-                parse_state_clone.finish();
-                return;
-            }
-        };
-
-        let total_items = items.len();
-        log::info!(
-            "Found {} unparsed items (not in product_master)",
-            total_items
-        );
-
-        if total_items == 0 {
-            let complete_event = BatchProgressEvent::complete(
-                PRODUCT_NAME_PARSE_TASK_NAME,
-                0,
-                0,
-                0,
-                "未解析の商品はありません（すべてproduct_masterに登録済み）".to_string(),
-            );
-            let _ = app_handle.emit(PRODUCT_NAME_PARSE_EVENT_NAME, complete_event);
-            parse_state_clone.finish();
-            return;
-        }
-
-        // 入力データを ProductNameParseInput に変換
-        let inputs: Vec<_> = items
-            .into_iter()
-            .map(|(raw_name, platform_hint)| create_product_parse_input(raw_name, platform_hint))
-            .collect();
-
-        // 設定ファイルから Gemini のバッチサイズ・ディレイを取得
-        let config = app_handle
-            .path()
-            .app_config_dir()
-            .ok()
-            .and_then(|dir| config::load(&dir).ok())
-            .unwrap_or_else(|| {
-                log::warn!("Failed to load config, using Gemini defaults");
-                config::AppConfig::default()
-            });
-        let gemini_batch_size = (config.gemini.batch_size.clamp(1, 50)) as usize;
-        let gemini_delay_ms = (config.gemini.delay_seconds.clamp(0, 60)) as u64 * 1000;
-
-        // BatchRunner と Context を構築
-        let task: ProductNameParseTask<GeminiClientForE2E, SqliteProductMasterRepository> =
-            ProductNameParseTask::new();
-        let context = ProductNameParseContext {
-            gemini_client: Arc::new(gemini_client),
-            repository: Arc::new(product_repo),
-            cache: Arc::new(Mutex::new(ProductNameParseCache::default())),
-        };
-
-        // BatchRunner で実行
-        let runner = BatchRunner::new(task, gemini_batch_size, gemini_delay_ms);
-
-        // 商品名パースは現在キャンセル機能がないため、常にfalseを返す
-        match runner.run(&app_handle, inputs, &context, || false).await {
-            Ok(batch_result) => {
-                log::info!(
-                    "Product name parse completed: success={}, failed={}",
-                    batch_result.success_count,
-                    batch_result.failed_count
-                );
-            }
-            Err(e) => {
-                log::error!("BatchRunner failed: {}", e);
-                let error_event = BatchProgressEvent::error(
-                    PRODUCT_NAME_PARSE_TASK_NAME,
-                    total_items,
-                    0,
-                    0,
-                    total_items,
-                    format!("バッチ処理エラー: {}", e),
-                );
-                let _ = app_handle.emit(PRODUCT_NAME_PARSE_EVENT_NAME, error_event);
-            }
-        }
-
-        // 多重実行ガード解除（成功・失敗・エラー問わず必ず呼ぶ）
-        parse_state_clone.finish();
-    });
-
+    let parse_state_clone = parse_state.inner().clone();
+    tauri::async_runtime::spawn(batch_commands::run_product_name_parse_task(
+        app_handle,
+        pool_clone,
+        parse_state_clone,
+    ));
     Ok(())
 }
 
