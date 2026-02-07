@@ -8,7 +8,13 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Loader2, Search, AlertCircle, Check } from 'lucide-react';
+import { Loader2, Search, Check } from 'lucide-react';
+import {
+  toastSuccess,
+  toastError,
+  toastWarning,
+  formatError,
+} from '@/lib/toast';
 
 /** 画像検索結果の型 */
 type ImageSearchResult = {
@@ -39,12 +45,10 @@ export function ImageSearchDialog({
   const [isSaving, setIsSaving] = useState(false);
   const [searchResults, setSearchResults] = useState<ImageSearchResult[]>([]);
   const [selectedUrl, setSelectedUrl] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [savedSuccess, setSavedSuccess] = useState(false);
 
   const handleSearch = useCallback(async () => {
     setIsSearching(true);
-    setError(null);
     setSearchResults([]);
     setSelectedUrl(null);
     setSavedSuccess(false);
@@ -60,10 +64,10 @@ export function ImageSearchDialog({
       const safeResults = Array.isArray(results) ? results : [];
       setSearchResults(safeResults);
       if (safeResults.length === 0) {
-        setError('画像が見つかりませんでした。');
+        toastWarning('画像が見つかりませんでした。');
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      toastError(`画像検索に失敗しました: ${formatError(e)}`);
     } finally {
       setIsSearching(false);
     }
@@ -73,17 +77,17 @@ export function ImageSearchDialog({
     if (!selectedUrl) return;
 
     setIsSaving(true);
-    setError(null);
 
     try {
       await invoke('save_image_from_url', {
         itemId,
         imageUrl: selectedUrl,
       });
+      toastSuccess('画像を保存しました');
       setSavedSuccess(true);
       onImageSaved?.();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      toastError(`画像の保存に失敗しました: ${formatError(e)}`);
     } finally {
       setIsSaving(false);
     }
@@ -105,7 +109,6 @@ export function ImageSearchDialog({
         // ダイアログを閉じるときにステートをリセット
         setSearchResults([]);
         setSelectedUrl(null);
-        setError(null);
         setSavedSuccess(false);
       }
       onOpenChange(newOpen);
@@ -144,22 +147,6 @@ export function ImageSearchDialog({
               )}
             </Button>
           </div>
-
-          {/* エラー表示 */}
-          {error && (
-            <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-800">
-              <AlertCircle className="h-4 w-4 flex-shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
-
-          {/* 成功表示 */}
-          {savedSuccess && (
-            <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded text-sm text-green-800">
-              <Check className="h-4 w-4 flex-shrink-0" />
-              <span>画像を保存しました</span>
-            </div>
-          )}
 
           {/* 検索結果グリッド */}
           {searchResults.length > 0 && (

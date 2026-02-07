@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { Toaster } from 'sonner';
 import { Dashboard } from './dashboard';
 import { ParseProvider } from '@/contexts/parse-provider';
 import { SyncProvider } from '@/contexts/sync-provider';
@@ -8,9 +9,12 @@ import { mockInvoke, mockListen } from '@/test/setup';
 
 const renderWithProviders = (ui: React.ReactElement) => {
   return render(
-    <SyncProvider>
-      <ParseProvider>{ui}</ParseProvider>
-    </SyncProvider>
+    <>
+      <SyncProvider>
+        <ParseProvider>{ui}</ParseProvider>
+      </SyncProvider>
+      <Toaster position="top-right" richColors />
+    </>
   );
 };
 
@@ -183,7 +187,7 @@ describe('Dashboard', () => {
     renderWithProviders(<Dashboard />);
 
     await waitFor(() => {
-      expect(screen.getByText('Failed to load stats')).toBeInTheDocument();
+      expect(screen.getByText(/Failed to load stats/)).toBeInTheDocument();
     });
 
     expect(consoleSpy).toHaveBeenCalledWith(
@@ -224,7 +228,7 @@ describe('Dashboard', () => {
     renderWithProviders(<Dashboard />);
 
     await waitFor(() => {
-      expect(screen.getByText('String error')).toBeInTheDocument();
+      expect(screen.getByText(/String error/)).toBeInTheDocument();
     });
 
     consoleSpy.mockRestore();

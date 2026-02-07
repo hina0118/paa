@@ -9,6 +9,7 @@ import {
   getOrderItemFilterOptions,
 } from '@/lib/orders-queries';
 import { parseNumericFilter } from '@/lib/utils';
+import { toastError, formatError } from '@/lib/toast';
 import { OrderItemCard } from '@/components/orders/order-item-card';
 import { OrderItemRowView } from '@/components/orders/order-item-row';
 import { OrderItemDrawer } from '@/components/orders/order-item-drawer';
@@ -59,6 +60,9 @@ export function Orders() {
       const options = await getOrderItemFilterOptions(db);
       setFilterOptions(options);
     } catch (err) {
+      toastError(
+        `フィルタオプションの読み込みに失敗しました: ${formatError(err)}`
+      );
       console.error('Failed to load filter options:', err);
     }
   }, [getDb]);
@@ -86,6 +90,7 @@ export function Orders() {
       return undefined;
     } catch (err) {
       if (requestId === loadItemsRequestId.current) {
+        toastError(`商品一覧の読み込みに失敗しました: ${formatError(err)}`);
         console.error('Failed to load order items:', err);
         setItems([]);
       }

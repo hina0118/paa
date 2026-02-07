@@ -28,30 +28,42 @@ export async function expectSidebarVisible(page: Page) {
 
 /**
  * 成功メッセージが表示されることを確認する
- * data-testid="success-message" または role="status" で識別
+ * トースト（data-sonner-toast）またはインライン（data-testid="success-message", role="status"）で識別
  */
 export async function expectSuccessMessage(page: Page, message?: string) {
-  const successElement = page
-    .locator('[data-testid="success-message"], [role="status"]')
-    .first();
-  await expect(successElement).toBeVisible({ timeout: 10000 });
-  if (message) {
-    await expect(successElement).toContainText(message, { timeout: 5000 });
-  }
+  const toastOrInline = message
+    ? page
+        .locator(
+          '[data-sonner-toast], [data-testid="success-message"], [role="status"]'
+        )
+        .filter({ hasText: message })
+        .first()
+    : page
+        .locator(
+          '[data-sonner-toast], [data-testid="success-message"], [role="status"]'
+        )
+        .first();
+  await expect(toastOrInline).toBeVisible({ timeout: 10000 });
 }
 
 /**
  * エラーメッセージが表示されることを確認する
- * data-testid="error-message" または role="alert" で識別
+ * トースト（data-sonner-toast）またはインライン（data-testid="error-message", role="alert"）で識別
  */
 export async function expectErrorMessage(page: Page, message?: string) {
-  const errorElement = page
-    .locator('[data-testid="error-message"], [role="alert"]')
-    .first();
-  await expect(errorElement).toBeVisible({ timeout: 10000 });
-  if (message) {
-    await expect(errorElement).toContainText(message, { timeout: 5000 });
-  }
+  const toastOrInline = message
+    ? page
+        .locator(
+          '[data-sonner-toast], [data-testid="error-message"], [role="alert"]'
+        )
+        .filter({ hasText: message })
+        .first()
+    : page
+        .locator(
+          '[data-sonner-toast], [data-testid="error-message"], [role="alert"]'
+        )
+        .first();
+  await expect(toastOrInline).toBeVisible({ timeout: 10000 });
 }
 
 /**

@@ -3,6 +3,7 @@ import { useSync } from '@/contexts/use-sync';
 import { useParse } from '@/contexts/use-parse';
 import { useNavigation } from '@/contexts/use-navigation';
 import { formatDateTime } from '@/lib/utils';
+import { toastError, formatError } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
 import {
   SimpleBatchProgressBar,
@@ -48,10 +49,7 @@ export function Batch() {
   } = useParse();
   const { setCurrentScreen } = useNavigation();
 
-  const [syncError, setSyncError] = useState<string | null>(null);
-  const [parseError, setParseError] = useState<string | null>(null);
   const [showParseConfirmDialog, setShowParseConfirmDialog] = useState(false);
-  const [productNameError, setProductNameError] = useState<string | null>(null);
 
   useEffect(() => {
     refreshSyncStatus();
@@ -60,11 +58,10 @@ export function Batch() {
 
   // --- Sync handlers ---
   const handleStartSync = async () => {
-    setSyncError(null);
     try {
       await startSync();
     } catch (err) {
-      setSyncError(err instanceof Error ? err.message : String(err));
+      toastError(`同期の開始に失敗しました: ${formatError(err)}`);
     }
   };
 
@@ -72,7 +69,7 @@ export function Batch() {
     try {
       await cancelSync();
     } catch (err) {
-      setSyncError(err instanceof Error ? err.message : String(err));
+      toastError(`同期の中止に失敗しました: ${formatError(err)}`);
     }
   };
 
@@ -81,11 +78,10 @@ export function Batch() {
 
   const handleConfirmParse = async () => {
     setShowParseConfirmDialog(false);
-    setParseError(null);
     try {
       await startParse();
     } catch (err) {
-      setParseError(err instanceof Error ? err.message : String(err));
+      toastError(`メールパースの開始に失敗しました: ${formatError(err)}`);
     }
   };
 
@@ -93,16 +89,15 @@ export function Batch() {
     try {
       await cancelParse();
     } catch (err) {
-      setParseError(err instanceof Error ? err.message : String(err));
+      toastError(`パースの中止に失敗しました: ${formatError(err)}`);
     }
   };
 
   const handleStartProductNameParse = async () => {
-    setProductNameError(null);
     try {
       await startProductNameParse();
     } catch (err) {
-      setProductNameError(err instanceof Error ? err.message : String(err));
+      toastError(`商品名解析の開始に失敗しました: ${formatError(err)}`);
     }
   };
 
@@ -221,16 +216,6 @@ export function Batch() {
       {/* Sync Section */}
       <section className="space-y-4">
         <h2 className="text-xl font-semibold">1. Gmail同期</h2>
-
-        {syncError && (
-          <div
-            className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-800"
-            data-testid="sync-error-message"
-            role="alert"
-          >
-            {syncError}
-          </div>
-        )}
 
         <Card>
           <CardHeader>
@@ -467,19 +452,12 @@ export function Batch() {
                   />
                 </div>
               )}
-            {productNameError && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-800">
-                {productNameError}
-              </div>
-            )}
           </CardContent>
         </Card>
       </section>
 
       {/* Error Display */}
-      {(syncError ||
-        syncProgress?.error ||
-        parseError ||
+      {(syncProgress?.error ||
         parseProgress?.error ||
         parseMetadata?.last_error_message) && (
         <Card
@@ -492,9 +470,7 @@ export function Batch() {
           </CardHeader>
           <CardContent>
             <p className="text-sm text-red-700">
-              {syncError ||
-                syncProgress?.error ||
-                parseError ||
+              {syncProgress?.error ||
                 parseProgress?.error ||
                 parseMetadata?.last_error_message}
             </p>

@@ -7,6 +7,8 @@ import {
   BATCH_PROGRESS_EVENT,
   TASK_NAMES,
 } from './batch-progress-types';
+import { toastSuccess, toastError } from '@/lib/toast';
+import { notify, isAppWindowVisible } from '@/lib/utils';
 
 export function SyncProvider({ children }: { children: ReactNode }) {
   const [isSyncing, setIsSyncing] = useState(false);
@@ -25,21 +27,60 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 
   // 共通イベント（batch-progress）をリッスン
   useEffect(() => {
-    const unlisten = listen<BatchProgress>(BATCH_PROGRESS_EVENT, (event) => {
-      const data = event.payload;
+    const unlisten = listen<BatchProgress>(
+      BATCH_PROGRESS_EVENT,
+      async (event) => {
+        const data = event.payload;
 
-      // メール同期のイベントのみ処理
-      if (data.task_name !== TASK_NAMES.GMAIL_SYNC) {
-        return;
+        // メール同期のイベントのみ処理
+        if (data.task_name !== TASK_NAMES.GMAIL_SYNC) {
+          return;
+        }
+
+        setProgress(data);
+
+        if (data.is_complete) {
+          setIsSyncing(false);
+          refreshStatus();
+          const visible = await isAppWindowVisible();
+          if (visible) {
+            if (data.error) {
+              toastError('Gmail同期に失敗しました', data.error);
+            } else {
+              const desc =
+                data.success_count > 0
+                  ? `新たに${data.success_count}件のメールを取り込みました`
+                  : '新規メッセージはありませんでした';
+              toastSuccess('Gmail同期が完了しました', desc);
+            }
+          } else {
+            if (data.error) {
+              try {
+                await notify('Gmail同期失敗', data.error);
+              } catch (error) {
+                console.error(
+                  'Failed to send Gmail sync failure notification:',
+                  error
+                );
+              }
+            } else {
+              const body =
+                data.success_count > 0
+                  ? `新たに${data.success_count}件のメールを取り込みました`
+                  : '新規メッセージはありませんでした';
+              try {
+                await notify('Gmail同期完了', body);
+              } catch (error) {
+                console.error(
+                  'Failed to send Gmail sync completion notification:',
+                  error
+                );
+              }
+            }
+          }
+        }
       }
-
-      setProgress(data);
-
-      if (data.is_complete) {
-        setIsSyncing(false);
-        refreshStatus();
-      }
-    });
+    );
 
     return () => {
       unlisten.then((fn) => fn());

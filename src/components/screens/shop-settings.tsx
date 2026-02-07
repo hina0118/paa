@@ -11,6 +11,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { toastSuccess, toastError, formatError } from '@/lib/toast';
 
 interface ShopSetting {
   id: number;
@@ -30,8 +31,6 @@ interface ShopSettingDisplay extends Omit<ShopSetting, 'subject_filters'> {
 export function ShopSettings() {
   const [shops, setShops] = useState<ShopSettingDisplay[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string>('');
-  const [successMessage, setSuccessMessage] = useState<string>('');
 
   // New shop form state
   const [newShopName, setNewShopName] = useState('');
@@ -51,7 +50,6 @@ export function ShopSettings() {
   const loadShops = async () => {
     try {
       setIsLoading(true);
-      setError('');
       const result = await invoke<ShopSetting[]>('get_all_shop_settings');
       // Parse JSON subject_filters to array for display
       const displayShops: ShopSettingDisplay[] = result.map((shop) => ({
@@ -62,9 +60,7 @@ export function ShopSettings() {
       }));
       setShops(displayShops);
     } catch (err) {
-      setError(
-        `読み込みに失敗しました: ${err instanceof Error ? err.message : String(err)}`
-      );
+      toastError(`読み込みに失敗しました: ${formatError(err)}`);
     } finally {
       setIsLoading(false);
     }
@@ -76,19 +72,18 @@ export function ShopSettings() {
       !newSenderAddress.trim() ||
       !newParserType.trim()
     ) {
-      setError('すべての項目を入力してください');
+      toastError('すべての項目を入力してください');
       return;
     }
 
     // Email validation
     if (!newSenderAddress.includes('@')) {
-      setError('有効なメールアドレスを入力してください');
+      toastError('有効なメールアドレスを入力してください');
       return;
     }
 
     try {
       setIsAdding(true);
-      setError('');
 
       // Filter out empty strings from subject filters
       const cleanedFilters = newSubjectFilters
@@ -101,17 +96,14 @@ export function ShopSettings() {
         parserType: newParserType,
         subjectFilters: cleanedFilters.length > 0 ? cleanedFilters : null,
       });
-      setSuccessMessage('新しい店舗設定を追加しました');
-      setTimeout(() => setSuccessMessage(''), 3000);
+      toastSuccess('新しい店舗設定を追加しました');
       setNewShopName('');
       setNewSenderAddress('');
       setNewParserType('');
       setNewSubjectFilters(['']);
       await loadShops();
     } catch (err) {
-      setError(
-        `追加に失敗しました: ${err instanceof Error ? err.message : String(err)}`
-      );
+      toastError(`追加に失敗しました: ${formatError(err)}`);
     } finally {
       setIsAdding(false);
     }
@@ -142,18 +134,16 @@ export function ShopSettings() {
       !editForm.sender_address?.trim() ||
       !editForm.parser_type?.trim()
     ) {
-      setError('すべての項目を入力してください');
+      toastError('すべての項目を入力してください');
       return;
     }
 
     if (!editForm.sender_address.includes('@')) {
-      setError('有効なメールアドレスを入力してください');
+      toastError('有効なメールアドレスを入力してください');
       return;
     }
 
     try {
-      setError('');
-
       // Filter out empty strings from subject filters
       const cleanedFilters = (editForm.subject_filters_array || [])
         .map((f) => f.trim())
@@ -167,15 +157,12 @@ export function ShopSettings() {
         isEnabled: editForm.is_enabled,
         subjectFilters: cleanedFilters.length > 0 ? cleanedFilters : null,
       });
-      setSuccessMessage('店舗設定を更新しました');
-      setTimeout(() => setSuccessMessage(''), 3000);
+      toastSuccess('店舗設定を更新しました');
       setEditingId(null);
       setEditForm({});
       await loadShops();
     } catch (err) {
-      setError(
-        `更新に失敗しました: ${err instanceof Error ? err.message : String(err)}`
-      );
+      toastError(`更新に失敗しました: ${formatError(err)}`);
     }
   };
 
@@ -185,21 +172,16 @@ export function ShopSettings() {
     }
 
     try {
-      setError('');
       await invoke('delete_shop_setting', { id });
-      setSuccessMessage('店舗設定を削除しました');
-      setTimeout(() => setSuccessMessage(''), 3000);
+      toastSuccess('店舗設定を削除しました');
       await loadShops();
     } catch (err) {
-      setError(
-        `削除に失敗しました: ${err instanceof Error ? err.message : String(err)}`
-      );
+      toastError(`削除に失敗しました: ${formatError(err)}`);
     }
   };
 
   const handleToggleEnabled = async (shop: ShopSettingDisplay) => {
     try {
-      setError('');
       await invoke('update_shop_setting', {
         id: shop.id,
         shopName: null,
@@ -210,9 +192,7 @@ export function ShopSettings() {
       });
       await loadShops();
     } catch (err) {
-      setError(
-        `更新に失敗しました: ${err instanceof Error ? err.message : String(err)}`
-      );
+      toastError(`更新に失敗しました: ${formatError(err)}`);
     }
   };
 
@@ -226,26 +206,6 @@ export function ShopSettings() {
           <h1 className="text-3xl font-bold tracking-tight">店舗設定</h1>
         </div>
       </div>
-
-      {successMessage && (
-        <div
-          className="p-3 bg-green-50 border border-green-200 rounded text-sm text-green-800"
-          data-testid="success-message"
-          role="status"
-        >
-          {successMessage}
-        </div>
-      )}
-
-      {error && (
-        <div
-          className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-800"
-          data-testid="error-message"
-          role="alert"
-        >
-          {error}
-        </div>
-      )}
 
       {/* Add new shop */}
       <Card>

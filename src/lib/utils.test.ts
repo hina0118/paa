@@ -7,17 +7,31 @@ import {
   formatPrice,
   getProductMetadata,
   parseNumericFilter,
+  isAppWindowVisible,
 } from './utils';
+import {
+  mockNotificationIsPermissionGranted,
+  mockNotificationRequestPermission,
+  mockNotificationSendNotification,
+} from '@/test/setup';
 
-// Tauri Notification APIをモック
-const mockIsPermissionGranted = vi.fn();
-const mockRequestPermission = vi.fn();
-const mockSendNotification = vi.fn();
+// Hoisted mocks for isAppWindowVisible (uses dynamic import)
+const { mockIsTauri, mockGetCurrentWindow } = vi.hoisted(() => {
+  const mockIsVisibleFn = vi.fn();
+  return {
+    mockIsTauri: vi.fn(),
+    mockGetCurrentWindow: vi.fn(() => ({
+      isVisible: () => mockIsVisibleFn(),
+    })),
+  };
+});
 
-vi.mock('@tauri-apps/plugin-notification', () => ({
-  isPermissionGranted: () => mockIsPermissionGranted(),
-  requestPermission: () => mockRequestPermission(),
-  sendNotification: (options: unknown) => mockSendNotification(options),
+vi.mock('@tauri-apps/api/core', () => ({
+  isTauri: () => mockIsTauri(),
+}));
+
+vi.mock('@tauri-apps/api/window', () => ({
+  getCurrentWindow: () => mockGetCurrentWindow(),
 }));
 
 describe('cn utility', () => {
@@ -76,27 +90,27 @@ describe('notify utility', () => {
   });
 
   it('sends notification when permission is already granted', async () => {
-    mockIsPermissionGranted.mockResolvedValue(true);
+    mockNotificationIsPermissionGranted.mockResolvedValue(true);
 
     await notify('Test Title', 'Test Body');
 
-    expect(mockIsPermissionGranted).toHaveBeenCalled();
-    expect(mockRequestPermission).not.toHaveBeenCalled();
-    expect(mockSendNotification).toHaveBeenCalledWith({
+    expect(mockNotificationIsPermissionGranted).toHaveBeenCalled();
+    expect(mockNotificationRequestPermission).not.toHaveBeenCalled();
+    expect(mockNotificationSendNotification).toHaveBeenCalledWith({
       title: 'Test Title',
       body: 'Test Body',
     });
   });
 
   it('requests permission and sends notification when permission is granted', async () => {
-    mockIsPermissionGranted.mockResolvedValue(false);
-    mockRequestPermission.mockResolvedValue('granted');
+    mockNotificationIsPermissionGranted.mockResolvedValue(false);
+    mockNotificationRequestPermission.mockResolvedValue('granted');
 
     await notify('Test Title', 'Test Body');
 
-    expect(mockIsPermissionGranted).toHaveBeenCalled();
-    expect(mockRequestPermission).toHaveBeenCalled();
-    expect(mockSendNotification).toHaveBeenCalledWith({
+    expect(mockNotificationIsPermissionGranted).toHaveBeenCalled();
+    expect(mockNotificationRequestPermission).toHaveBeenCalled();
+    expect(mockNotificationSendNotification).toHaveBeenCalledWith({
       title: 'Test Title',
       body: 'Test Body',
     });
@@ -105,14 +119,14 @@ describe('notify utility', () => {
   it('does not send notification when permission is denied', async () => {
     const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    mockIsPermissionGranted.mockResolvedValue(false);
-    mockRequestPermission.mockResolvedValue('denied');
+    mockNotificationIsPermissionGranted.mockResolvedValue(false);
+    mockNotificationRequestPermission.mockResolvedValue('denied');
 
     await notify('Test Title', 'Test Body');
 
-    expect(mockIsPermissionGranted).toHaveBeenCalled();
-    expect(mockRequestPermission).toHaveBeenCalled();
-    expect(mockSendNotification).not.toHaveBeenCalled();
+    expect(mockNotificationIsPermissionGranted).toHaveBeenCalled();
+    expect(mockNotificationRequestPermission).toHaveBeenCalled();
+    expect(mockNotificationSendNotification).not.toHaveBeenCalled();
     expect(consoleSpy).toHaveBeenCalledWith(
       'Notification permission not granted'
     );
@@ -121,36 +135,36 @@ describe('notify utility', () => {
   });
 
   it('handles Japanese characters in notification', async () => {
-    mockIsPermissionGranted.mockResolvedValue(true);
+    mockNotificationIsPermissionGranted.mockResolvedValue(true);
 
     await notify('同期完了', 'メールの同期が完了しました');
 
-    expect(mockSendNotification).toHaveBeenCalledWith({
+    expect(mockNotificationSendNotification).toHaveBeenCalledWith({
       title: '同期完了',
       body: 'メールの同期が完了しました',
     });
   });
 
   it('handles empty title and body', async () => {
-    mockIsPermissionGranted.mockResolvedValue(true);
+    mockNotificationIsPermissionGranted.mockResolvedValue(true);
 
     await notify('', '');
 
-    expect(mockSendNotification).toHaveBeenCalledWith({
+    expect(mockNotificationSendNotification).toHaveBeenCalledWith({
       title: '',
       body: '',
     });
   });
 
   it('handles long notification content', async () => {
-    mockIsPermissionGranted.mockResolvedValue(true);
+    mockNotificationIsPermissionGranted.mockResolvedValue(true);
 
     const longTitle = 'A'.repeat(100);
     const longBody = 'B'.repeat(500);
 
     await notify(longTitle, longBody);
 
-    expect(mockSendNotification).toHaveBeenCalledWith({
+    expect(mockNotificationSendNotification).toHaveBeenCalledWith({
       title: longTitle,
       body: longBody,
     });
@@ -330,5 +344,53 @@ describe('parseNumericFilter', () => {
 
   it('ignores leading/trailing spaces for valid numbers', () => {
     expect(parseNumericFilter('  42  ')).toBe(42);
+  });
+});
+
+describe('isAppWindowVisible', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns true when not in Tauri environment (isTauri is false)', async () => {
+    mockIsTauri.mockReturnValue(false);
+
+    const result = await isAppWindowVisible();
+
+    expect(result).toBe(true);
+    expect(mockGetCurrentWindow).not.toHaveBeenCalled();
+  });
+
+  it('returns true when in Tauri environment and window is visible', async () => {
+    mockIsTauri.mockReturnValue(true);
+    mockGetCurrentWindow.mockReturnValue({
+      isVisible: vi.fn().mockResolvedValue(true),
+    });
+
+    const result = await isAppWindowVisible();
+
+    expect(result).toBe(true);
+  });
+
+  it('returns false when in Tauri environment and window is not visible', async () => {
+    mockIsTauri.mockReturnValue(true);
+    mockGetCurrentWindow.mockReturnValue({
+      isVisible: vi.fn().mockResolvedValue(false),
+    });
+
+    const result = await isAppWindowVisible();
+
+    expect(result).toBe(false);
+  });
+
+  it('returns true when dynamic import throws (fallback)', async () => {
+    // Simulate dynamic import failure by making isTauri check throw
+    mockIsTauri.mockImplementation(() => {
+      throw new Error('Tauri check failed');
+    });
+
+    const result = await isAppWindowVisible();
+
+    expect(result).toBe(true);
   });
 });
