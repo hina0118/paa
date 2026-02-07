@@ -69,6 +69,7 @@ export function Dashboard() {
     useState<ProductMasterStats | null>(null);
   const [miscStats, setMiscStats] = useState<MiscStats | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const { metadata: parseMetadata, refreshStatus: refreshParseStatus } =
     useParse();
   const { metadata: syncMetadata, refreshStatus: refreshSyncStatus } =
@@ -77,6 +78,7 @@ export function Dashboard() {
   const loadStats = async () => {
     try {
       setLoading(true);
+      setLoadError(false);
       const [
         emailResult,
         orderResult,
@@ -96,6 +98,7 @@ export function Dashboard() {
       setProductMasterStats(productMasterResult);
       setMiscStats(miscResult);
     } catch (err) {
+      setLoadError(true);
       toastError(`統計の読み込みに失敗しました: ${formatError(err)}`);
       console.error('Failed to load dashboard stats:', err);
     } finally {
@@ -745,7 +748,11 @@ export function Dashboard() {
       {!stats && !loading && (
         <Card>
           <CardContent className="flex items-center justify-center py-10">
-            <p className="text-muted-foreground">データを読み込んでいます...</p>
+            <p className="text-muted-foreground">
+              {loadError
+                ? 'データの読み込みに失敗しました。上の「更新」ボタンで再試行してください。'
+                : 'データを読み込んでいます...'}
+            </p>
           </CardContent>
         </Card>
       )}
