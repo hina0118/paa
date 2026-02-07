@@ -34,8 +34,8 @@ impl HobbySearchCancelParser {
 
 /// 注文番号を抽出（注文番号 ： XX-XXXX-XXXX 形式）
 fn extract_order_number(lines: &[&str]) -> Result<String, String> {
-    let re = Regex::new(r"注文番号\s*[：:]\s*(\d+-\d+-\d+)")
-        .map_err(|e| format!("Regex error: {e}"))?;
+    let re =
+        Regex::new(r"注文番号\s*[：:]\s*(\d+-\d+-\d+)").map_err(|e| format!("Regex error: {e}"))?;
 
     for line in lines {
         if let Some(captures) = re.captures(line) {
@@ -50,8 +50,7 @@ fn extract_order_number(lines: &[&str]) -> Result<String, String> {
 
 /// 商品名を抽出（商品名 ： ... 形式）
 fn extract_product_name(lines: &[&str]) -> Result<String, String> {
-    let re = Regex::new(r"商品名\s*[：:]\s*(.+)")
-        .map_err(|e| format!("Regex error: {e}"))?;
+    let re = Regex::new(r"商品名\s*[：:]\s*(.+)").map_err(|e| format!("Regex error: {e}"))?;
 
     for line in lines {
         if let Some(captures) = re.captures(line) {

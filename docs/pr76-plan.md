@@ -4,7 +4,8 @@
 **作成日**: 2026-02-07  
 **更新日**: 2026-02-08  
 **ブランチ**: `cancel-mail` → `main`  
-**ステータス**: Open / mergeable_state: unstable（CI 待ち）
+**ステータス**: Open / mergeable_state: unstable（CI 待ち）  
+**未解決レビュー**: 0件（コメント修正を適用済み）
 
 ---
 
@@ -75,6 +76,12 @@
 **ファイル**: `src-tauri/src/batch_commands.rs`  
 **指摘**: メール件名（subject）を `info` レベルでログ出力すると、デバッグビルドではログバッファ/UI に件名が残り得る（内容によっては個人情報になりやすい）。トラブルシュート目的なら `debug` レベルに落とす、もしくは subject を省略/マスクする運用に寄せるのが安全。
 
+### P2: コメントと実装の不一致 → 対応済み
+
+**ファイル**: `src-tauri/src/repository.rs` 行 669  
+**指摘**: コメント「order_number + shop_domain、見つからねば order_number のみで再検索」と実装が一致していない。実際のフォールバックは `shop_domain IS NULL OR ''` に限定されている。  
+**対応**: コメントを「shop_domain 未設定の注文のみで再検索」に修正済み。
+
 ---
 
 ## 3. 対応計画
@@ -131,6 +138,24 @@
 
 ---
 
+### Task E: P2 - コメント修正 → 対応済み
+
+**目的**: 注文検索ロジックのコメントを実装に合わせる。
+
+**ファイル**: `src-tauri/src/repository.rs` 行 669
+
+**修正案**:
+
+```rust
+// 修正前
+// 1. 既存の注文を検索（order_number + shop_domain、見つからねば order_number のみで再検索）
+
+// 修正後
+// 1. 既存の注文を検索（order_number + shop_domain、見つからねば shop_domain 未設定の注文のみで再検索）
+```
+
+---
+
 ## 4. マージ前チェックリスト
 
 - [x] Task A: マイグレーション 002 → 不要（リリース前のため）
@@ -143,11 +168,20 @@
 - [x] P2: order_emails 紐付けの統合テスト追加
 - [x] P0: batch_parse_emails の confirm/change 即時 save 対応
 - [x] `cargo test` 成功
+- [x] Task E: 注文検索コメントの修正（repository.rs 行 669）
 - [ ] CI 成功
 
 ---
 
-## 5. 備考
+## 5. マージまでの残作業
+
+| 優先度 | 項目        | 見積 |
+| ------ | ----------- | ---- |
+| 1      | CI 成功確認 | 自動 |
+
+---
+
+## 6. 備考
 
 - **mergeable_state: unstable**: CI の結果待ち。cargo fmt / clippy 等のチェックを確認する。
 - **デバッグログ**: `batch_commands.rs` および `parsers/mod.rs` に追加された `[parse]` `[batch]` `[DEBUG]` ログは、マージ前に `debug` レベルに統一するか、本番ビルドでは出さないようにすることを検討する。

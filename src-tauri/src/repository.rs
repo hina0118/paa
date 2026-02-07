@@ -7,9 +7,9 @@ use crate::gmail::{CreateShopSettings, GmailMessage, ShopSettings, UpdateShopSet
 use crate::parsers::hobbysearch_cancel::CancelInfo;
 use crate::parsers::{EmailRow, OrderInfo};
 use async_trait::async_trait;
-use regex::Regex;
 #[cfg(test)]
 use mockall::automock;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqlitePool;
 
@@ -666,7 +666,7 @@ impl OrderRepository for SqliteOrderRepository {
             .await
             .map_err(|e| format!("Failed to start transaction: {e}"))?;
 
-        // 1. 既存の注文を検索（order_number + shop_domain、見つからねば order_number のみで再検索）
+        // 1. 既存の注文を検索（order_number + shop_domain、見つからねば shop_domain 未設定の注文のみで再検索）
         let mut order_row: Option<(i64,)> = sqlx::query_as(
             r#"
             SELECT id FROM orders
@@ -731,35 +731,37 @@ impl OrderRepository for SqliteOrderRepository {
         // 【】[]（）() で囲まれた部分を除去した版（比較のため）
         let product_name_stripped = strip_bracketed_content(product_name);
         let product_normalized = normalize_product_name(product_name);
-        let matched = items.iter().find(|(_, item_name, item_name_normalized, _)| {
-            let item_trimmed = item_name.trim();
-            let item_stripped = strip_bracketed_content(item_trimmed);
-            // 優先1: item_name 完全一致
-            if item_trimmed == product_name || item_trimmed == product_name_core {
-                return true;
-            }
-            // 優先2: item_name 包含（括弧除去版も試す）
-            if item_trimmed.contains(product_name)
-                || product_name.contains(item_trimmed)
-                || item_trimmed.contains(product_name_core)
-                || product_name_core.contains(item_trimmed)
-                || item_trimmed.contains(&product_name_stripped)
-                || product_name_stripped.contains(item_trimmed)
-                || item_stripped.contains(&product_name_stripped)
-                || product_name_stripped.contains(&item_stripped)
-            {
-                return true;
-            }
-            // 優先3: item_name_normalized による正規化後の完全一致・部分一致
-            let db_normalized = item_name_normalized
-                .as_deref()
-                .filter(|s| !s.is_empty())
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| normalize_product_name(item_name));
-            product_normalized == db_normalized
-                || product_normalized.contains(db_normalized.as_str())
-                || db_normalized.contains(product_normalized.as_str())
-        });
+        let matched = items
+            .iter()
+            .find(|(_, item_name, item_name_normalized, _)| {
+                let item_trimmed = item_name.trim();
+                let item_stripped = strip_bracketed_content(item_trimmed);
+                // 優先1: item_name 完全一致
+                if item_trimmed == product_name || item_trimmed == product_name_core {
+                    return true;
+                }
+                // 優先2: item_name 包含（括弧除去版も試す）
+                if item_trimmed.contains(product_name)
+                    || product_name.contains(item_trimmed)
+                    || item_trimmed.contains(product_name_core)
+                    || product_name_core.contains(item_trimmed)
+                    || item_trimmed.contains(&product_name_stripped)
+                    || product_name_stripped.contains(item_trimmed)
+                    || item_stripped.contains(&product_name_stripped)
+                    || product_name_stripped.contains(&item_stripped)
+                {
+                    return true;
+                }
+                // 優先3: item_name_normalized による正規化後の完全一致・部分一致
+                let db_normalized = item_name_normalized
+                    .as_deref()
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| normalize_product_name(item_name));
+                product_normalized == db_normalized
+                    || product_normalized.contains(db_normalized.as_str())
+                    || db_normalized.contains(product_normalized.as_str())
+            });
 
         match matched {
             Some((item_id, _, _, current_qty)) => {
@@ -778,8 +780,7 @@ impl OrderRepository for SqliteOrderRepository {
                         .map_err(|e| format!("Failed to rollback: {e}"))?;
                     return Err(format!(
                         "Invalid cancel quantity {} for product '{}'",
-                        cancel_info.cancel_quantity,
-                        product_name
+                        cancel_info.cancel_quantity, product_name
                     ));
                 }
 
@@ -2379,25 +2380,25 @@ mod tests {
         .execute(&pool)
         .await
         .expect("insert order");
-        let order_id: (i64,) = sqlx::query_as("SELECT id FROM orders WHERE order_number = '99-1111-1111'")
-            .fetch_one(&pool)
+        let order_id: (i64,) =
+            sqlx::query_as("SELECT id FROM orders WHERE order_number = '99-1111-1111'")
+                .fetch_one(&pool)
+                .await
+                .expect("get order id");
+        sqlx::query(r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, '商品A', 2)"#)
+            .bind(order_id.0)
+            .execute(&pool)
             .await
-            .expect("get order id");
-        sqlx::query(
-            r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, '商品A', 2)"#,
-        )
-        .bind(order_id.0)
-        .execute(&pool)
-        .await
-        .expect("insert item");
+            .expect("insert item");
         sqlx::query("INSERT INTO emails (message_id, body_plain) VALUES ('cancel-email-1', '')")
             .execute(&pool)
             .await
             .expect("insert email");
-        let email_id: (i64,) = sqlx::query_as("SELECT id FROM emails WHERE message_id = 'cancel-email-1'")
-            .fetch_one(&pool)
-            .await
-            .expect("get email id");
+        let email_id: (i64,) =
+            sqlx::query_as("SELECT id FROM emails WHERE message_id = 'cancel-email-1'")
+                .fetch_one(&pool)
+                .await
+                .expect("get email id");
 
         let cancel_info = CancelInfo {
             order_number: "99-1111-1111".to_string(),
@@ -2405,27 +2406,32 @@ mod tests {
             cancel_quantity: 1,
         };
         let result = repo
-            .apply_cancel(&cancel_info, email_id.0, Some("1999.co.jp".to_string()), None)
+            .apply_cancel(
+                &cancel_info,
+                email_id.0,
+                Some("1999.co.jp".to_string()),
+                None,
+            )
             .await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), order_id.0);
 
-        let qty: (i64,) = sqlx::query_as("SELECT quantity FROM items WHERE order_id = ? AND item_name = '商品A'")
-            .bind(order_id.0)
-            .fetch_one(&pool)
-            .await
-            .expect("get item");
+        let qty: (i64,) =
+            sqlx::query_as("SELECT quantity FROM items WHERE order_id = ? AND item_name = '商品A'")
+                .bind(order_id.0)
+                .fetch_one(&pool)
+                .await
+                .expect("get item");
         assert_eq!(qty.0, 1);
 
         // order_emails に (order_id, email_id) が1件挿入されること
-        let link_count: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM order_emails WHERE order_id = ? AND email_id = ?",
-        )
-        .bind(order_id.0)
-        .bind(email_id.0)
-        .fetch_one(&pool)
-        .await
-        .expect("count order_emails");
+        let link_count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM order_emails WHERE order_id = ? AND email_id = ?")
+                .bind(order_id.0)
+                .bind(email_id.0)
+                .fetch_one(&pool)
+                .await
+                .expect("count order_emails");
         assert_eq!(link_count.0, 1, "order_emails should have 1 link");
     }
 
@@ -2440,25 +2446,25 @@ mod tests {
         .execute(&pool)
         .await
         .expect("insert order");
-        let order_id: (i64,) = sqlx::query_as("SELECT id FROM orders WHERE order_number = '99-4444-4444'")
-            .fetch_one(&pool)
+        let order_id: (i64,) =
+            sqlx::query_as("SELECT id FROM orders WHERE order_number = '99-4444-4444'")
+                .fetch_one(&pool)
+                .await
+                .expect("get order id");
+        sqlx::query(r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, '商品D', 2)"#)
+            .bind(order_id.0)
+            .execute(&pool)
             .await
-            .expect("get order id");
-        sqlx::query(
-            r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, '商品D', 2)"#,
-        )
-        .bind(order_id.0)
-        .execute(&pool)
-        .await
-        .expect("insert item");
+            .expect("insert item");
         sqlx::query("INSERT INTO emails (message_id, body_plain) VALUES ('cancel-email-5', '')")
             .execute(&pool)
             .await
             .expect("insert email");
-        let email_id: (i64,) = sqlx::query_as("SELECT id FROM emails WHERE message_id = 'cancel-email-5'")
-            .fetch_one(&pool)
-            .await
-            .expect("get email id");
+        let email_id: (i64,) =
+            sqlx::query_as("SELECT id FROM emails WHERE message_id = 'cancel-email-5'")
+                .fetch_one(&pool)
+                .await
+                .expect("get email id");
 
         let cancel_info = CancelInfo {
             order_number: "99-4444-4444".to_string(),
@@ -2467,22 +2473,31 @@ mod tests {
         };
 
         // 1回目: 数量 2 -> 1
-        repo.apply_cancel(&cancel_info, email_id.0, Some("1999.co.jp".to_string()), None)
-            .await
-            .expect("first apply");
-        // 2回目: 同一 email_id で再度適用 → 数量 1 -> 0、order_emails は重複しない
-        repo.apply_cancel(&cancel_info, email_id.0, Some("1999.co.jp".to_string()), None)
-            .await
-            .expect("second apply");
-
-        let link_count: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM order_emails WHERE order_id = ? AND email_id = ?",
+        repo.apply_cancel(
+            &cancel_info,
+            email_id.0,
+            Some("1999.co.jp".to_string()),
+            None,
         )
-        .bind(order_id.0)
-        .bind(email_id.0)
-        .fetch_one(&pool)
         .await
-        .expect("count order_emails");
+        .expect("first apply");
+        // 2回目: 同一 email_id で再度適用 → 数量 1 -> 0、order_emails は重複しない
+        repo.apply_cancel(
+            &cancel_info,
+            email_id.0,
+            Some("1999.co.jp".to_string()),
+            None,
+        )
+        .await
+        .expect("second apply");
+
+        let link_count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM order_emails WHERE order_id = ? AND email_id = ?")
+                .bind(order_id.0)
+                .bind(email_id.0)
+                .fetch_one(&pool)
+                .await
+                .expect("count order_emails");
         assert_eq!(link_count.0, 1, "order_emails should not have duplicate");
     }
 
@@ -2497,25 +2512,25 @@ mod tests {
         .execute(&pool)
         .await
         .expect("insert order");
-        let order_id: (i64,) = sqlx::query_as("SELECT id FROM orders WHERE order_number = '99-2222-2222'")
-            .fetch_one(&pool)
+        let order_id: (i64,) =
+            sqlx::query_as("SELECT id FROM orders WHERE order_number = '99-2222-2222'")
+                .fetch_one(&pool)
+                .await
+                .expect("get order id");
+        sqlx::query(r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, '商品B', 1)"#)
+            .bind(order_id.0)
+            .execute(&pool)
             .await
-            .expect("get order id");
-        sqlx::query(
-            r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, '商品B', 1)"#,
-        )
-        .bind(order_id.0)
-        .execute(&pool)
-        .await
-        .expect("insert item");
+            .expect("insert item");
         sqlx::query("INSERT INTO emails (message_id, body_plain) VALUES ('cancel-email-2', '')")
             .execute(&pool)
             .await
             .expect("insert email");
-        let email_id: (i64,) = sqlx::query_as("SELECT id FROM emails WHERE message_id = 'cancel-email-2'")
-            .fetch_one(&pool)
-            .await
-            .expect("get email id");
+        let email_id: (i64,) =
+            sqlx::query_as("SELECT id FROM emails WHERE message_id = 'cancel-email-2'")
+                .fetch_one(&pool)
+                .await
+                .expect("get email id");
 
         let cancel_info = CancelInfo {
             order_number: "99-2222-2222".to_string(),
@@ -2523,7 +2538,12 @@ mod tests {
             cancel_quantity: 1,
         };
         let result = repo
-            .apply_cancel(&cancel_info, email_id.0, Some("1999.co.jp".to_string()), None)
+            .apply_cancel(
+                &cancel_info,
+                email_id.0,
+                Some("1999.co.jp".to_string()),
+                None,
+            )
             .await;
         assert!(result.is_ok());
 
@@ -2544,10 +2564,11 @@ mod tests {
             .execute(&pool)
             .await
             .expect("insert email");
-        let email_id: (i64,) = sqlx::query_as("SELECT id FROM emails WHERE message_id = 'cancel-email-3'")
-            .fetch_one(&pool)
-            .await
-            .expect("get email id");
+        let email_id: (i64,) =
+            sqlx::query_as("SELECT id FROM emails WHERE message_id = 'cancel-email-3'")
+                .fetch_one(&pool)
+                .await
+                .expect("get email id");
 
         let cancel_info = CancelInfo {
             order_number: "99-9999-9999".to_string(),
@@ -2555,7 +2576,12 @@ mod tests {
             cancel_quantity: 1,
         };
         let result = repo
-            .apply_cancel(&cancel_info, email_id.0, Some("1999.co.jp".to_string()), None)
+            .apply_cancel(
+                &cancel_info,
+                email_id.0,
+                Some("1999.co.jp".to_string()),
+                None,
+            )
             .await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not found"));
@@ -2572,25 +2598,25 @@ mod tests {
         .execute(&pool)
         .await
         .expect("insert order");
-        let order_id: (i64,) = sqlx::query_as("SELECT id FROM orders WHERE order_number = '99-3333-3333'")
-            .fetch_one(&pool)
+        let order_id: (i64,) =
+            sqlx::query_as("SELECT id FROM orders WHERE order_number = '99-3333-3333'")
+                .fetch_one(&pool)
+                .await
+                .expect("get order id");
+        sqlx::query(r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, '商品C', 1)"#)
+            .bind(order_id.0)
+            .execute(&pool)
             .await
-            .expect("get order id");
-        sqlx::query(
-            r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, '商品C', 1)"#,
-        )
-        .bind(order_id.0)
-        .execute(&pool)
-        .await
-        .expect("insert item");
+            .expect("insert item");
         sqlx::query("INSERT INTO emails (message_id, body_plain) VALUES ('cancel-email-4', '')")
             .execute(&pool)
             .await
             .expect("insert email");
-        let email_id: (i64,) = sqlx::query_as("SELECT id FROM emails WHERE message_id = 'cancel-email-4'")
-            .fetch_one(&pool)
-            .await
-            .expect("get email id");
+        let email_id: (i64,) =
+            sqlx::query_as("SELECT id FROM emails WHERE message_id = 'cancel-email-4'")
+                .fetch_one(&pool)
+                .await
+                .expect("get email id");
 
         let cancel_info = CancelInfo {
             order_number: "99-3333-3333".to_string(),
@@ -2598,7 +2624,12 @@ mod tests {
             cancel_quantity: 1,
         };
         let result = repo
-            .apply_cancel(&cancel_info, email_id.0, Some("1999.co.jp".to_string()), None)
+            .apply_cancel(
+                &cancel_info,
+                email_id.0,
+                Some("1999.co.jp".to_string()),
+                None,
+            )
             .await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not found"));
@@ -2625,10 +2656,11 @@ mod tests {
             .execute(&pool)
             .await
             .expect("insert email");
-        let email_id: (i64,) = sqlx::query_as("SELECT id FROM emails WHERE message_id = 'cancel-email-6'")
-            .fetch_one(&pool)
-            .await
-            .expect("get email id");
+        let email_id: (i64,) =
+            sqlx::query_as("SELECT id FROM emails WHERE message_id = 'cancel-email-6'")
+                .fetch_one(&pool)
+                .await
+                .expect("get email id");
 
         let cancel_info = CancelInfo {
             order_number: "99-5555-5555".to_string(),
@@ -2636,7 +2668,12 @@ mod tests {
             cancel_quantity: 0,
         };
         let result = repo
-            .apply_cancel(&cancel_info, email_id.0, Some("1999.co.jp".to_string()), None)
+            .apply_cancel(
+                &cancel_info,
+                email_id.0,
+                Some("1999.co.jp".to_string()),
+                None,
+            )
             .await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Invalid cancel quantity"));
