@@ -8,6 +8,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
+import { toastError, formatError } from '@/lib/toast';
 import {
   Dialog,
   DialogContent,
@@ -185,6 +186,7 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
 
       setData(rows);
     } catch (err) {
+      toastError(`テーブルデータの読み込みに失敗しました: ${formatError(err)}`);
       console.error('Error loading table data:', err);
       setError(err instanceof Error ? err.message : String(err));
     } finally {

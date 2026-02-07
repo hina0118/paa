@@ -2,7 +2,12 @@ import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { save, open, confirm } from '@tauri-apps/plugin-dialog';
 import { Archive } from 'lucide-react';
-import { toast } from 'sonner';
+import {
+  toastSuccess,
+  toastError,
+  toastWarning,
+  formatError,
+} from '@/lib/toast';
 import {
   Card,
   CardContent,
@@ -46,18 +51,16 @@ export function Backup() {
       const result = await invoke<ExportResult>('export_metadata', {
         savePath,
       });
-      toast.success(
+      toastSuccess(
         `バックアップを保存しました（images: ${result.images_count}、shop_settings: ${result.shop_settings_count}、product_master: ${result.product_master_count}、画像ファイル: ${result.image_files_count}）`
       );
       if (result.images_skipped > 0) {
-        toast.warning(
+        toastWarning(
           `${result.images_skipped}件の画像をスキップしました（不正なファイル名、サイズ超過、またはファイルが存在しません）`
         );
       }
     } catch (error) {
-      toast.error(
-        `エクスポートに失敗しました: ${error instanceof Error ? error.message : String(error)}`
-      );
+      toastError(`エクスポートに失敗しました: ${formatError(error)}`);
     } finally {
       setIsExporting(false);
     }
@@ -84,13 +87,11 @@ export function Backup() {
       const result = await invoke<ImportResult>('import_metadata', {
         zipPath,
       });
-      toast.success(
+      toastSuccess(
         `復元しました（images: ${result.images_inserted}件、shop_settings: ${result.shop_settings_inserted}件、product_master: ${result.product_master_inserted}件、画像ファイル: ${result.image_files_copied}件）`
       );
     } catch (error) {
-      toast.error(
-        `インポートに失敗しました: ${error instanceof Error ? error.message : String(error)}`
-      );
+      toastError(`インポートに失敗しました: ${formatError(error)}`);
     } finally {
       setIsImporting(false);
     }

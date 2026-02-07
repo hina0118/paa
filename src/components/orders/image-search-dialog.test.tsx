@@ -1,8 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { Toaster } from 'sonner';
 import { ImageSearchDialog } from './image-search-dialog';
 import { mockInvoke } from '@/test/setup';
+
+const renderWithToaster = (ui: React.ReactElement) =>
+  render(
+    <>
+      {ui}
+      <Toaster position="top-right" richColors />
+    </>
+  );
 
 describe('ImageSearchDialog', () => {
   const defaultProps = {
@@ -30,7 +39,7 @@ describe('ImageSearchDialog', () => {
     const user = userEvent.setup();
     mockInvoke.mockResolvedValue([]);
 
-    render(<ImageSearchDialog {...defaultProps} />);
+    renderWithToaster(<ImageSearchDialog {...defaultProps} />);
 
     const dialog = screen.getByRole('dialog');
     await user.click(
@@ -49,7 +58,7 @@ describe('ImageSearchDialog', () => {
     const user = userEvent.setup();
     mockInvoke.mockResolvedValue([]);
 
-    render(<ImageSearchDialog {...defaultProps} />);
+    renderWithToaster(<ImageSearchDialog {...defaultProps} />);
 
     const dialog = screen.getByRole('dialog');
     await user.click(
@@ -67,7 +76,7 @@ describe('ImageSearchDialog', () => {
     const user = userEvent.setup();
     mockInvoke.mockRejectedValue(new Error('Network error'));
 
-    render(<ImageSearchDialog {...defaultProps} />);
+    renderWithToaster(<ImageSearchDialog {...defaultProps} />);
 
     const dialog = screen.getByRole('dialog');
     await user.click(
@@ -75,7 +84,7 @@ describe('ImageSearchDialog', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Network error')).toBeInTheDocument();
+      expect(screen.getByText(/Network error/)).toBeInTheDocument();
     });
   });
 
@@ -101,7 +110,7 @@ describe('ImageSearchDialog', () => {
     ];
     mockInvoke.mockResolvedValue(mockResults);
 
-    render(<ImageSearchDialog {...defaultProps} />);
+    renderWithToaster(<ImageSearchDialog {...defaultProps} />);
 
     const dialog = screen.getByRole('dialog');
     await user.click(
@@ -140,7 +149,7 @@ describe('ImageSearchDialog', () => {
       .mockResolvedValueOnce(mockResults)
       .mockResolvedValueOnce(undefined);
 
-    render(<ImageSearchDialog {...defaultProps} />);
+    renderWithToaster(<ImageSearchDialog {...defaultProps} />);
 
     const dialog = screen.getByRole('dialog');
     await user.click(
@@ -197,7 +206,7 @@ describe('ImageSearchDialog', () => {
       .mockResolvedValueOnce(mockResults)
       .mockRejectedValueOnce(new Error('Save failed'));
 
-    render(<ImageSearchDialog {...defaultProps} />);
+    renderWithToaster(<ImageSearchDialog {...defaultProps} />);
 
     const dialog = screen.getByRole('dialog');
     await user.click(
@@ -219,7 +228,7 @@ describe('ImageSearchDialog', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('Save failed')).toBeInTheDocument();
+      expect(screen.getByText(/Save failed/)).toBeInTheDocument();
     });
   });
 
@@ -227,7 +236,7 @@ describe('ImageSearchDialog', () => {
     const user = userEvent.setup();
     mockInvoke.mockResolvedValue([]);
 
-    render(<ImageSearchDialog {...defaultProps} />);
+    renderWithToaster(<ImageSearchDialog {...defaultProps} />);
 
     const dialog = screen.getByRole('dialog');
     await user.click(
@@ -260,7 +269,7 @@ describe('ImageSearchDialog', () => {
     const user = userEvent.setup();
     mockInvoke.mockRejectedValue('string error');
 
-    render(<ImageSearchDialog {...defaultProps} />);
+    renderWithToaster(<ImageSearchDialog {...defaultProps} />);
 
     const dialog = screen.getByRole('dialog');
     await user.click(
@@ -268,7 +277,7 @@ describe('ImageSearchDialog', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('string error')).toBeInTheDocument();
+      expect(screen.getByText(/string error/)).toBeInTheDocument();
     });
   });
 });

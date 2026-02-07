@@ -109,6 +109,23 @@ export function getProductMetadata(item: {
 }
 
 /**
+ * アプリウィンドウが表示状態かどうかを判定する
+ * Tauri環境でない場合は true（トーストを表示）を返す
+ */
+export async function isAppWindowVisible(): Promise<boolean> {
+  try {
+    const { isTauri } = await import('@tauri-apps/api/core');
+    if (!isTauri()) return true;
+
+    const { getCurrentWindow } = await import('@tauri-apps/api/window');
+    const visible = await getCurrentWindow().isVisible();
+    return visible;
+  } catch {
+    return true; // エラー時はトーストを表示
+  }
+}
+
+/**
  * Send a desktop notification
  * @param title - Notification title
  * @param body - Notification body text
