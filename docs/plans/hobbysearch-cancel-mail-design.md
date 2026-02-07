@@ -101,13 +101,13 @@ pub struct CancelInfo {
 
 ### フェーズ1: パーサー実装
 
-| #   | タスク                        | ファイル                                         | 内容                                        |
-| --- | ----------------------------- | ------------------------------------------------ | ------------------------------------------- |
-| 1.1 | `CancelInfo` 定義             | `parsers/mod.rs` または `parsers/cancel_info.rs` | 構造体とシリアライズ                        |
-| 1.2 | `hobbysearch_cancel` パーサー | `parsers/hobbysearch_cancel.rs`                  | `[キャンセル]` セクションから正規表現で抽出 |
-| 1.3 | `get_parser` 拡張             | `parsers/mod.rs`                                 | `hobbysearch_cancel` を返す分岐を追加       |
-| 1.4 | `is_valid_parser_type` 拡張   | `logic/email_parser.rs`                          | `hobbysearch_cancel` を有効な型に追加       |
-| 1.5 | マイグレーション              | `migrations/001_init.sql` または新規             | shop_settings にキャンセル用の設定を追加    |
+| #   | タスク                                | ファイル                                         | 内容                                                                |
+| --- | ------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------- |
+| 1.1 | `CancelInfo` 定義                     | `parsers/mod.rs` または `parsers/cancel_info.rs` | 構造体とシリアライズ                                                |
+| 1.2 | `hobbysearch_cancel` パーサー         | `parsers/hobbysearch_cancel.rs`                  | `[キャンセル]` セクションから正規表現で抽出                         |
+| 1.3 | `get_parser` 方針の確認（変更なし）   | `parsers/mod.rs`                                 | `hobbysearch_cancel` は EmailParser に追加せずバッチ側で分岐する方針を明記 |
+| 1.4 | `is_valid_parser_type` 拡張           | `logic/email_parser.rs`                          | `hobbysearch_cancel` を有効な型に追加                               |
+| 1.5 | マイグレーション                      | `migrations/001_init.sql` または新規             | shop_settings にキャンセル用の設定を追加                            |
 
 ### フェーズ2: リポジトリ拡張
 
