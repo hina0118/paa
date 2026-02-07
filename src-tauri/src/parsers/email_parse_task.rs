@@ -457,7 +457,11 @@ where
                     .await
                 {
                     Ok(order_id) => {
-                        log::debug!("Saved order {} for email {} (in-batch)", order_id, input.email_id);
+                        log::debug!(
+                            "Saved order {} for email {} (in-batch)",
+                            order_id,
+                            input.email_id
+                        );
                     }
                     Err(e) => {
                         log::error!("Failed to save order for email {}: {}", input.email_id, e);
