@@ -12,11 +12,10 @@ import {
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { toastSuccess, toastError, formatError } from '@/lib/toast';
 
 export function ApiKeys() {
   const { geminiApiKeyStatus, refreshGeminiApiKeyStatus } = useParse();
-  const [successMessage, setSuccessMessage] = useState<string>('');
-  const [errorMessage, setErrorMessage] = useState<string>('');
   // Gemini API キー
   const [geminiApiKey, setGeminiApiKey] = useState<string>('');
   const [isSavingGeminiApiKey, setIsSavingGeminiApiKey] = useState(false);
@@ -75,26 +74,20 @@ export function ApiKeys() {
   const handleSaveGeminiApiKey = async () => {
     const key = geminiApiKey.trim();
     if (!key) {
-      setErrorMessage('APIキーを入力してください');
+      toastError('APIキーを入力してください');
       return;
     }
 
     setIsSavingGeminiApiKey(true);
-    setErrorMessage('');
-    setSuccessMessage('');
-
     try {
       await invoke('save_gemini_api_key', { apiKey: key });
-      setSuccessMessage(
+      toastSuccess(
         'Gemini APIキーを保存しました（OSのセキュアストレージに保存）'
       );
       setGeminiApiKey('');
       await refreshGeminiApiKeyStatus();
-      setTimeout(() => setSuccessMessage(''), 3000);
     } catch (error) {
-      setErrorMessage(
-        `保存に失敗しました: ${error instanceof Error ? error.message : String(error)}`
-      );
+      toastError(`保存に失敗しました: ${formatError(error)}`);
     } finally {
       setIsSavingGeminiApiKey(false);
     }
@@ -106,19 +99,13 @@ export function ApiKeys() {
     }
 
     setIsDeletingGeminiApiKey(true);
-    setErrorMessage('');
-    setSuccessMessage('');
-
     try {
       await invoke('delete_gemini_api_key');
-      setSuccessMessage('Gemini APIキーを削除しました');
+      toastSuccess('Gemini APIキーを削除しました');
       setGeminiApiKey('');
       await refreshGeminiApiKeyStatus();
-      setTimeout(() => setSuccessMessage(''), 3000);
     } catch (error) {
-      setErrorMessage(
-        `削除に失敗しました: ${error instanceof Error ? error.message : String(error)}`
-      );
+      toastError(`削除に失敗しました: ${formatError(error)}`);
     } finally {
       setIsDeletingGeminiApiKey(false);
     }
@@ -128,26 +115,20 @@ export function ApiKeys() {
     const apiKey = serpApiKey.trim();
 
     if (!apiKey) {
-      setErrorMessage('APIキーを入力してください');
+      toastError('APIキーを入力してください');
       return;
     }
 
     setIsSavingSerpApi(true);
-    setErrorMessage('');
-    setSuccessMessage('');
-
     try {
       await invoke('save_google_search_api_key', { apiKey });
-      setSuccessMessage(
+      toastSuccess(
         'SerpApi APIキーを保存しました（OSのセキュアストレージに保存）'
       );
       setSerpApiKey('');
       await refreshSerpApiStatus();
-      setTimeout(() => setSuccessMessage(''), 3000);
     } catch (error) {
-      setErrorMessage(
-        `保存に失敗しました: ${error instanceof Error ? error.message : String(error)}`
-      );
+      toastError(`保存に失敗しました: ${formatError(error)}`);
     } finally {
       setIsSavingSerpApi(false);
     }
@@ -159,19 +140,13 @@ export function ApiKeys() {
     }
 
     setIsDeletingSerpApi(true);
-    setErrorMessage('');
-    setSuccessMessage('');
-
     try {
       await invoke('delete_google_search_config');
-      setSuccessMessage('SerpApi APIキーを削除しました');
+      toastSuccess('SerpApi APIキーを削除しました');
       setSerpApiKey('');
       await refreshSerpApiStatus();
-      setTimeout(() => setSuccessMessage(''), 3000);
     } catch (error) {
-      setErrorMessage(
-        `削除に失敗しました: ${error instanceof Error ? error.message : String(error)}`
-      );
+      toastError(`削除に失敗しました: ${formatError(error)}`);
     } finally {
       setIsDeletingSerpApi(false);
     }
@@ -181,33 +156,27 @@ export function ApiKeys() {
     const jsonContent = gmailOAuthJson.trim();
 
     if (!jsonContent) {
-      setErrorMessage('JSONを入力してください');
+      toastError('JSONを入力してください');
       return;
     }
 
     try {
       JSON.parse(jsonContent);
     } catch {
-      setErrorMessage('無効なJSON形式です');
+      toastError('無効なJSON形式です');
       return;
     }
 
     setIsSavingGmailOAuth(true);
-    setErrorMessage('');
-    setSuccessMessage('');
-
     try {
       await invoke('save_gmail_oauth_credentials', { jsonContent });
-      setSuccessMessage(
+      toastSuccess(
         'Gmail OAuth認証情報を保存しました（OSのセキュアストレージに保存）'
       );
       setGmailOAuthJson('');
       await refreshGmailOAuthStatus();
-      setTimeout(() => setSuccessMessage(''), 3000);
     } catch (error) {
-      setErrorMessage(
-        `保存に失敗しました: ${error instanceof Error ? error.message : String(error)}`
-      );
+      toastError(`保存に失敗しました: ${formatError(error)}`);
     } finally {
       setIsSavingGmailOAuth(false);
     }
@@ -219,19 +188,13 @@ export function ApiKeys() {
     }
 
     setIsDeletingGmailOAuth(true);
-    setErrorMessage('');
-    setSuccessMessage('');
-
     try {
       await invoke('delete_gmail_oauth_credentials');
-      setSuccessMessage('Gmail OAuth認証情報を削除しました');
+      toastSuccess('Gmail OAuth認証情報を削除しました');
       setGmailOAuthJson('');
       await refreshGmailOAuthStatus();
-      setTimeout(() => setSuccessMessage(''), 3000);
     } catch (error) {
-      setErrorMessage(
-        `削除に失敗しました: ${error instanceof Error ? error.message : String(error)}`
-      );
+      toastError(`削除に失敗しました: ${formatError(error)}`);
     } finally {
       setIsDeletingGmailOAuth(false);
     }
@@ -247,7 +210,7 @@ export function ApiKeys() {
       setGmailOAuthJson(content);
     };
     reader.onerror = () => {
-      setErrorMessage('ファイルの読み込みに失敗しました');
+      toastError('ファイルの読み込みに失敗しました');
     };
     reader.readAsText(file);
 
@@ -266,26 +229,6 @@ export function ApiKeys() {
           <h1 className="text-3xl font-bold tracking-tight">APIキー設定</h1>
         </div>
       </div>
-
-      {successMessage && (
-        <div
-          className="p-3 bg-green-50 border border-green-200 rounded text-sm text-green-800"
-          data-testid="success-message"
-          role="status"
-        >
-          {successMessage}
-        </div>
-      )}
-
-      {errorMessage && (
-        <div
-          className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-800"
-          data-testid="error-message"
-          role="alert"
-        >
-          {errorMessage}
-        </div>
-      )}
 
       <Card>
         <CardHeader>

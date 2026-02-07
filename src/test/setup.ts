@@ -67,5 +67,11 @@ vi.mock('@tauri-apps/api/event', () => ({
   emit: mockEmit,
 }));
 
+vi.mock('@tauri-apps/plugin-notification', () => ({
+  isPermissionGranted: vi.fn().mockResolvedValue(true),
+  requestPermission: vi.fn().mockResolvedValue('granted'),
+  sendNotification: vi.fn().mockResolvedValue(undefined),
+}));
+
 // Export mocks for use in tests
 export { mockInvoke, mockListen, mockEmit };

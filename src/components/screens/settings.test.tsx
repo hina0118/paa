@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { Toaster } from 'sonner';
 import { Settings } from './settings';
 import { SyncProvider } from '@/contexts/sync-provider';
 import { ParseProvider } from '@/contexts/parse-provider';
@@ -8,9 +9,12 @@ import { mockInvoke, mockListen } from '@/test/setup';
 
 const renderWithProviders = (ui: React.ReactElement) => {
   return render(
-    <SyncProvider>
-      <ParseProvider>{ui}</ParseProvider>
-    </SyncProvider>
+    <>
+      <SyncProvider>
+        <ParseProvider>{ui}</ParseProvider>
+      </SyncProvider>
+      <Toaster position="top-right" richColors />
+    </>
   );
 };
 

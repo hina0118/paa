@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { toastSuccess, toastError, formatError } from '@/lib/toast';
 
 interface GeminiConfig {
   batch_size: number;
@@ -44,8 +45,6 @@ export function Settings() {
   const [isSavingGeminiBatchSize, setIsSavingGeminiBatchSize] = useState(false);
   const [isSavingGeminiDelaySeconds, setIsSavingGeminiDelaySeconds] =
     useState(false);
-  const [successMessage, setSuccessMessage] = useState<string>('');
-  const [errorMessage, setErrorMessage] = useState<string>('');
   const [isInitialized, setIsInitialized] = useState(false);
 
   useEffect(() => {
@@ -80,22 +79,16 @@ export function Settings() {
   const handleSaveBatchSize = async () => {
     const value = parseInt(batchSize, 10);
     if (isNaN(value) || value <= 0) {
-      setErrorMessage('バッチサイズは1以上の整数を入力してください');
+      toastError('バッチサイズは1以上の整数を入力してください');
       return;
     }
 
     setIsSavingBatchSize(true);
-    setErrorMessage('');
-    setSuccessMessage('');
-
     try {
       await updateBatchSize(value);
-      setSuccessMessage('バッチサイズを更新しました');
-      setTimeout(() => setSuccessMessage(''), 3000);
+      toastSuccess('バッチサイズを更新しました');
     } catch (error) {
-      setErrorMessage(
-        `更新に失敗しました: ${error instanceof Error ? error.message : String(error)}`
-      );
+      toastError(`更新に失敗しました: ${formatError(error)}`);
     } finally {
       setIsSavingBatchSize(false);
     }
@@ -104,22 +97,16 @@ export function Settings() {
   const handleSaveMaxIterations = async () => {
     const value = parseInt(maxIterations, 10);
     if (isNaN(value) || value <= 0) {
-      setErrorMessage('最大繰り返し回数は1以上の整数を入力してください');
+      toastError('最大繰り返し回数は1以上の整数を入力してください');
       return;
     }
 
     setIsSavingMaxIterations(true);
-    setErrorMessage('');
-    setSuccessMessage('');
-
     try {
       await updateMaxIterations(value);
-      setSuccessMessage('最大繰り返し回数を更新しました');
-      setTimeout(() => setSuccessMessage(''), 3000);
+      toastSuccess('最大繰り返し回数を更新しました');
     } catch (error) {
-      setErrorMessage(
-        `更新に失敗しました: ${error instanceof Error ? error.message : String(error)}`
-      );
+      toastError(`更新に失敗しました: ${formatError(error)}`);
     } finally {
       setIsSavingMaxIterations(false);
     }
@@ -128,22 +115,16 @@ export function Settings() {
   const handleSaveMaxResultsPerPage = async () => {
     const value = parseInt(maxResultsPerPage, 10);
     if (isNaN(value) || value < 1 || value > 500) {
-      setErrorMessage('1ページあたり取得件数は1〜500の範囲で入力してください');
+      toastError('1ページあたり取得件数は1〜500の範囲で入力してください');
       return;
     }
 
     setIsSavingMaxResultsPerPage(true);
-    setErrorMessage('');
-    setSuccessMessage('');
-
     try {
       await updateMaxResultsPerPage(value);
-      setSuccessMessage('1ページあたり取得件数を更新しました');
-      setTimeout(() => setSuccessMessage(''), 3000);
+      toastSuccess('1ページあたり取得件数を更新しました');
     } catch (error) {
-      setErrorMessage(
-        `更新に失敗しました: ${error instanceof Error ? error.message : String(error)}`
-      );
+      toastError(`更新に失敗しました: ${formatError(error)}`);
     } finally {
       setIsSavingMaxResultsPerPage(false);
     }
@@ -152,22 +133,16 @@ export function Settings() {
   const handleSaveTimeoutMinutes = async () => {
     const value = parseInt(timeoutMinutes, 10);
     if (isNaN(value) || value < 1 || value > 120) {
-      setErrorMessage('同期タイムアウトは1〜120分の範囲で入力してください');
+      toastError('同期タイムアウトは1〜120分の範囲で入力してください');
       return;
     }
 
     setIsSavingTimeoutMinutes(true);
-    setErrorMessage('');
-    setSuccessMessage('');
-
     try {
       await updateTimeoutMinutes(value);
-      setSuccessMessage('同期タイムアウトを更新しました');
-      setTimeout(() => setSuccessMessage(''), 3000);
+      toastSuccess('同期タイムアウトを更新しました');
     } catch (error) {
-      setErrorMessage(
-        `更新に失敗しました: ${error instanceof Error ? error.message : String(error)}`
-      );
+      toastError(`更新に失敗しました: ${formatError(error)}`);
     } finally {
       setIsSavingTimeoutMinutes(false);
     }
@@ -176,22 +151,16 @@ export function Settings() {
   const handleSaveParseBatchSize = async () => {
     const value = parseInt(parseBatchSize, 10);
     if (isNaN(value) || value <= 0) {
-      setErrorMessage('パースバッチサイズは1以上の整数を入力してください');
+      toastError('パースバッチサイズは1以上の整数を入力してください');
       return;
     }
 
     setIsSavingParseBatchSize(true);
-    setErrorMessage('');
-    setSuccessMessage('');
-
     try {
       await updateParseBatchSize(value);
-      setSuccessMessage('パースバッチサイズを更新しました');
-      setTimeout(() => setSuccessMessage(''), 3000);
+      toastSuccess('パースバッチサイズを更新しました');
     } catch (error) {
-      setErrorMessage(
-        `更新に失敗しました: ${error instanceof Error ? error.message : String(error)}`
-      );
+      toastError(`更新に失敗しました: ${formatError(error)}`);
     } finally {
       setIsSavingParseBatchSize(false);
     }
@@ -200,24 +169,16 @@ export function Settings() {
   const handleSaveGeminiBatchSize = async () => {
     const value = parseInt(geminiBatchSize, 10);
     if (isNaN(value) || value < 1 || value > 50) {
-      setErrorMessage(
-        '商品名パースのバッチサイズは1〜50の範囲で入力してください'
-      );
+      toastError('商品名パースのバッチサイズは1〜50の範囲で入力してください');
       return;
     }
 
     setIsSavingGeminiBatchSize(true);
-    setErrorMessage('');
-    setSuccessMessage('');
-
     try {
       await invoke('update_gemini_batch_size', { batchSize: value });
-      setSuccessMessage('商品名パースのバッチサイズを更新しました');
-      setTimeout(() => setSuccessMessage(''), 3000);
+      toastSuccess('商品名パースのバッチサイズを更新しました');
     } catch (error) {
-      setErrorMessage(
-        `更新に失敗しました: ${error instanceof Error ? error.message : String(error)}`
-      );
+      toastError(`更新に失敗しました: ${formatError(error)}`);
     } finally {
       setIsSavingGeminiBatchSize(false);
     }
@@ -226,22 +187,16 @@ export function Settings() {
   const handleSaveGeminiDelaySeconds = async () => {
     const value = parseInt(geminiDelaySeconds, 10);
     if (isNaN(value) || value < 0 || value > 60) {
-      setErrorMessage('リクエスト間の待機秒数は0〜60の範囲で入力してください');
+      toastError('リクエスト間の待機秒数は0〜60の範囲で入力してください');
       return;
     }
 
     setIsSavingGeminiDelaySeconds(true);
-    setErrorMessage('');
-    setSuccessMessage('');
-
     try {
       await invoke('update_gemini_delay_seconds', { delaySeconds: value });
-      setSuccessMessage('リクエスト間の待機秒数を更新しました');
-      setTimeout(() => setSuccessMessage(''), 3000);
+      toastSuccess('リクエスト間の待機秒数を更新しました');
     } catch (error) {
-      setErrorMessage(
-        `更新に失敗しました: ${error instanceof Error ? error.message : String(error)}`
-      );
+      toastError(`更新に失敗しました: ${formatError(error)}`);
     } finally {
       setIsSavingGeminiDelaySeconds(false);
     }
@@ -257,26 +212,6 @@ export function Settings() {
           <h1 className="text-3xl font-bold tracking-tight">設定</h1>
         </div>
       </div>
-
-      {successMessage && (
-        <div
-          className="p-3 bg-green-50 border border-green-200 rounded text-sm text-green-800"
-          data-testid="success-message"
-          role="status"
-        >
-          {successMessage}
-        </div>
-      )}
-
-      {errorMessage && (
-        <div
-          className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-800"
-          data-testid="error-message"
-          role="alert"
-        >
-          {errorMessage}
-        </div>
-      )}
 
       <Card>
         <CardHeader>
