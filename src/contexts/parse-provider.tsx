@@ -69,12 +69,26 @@ export function ParseProvider({ children }: { children: ReactNode }) {
               }
             } else {
               if (data.error) {
-                notify('メールパース失敗', data.error);
+                try {
+                  await notify('メールパース失敗', data.error);
+                } catch (error) {
+                  console.error(
+                    'Failed to send email parse failure notification:',
+                    error
+                  );
+                }
               } else {
-                notify(
-                  'メールパース完了',
-                  `成功: ${data.success_count}件、失敗: ${data.failed_count}件`
-                );
+                try {
+                  await notify(
+                    'メールパース完了',
+                    `成功: ${data.success_count}件、失敗: ${data.failed_count}件`
+                  );
+                } catch (error) {
+                  console.error(
+                    'Failed to send email parse completion notification:',
+                    error
+                  );
+                }
               }
             }
           }
@@ -98,12 +112,26 @@ export function ParseProvider({ children }: { children: ReactNode }) {
               }
             } else {
               if (data.error) {
-                notify('商品名解析失敗', data.error);
+                try {
+                  await notify('商品名解析失敗', data.error);
+                } catch (error) {
+                  console.error(
+                    'Failed to send product name parse failure notification:',
+                    error
+                  );
+                }
               } else {
-                notify(
-                  '商品名解析完了',
-                  `成功: ${data.success_count}件、失敗: ${data.failed_count}件`
-                );
+                try {
+                  await notify(
+                    '商品名解析完了',
+                    `成功: ${data.success_count}件、失敗: ${data.failed_count}件`
+                  );
+                } catch (error) {
+                  console.error(
+                    'Failed to send product name parse completion notification:',
+                    error
+                  );
+                }
               }
             }
           }

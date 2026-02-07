@@ -37,6 +37,7 @@ export async function expectSuccessMessage(page: Page, message?: string) {
           '[data-sonner-toast], [data-testid="success-message"], [role="status"]'
         )
         .filter({ hasText: message })
+        .first()
     : page
         .locator(
           '[data-sonner-toast], [data-testid="success-message"], [role="status"]'
@@ -56,6 +57,7 @@ export async function expectErrorMessage(page: Page, message?: string) {
           '[data-sonner-toast], [data-testid="error-message"], [role="alert"]'
         )
         .filter({ hasText: message })
+        .first()
     : page
         .locator(
           '[data-sonner-toast], [data-testid="error-message"], [role="alert"]'
