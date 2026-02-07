@@ -425,7 +425,8 @@ pub async fn batch_parse_emails(
             // 複数のパーサーを順番に試す（最初に成功したものを使用）
             let mut parse_result: Option<Result<(OrderInfo, String), String>> = None;
             let mut last_error = String::new();
-            let mut cancel_applied = false;
+            // キャンセルメールとして処理した（成功・失敗いずれも）。通常の OrderInfo フローをスキップする。
+            let mut handled_as_cancel = false;
 
             for (parser_type, shop_name) in &candidate_parsers {
                 // キャンセルメールは専用パーサーで処理（OrderInfo を返さない）
@@ -472,7 +473,7 @@ pub async fn batch_parse_emails(
                                     // failed_count は加算しない（リトライ前提のため）
                                 }
                             }
-                            cancel_applied = true;
+                            handled_as_cancel = true;
                             break;
                         }
                         Err(e) => {
@@ -535,7 +536,7 @@ pub async fn batch_parse_emails(
                 }
             }
 
-            if cancel_applied {
+            if handled_as_cancel {
                 continue;
             }
 
