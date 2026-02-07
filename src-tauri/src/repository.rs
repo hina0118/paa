@@ -416,15 +416,7 @@ fn strip_bracketed_content(s: &str) -> String {
         Regex::new(r"【[^】]*】|\[[^\]]*\]|（[^）]*）|\([^)]*\)")
             .expect("strip_bracketed_content regex")
     });
-    let mut result = s.to_string();
-    loop {
-        let next = RE.replace_all(&result, "").trim().to_string();
-        if next == result {
-            break;
-        }
-        result = next;
-    }
-    result.trim().to_string()
+    RE.replace_all(s, "").trim().to_string()
 }
 
 /// SQLiteを使用したOrderRepositoryの実装
@@ -688,10 +680,11 @@ impl OrderRepository for SqliteOrderRepository {
         .await
         .map_err(|e| format!("Failed to find order: {e}"))?;
 
-        if order_row.is_none() {
+        // shop_domain が渡っている場合はフォールバックしない（誤注文への適用を避ける）
+        if order_row.is_none() && shop_domain.as_deref().map(|s| s.is_empty()).unwrap_or(true) {
             order_row = sqlx::query_as(
                 r#"
-                SELECT id FROM orders WHERE order_number = ? LIMIT 1
+                SELECT id FROM orders WHERE order_number = ? AND (shop_domain IS NULL OR shop_domain = '') LIMIT 1
                 "#,
             )
             .bind(&cancel_info.order_number)
@@ -772,6 +765,24 @@ impl OrderRepository for SqliteOrderRepository {
             Some((item_id, _, _, current_qty)) => {
                 let item_id = *item_id;
                 let current_qty = *current_qty;
+
+                if cancel_info.cancel_quantity <= 0 {
+                    log::warn!(
+                        "Invalid cancel quantity {} for product '{}' in order {}",
+                        cancel_info.cancel_quantity,
+                        product_name,
+                        order_id
+                    );
+                    tx.rollback()
+                        .await
+                        .map_err(|e| format!("Failed to rollback: {e}"))?;
+                    return Err(format!(
+                        "Invalid cancel quantity {} for product '{}'",
+                        cancel_info.cancel_quantity,
+                        product_name
+                    ));
+                }
+
                 let new_qty = current_qty - cancel_info.cancel_quantity;
 
                 if new_qty <= 0 {
@@ -2405,6 +2416,74 @@ mod tests {
             .await
             .expect("get item");
         assert_eq!(qty.0, 1);
+
+        // order_emails に (order_id, email_id) が1件挿入されること
+        let link_count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM order_emails WHERE order_id = ? AND email_id = ?",
+        )
+        .bind(order_id.0)
+        .bind(email_id.0)
+        .fetch_one(&pool)
+        .await
+        .expect("count order_emails");
+        assert_eq!(link_count.0, 1, "order_emails should have 1 link");
+    }
+
+    #[tokio::test]
+    async fn test_apply_cancel_order_emails_no_duplicate() {
+        let pool = setup_test_db().await;
+        let repo = SqliteOrderRepository::new(pool.clone());
+
+        sqlx::query(
+            r#"INSERT INTO orders (order_number, shop_domain, shop_name) VALUES ('99-4444-4444', '1999.co.jp', 'ホビーサーチ')"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert order");
+        let order_id: (i64,) = sqlx::query_as("SELECT id FROM orders WHERE order_number = '99-4444-4444'")
+            .fetch_one(&pool)
+            .await
+            .expect("get order id");
+        sqlx::query(
+            r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, '商品D', 2)"#,
+        )
+        .bind(order_id.0)
+        .execute(&pool)
+        .await
+        .expect("insert item");
+        sqlx::query("INSERT INTO emails (message_id, body_plain) VALUES ('cancel-email-5', '')")
+            .execute(&pool)
+            .await
+            .expect("insert email");
+        let email_id: (i64,) = sqlx::query_as("SELECT id FROM emails WHERE message_id = 'cancel-email-5'")
+            .fetch_one(&pool)
+            .await
+            .expect("get email id");
+
+        let cancel_info = CancelInfo {
+            order_number: "99-4444-4444".to_string(),
+            product_name: "商品D".to_string(),
+            cancel_quantity: 1,
+        };
+
+        // 1回目: 数量 2 -> 1
+        repo.apply_cancel(&cancel_info, email_id.0, Some("1999.co.jp".to_string()), None)
+            .await
+            .expect("first apply");
+        // 2回目: 同一 email_id で再度適用 → 数量 1 -> 0、order_emails は重複しない
+        repo.apply_cancel(&cancel_info, email_id.0, Some("1999.co.jp".to_string()), None)
+            .await
+            .expect("second apply");
+
+        let link_count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM order_emails WHERE order_id = ? AND email_id = ?",
+        )
+        .bind(order_id.0)
+        .bind(email_id.0)
+        .fetch_one(&pool)
+        .await
+        .expect("count order_emails");
+        assert_eq!(link_count.0, 1, "order_emails should not have duplicate");
     }
 
     #[tokio::test]
@@ -2523,5 +2602,43 @@ mod tests {
             .await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_apply_cancel_invalid_quantity() {
+        let pool = setup_test_db().await;
+        let repo = SqliteOrderRepository::new(pool.clone());
+
+        sqlx::query(
+            r#"INSERT INTO orders (order_number, shop_domain, shop_name) VALUES ('99-5555-5555', '1999.co.jp', 'ホビーサーチ')"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert order");
+        sqlx::query(
+            r#"INSERT INTO items (order_id, item_name, quantity) SELECT id, '商品E', 1 FROM orders WHERE order_number = '99-5555-5555'"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert item");
+        sqlx::query("INSERT INTO emails (message_id, body_plain) VALUES ('cancel-email-6', '')")
+            .execute(&pool)
+            .await
+            .expect("insert email");
+        let email_id: (i64,) = sqlx::query_as("SELECT id FROM emails WHERE message_id = 'cancel-email-6'")
+            .fetch_one(&pool)
+            .await
+            .expect("get email id");
+
+        let cancel_info = CancelInfo {
+            order_number: "99-5555-5555".to_string(),
+            product_name: "商品E".to_string(),
+            cancel_quantity: 0,
+        };
+        let result = repo
+            .apply_cancel(&cancel_info, email_id.0, Some("1999.co.jp".to_string()), None)
+            .await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid cancel quantity"));
     }
 }

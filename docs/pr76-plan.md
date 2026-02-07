@@ -2,7 +2,7 @@
 
 **PR**: [#76 feat: ホビーサーチ注文キャンセルメール対応](https://github.com/hina0118/paa/pull/76)  
 **作成日**: 2026-02-07  
-**更新日**: 2026-02-07  
+**更新日**: 2026-02-08  
 **ブランチ**: `cancel-mail` → `main`  
 **ステータス**: Open / mergeable_state: unstable（CI 待ち）
 
@@ -42,12 +42,23 @@
 
 ---
 
-## 2. Copilot レビュー指摘（4件・未解決）
+## 2. Copilot レビュー指摘
 
-### P1: マイグレーション（001_init.sql）
+### 対応済み（追加対応 2026-02-08）
+
+- **P0**: batch_parse_emails の confirm/change 即時 save 対応
+- **P1**: 注文検索フォールバックの shop_domain 条件（ shop_domain 渡時はフォールバックしない、フォールバック時は `shop_domain IS NULL OR ''` に限定）
+- **P1**: cancel_quantity <= 0 の検証を追加
+- **P2**: strip_bracketed_content のループを 1 回の replace_all に簡略化
+- **P2**: order_emails 紐付け・重複チェックの統合テスト追加
+
+### 元の指摘（4件）
+
+### P1: マイグレーション（001_init.sql）→ 対応不要
 
 **ファイル**: `src-tauri/migrations/001_init.sql`  
-**指摘**: `001_init.sql` は既存DBには再適用されないため、この行を追加しても既存ユーザー環境には `hobbysearch_cancel` の shop_settings が入らない。アップグレードで確実に有効化したい場合は、新しいマイグレーション（version を上げた INSERT）を追加し、`src-tauri/src/lib.rs` の migrations リストにも追加する必要がある。
+**指摘**: `001_init.sql` は既存DBには再適用されないため、この行を追加しても既存ユーザー環境には `hobbysearch_cancel` の shop_settings が入らない。  
+**判断**: リリース前のため対応不要。001 に追加するだけで十分。
 
 ### P1: キャンセルが先に来るケース
 
@@ -68,17 +79,9 @@
 
 ## 3. 対応計画
 
-### Task A: P1 - マイグレーションで既存ユーザーに hobbysearch_cancel を反映
+### Task A: マイグレーション 002 → 不要
 
-**目的**: 既存DB環境に `hobbysearch_cancel` の shop_settings を確実に追加する。
-
-**対応**:
-
-1. 新規マイグレーション `002_add_hobbysearch_cancel.sql` を作成
-2. `INSERT OR IGNORE INTO shop_settings ...` で hobbysearch_cancel を追加
-3. `src-tauri/src/lib.rs` の migrations リストに `002_add_hobbysearch_cancel.sql` を追加
-
-**参考**: sqlx の migrate は `MIGRATOR.run()` で実行される。既存の 001 は初回のみ、002 はその後のアップグレード時に適用される。
+**判断**: リリース前のため、001 への追加のみで十分。既存ユーザー向けの 002 マイグレーションは不要。
 
 ---
 
@@ -130,11 +133,16 @@
 
 ## 4. マージ前チェックリスト
 
-- [ ] Task A: マイグレーション 002 追加
+- [x] Task A: マイグレーション 002 → 不要（リリース前のため）
 - [x] Task C: apply_cancel の統合テスト追加
 - [x] Task D: ログレベルの見直し
 - [x] Task B: 設計書 6.3 の記載確認（現状維持の場合は PR コメントで説明）
-- [ ] `cargo test` 成功
+- [x] P1: 注文検索フォールバックの shop_domain 条件を修正
+- [x] P1: cancel_quantity の検証を追加
+- [x] P2: strip_bracketed_content の簡略化
+- [x] P2: order_emails 紐付けの統合テスト追加
+- [x] P0: batch_parse_emails の confirm/change 即時 save 対応
+- [x] `cargo test` 成功
 - [ ] CI 成功
 
 ---
