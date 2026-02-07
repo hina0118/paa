@@ -1,0 +1,145 @@
+# PR #76 マージ計画
+
+**PR**: [#76 feat: ホビーサーチ注文キャンセルメール対応](https://github.com/hina0118/paa/pull/76)  
+**作成日**: 2026-02-07  
+**更新日**: 2026-02-07  
+**ブランチ**: `cancel-mail` → `main`  
+**ステータス**: Open / mergeable_state: unstable（CI 待ち）
+
+---
+
+## 1. 概要
+
+ホビーサーチの注文キャンセル完了通知メールをパースし、既存注文の商品数量を減算・削除する機能を実装した変更です。
+
+### 主な変更
+
+| 項目                            | 内容                                                                               |
+| ------------------------------- | ---------------------------------------------------------------------------------- |
+| **hobbysearch_cancel パーサー** | `[キャンセル]` セクションから注文番号・商品名・キャンセル個数を抽出                |
+| **apply_cancel**                | 注文検索 → 商品マッチング → 数量減算/削除 → order_emails 紐付け                    |
+| **process_batch 改善**          | confirm/change を即時 save_order（同一バッチ内で cancel が先に来ても注文参照可能） |
+| **商品名マッチング**            | 完全一致 → 包含 → item_name_normalized（括弧除去版も試行）                         |
+| **strip_bracketed_content**     | 【】[]（）() で囲まれた部分を除去して比較                                          |
+
+### 変更ファイル
+
+| ファイル                                       | 変更内容                  |
+| ---------------------------------------------- | ------------------------- |
+| `src-tauri/src/parsers/hobbysearch_cancel.rs`  | 新規（108行）             |
+| `src-tauri/src/parsers/email_parse_task.rs`    | キャンセル分岐・即時 save |
+| `src-tauri/src/parsers/mod.rs`                 | キャンセル分岐追加        |
+| `src-tauri/src/repository.rs`                  | apply_cancel 追加         |
+| `src-tauri/src/logic/email_parser.rs`          | hobbysearch_cancel 登録   |
+| `src-tauri/migrations/001_init.sql`            | shop_settings 追加        |
+| `src-tauri/src/batch_commands.rs`              | デバッグログ追加          |
+| `docs/plans/hobbysearch-cancel-mail-design.md` | 設計書（新規）            |
+| `.cursorrules`                                 | graphQL 記述修正          |
+
+### 設計書
+
+`docs/plans/hobbysearch-cancel-mail-design.md` を参照
+
+---
+
+## 2. Copilot レビュー指摘（4件・未解決）
+
+### P1: マイグレーション（001_init.sql）
+
+**ファイル**: `src-tauri/migrations/001_init.sql`  
+**指摘**: `001_init.sql` は既存DBには再適用されないため、この行を追加しても既存ユーザー環境には `hobbysearch_cancel` の shop_settings が入らない。アップグレードで確実に有効化したい場合は、新しいマイグレーション（version を上げた INSERT）を追加し、`src-tauri/src/lib.rs` の migrations リストにも追加する必要がある。
+
+### P1: キャンセルが先に来るケース
+
+**ファイル**: `src-tauri/src/parsers/email_parse_task.rs`  
+**指摘**: 同一 run 内で「キャンセルメールが先に処理され、対応する confirm/change が後に来る」ケースでは、cancel 側が `apply_cancel` 失敗のまま再試行されず、このメールは次回 run まで未パース扱いのまま残る。`internal_date` の並びが崩れることを想定するなら、(a) cancel を一旦キューして全注文の `save_order` 後に再試行する、または (b) cancel 失敗時に後続入力に該当注文が作られたら再適用する、といった二段階処理が必要。
+
+### P1: apply_cancel のテスト不足
+
+**ファイル**: `src-tauri/src/repository.rs`  
+**指摘**: `apply_cancel` は数量減算/削除・order_emails 紐付けまで行う重要ロジックだが、`SqliteOrderRepository` の既存テスト群に対してキャンセル適用の DB 状態を検証するテストが追加されていない。リグレッション防止のため、最小でも「1件減算」「0で削除」「商品不一致」「注文不一致」をカバーする統合テストを追加する必要がある。
+
+### P2: ログの個人情報リスク
+
+**ファイル**: `src-tauri/src/batch_commands.rs`  
+**指摘**: メール件名（subject）を `info` レベルでログ出力すると、デバッグビルドではログバッファ/UI に件名が残り得る（内容によっては個人情報になりやすい）。トラブルシュート目的なら `debug` レベルに落とす、もしくは subject を省略/マスクする運用に寄せるのが安全。
+
+---
+
+## 3. 対応計画
+
+### Task A: P1 - マイグレーションで既存ユーザーに hobbysearch_cancel を反映
+
+**目的**: 既存DB環境に `hobbysearch_cancel` の shop_settings を確実に追加する。
+
+**対応**:
+
+1. 新規マイグレーション `002_add_hobbysearch_cancel.sql` を作成
+2. `INSERT OR IGNORE INTO shop_settings ...` で hobbysearch_cancel を追加
+3. `src-tauri/src/lib.rs` の migrations リストに `002_add_hobbysearch_cancel.sql` を追加
+
+**参考**: sqlx の migrate は `MIGRATOR.run()` で実行される。既存の 001 は初回のみ、002 はその後のアップグレード時に適用される。
+
+---
+
+### Task B: P1 - キャンセルが先に来るケースへの対応
+
+**目的**: 同一バッチ内で cancel が confirm/change より先に来た場合でも、キャンセルメールが「未パース」のまま残らないようにする。
+
+**選択肢**:
+
+| 案  | 内容                                                                                                 | メリット          | デメリット                                               |
+| --- | ---------------------------------------------------------------------------------------------------- | ----------------- | -------------------------------------------------------- |
+| A   | cancel 失敗時も `Ok(EmailParseOutput)` を返し、`parsed_emails` としてマーク。次回 run で再試行される | 実装が軽い        | 次回 run までキャンセルが反映されない                    |
+| B   | cancel を一旦キューし、全メールの save_order 後にキャンセルを再試行                                  | 同一 run 内で完結 | 実装が複雑                                               |
+| C   | cancel 失敗時は `Err` を返し、未パース扱いのまま残す（現状）                                         | 既存のまま        | 次回 run まで残るが、設計書 6.3 の「スキップ」方針と整合 |
+
+**推奨**: 設計書 6.3 では「稀にキャンセルが先に来た場合: 該当 order が存在しなければ、キャンセルはスキップ（ログ出力）」と記載。実装上は `Err` を返すと「未パース」のまま残り、次回 run で再試行される。この挙動は設計書と整合しているため、**現状維持 + 設計書への追記**で対応可能。  
+ただし Copilot の指摘「再試行されない」は誤解があり、未パースメールは次回 run で再度パース対象になる。この点を PR コメントで説明するか、`Err` ではなく `Ok` で返して `parsed_emails` にマークし「パースは成功したがキャンセル適用は失敗」として扱う案 A を検討する。
+
+**修正案（案 A）**: Copilot の suggestion に従い、`apply_cancel` 失敗時も `Ok(EmailParseOutput { cancel_applied: false })` を返す。これにより該当メールは「パース済み」としてマークされ、`parsed_emails` に記録される。次回 run では未パースメールから除外されるが、キャンセル適用は失敗したまま。  
+→ この場合、キャンセルが反映されない注文が残るリスクがある。`Err` で返して「未パース」のままにしておけば、次回 run で再度パースが試行され、その時点で confirm が先に来ていれば成功する。  
+→ **結論**: `Err` のまま（現状維持）が正しい。設計書 6.3 の記載を明確にし、PR コメントで Copilot に「次回 run で再試行される」旨を返信する。
+
+---
+
+### Task C: P1 - apply_cancel の統合テスト追加
+
+**目的**: リグレッション防止のため、以下のシナリオをカバーするテストを追加する。
+
+| テストケース | 内容                                                             |
+| ------------ | ---------------------------------------------------------------- |
+| 1件減算      | 数量 2 の商品に cancel_quantity=1 を適用 → 1 になる              |
+| 0で削除      | 数量 1 の商品に cancel_quantity=1 を適用 → item が DELETE される |
+| 商品不一致   | 存在しない商品名で apply_cancel → Err                            |
+| 注文不一致   | 存在しない order_number で apply_cancel → Err                    |
+
+**ファイル**: `src-tauri/src/repository.rs` の `#[cfg(test)]` 内、または `tests/` ディレクトリに新規テストファイル。
+
+**実装方針**: `SqliteOrderRepository` を使用し、事前に orders / items を INSERT した状態で `apply_cancel` を呼び、結果の DB 状態を検証する。
+
+---
+
+### Task D: P2 - ログレベルの見直し
+
+**目的**: メール件名（subject）の info ログによる個人情報リスクを軽減する。
+
+**対応**: `batch_commands.rs` の該当ログを `log::info!` から `log::debug!` に変更。または subject を省略/マスクする。
+
+---
+
+## 4. マージ前チェックリスト
+
+- [ ] Task A: マイグレーション 002 追加
+- [x] Task C: apply_cancel の統合テスト追加
+- [x] Task D: ログレベルの見直し
+- [x] Task B: 設計書 6.3 の記載確認（現状維持の場合は PR コメントで説明）
+- [ ] `cargo test` 成功
+- [ ] CI 成功
+
+---
+
+## 5. 備考
+
+- **mergeable_state: unstable**: CI の結果待ち。cargo fmt / clippy 等のチェックを確認する。
+- **デバッグログ**: `batch_commands.rs` および `parsers/mod.rs` に追加された `[parse]` `[batch]` `[DEBUG]` ログは、マージ前に `debug` レベルに統一するか、本番ビルドでは出さないようにすることを検討する。
