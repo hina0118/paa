@@ -1,6 +1,6 @@
 //! メタデータのエクスポート/インポート（Issue #40）
 //!
-//! images, shop_settings, product_master テーブルと画像ファイルを
+//! images, shop_settings, product_master, emails テーブルと画像ファイルを
 //! ZIP 形式でバックアップ・復元する。
 
 use serde::{Deserialize, Serialize};
@@ -61,11 +61,26 @@ type ProductMasterRow = (
     String,
 );
 
+/// emails テーブル行 (id, message_id, body_plain, body_html, analysis_status, created_at, updated_at, internal_date, from_address, subject)
+type EmailRow = (
+    i64,
+    String,
+    Option<String>,
+    Option<String>,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<i64>,
+    Option<String>,
+    Option<String>,
+);
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ExportResult {
     pub images_count: usize,
     pub shop_settings_count: usize,
     pub product_master_count: usize,
+    pub emails_count: usize,
     pub image_files_count: usize,
     /// スキップした画像数（不正な file_name、サイズ超過、ファイル不存在）
     pub images_skipped: usize,
@@ -76,6 +91,7 @@ pub struct ImportResult {
     pub images_inserted: usize,
     pub shop_settings_inserted: usize,
     pub product_master_inserted: usize,
+    pub emails_inserted: usize,
     pub image_files_copied: usize,
 }
 
@@ -136,6 +152,16 @@ where
     .await
     .map_err(|e| format!("Failed to fetch product_master: {e}"))?;
 
+    let emails_rows: Vec<EmailRow> = sqlx::query_as(
+        r#"
+        SELECT id, message_id, body_plain, body_html, analysis_status,
+               created_at, updated_at, internal_date, from_address, subject FROM emails
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("Failed to fetch emails: {e}"))?;
+
     // 2. JSON にシリアライズ
     let images_json = serde_json::to_string_pretty(&images_rows)
         .map_err(|e| format!("Failed to serialize images: {e}"))?;
@@ -143,6 +169,8 @@ where
         .map_err(|e| format!("Failed to serialize shop_settings: {e}"))?;
     let product_master_json = serde_json::to_string_pretty(&product_master_rows)
         .map_err(|e| format!("Failed to serialize product_master: {e}"))?;
+    let emails_json = serde_json::to_string_pretty(&emails_rows)
+        .map_err(|e| format!("Failed to serialize emails: {e}"))?;
 
     let manifest = Manifest {
         version: MANIFEST_VERSION,
@@ -188,6 +216,13 @@ where
         .write_all(product_master_json.as_bytes())
         .map_err(|e| format!("Failed to write product_master: {e}"))?;
 
+    zip_writer
+        .start_file("emails.json", options)
+        .map_err(|e| format!("Failed to add emails.json: {e}"))?;
+    zip_writer
+        .write_all(emails_json.as_bytes())
+        .map_err(|e| format!("Failed to write emails: {e}"))?;
+
     let mut image_files_count = 0usize;
     let mut images_skipped = 0usize;
     for (_, _norm, file_name_opt, _) in &images_rows {
@@ -230,6 +265,7 @@ where
         images_count: images_rows.len(),
         shop_settings_count: shop_settings_rows.len(),
         product_master_count: product_master_rows.len(),
+        emails_count: emails_rows.len(),
         image_files_count,
         images_skipped,
     })
@@ -289,6 +325,17 @@ where
     let product_master_json = read_zip_entry(&mut zip_archive, "product_master.json")?;
     let product_master_rows: Vec<JsonProductMasterRow> = serde_json::from_str(&product_master_json)
         .map_err(|e| format!("Failed to parse product_master.json: {e}"))?;
+
+    // emails.json（オプション: 旧バックアップには含まれない）
+    let emails_rows: Vec<JsonEmailRow> = zip_archive
+        .by_name("emails.json")
+        .ok()
+        .and_then(|mut entry| {
+            let mut s = String::new();
+            entry.read_to_string(&mut s).ok()?;
+            serde_json::from_str(&s).ok()
+        })
+        .unwrap_or_default();
 
     // images.json に登場する安全な file_name のみをコピー対象とする（DoS 対策）
     let allowed_image_files: HashSet<String> = images_rows
@@ -373,6 +420,31 @@ where
         }
     }
 
+    let mut emails_inserted = 0usize;
+    for row in &emails_rows {
+        let result = sqlx::query(
+            r#"
+            INSERT OR IGNORE INTO emails (message_id, body_plain, body_html, analysis_status, created_at, updated_at, internal_date, from_address, subject)
+            VALUES (?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP), ?, ?, ?)
+            "#,
+        )
+        .bind(&row.1)
+        .bind(&row.2)
+        .bind(&row.3)
+        .bind(&row.4)
+        .bind(&row.5)
+        .bind(&row.6)
+        .bind(row.7)
+        .bind(&row.8)
+        .bind(&row.9)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("Failed to insert email: {e}"))?;
+        if result.rows_affected() > 0 {
+            emails_inserted += 1;
+        }
+    }
+
     tx.commit()
         .await
         .map_err(|e| format!("Failed to commit transaction: {e}"))?;
@@ -429,6 +501,7 @@ where
         images_inserted,
         shop_settings_inserted,
         product_master_inserted,
+        emails_inserted,
         image_files_copied,
     })
 }
@@ -492,6 +565,21 @@ struct JsonProductMasterRow(
     Option<String>, // updated_at (未使用)
 );
 
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+struct JsonEmailRow(
+    i64,            // id (未使用)
+    String,         // message_id
+    Option<String>, // body_plain
+    Option<String>, // body_html
+    String,         // analysis_status
+    Option<String>, // created_at
+    Option<String>, // updated_at
+    Option<i64>,    // internal_date
+    Option<String>, // from_address
+    Option<String>, // subject
+);
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -537,6 +625,20 @@ mod tests {
             updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
     ";
+    const SCHEMA_EMAILS: &str = r"
+        CREATE TABLE IF NOT EXISTS emails (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            message_id TEXT UNIQUE NOT NULL,
+            body_plain TEXT,
+            body_html TEXT,
+            analysis_status TEXT NOT NULL DEFAULT 'pending' CHECK(analysis_status IN ('pending', 'completed')),
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            internal_date INTEGER,
+            from_address TEXT,
+            subject TEXT
+        );
+    ";
 
     async fn create_test_pool() -> SqlitePool {
         let options = SqliteConnectOptions::from_str("sqlite::memory:")
@@ -552,6 +654,10 @@ mod tests {
             .await
             .unwrap();
         sqlx::query(SCHEMA_PRODUCT_MASTER)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(SCHEMA_EMAILS)
             .execute(&pool)
             .await
             .unwrap();
@@ -584,6 +690,13 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
+        sqlx::query(
+            r"INSERT INTO emails (message_id, body_plain, analysis_status, from_address, subject)
+              VALUES ('msg-001', 'body text', 'pending', 'a@test.com', 'Subject')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
 
         let tmp = TempDir::new().unwrap();
         let images_dir = tmp.path().join("images");
@@ -597,6 +710,7 @@ mod tests {
         assert_eq!(export_result.images_count, 2);
         assert_eq!(export_result.shop_settings_count, 1);
         assert_eq!(export_result.product_master_count, 1);
+        assert_eq!(export_result.emails_count, 1);
         assert_eq!(export_result.image_files_count, 0); // img1.png は存在しない
         assert_eq!(export_result.images_skipped, 1); // img1.png が存在しないためスキップ
 
@@ -614,6 +728,7 @@ mod tests {
         assert_eq!(import_result.images_inserted, 2);
         assert_eq!(import_result.shop_settings_inserted, 1);
         assert_eq!(import_result.product_master_inserted, 1);
+        assert_eq!(import_result.emails_inserted, 1);
 
         // データが正しく復元されているか確認
         let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM images")
@@ -627,6 +742,11 @@ mod tests {
             .unwrap();
         assert_eq!(count.0, 1);
         let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM product_master")
+            .fetch_one(&pool2)
+            .await
+            .unwrap();
+        assert_eq!(count.0, 1);
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM emails")
             .fetch_one(&pool2)
             .await
             .unwrap();
@@ -709,6 +829,11 @@ mod tests {
         assert!(
             names.contains(&"product_master.json".to_string()),
             "product_master.json should exist, got: {:?}",
+            names
+        );
+        assert!(
+            names.contains(&"emails.json".to_string()),
+            "emails.json should exist, got: {:?}",
             names
         );
     }
