@@ -770,6 +770,8 @@ impl OrderRepository for SqliteOrderRepository {
 
         match matched {
             Some((item_id, _, _, current_qty)) => {
+                let item_id = *item_id;
+                let current_qty = *current_qty;
                 let new_qty = current_qty - cancel_info.cancel_quantity;
 
                 if new_qty <= 0 {

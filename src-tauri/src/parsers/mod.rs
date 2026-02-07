@@ -471,6 +471,7 @@ pub async fn batch_parse_emails(
                                         row.email_id
                                     );
                                     success_count += 1;
+                                    overall_parsed_count += 1;
                                 }
                                 Err(e) => {
                                     log::error!(
@@ -481,7 +482,6 @@ pub async fn batch_parse_emails(
                                     failed_count += 1;
                                 }
                             }
-                            overall_parsed_count += 1;
                             cancel_applied = true;
                             break;
                         }
