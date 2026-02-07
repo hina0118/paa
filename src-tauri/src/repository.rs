@@ -702,7 +702,9 @@ impl OrderRepository for SqliteOrderRepository {
         // 2. 該当注文の商品を検索（完全一致 → 包含 → item_name_normalized 部分一致の順でマッチ）
         let items: Vec<(i64, String, Option<String>, i64)> = sqlx::query_as(
             r#"
-            SELECT id, item_name, item_name_normalized, quantity FROM items WHERE order_id = ?
+            SELECT id, item_name, item_name_normalized, quantity FROM items
+            WHERE order_id = ?
+            ORDER BY id
             "#,
         )
         .bind(order_id)
