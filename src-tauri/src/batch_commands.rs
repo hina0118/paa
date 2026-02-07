@@ -40,7 +40,7 @@ pub(crate) fn clamp_batch_size(v: i64, default: usize) -> usize {
     if v <= 0 {
         default
     } else {
-        v as usize
+        usize::try_from(v).unwrap_or(default)
     }
 }
 
@@ -444,10 +444,14 @@ pub async fn run_batch_parse_task(
 }
 
 /// 商品名パースタスクの本体。コマンド・トレイ両方から呼ぶ。
+///
+/// `caller_did_try_start`: 呼び出し元で既に try_start 済みなら true（コマンド経由）。
+/// false の場合は本関数内で try_start を行う（トレイ経由）。
 pub async fn run_product_name_parse_task(
     app: tauri::AppHandle,
     pool: SqlitePool,
     parse_state: crate::ProductNameParseState,
+    caller_did_try_start: bool,
 ) {
     log::info!("Starting product name parse with BatchRunner<ProductNameParseTask>...");
 
@@ -518,11 +522,14 @@ pub async fn run_product_name_parse_task(
         }
     };
 
-    if let Err(e) = parse_state.try_start() {
-        log::error!("Product name parse already running: {}", e);
-        let error_event = BatchProgressEvent::error(PRODUCT_NAME_PARSE_TASK_NAME, 0, 0, 0, 0, e);
-        let _ = app.emit(PRODUCT_NAME_PARSE_EVENT_NAME, error_event);
-        return;
+    if !caller_did_try_start {
+        if let Err(e) = parse_state.try_start() {
+            log::error!("Product name parse already running: {}", e);
+            let error_event =
+                BatchProgressEvent::error(PRODUCT_NAME_PARSE_TASK_NAME, 0, 0, 0, 0, e);
+            let _ = app.emit(PRODUCT_NAME_PARSE_EVENT_NAME, error_event);
+            return;
+        }
     }
 
     let product_repo = SqliteProductMasterRepository::new(pool.clone());
@@ -645,13 +652,5 @@ mod tests {
         assert_eq!(clamp_batch_size(50, 100), 50);
         assert_eq!(clamp_batch_size(200, 100), 200);
         assert_eq!(clamp_batch_size(i64::MIN, 100), 100);
-    }
-
-    #[test]
-    fn test_batch_size_max1_for_usize() {
-        // run_batch_parse_task では batch_size.max(1) により 0 でも panic しない
-        assert_eq!(0usize.max(1), 1);
-        assert_eq!(1usize.max(1), 1);
-        assert_eq!(100usize.max(1), 100);
     }
 }
