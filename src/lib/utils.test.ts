@@ -7,12 +7,32 @@ import {
   formatPrice,
   getProductMetadata,
   parseNumericFilter,
+  isAppWindowVisible,
 } from './utils';
 import {
   mockNotificationIsPermissionGranted,
   mockNotificationRequestPermission,
   mockNotificationSendNotification,
 } from '@/test/setup';
+
+// Hoisted mocks for isAppWindowVisible (uses dynamic import)
+const { mockIsTauri, mockGetCurrentWindow } = vi.hoisted(() => {
+  const mockIsVisibleFn = vi.fn();
+  return {
+    mockIsTauri: vi.fn(),
+    mockGetCurrentWindow: vi.fn(() => ({
+      isVisible: () => mockIsVisibleFn(),
+    })),
+  };
+});
+
+vi.mock('@tauri-apps/api/core', () => ({
+  isTauri: () => mockIsTauri(),
+}));
+
+vi.mock('@tauri-apps/api/window', () => ({
+  getCurrentWindow: () => mockGetCurrentWindow(),
+}));
 
 describe('cn utility', () => {
   it('merges class names correctly', () => {
@@ -324,5 +344,57 @@ describe('parseNumericFilter', () => {
 
   it('ignores leading/trailing spaces for valid numbers', () => {
     expect(parseNumericFilter('  42  ')).toBe(42);
+  });
+});
+
+describe('isAppWindowVisible', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns true when not in Tauri environment (isTauri is false)', async () => {
+    mockIsTauri.mockReturnValue(false);
+
+    const result = await isAppWindowVisible();
+
+    expect(result).toBe(true);
+    expect(mockGetCurrentWindow).not.toHaveBeenCalled();
+  });
+
+  it('returns true when in Tauri environment and window is visible', async () => {
+    mockIsTauri.mockReturnValue(true);
+    mockGetCurrentWindow.mockReturnValue({
+      isVisible: vi.fn().mockResolvedValue(true),
+    });
+
+    const result = await isAppWindowVisible();
+
+    expect(result).toBe(true);
+  });
+
+  it('returns false when in Tauri environment and window is not visible', async () => {
+    mockIsTauri.mockReturnValue(true);
+    mockGetCurrentWindow.mockReturnValue({
+      isVisible: vi.fn().mockResolvedValue(false),
+    });
+
+    const result = await isAppWindowVisible();
+
+    expect(result).toBe(false);
+  });
+
+  it('returns true when dynamic import throws (fallback)', async () => {
+    vi.doMock('@tauri-apps/api/core', () => {
+      throw new Error('Module load failed');
+    });
+    // Reset modules to apply the new mock - actually vi.doMock is not hoisted
+    // and runs after imports. Simpler approach: make mockIsTauri throw
+    mockIsTauri.mockImplementation(() => {
+      throw new Error('Tauri check failed');
+    });
+
+    const result = await isAppWindowVisible();
+
+    expect(result).toBe(true);
   });
 });
