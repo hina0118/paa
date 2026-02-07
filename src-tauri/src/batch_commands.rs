@@ -334,6 +334,12 @@ pub async fn run_batch_parse_task(
         }
     };
 
+    let parser_types: Vec<_> = enabled_settings
+        .iter()
+        .map(|s| s.parser_type.as_str())
+        .collect();
+    log::info!("[parse] shop_settings parsers: {:?}", parser_types);
+
     if enabled_settings.is_empty() {
         log::warn!("No enabled shop settings found");
         parse_state.finish();
@@ -410,6 +416,24 @@ pub async fn run_batch_parse_task(
         .collect();
     let inputs_len = inputs.len();
     log::info!("Fetched {} unparsed emails", inputs_len);
+    if !inputs.is_empty() {
+        let first: &crate::parsers::EmailParseInput = &inputs[0];
+        let last = inputs.last().unwrap();
+        log::info!(
+            "[batch] first email_id={} internal_date={:?} subject={:?}",
+            first.email_id,
+            first.internal_date,
+            first.subject
+        );
+        if inputs_len > 1 {
+            log::info!(
+                "[batch] last email_id={} internal_date={:?} subject={:?}",
+                last.email_id,
+                last.internal_date,
+                last.subject
+            );
+        }
+    }
 
     let task: EmailParseTask<
         SqliteOrderRepository,

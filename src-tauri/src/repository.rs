@@ -4,8 +4,10 @@
 
 use crate::gemini::normalize_product_name;
 use crate::gmail::{CreateShopSettings, GmailMessage, ShopSettings, UpdateShopSettings};
+use crate::parsers::hobbysearch_cancel::CancelInfo;
 use crate::parsers::{EmailRow, OrderInfo};
 use async_trait::async_trait;
+use regex::Regex;
 #[cfg(test)]
 use mockall::automock;
 use serde::{Deserialize, Serialize};
@@ -302,6 +304,15 @@ pub trait OrderRepository: Send + Sync {
         shop_domain: Option<String>,
         shop_name: Option<String>,
     ) -> Result<i64, String>;
+
+    /// キャンセルメールの内容を適用（該当商品の数量減算または削除）
+    async fn apply_cancel(
+        &self,
+        cancel_info: &CancelInfo,
+        email_id: i64,
+        shop_domain: Option<String>,
+        shop_name: Option<String>,
+    ) -> Result<i64, String>;
 }
 
 /// パース関連のDB操作を抽象化するトレイト
@@ -396,6 +407,24 @@ impl EmailStatsRepository for SqliteEmailStatsRepository {
             avg_html_length: stats.5.unwrap_or(0.0),
         })
     }
+}
+
+/// 商品名比較用に【】[]（）() で囲まれた部分を除去する
+fn strip_bracketed_content(s: &str) -> String {
+    static RE: once_cell::sync::Lazy<Regex> = once_cell::sync::Lazy::new(|| {
+        // 【】[]（）() とその囲まれた内容を除去
+        Regex::new(r"【[^】]*】|\[[^\]]*\]|（[^）]*）|\([^)]*\)")
+            .expect("strip_bracketed_content regex")
+    });
+    let mut result = s.to_string();
+    loop {
+        let next = RE.replace_all(&result, "").trim().to_string();
+        if next == result {
+            break;
+        }
+        result = next;
+    }
+    result.trim().to_string()
 }
 
 /// SQLiteを使用したOrderRepositoryの実装
@@ -625,6 +654,191 @@ impl OrderRepository for SqliteOrderRepository {
         }
 
         // トランザクションをコミット
+        tx.commit()
+            .await
+            .map_err(|e| format!("Failed to commit transaction: {e}"))?;
+
+        Ok(order_id)
+    }
+
+    async fn apply_cancel(
+        &self,
+        cancel_info: &CancelInfo,
+        email_id: i64,
+        shop_domain: Option<String>,
+        _shop_name: Option<String>,
+    ) -> Result<i64, String> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| format!("Failed to start transaction: {e}"))?;
+
+        // 1. 既存の注文を検索（order_number + shop_domain、見つからねば order_number のみで再検索）
+        let mut order_row: Option<(i64,)> = sqlx::query_as(
+            r#"
+            SELECT id FROM orders
+            WHERE order_number = ? AND COALESCE(shop_domain, '') = COALESCE(?, '')
+            LIMIT 1
+            "#,
+        )
+        .bind(&cancel_info.order_number)
+        .bind(shop_domain.as_deref())
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| format!("Failed to find order: {e}"))?;
+
+        if order_row.is_none() {
+            order_row = sqlx::query_as(
+                r#"
+                SELECT id FROM orders WHERE order_number = ? LIMIT 1
+                "#,
+            )
+            .bind(&cancel_info.order_number)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|e| format!("Failed to find order: {e}"))?;
+        }
+
+        let order_id = match order_row {
+            Some((id,)) => id,
+            None => {
+                log::warn!(
+                    "Cancel mail: order {} not found (shop_domain={:?})",
+                    cancel_info.order_number,
+                    shop_domain
+                );
+                tx.rollback()
+                    .await
+                    .map_err(|e| format!("Failed to rollback: {e}"))?;
+                return Err(format!(
+                    "Order {} not found for cancel",
+                    cancel_info.order_number
+                ));
+            }
+        };
+
+        // 2. 該当注文の商品を検索（完全一致 → 包含 → item_name_normalized 部分一致の順でマッチ）
+        let items: Vec<(i64, String, Option<String>, i64)> = sqlx::query_as(
+            r#"
+            SELECT id, item_name, item_name_normalized, quantity FROM items WHERE order_id = ?
+            "#,
+        )
+        .bind(order_id)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|e| format!("Failed to fetch items: {e}"))?;
+
+        let product_name = cancel_info.product_name.trim();
+        // キャンセル側は末尾に " (プラモデル)" 等がつくが、注文側は parse_item_line で除去済み。比較用に除去した版を用意
+        let product_name_core = product_name
+            .trim_end_matches(" (プラモデル)")
+            .trim_end_matches(" (ディスプレイ)")
+            .trim();
+        // 【】[]（）() で囲まれた部分を除去した版（比較のため）
+        let product_name_stripped = strip_bracketed_content(product_name);
+        let product_normalized = normalize_product_name(product_name);
+        let matched = items.iter().find(|(_, item_name, item_name_normalized, _)| {
+            let item_trimmed = item_name.trim();
+            let item_stripped = strip_bracketed_content(item_trimmed);
+            // 優先1: item_name 完全一致
+            if item_trimmed == product_name || item_trimmed == product_name_core {
+                return true;
+            }
+            // 優先2: item_name 包含（括弧除去版も試す）
+            if item_trimmed.contains(product_name)
+                || product_name.contains(item_trimmed)
+                || item_trimmed.contains(product_name_core)
+                || product_name_core.contains(item_trimmed)
+                || item_trimmed.contains(&product_name_stripped)
+                || product_name_stripped.contains(item_trimmed)
+                || item_stripped.contains(&product_name_stripped)
+                || product_name_stripped.contains(&item_stripped)
+            {
+                return true;
+            }
+            // 優先3: item_name_normalized による正規化後の完全一致・部分一致
+            let db_normalized = item_name_normalized
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| normalize_product_name(item_name));
+            product_normalized == db_normalized
+                || product_normalized.contains(db_normalized.as_str())
+                || db_normalized.contains(product_normalized.as_str())
+        });
+
+        match matched {
+            Some((item_id, _, _, current_qty)) => {
+                let new_qty = current_qty - cancel_info.cancel_quantity;
+
+                if new_qty <= 0 {
+                    sqlx::query("DELETE FROM items WHERE id = ?")
+                        .bind(item_id)
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(|e| format!("Failed to delete item: {e}"))?;
+                    log::info!(
+                        "Cancel applied: removed item id={} from order {}",
+                        item_id,
+                        order_id
+                    );
+                } else {
+                    sqlx::query("UPDATE items SET quantity = ? WHERE id = ?")
+                        .bind(new_qty)
+                        .bind(item_id)
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(|e| format!("Failed to update item quantity: {e}"))?;
+                    log::info!(
+                        "Cancel applied: item id={} quantity {} -> {}",
+                        item_id,
+                        current_qty,
+                        new_qty
+                    );
+                }
+            }
+            None => {
+                log::warn!(
+                    "Cancel mail: product '{}' not found in order {}",
+                    product_name,
+                    order_id
+                );
+                tx.rollback()
+                    .await
+                    .map_err(|e| format!("Failed to rollback: {e}"))?;
+                return Err(format!("Product '{}' not found in order", product_name));
+            }
+        }
+
+        // 3. order_emails にメールとの関連を保存
+        let existing_link: Option<(i64,)> = sqlx::query_as(
+            r#"
+            SELECT order_id FROM order_emails
+            WHERE order_id = ? AND email_id = ?
+            LIMIT 1
+            "#,
+        )
+        .bind(order_id)
+        .bind(email_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| format!("Failed to check order_email link: {e}"))?;
+
+        if existing_link.is_none() {
+            sqlx::query(
+                r#"
+                INSERT INTO order_emails (order_id, email_id)
+                VALUES (?, ?)
+                "#,
+            )
+            .bind(order_id)
+            .bind(email_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| format!("Failed to link order to email: {e}"))?;
+        }
+
         tx.commit()
             .await
             .map_err(|e| format!("Failed to commit transaction: {e}"))?;
