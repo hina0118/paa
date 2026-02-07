@@ -463,12 +463,13 @@ pub async fn batch_parse_emails(
                                     overall_parsed_count += 1;
                                 }
                                 Err(e) => {
-                                    log::error!(
-                                        "Failed to apply cancel for email {}: {}",
+                                    // 注文未作成等で失敗した場合、メールは未パースのまま残り次回 run で再試行される
+                                    log::warn!(
+                                        "Failed to apply cancel for email {} (will retry next run): {}",
                                         row.email_id,
                                         e
                                     );
-                                    failed_count += 1;
+                                    // failed_count は加算しない（リトライ前提のため）
                                 }
                             }
                             cancel_applied = true;

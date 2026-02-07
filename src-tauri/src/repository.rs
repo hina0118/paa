@@ -666,8 +666,9 @@ impl OrderRepository for SqliteOrderRepository {
             .await
             .map_err(|e| format!("Failed to start transaction: {e}"))?;
 
-        // 1. 既存の注文を検索（order_number + shop_domain、見つからねば shop_domain 未設定の注文のみで再検索）
-        let mut order_row: Option<(i64,)> = sqlx::query_as(
+        // 1. 既存の注文を検索（order_number + shop_domain）
+        // shop_domain が None/空のときは COALESCE(?, '') = '' により shop_domain 未設定の注文を検索
+        let order_row: Option<(i64,)> = sqlx::query_as(
             r#"
             SELECT id FROM orders
             WHERE order_number = ? AND COALESCE(shop_domain, '') = COALESCE(?, '')
@@ -679,19 +680,6 @@ impl OrderRepository for SqliteOrderRepository {
         .fetch_optional(&mut *tx)
         .await
         .map_err(|e| format!("Failed to find order: {e}"))?;
-
-        // shop_domain が渡っている場合はフォールバックしない（誤注文への適用を避ける）
-        if order_row.is_none() && shop_domain.as_deref().map(|s| s.is_empty()).unwrap_or(true) {
-            order_row = sqlx::query_as(
-                r#"
-                SELECT id FROM orders WHERE order_number = ? AND (shop_domain IS NULL OR shop_domain = '') LIMIT 1
-                "#,
-            )
-            .bind(&cancel_info.order_number)
-            .fetch_optional(&mut *tx)
-            .await
-            .map_err(|e| format!("Failed to find order: {e}"))?;
-        }
 
         let order_id = match order_row {
             Some((id,)) => id,

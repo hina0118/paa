@@ -4,8 +4,8 @@
 **作成日**: 2026-02-07  
 **更新日**: 2026-02-08  
 **ブランチ**: `cancel-mail` → `main`  
-**ステータス**: Open / mergeable_state: unstable（CI 待ち）  
-**未解決レビュー**: 0件（コメント修正を適用済み）
+**ステータス**: Open / mergeable_state: clean / CI: pending  
+**未解決レビュー**: 0件（Task F/G/H 対応済み）
 
 ---
 
@@ -156,7 +156,46 @@
 
 ---
 
+### Task F: P1 - get_parser に hobbysearch_cancel の扱いがない（未解決）
+
+**ファイル**: `src-tauri/src/parsers/mod.rs` 行 35 付近  
+**指摘**: `hobbysearch_cancel` を `is_valid_parser_type` に追加しているが、`get_parser()` は `hobbysearch_cancel` を返さない。`parse_email` や `parse_and_save_email` 経由ではキャンセルメールが「Unknown parser type」またはスキップされる。
+
+**状況**: キャンセルメールは `OrderInfo` ではなく `CancelInfo` を返すため、`EmailParser` トレイト（`parse() -> OrderInfo`）にそのまま乗せられない。設計上、キャンセル処理は `batch_parse_emails` 専用。
+
+**対応案**:
+
+| 案  | 内容                                                                 | メリット                          | デメリット                                                        |
+| --- | -------------------------------------------------------------------- | --------------------------------- | ----------------------------------------------------------------- |
+| A   | `get_candidate_parsers` で hobbysearch_cancel を除外                 | 単一メール parse で候補に出さない | parse_and_save_email はキャンセルメールを処理できない（設計通り） |
+| B   | `get_parser` に hobbysearch_cancel 用ダミーを追加（常に Err を返す） | 一貫性あり                        | 呼び出し元で「Unknown」ではなくパース失敗になる                   |
+| C   | 現状維持（batch のみ対応）                                           | 設計書・実装と整合                | Copilot 指摘の「一貫性」は満たさない                              |
+
+**推奨**: 案 A。キャンセルメールはバッチ専用とし、`get_candidate_parsers` が単一メール用の候補を返す際に hobbysearch_cancel を除外する。`parse_and_save_email` は元来「注文作成/更新」用であり、キャンセルはバッチで処理する設計と整合。
+
+---
+
+### Task G: P2 - フォールバッククエリの同条件再検索（未解決）
+
+**ファイル**: `src-tauri/src/repository.rs` 行 687 付近  
+**指摘**: 最初の検索が `COALESCE(shop_domain, '') = COALESCE(?, '')` のため、`shop_domain` が None/空のときは既に「NULL/空の注文」を検索できている。フォールバックは実質同条件の再検索になり、注文未存在時は余計なクエリになる。
+
+**対応案**: フォールバックを削除してロジックを単純化するか、分岐でクエリを切り替える。ただし、shop_domain が渡っている場合に「渡っていない注文」をフォールバックで探す意図があるなら、現状の分岐は妥当。レビューで意図を確認し、不要ならフォールバック削除。
+
+---
+
+### Task H: P1 - apply_cancel 失敗時の failed_count / log::error（未解決）
+
+**ファイル**: `src-tauri/src/parsers/mod.rs` 行 472 付近  
+**指摘**: `apply_cancel` 失敗時（注文未作成など）でも `failed_count += 1` と `log::error!` を行う。次イテレーションで再試行され得るため、最終的に成功しても失敗として二重カウント／エラーログ過多になり得る。
+
+**対応案**: リトライ前提の失敗は `log::warn!` に落とす。`failed_count` は「最終的に未処理で残った」場合のみ加算する形に変更する。
+
+---
+
 ## 4. マージ前チェックリスト
+
+### 対応済み
 
 - [x] Task A: マイグレーション 002 → 不要（リリース前のため）
 - [x] Task C: apply_cancel の統合テスト追加
@@ -169,6 +208,15 @@
 - [x] P0: batch_parse_emails の confirm/change 即時 save 対応
 - [x] `cargo test` 成功
 - [x] Task E: 注文検索コメントの修正（repository.rs 行 669）
+
+### 対応済み（2026-02-08 実装）
+
+- [x] Task F: get_candidate_parsers で hobbysearch_cancel を除外
+- [x] Task G: フォールバッククエリを削除（同条件の再検索だったため簡略化）
+- [x] Task H: apply_cancel 失敗時 log::error → log::warn、failed_count 加算を廃止
+
+### マージ条件
+
 - [ ] CI 成功
 
 ---
@@ -183,5 +231,6 @@
 
 ## 6. 備考
 
-- **mergeable_state: unstable**: CI の結果待ち。cargo fmt / clippy 等のチェックを確認する。
+- **mergeable_state: clean**: コンフリクトなし。CI が pending の場合は結果を待つ。
 - **デバッグログ**: `batch_commands.rs` および `parsers/mod.rs` に追加された `[parse]` `[batch]` `[DEBUG]` ログは、マージ前に `debug` レベルに統一するか、本番ビルドでは出さないようにすることを検討する。
+- **Task F/G/H**: いずれも対応済み。

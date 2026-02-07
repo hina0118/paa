@@ -130,7 +130,7 @@ $successCount = 0
 $failCount = 0
 
 foreach ($threadId in $ThreadIds) {
-    $resolveQuery = "mutation { resolveReviewThread(input: {threadId: \`"$threadId\`"}) { thread { isResolved } } }"
+    $resolveQuery = 'mutation { resolveReviewThread(input: {threadId: "' + $threadId + '"}) { thread { isResolved } } }'
 
     Write-Host "  Resolving $threadId..." -NoNewline
     try {
