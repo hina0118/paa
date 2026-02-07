@@ -35,7 +35,9 @@ use crate::repository::{
     SqliteShopSettingsRepository,
 };
 
-/// config.parse.batch_size (i64) を usize へ安全に変換。0 以下は default にフォールバック。
+/// config.parse.batch_size (i64) を usize へ安全に変換。
+/// 0 以下は default にフォールバック。変換失敗時（32-bit で i64 が大きい等）も default。
+/// 上限はクランプしない（大きい i64 は usize::try_from で失敗→default）。
 pub(crate) fn clamp_batch_size(v: i64, default: usize) -> usize {
     if v <= 0 {
         default
@@ -110,11 +112,7 @@ pub async fn run_sync_task(app: tauri::AppHandle, pool: SqlitePool, sync_state: 
         log::error!("Failed to load config: {}", e);
         config::AppConfig::default()
     });
-    let batch_size = if config.sync.batch_size > 0 {
-        config.sync.batch_size as usize
-    } else {
-        50
-    };
+    let batch_size = clamp_batch_size(config.sync.batch_size, 50);
 
     let gmail_client = if is_e2e_mock_mode() {
         log::info!("Using E2E mock Gmail client");
@@ -468,6 +466,9 @@ pub async fn run_product_name_parse_task(
                 format!("Failed to get app data dir: {}", e),
             );
             let _ = app.emit(PRODUCT_NAME_PARSE_EVENT_NAME, error_event);
+            if caller_did_try_start {
+                parse_state.finish();
+            }
             return;
         }
     };
@@ -487,6 +488,9 @@ pub async fn run_product_name_parse_task(
                     .to_string(),
             );
             let _ = app.emit(PRODUCT_NAME_PARSE_EVENT_NAME, error_event);
+            if caller_did_try_start {
+                parse_state.finish();
+            }
             return;
         }
         match crate::gemini::load_api_key(&app_data_dir) {
@@ -503,6 +507,9 @@ pub async fn run_product_name_parse_task(
                         format!("Failed to create Gemini client: {}", e),
                     );
                     let _ = app.emit(PRODUCT_NAME_PARSE_EVENT_NAME, error_event);
+                    if caller_did_try_start {
+                        parse_state.finish();
+                    }
                     return;
                 }
             },
@@ -517,6 +524,9 @@ pub async fn run_product_name_parse_task(
                     format!("Failed to load API key: {}", e),
                 );
                 let _ = app.emit(PRODUCT_NAME_PARSE_EVENT_NAME, error_event);
+                if caller_did_try_start {
+                    parse_state.finish();
+                }
                 return;
             }
         }
