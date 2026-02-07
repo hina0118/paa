@@ -763,10 +763,16 @@ impl OrderRepository for SqliteOrderRepository {
                     || product_name.contains(item_trimmed)
                     || item_trimmed.contains(product_name_core)
                     || product_name_core.contains(item_trimmed)
-                    || item_trimmed.contains(&product_name_stripped)
-                    || product_name_stripped.contains(item_trimmed)
-                    || item_stripped.contains(&product_name_stripped)
-                    || product_name_stripped.contains(&item_stripped)
+                    || (!product_name_stripped.is_empty()
+                        && (item_trimmed.contains(&product_name_stripped)
+                            || product_name_stripped.contains(item_trimmed)))
+                    || {
+                        let item_stripped_nonempty = !item_stripped.is_empty();
+                        !product_name_stripped.is_empty()
+                            && item_stripped_nonempty
+                            && (item_stripped.contains(&product_name_stripped)
+                                || product_name_stripped.contains(&item_stripped))
+                    }
                 {
                     return true;
                 }
