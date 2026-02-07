@@ -35,23 +35,27 @@ test.describe('ダッシュボード画面', () => {
   });
 
   test('統計情報カードが表示される', async ({ page }) => {
-    // 総メール数カード、読み込み中、またはエラーのいずれかが表示されるまで待機
+    // 総メール数カード、読み込み中、またはエラーメッセージのいずれかが表示されるまで待機
     const totalEmailsCard = page.getByText('総メール数');
     const loadingText = page.getByText('データを読み込んでいます...');
-    const errorCard = page.locator('.border-red-500');
+    const loadErrorText = page.getByText(
+      'データの読み込みに失敗しました。上の「更新」ボタンで再試行してください。'
+    );
     await expect(
-      totalEmailsCard.or(loadingText).or(errorCard).first()
+      totalEmailsCard.or(loadingText).or(loadErrorText).first()
     ).toBeVisible({ timeout: 5000 });
   });
 
   test('パース状況カードが表示される', async ({ page }) => {
-    // パース状況カード、読み込み中、またはエラーのいずれかが表示されるまで待機
+    // パース状況カード、読み込み中、またはエラーメッセージのいずれかが表示されるまで待機
     // （Tauri API が無い CI では読み込み中やエラーになる場合がある）
     const parseStatusCard = page.getByText('パース状況');
     const loadingText = page.getByText('データを読み込んでいます...');
-    const errorCard = page.locator('.border-red-500');
+    const loadErrorText = page.getByText(
+      'データの読み込みに失敗しました。上の「更新」ボタンで再試行してください。'
+    );
     await expect(
-      parseStatusCard.or(loadingText).or(errorCard).first()
+      parseStatusCard.or(loadingText).or(loadErrorText).first()
     ).toBeVisible({ timeout: 5000 });
   });
 });

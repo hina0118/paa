@@ -4,6 +4,7 @@ import { LayoutDashboard } from 'lucide-react';
 import { useParse } from '@/contexts/use-parse';
 import { useSync } from '@/contexts/use-sync';
 import { formatDateTime } from '@/lib/utils';
+import { toastError, formatError } from '@/lib/toast';
 import {
   Card,
   CardContent,
@@ -68,7 +69,7 @@ export function Dashboard() {
     useState<ProductMasterStats | null>(null);
   const [miscStats, setMiscStats] = useState<MiscStats | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState(false);
   const { metadata: parseMetadata, refreshStatus: refreshParseStatus } =
     useParse();
   const { metadata: syncMetadata, refreshStatus: refreshSyncStatus } =
@@ -77,7 +78,7 @@ export function Dashboard() {
   const loadStats = async () => {
     try {
       setLoading(true);
-      setError(null);
+      setLoadError(false);
       const [
         emailResult,
         orderResult,
@@ -97,7 +98,8 @@ export function Dashboard() {
       setProductMasterStats(productMasterResult);
       setMiscStats(miscResult);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setLoadError(true);
+      toastError(`統計の読み込みに失敗しました: ${formatError(err)}`);
       console.error('Failed to load dashboard stats:', err);
     } finally {
       setLoading(false);
@@ -141,17 +143,6 @@ export function Dashboard() {
           {loading ? '読み込み中...' : '更新'}
         </Button>
       </div>
-
-      {error && (
-        <Card className="border-red-500">
-          <CardHeader>
-            <CardTitle className="text-red-500">エラー</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p>{error}</p>
-          </CardContent>
-        </Card>
-      )}
 
       {stats && (
         <>
@@ -754,10 +745,14 @@ export function Dashboard() {
         </>
       )}
 
-      {!stats && !loading && !error && (
+      {!stats && !loading && (
         <Card>
           <CardContent className="flex items-center justify-center py-10">
-            <p className="text-muted-foreground">データを読み込んでいます...</p>
+            <p className="text-muted-foreground">
+              {loadError
+                ? 'データの読み込みに失敗しました。上の「更新」ボタンで再試行してください。'
+                : 'データを読み込んでいます...'}
+            </p>
           </CardContent>
         </Card>
       )}

@@ -67,5 +67,23 @@ vi.mock('@tauri-apps/api/event', () => ({
   emit: mockEmit,
 }));
 
+const mockNotificationIsPermissionGranted = vi.fn().mockResolvedValue(true);
+const mockNotificationRequestPermission = vi.fn().mockResolvedValue('granted');
+const mockNotificationSendNotification = vi.fn().mockResolvedValue(undefined);
+
+vi.mock('@tauri-apps/plugin-notification', () => ({
+  isPermissionGranted: () => mockNotificationIsPermissionGranted(),
+  requestPermission: () => mockNotificationRequestPermission(),
+  sendNotification: (options: unknown) =>
+    mockNotificationSendNotification(options),
+}));
+
 // Export mocks for use in tests
-export { mockInvoke, mockListen, mockEmit };
+export {
+  mockInvoke,
+  mockListen,
+  mockEmit,
+  mockNotificationIsPermissionGranted,
+  mockNotificationRequestPermission,
+  mockNotificationSendNotification,
+};

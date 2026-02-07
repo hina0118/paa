@@ -9,6 +9,7 @@ import {
   CardTitle,
 } from '../ui/card';
 import { Button } from '../ui/button';
+import { toastError, formatError } from '@/lib/toast';
 import { Input } from '../ui/input';
 
 interface LogEntry {
@@ -22,7 +23,6 @@ type LogLevel = 'INFO' | 'WARN' | 'ERROR' | 'DEBUG' | 'TRACE' | null;
 export function Logs() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [filterLevel, setFilterLevel] = useState<LogLevel>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [autoRefresh, setAutoRefresh] = useState(false);
@@ -30,14 +30,13 @@ export function Logs() {
   const loadLogs = async (level?: string) => {
     try {
       setLoading(true);
-      setError(null);
       const result = await invoke<LogEntry[]>('get_logs', {
         levelFilter: level || null,
         limit: 500,
       });
       setLogs(result);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      toastError(`ログの読み込みに失敗しました: ${formatError(err)}`);
       console.error('Failed to load logs:', err);
     } finally {
       setLoading(false);
@@ -122,17 +121,6 @@ export function Logs() {
             </Button>
           </div>
         </div>
-
-        {error && (
-          <Card className="border-red-500">
-            <CardHeader>
-              <CardTitle className="text-red-500">エラー</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p>{error}</p>
-            </CardContent>
-          </Card>
-        )}
 
         <div className="grid gap-4 md:grid-cols-5">
           <Card>

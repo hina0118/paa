@@ -8,6 +8,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
+import { toastError, formatError } from '@/lib/toast';
 import {
   Dialog,
   DialogContent,
@@ -66,7 +67,6 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
   const [data, setData] = useState<TableData[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
   const [selectedCell, setSelectedCell] = useState<{
@@ -112,7 +112,6 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
 
   const loadData = useCallback(async () => {
     setLoading(true);
-    setError(null);
     try {
       // Sanitize and validate table name to prevent SQL injection
       const safeTableName = sanitizeTableName(tableName);
@@ -185,8 +184,8 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
 
       setData(rows);
     } catch (err) {
+      toastError(`テーブルデータの読み込みに失敗しました: ${formatError(err)}`);
       console.error('Error loading table data:', err);
-      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -267,22 +266,6 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
         </div>
         <div className="flex items-center justify-center h-64">
           <div className="text-muted-foreground">読み込み中...</div>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="container mx-auto py-10 px-6">
-        <div className="mb-8 flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-primary/10">
-            <Database className="h-6 w-6 text-primary" />
-          </div>
-          <h1 className="text-3xl font-bold tracking-tight">{title}</h1>
-        </div>
-        <div className="flex items-center justify-center h-64">
-          <div className="text-destructive">エラー: {error}</div>
         </div>
       </div>
     );

@@ -2,12 +2,18 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { fireEvent } from '@testing-library/react';
+import { Toaster } from 'sonner';
 import { ApiKeys } from './api-keys';
 import { ParseProvider } from '@/contexts/parse-provider';
 import { mockInvoke, mockListen } from '@/test/setup';
 
 const renderWithProviders = (ui: React.ReactElement) => {
-  return render(<ParseProvider>{ui}</ParseProvider>);
+  return render(
+    <>
+      <ParseProvider>{ui}</ParseProvider>
+      <Toaster position="top-right" richColors />
+    </>
+  );
 };
 
 const defaultParseMetadata = {
