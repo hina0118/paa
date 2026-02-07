@@ -357,7 +357,7 @@ where
                                             total_amount: None,
                                         },
                                         shop_name: shop_name.clone(),
-                                        shop_domain: shop_domain,
+                                        shop_domain,
                                         cancel_applied: true,
                                     }));
                                     cancel_applied = true;
