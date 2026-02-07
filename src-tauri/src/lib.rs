@@ -674,8 +674,7 @@ pub fn run() {
 
             // Setup system tray
             let show_item = MenuItem::with_id(app, "show", "表示", true, None::<&str>)?;
-            let sync_item =
-                MenuItem::with_id(app, "tray_sync", "Gmail同期", true, None::<&str>)?;
+            let sync_item = MenuItem::with_id(app, "tray_sync", "Gmail同期", true, None::<&str>)?;
             let parse_item =
                 MenuItem::with_id(app, "tray_parse", "メールパース", true, None::<&str>)?;
             let product_item = MenuItem::with_id(
@@ -708,76 +707,79 @@ pub fn run() {
             let _tray = tray_builder
                 .menu(&menu)
                 .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| {
-                    match event.id.as_ref() {
-                        "show" => {
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                            }
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
                         }
-                        "tray_sync" => {
-                            if let (Some(pool), Some(sync_state)) = (
-                                app.try_state::<SqlitePool>(),
-                                app.try_state::<gmail::SyncState>(),
-                            ) {
-                                let app_clone = app.clone();
-                                let pool_clone = pool.inner().clone();
-                                let sync_state_clone = sync_state.inner().clone();
-                                tauri::async_runtime::spawn(batch_commands::run_sync_task(
+                    }
+                    "tray_sync" => {
+                        if let (Some(pool), Some(sync_state)) = (
+                            app.try_state::<SqlitePool>(),
+                            app.try_state::<gmail::SyncState>(),
+                        ) {
+                            let app_clone = app.clone();
+                            let pool_clone = pool.inner().clone();
+                            let sync_state_clone = sync_state.inner().clone();
+                            tauri::async_runtime::spawn(batch_commands::run_sync_task(
+                                app_clone,
+                                pool_clone,
+                                sync_state_clone,
+                            ));
+                        }
+                    }
+                    "tray_parse" => {
+                        if let (Some(pool), Some(parse_state)) = (
+                            app.try_state::<SqlitePool>(),
+                            app.try_state::<parsers::ParseState>(),
+                        ) {
+                            let app_clone = app.clone();
+                            let pool_clone = pool.inner().clone();
+                            let parse_state_clone = parse_state.inner().clone();
+                            let batch_size = app
+                                .path()
+                                .app_config_dir()
+                                .ok()
+                                .and_then(|dir| config::load(&dir).ok())
+                                .map(|c| {
+                                    let v = c.parse.batch_size;
+                                    if v <= 0 {
+                                        100usize
+                                    } else {
+                                        v as usize
+                                    }
+                                })
+                                .unwrap_or(100);
+                            tauri::async_runtime::spawn(batch_commands::run_batch_parse_task(
+                                app_clone,
+                                pool_clone,
+                                parse_state_clone,
+                                batch_size,
+                            ));
+                        }
+                    }
+                    "tray_product_name_parse" => {
+                        if let (Some(pool), Some(parse_state)) = (
+                            app.try_state::<SqlitePool>(),
+                            app.try_state::<ProductNameParseState>(),
+                        ) {
+                            let app_clone = app.clone();
+                            let pool_clone = pool.inner().clone();
+                            let parse_state_clone = parse_state.inner().clone();
+                            tauri::async_runtime::spawn(
+                                batch_commands::run_product_name_parse_task(
                                     app_clone,
                                     pool_clone,
-                                    sync_state_clone,
-                                ));
-                            }
+                                    parse_state_clone,
+                                ),
+                            );
                         }
-                        "tray_parse" => {
-                            if let (Some(pool), Some(parse_state)) = (
-                                app.try_state::<SqlitePool>(),
-                                app.try_state::<parsers::ParseState>(),
-                            ) {
-                                let app_clone = app.clone();
-                                let pool_clone = pool.inner().clone();
-                                let parse_state_clone = parse_state.inner().clone();
-                                let batch_size = app
-                                    .path()
-                                    .app_config_dir()
-                                    .ok()
-                                    .and_then(|dir| config::load(&dir).ok())
-                                    .map(|c| c.parse.batch_size as usize)
-                                    .unwrap_or(100);
-                                tauri::async_runtime::spawn(
-                                    batch_commands::run_batch_parse_task(
-                                        app_clone,
-                                        pool_clone,
-                                        parse_state_clone,
-                                        batch_size,
-                                    ),
-                                );
-                            }
-                        }
-                        "tray_product_name_parse" => {
-                            if let (Some(pool), Some(parse_state)) = (
-                                app.try_state::<SqlitePool>(),
-                                app.try_state::<ProductNameParseState>(),
-                            ) {
-                                let app_clone = app.clone();
-                                let pool_clone = pool.inner().clone();
-                                let parse_state_clone = parse_state.inner().clone();
-                                tauri::async_runtime::spawn(
-                                    batch_commands::run_product_name_parse_task(
-                                        app_clone,
-                                        pool_clone,
-                                        parse_state_clone,
-                                    ),
-                                );
-                            }
-                        }
-                        "quit" => {
-                            app.exit(0);
-                        }
-                        _ => {}
                     }
+                    "quit" => {
+                        app.exit(0);
+                    }
+                    _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
                     if let TrayIconEvent::Click {
