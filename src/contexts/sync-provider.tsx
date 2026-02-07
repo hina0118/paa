@@ -55,13 +55,27 @@ export function SyncProvider({ children }: { children: ReactNode }) {
             }
           } else {
             if (data.error) {
-              notify('Gmail同期失敗', data.error);
+              try {
+                await notify('Gmail同期失敗', data.error);
+              } catch (error) {
+                console.error(
+                  'Failed to send Gmail sync failure notification:',
+                  error
+                );
+              }
             } else {
               const body =
                 data.success_count > 0
                   ? `新たに${data.success_count}件のメールを取り込みました`
                   : '新規メッセージはありませんでした';
-              notify('Gmail同期完了', body);
+              try {
+                await notify('Gmail同期完了', body);
+              } catch (error) {
+                console.error(
+                  'Failed to send Gmail sync completion notification:',
+                  error
+                );
+              }
             }
           }
         }

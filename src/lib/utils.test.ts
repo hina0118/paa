@@ -8,17 +8,11 @@ import {
   getProductMetadata,
   parseNumericFilter,
 } from './utils';
-
-// Tauri Notification APIをモック
-const mockIsPermissionGranted = vi.fn();
-const mockRequestPermission = vi.fn();
-const mockSendNotification = vi.fn();
-
-vi.mock('@tauri-apps/plugin-notification', () => ({
-  isPermissionGranted: () => mockIsPermissionGranted(),
-  requestPermission: () => mockRequestPermission(),
-  sendNotification: (options: unknown) => mockSendNotification(options),
-}));
+import {
+  mockNotificationIsPermissionGranted,
+  mockNotificationRequestPermission,
+  mockNotificationSendNotification,
+} from '@/test/setup';
 
 describe('cn utility', () => {
   it('merges class names correctly', () => {
@@ -76,27 +70,27 @@ describe('notify utility', () => {
   });
 
   it('sends notification when permission is already granted', async () => {
-    mockIsPermissionGranted.mockResolvedValue(true);
+    mockNotificationIsPermissionGranted.mockResolvedValue(true);
 
     await notify('Test Title', 'Test Body');
 
-    expect(mockIsPermissionGranted).toHaveBeenCalled();
-    expect(mockRequestPermission).not.toHaveBeenCalled();
-    expect(mockSendNotification).toHaveBeenCalledWith({
+    expect(mockNotificationIsPermissionGranted).toHaveBeenCalled();
+    expect(mockNotificationRequestPermission).not.toHaveBeenCalled();
+    expect(mockNotificationSendNotification).toHaveBeenCalledWith({
       title: 'Test Title',
       body: 'Test Body',
     });
   });
 
   it('requests permission and sends notification when permission is granted', async () => {
-    mockIsPermissionGranted.mockResolvedValue(false);
-    mockRequestPermission.mockResolvedValue('granted');
+    mockNotificationIsPermissionGranted.mockResolvedValue(false);
+    mockNotificationRequestPermission.mockResolvedValue('granted');
 
     await notify('Test Title', 'Test Body');
 
-    expect(mockIsPermissionGranted).toHaveBeenCalled();
-    expect(mockRequestPermission).toHaveBeenCalled();
-    expect(mockSendNotification).toHaveBeenCalledWith({
+    expect(mockNotificationIsPermissionGranted).toHaveBeenCalled();
+    expect(mockNotificationRequestPermission).toHaveBeenCalled();
+    expect(mockNotificationSendNotification).toHaveBeenCalledWith({
       title: 'Test Title',
       body: 'Test Body',
     });
@@ -105,14 +99,14 @@ describe('notify utility', () => {
   it('does not send notification when permission is denied', async () => {
     const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    mockIsPermissionGranted.mockResolvedValue(false);
-    mockRequestPermission.mockResolvedValue('denied');
+    mockNotificationIsPermissionGranted.mockResolvedValue(false);
+    mockNotificationRequestPermission.mockResolvedValue('denied');
 
     await notify('Test Title', 'Test Body');
 
-    expect(mockIsPermissionGranted).toHaveBeenCalled();
-    expect(mockRequestPermission).toHaveBeenCalled();
-    expect(mockSendNotification).not.toHaveBeenCalled();
+    expect(mockNotificationIsPermissionGranted).toHaveBeenCalled();
+    expect(mockNotificationRequestPermission).toHaveBeenCalled();
+    expect(mockNotificationSendNotification).not.toHaveBeenCalled();
     expect(consoleSpy).toHaveBeenCalledWith(
       'Notification permission not granted'
     );
@@ -121,36 +115,36 @@ describe('notify utility', () => {
   });
 
   it('handles Japanese characters in notification', async () => {
-    mockIsPermissionGranted.mockResolvedValue(true);
+    mockNotificationIsPermissionGranted.mockResolvedValue(true);
 
     await notify('同期完了', 'メールの同期が完了しました');
 
-    expect(mockSendNotification).toHaveBeenCalledWith({
+    expect(mockNotificationSendNotification).toHaveBeenCalledWith({
       title: '同期完了',
       body: 'メールの同期が完了しました',
     });
   });
 
   it('handles empty title and body', async () => {
-    mockIsPermissionGranted.mockResolvedValue(true);
+    mockNotificationIsPermissionGranted.mockResolvedValue(true);
 
     await notify('', '');
 
-    expect(mockSendNotification).toHaveBeenCalledWith({
+    expect(mockNotificationSendNotification).toHaveBeenCalledWith({
       title: '',
       body: '',
     });
   });
 
   it('handles long notification content', async () => {
-    mockIsPermissionGranted.mockResolvedValue(true);
+    mockNotificationIsPermissionGranted.mockResolvedValue(true);
 
     const longTitle = 'A'.repeat(100);
     const longBody = 'B'.repeat(500);
 
     await notify(longTitle, longBody);
 
-    expect(mockSendNotification).toHaveBeenCalledWith({
+    expect(mockNotificationSendNotification).toHaveBeenCalledWith({
       title: longTitle,
       body: longBody,
     });
