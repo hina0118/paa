@@ -667,19 +667,47 @@ impl OrderRepository for SqliteOrderRepository {
             .map_err(|e| format!("Failed to start transaction: {e}"))?;
 
         // 1. 既存の注文を検索（order_number + shop_domain）
-        // shop_domain が None/空のときは COALESCE(?, '') = '' により shop_domain 未設定の注文を検索
-        let order_row: Option<(i64,)> = sqlx::query_as(
-            r#"
-            SELECT id FROM orders
-            WHERE order_number = ? AND COALESCE(shop_domain, '') = COALESCE(?, '')
-            LIMIT 1
-            "#,
-        )
-        .bind(&cancel_info.order_number)
-        .bind(shop_domain.as_deref())
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(|e| format!("Failed to find order: {e}"))?;
+        // インデックス (order_number, shop_domain) を活かすため、shop_domain に関数をかけずクエリを分岐
+        let order_row: Option<(i64,)> = if let Some(ref domain) = shop_domain {
+            if !domain.is_empty() {
+                sqlx::query_as(
+                    r#"
+                    SELECT id FROM orders
+                    WHERE order_number = ? AND shop_domain = ?
+                    LIMIT 1
+                    "#,
+                )
+                .bind(&cancel_info.order_number)
+                .bind(domain)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(|e| format!("Failed to find order: {e}"))?
+            } else {
+                sqlx::query_as(
+                    r#"
+                    SELECT id FROM orders
+                    WHERE order_number = ? AND (shop_domain IS NULL OR shop_domain = '')
+                    LIMIT 1
+                    "#,
+                )
+                .bind(&cancel_info.order_number)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(|e| format!("Failed to find order: {e}"))?
+            }
+        } else {
+            sqlx::query_as(
+                r#"
+                SELECT id FROM orders
+                WHERE order_number = ? AND (shop_domain IS NULL OR shop_domain = '')
+                LIMIT 1
+                "#,
+            )
+            .bind(&cancel_info.order_number)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|e| format!("Failed to find order: {e}"))?
+        };
 
         let order_id = match order_row {
             Some((id,)) => id,
