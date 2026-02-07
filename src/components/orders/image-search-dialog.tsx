@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import {
   Dialog,
   DialogContent,
@@ -8,7 +9,8 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Loader2, Search, Check } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Loader2, Search, Check, ExternalLink } from 'lucide-react';
 import {
   toastSuccess,
   toastError,
@@ -46,12 +48,15 @@ export function ImageSearchDialog({
   const [searchResults, setSearchResults] = useState<ImageSearchResult[]>([]);
   const [selectedUrl, setSelectedUrl] = useState<string | null>(null);
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [apiSearchFailed, setApiSearchFailed] = useState(false);
+  const [manualUrlInput, setManualUrlInput] = useState('');
 
   const handleSearch = useCallback(async () => {
     setIsSearching(true);
     setSearchResults([]);
     setSelectedUrl(null);
     setSavedSuccess(false);
+    setApiSearchFailed(false);
 
     try {
       const results = await invoke<ImageSearchResult[]>(
@@ -65,23 +70,46 @@ export function ImageSearchDialog({
       setSearchResults(safeResults);
       if (safeResults.length === 0) {
         toastWarning('画像が見つかりませんでした。');
+        setApiSearchFailed(true);
       }
     } catch (e) {
       toastError(`画像検索に失敗しました: ${formatError(e)}`);
+      setApiSearchFailed(true);
     } finally {
       setIsSearching(false);
     }
   }, [itemName]);
 
+  const handleOpenBrowserSearch = useCallback(() => {
+    const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(itemName)}&tbm=isch`;
+    const label = `image-search-${Date.now()}`;
+    try {
+      const webview = new WebviewWindow(label, {
+        url: searchUrl,
+        title: `Google画像検索: ${itemName}`,
+        width: 900,
+        height: 700,
+      });
+      webview.once('tauri://error', (e) => {
+        toastError(`サブウィンドウを開けませんでした: ${formatError(e)}`);
+      });
+    } catch (err) {
+      toastError(`サブウィンドウを開けませんでした: ${formatError(err)}`);
+    }
+  }, [itemName]);
+
+  const urlToSave =
+    selectedUrl || (manualUrlInput.trim() ? manualUrlInput.trim() : null);
+
   const handleSaveImage = useCallback(async () => {
-    if (!selectedUrl) return;
+    if (!urlToSave) return;
 
     setIsSaving(true);
 
     try {
       await invoke('save_image_from_url', {
         itemId,
-        imageUrl: selectedUrl,
+        imageUrl: urlToSave,
       });
       toastSuccess('画像を保存しました');
       setSavedSuccess(true);
@@ -91,7 +119,7 @@ export function ImageSearchDialog({
     } finally {
       setIsSaving(false);
     }
-  }, [itemId, selectedUrl, onImageSaved]);
+  }, [itemId, urlToSave, onImageSaved]);
 
   // 成功後、少し待ってからダイアログを閉じる（クリーンアップでメモリリーク防止）
   useEffect(() => {
@@ -110,6 +138,8 @@ export function ImageSearchDialog({
         setSearchResults([]);
         setSelectedUrl(null);
         setSavedSuccess(false);
+        setApiSearchFailed(false);
+        setManualUrlInput('');
       }
       onOpenChange(newOpen);
     },
@@ -193,16 +223,44 @@ export function ImageSearchDialog({
           )}
 
           {/* 選択された画像のプレビュー */}
-          {selectedUrl && (
+          {(selectedUrl || manualUrlInput.trim()) && (
             <div className="p-3 bg-muted/50 rounded-lg">
               <p className="text-sm text-muted-foreground mb-2">
                 選択中の画像:
               </p>
               <p className="text-xs text-muted-foreground truncate">
-                {selectedUrl}
+                {selectedUrl || manualUrlInput.trim()}
               </p>
             </div>
           )}
+
+          {/* ブラウザ検索フォールバック（API失敗時または手動登録用） */}
+          <div className="space-y-3 pt-3 border-t">
+            {apiSearchFailed && (
+              <p className="text-sm text-muted-foreground">
+                APIが利用できません。サブウィンドウでGoogle画像検索を開き、画像を選択してURLを貼り付けて登録できます。
+              </p>
+            )}
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Button
+                variant="outline"
+                onClick={handleOpenBrowserSearch}
+                className="flex-shrink-0"
+              >
+                <ExternalLink className="mr-2 h-4 w-4" />
+                サブウィンドウでGoogle画像検索を開く
+              </Button>
+              <div className="flex-1 min-w-0">
+                <Input
+                  type="url"
+                  placeholder="画像のURLをここに貼り付け"
+                  value={manualUrlInput}
+                  onChange={(e) => setManualUrlInput(e.target.value)}
+                  className="h-9"
+                />
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* フッター */}
@@ -212,7 +270,7 @@ export function ImageSearchDialog({
           </Button>
           <Button
             onClick={handleSaveImage}
-            disabled={!selectedUrl || isSaving || savedSuccess}
+            disabled={!urlToSave || isSaving || savedSuccess}
           >
             {isSaving ? (
               <>
