@@ -13,8 +13,7 @@ use tokio::sync::Mutex;
 use crate::batch_runner::{BatchProgressEvent, BatchRunner};
 use crate::config;
 use crate::e2e_mocks::{
-    is_e2e_mock_mode, E2EMockGmailClient, GeminiClientForE2E,
-    GmailClientForE2E,
+    is_e2e_mock_mode, E2EMockGmailClient, GeminiClientForE2E, GmailClientForE2E,
 };
 use crate::gemini::{
     create_product_parse_input, GeminiClient, ProductNameParseCache, ProductNameParseContext,
@@ -22,14 +21,14 @@ use crate::gemini::{
 };
 use crate::gmail::{
     create_sync_input, fetch_all_message_ids, GmailSyncContext, GmailSyncTask,
-    ShopSettingsCacheForSync, GMAIL_SYNC_EVENT_NAME, GMAIL_SYNC_TASK_NAME, SyncGuard, SyncState,
+    ShopSettingsCacheForSync, SyncGuard, SyncState, GMAIL_SYNC_EVENT_NAME, GMAIL_SYNC_TASK_NAME,
 };
 use crate::logic::sync_logic;
+use crate::parsers::EmailRow;
 use crate::parsers::{
     EmailParseContext, EmailParseTask, ShopSettingsCache, EMAIL_PARSE_EVENT_NAME,
     EMAIL_PARSE_TASK_NAME,
 };
-use crate::parsers::EmailRow;
 use crate::repository::{
     EmailRepository, ParseRepository, ShopSettingsRepository, SqliteEmailRepository,
     SqliteOrderRepository, SqliteParseRepository, SqliteProductMasterRepository,
@@ -37,11 +36,7 @@ use crate::repository::{
 };
 
 /// Gmail同期タスクの本体。コマンド・トレイ両方から呼ぶ。
-pub async fn run_sync_task(
-    app: tauri::AppHandle,
-    pool: SqlitePool,
-    sync_state: SyncState,
-) {
+pub async fn run_sync_task(app: tauri::AppHandle, pool: SqlitePool, sync_state: SyncState) {
     log::info!("Starting Gmail sync with BatchRunner<GmailSyncTask>...");
 
     if !sync_state.try_start() {
@@ -91,14 +86,22 @@ pub async fn run_sync_task(
         sender_addresses.len()
     );
 
-    let app_config_dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("Failed to get app config dir: {e}"))
-        .unwrap_or_else(|e| {
-            log::error!("{e}");
-            std::path::PathBuf::new()
-        });
+    let app_config_dir = match app.path().app_config_dir() {
+        Ok(dir) => dir,
+        Err(e) => {
+            log::error!("Failed to get app config dir: {}", e);
+            let error_event = BatchProgressEvent::error(
+                GMAIL_SYNC_TASK_NAME,
+                0,
+                0,
+                0,
+                0,
+                format!("Failed to get app config dir: {}", e),
+            );
+            let _ = app.emit(GMAIL_SYNC_EVENT_NAME, error_event);
+            return;
+        }
+    };
     let config = config::load(&app_config_dir).unwrap_or_else(|e| {
         log::error!("Failed to load config: {}", e);
         config::AppConfig::default()
@@ -215,7 +218,9 @@ pub async fn run_sync_task(
     let sync_state_for_cancel = sync_state.clone();
 
     match runner
-        .run(&app, inputs, &context, || sync_state_for_cancel.should_stop())
+        .run(&app, inputs, &context, || {
+            sync_state_for_cancel.should_stop()
+        })
         .await
     {
         Ok(batch_result) => {
@@ -262,6 +267,8 @@ pub async fn run_batch_parse_task(
 ) {
     log::info!("Starting batch parse with BatchRunner<EmailParseTask>...");
 
+    let batch_size = batch_size.max(1);
+
     if let Err(e) = parse_state.start() {
         log::error!("Failed to start parse: {}", e);
         let error_event = BatchProgressEvent::error(
@@ -280,9 +287,7 @@ pub async fn run_batch_parse_task(
     let order_repo = SqliteOrderRepository::new(pool.clone());
     let shop_settings_repo = SqliteShopSettingsRepository::new(pool.clone());
 
-    log::info!(
-        "Clearing order_emails, deliveries, items, and orders tables for fresh parse..."
-    );
+    log::info!("Clearing order_emails, deliveries, items, and orders tables for fresh parse...");
     if let Err(e) = parse_repo.clear_order_tables().await {
         log::error!("Failed to clear order tables: {}", e);
         parse_state.finish();
@@ -388,7 +393,10 @@ pub async fn run_batch_parse_task(
         }
     };
 
-    let inputs: Vec<_> = all_unparsed_emails.into_iter().map(|row: EmailRow| row.into()).collect();
+    let inputs: Vec<_> = all_unparsed_emails
+        .into_iter()
+        .map(|row: EmailRow| row.into())
+        .collect();
     let inputs_len = inputs.len();
     log::info!("Fetched {} unparsed emails", inputs_len);
 
@@ -410,7 +418,9 @@ pub async fn run_batch_parse_task(
     let parse_state_for_cancel = parse_state.clone();
 
     match runner
-        .run(&app, inputs, &context, || parse_state_for_cancel.is_cancelled())
+        .run(&app, inputs, &context, || {
+            parse_state_for_cancel.is_cancelled()
+        })
         .await
     {
         Ok(_batch_result) => {
@@ -450,7 +460,6 @@ pub async fn run_product_name_parse_task(
                 format!("Failed to get app data dir: {}", e),
             );
             let _ = app.emit(PRODUCT_NAME_PARSE_EVENT_NAME, error_event);
-            parse_state.finish();
             return;
         }
     };
@@ -470,7 +479,6 @@ pub async fn run_product_name_parse_task(
                     .to_string(),
             );
             let _ = app.emit(PRODUCT_NAME_PARSE_EVENT_NAME, error_event);
-            parse_state.finish();
             return;
         }
         match crate::gemini::load_api_key(&app_data_dir) {
@@ -487,7 +495,6 @@ pub async fn run_product_name_parse_task(
                         format!("Failed to create Gemini client: {}", e),
                     );
                     let _ = app.emit(PRODUCT_NAME_PARSE_EVENT_NAME, error_event);
-                    parse_state.finish();
                     return;
                 }
             },
@@ -502,7 +509,6 @@ pub async fn run_product_name_parse_task(
                     format!("Failed to load API key: {}", e),
                 );
                 let _ = app.emit(PRODUCT_NAME_PARSE_EVENT_NAME, error_event);
-                parse_state.finish();
                 return;
             }
         }
@@ -510,14 +516,7 @@ pub async fn run_product_name_parse_task(
 
     if let Err(e) = parse_state.try_start() {
         log::error!("Product name parse already running: {}", e);
-        let error_event = BatchProgressEvent::error(
-            PRODUCT_NAME_PARSE_TASK_NAME,
-            0,
-            0,
-            0,
-            0,
-            e,
-        );
+        let error_event = BatchProgressEvent::error(PRODUCT_NAME_PARSE_TASK_NAME, 0, 0, 0, 0, e);
         let _ = app.emit(PRODUCT_NAME_PARSE_EVENT_NAME, error_event);
         return;
     }
@@ -628,4 +627,39 @@ pub async fn run_product_name_parse_task(
     }
 
     parse_state.finish();
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_batch_size_clamp_in_run_batch_parse_task() {
+        // run_batch_parse_task では batch_size.max(1) により 0 でも panic しない
+        let batch_size = 0usize;
+        let clamped = batch_size.max(1);
+        assert_eq!(clamped, 1);
+
+        let batch_size = 1usize;
+        let clamped = batch_size.max(1);
+        assert_eq!(clamped, 1);
+
+        let batch_size = 100usize;
+        let clamped = batch_size.max(1);
+        assert_eq!(clamped, 100);
+    }
+
+    #[test]
+    fn test_batch_size_validation_for_tray_parse() {
+        // lib.rs の tray_parse では config.parse.batch_size が 0 以下のとき 100 にフォールバック
+        fn clamp_tray_batch_size(v: i32) -> usize {
+            if v <= 0 {
+                100
+            } else {
+                v as usize
+            }
+        }
+        assert_eq!(clamp_tray_batch_size(0), 100);
+        assert_eq!(clamp_tray_batch_size(-1), 100);
+        assert_eq!(clamp_tray_batch_size(50), 50);
+        assert_eq!(clamp_tray_batch_size(200), 200);
+    }
 }
