@@ -401,6 +401,9 @@ mod tests {
             &settings,
         );
 
-        assert!(candidates.is_empty(), "hobbysearch_cancel should be excluded from single-email parse candidates");
+        assert!(
+            candidates.is_empty(),
+            "hobbysearch_cancel should be excluded from single-email parse candidates"
+        );
     }
 }

@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS orders (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_orders_shop_domain ON orders(shop_domain);
+CREATE INDEX IF NOT EXISTS idx_orders_order_number_shop_domain ON orders(order_number, shop_domain);
 CREATE INDEX IF NOT EXISTS idx_orders_order_date ON orders(order_date DESC);
 CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at DESC);
 CREATE TRIGGER orders_updated_at AFTER UPDATE ON orders BEGIN
