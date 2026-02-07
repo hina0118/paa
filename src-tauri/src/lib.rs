@@ -727,6 +727,8 @@ pub fn run() {
                                 pool_clone,
                                 sync_state_clone,
                             ));
+                        } else {
+                            log::warn!("Cannot run tray sync: pool or sync_state not initialized");
                         }
                     }
                     "tray_parse" => {
@@ -750,6 +752,8 @@ pub fn run() {
                                 parse_state_clone,
                                 batch_size,
                             ));
+                        } else {
+                            log::warn!("Cannot run tray parse: pool or parse_state not initialized");
                         }
                     }
                     "tray_product_name_parse" => {
@@ -765,7 +769,12 @@ pub fn run() {
                                     app_clone,
                                     pool_clone,
                                     parse_state_clone,
+                                    false, // トレイ経由では try_start を本関数内で行う
                                 ),
+                            );
+                        } else {
+                            log::warn!(
+                                "Cannot run tray product name parse: pool or parse_state not initialized"
                             );
                         }
                     }
@@ -1229,12 +1238,29 @@ async fn start_product_name_parse(
     pool: tauri::State<'_, SqlitePool>,
     parse_state: tauri::State<'_, ProductNameParseState>,
 ) -> Result<(), String> {
+    // spawn 前の事前チェック（APIキー有無等）で Err を返せるようにする
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {e}"))?;
+
+    if !crate::e2e_mocks::is_e2e_mock_mode() && !crate::gemini::has_api_key(&app_data_dir) {
+        return Err(
+            "Gemini APIキーが設定されていません。設定画面でAPIキーを設定してください。".to_string(),
+        );
+    }
+
+    if parse_state.try_start().is_err() {
+        return Err("商品名解析は既に実行中です。完了するまでお待ちください。".to_string());
+    }
+
     let pool_clone = pool.inner().clone();
     let parse_state_clone = parse_state.inner().clone();
     tauri::async_runtime::spawn(batch_commands::run_product_name_parse_task(
         app_handle,
         pool_clone,
         parse_state_clone,
+        true, // caller で try_start 済み
     ));
     Ok(())
 }
