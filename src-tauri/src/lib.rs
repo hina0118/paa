@@ -1250,8 +1250,8 @@ async fn start_product_name_parse(
         );
     }
 
-    if parse_state.try_start().is_err() {
-        return Err("商品名解析は既に実行中です。完了するまでお待ちください。".to_string());
+    if let Err(e) = parse_state.try_start() {
+        return Err(e.to_string());
     }
 
     let pool_clone = pool.inner().clone();
