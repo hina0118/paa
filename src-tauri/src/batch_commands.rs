@@ -53,15 +53,7 @@ pub async fn run_sync_task(app: tauri::AppHandle, pool: SqlitePool, sync_state: 
     if !sync_state.try_start() {
         log::warn!("Sync is already in progress");
         let message = "Sync is already in progress".to_string();
-        sync_state.set_error(&message);
-        let error_event = BatchProgressEvent::error(
-            GMAIL_SYNC_TASK_NAME,
-            0,
-            0,
-            0,
-            0,
-            message,
-        );
+        let error_event = BatchProgressEvent::error(GMAIL_SYNC_TASK_NAME, 0, 0, 0, 0, message);
         let _ = app.emit(GMAIL_SYNC_EVENT_NAME, error_event);
         return;
     }
@@ -274,17 +266,31 @@ pub async fn run_batch_parse_task(
     let batch_size = batch_size.max(1);
 
     if let Err(e) = parse_state.start() {
-        log::error!("Failed to start parse: {}", e);
-        parse_state.set_error(&e);
-        let error_event = BatchProgressEvent::error(
-            EMAIL_PARSE_TASK_NAME,
-            0,
-            0,
-            0,
-            0,
-            format!("Parse error: {}", e),
-        );
-        let _ = app.emit(EMAIL_PARSE_EVENT_NAME, error_event);
+        let msg = e.to_string();
+        if msg.contains("Parse is already running") {
+            log::warn!("Parse already running, skip starting new parse: {}", msg);
+            let error_event = BatchProgressEvent::error(
+                EMAIL_PARSE_TASK_NAME,
+                0,
+                0,
+                0,
+                0,
+                format!("Parse already running: {}", msg),
+            );
+            let _ = app.emit(EMAIL_PARSE_EVENT_NAME, error_event);
+        } else {
+            log::error!("Failed to start parse: {}", msg);
+            parse_state.set_error(&e);
+            let error_event = BatchProgressEvent::error(
+                EMAIL_PARSE_TASK_NAME,
+                0,
+                0,
+                0,
+                0,
+                format!("Parse error: {}", msg),
+            );
+            let _ = app.emit(EMAIL_PARSE_EVENT_NAME, error_event);
+        }
         return;
     }
 

@@ -739,13 +739,25 @@ pub fn run() {
                             let app_clone = app.clone();
                             let pool_clone = pool.inner().clone();
                             let parse_state_clone = parse_state.inner().clone();
-                            let batch_size = app
-                                .path()
-                                .app_config_dir()
-                                .ok()
-                                .and_then(|dir| config::load(&dir).ok())
-                                .map(|c| batch_commands::clamp_batch_size(c.parse.batch_size, 100))
-                                .unwrap_or(100);
+                            let batch_size = match app.path().app_config_dir() {
+                                Ok(dir) => match config::load(&dir) {
+                                    Ok(c) => batch_commands::clamp_batch_size(c.parse.batch_size, 100),
+                                    Err(e) => {
+                                        log::warn!(
+                                            "Failed to load config from {:?}: {}. Falling back to default batch_size=100",
+                                            dir, e
+                                        );
+                                        100
+                                    }
+                                },
+                                Err(e) => {
+                                    log::warn!(
+                                        "Failed to get app_config_dir: {}. Falling back to default batch_size=100",
+                                        e
+                                    );
+                                    100
+                                }
+                            };
                             tauri::async_runtime::spawn(batch_commands::run_batch_parse_task(
                                 app_clone,
                                 pool_clone,
