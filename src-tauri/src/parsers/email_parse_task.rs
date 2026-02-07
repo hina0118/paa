@@ -372,7 +372,7 @@ where
                                         e
                                     );
                                     last_error = e;
-                                    continue;
+                                    break;
                                 }
                             }
                             break;
