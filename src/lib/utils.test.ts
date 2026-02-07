@@ -384,11 +384,7 @@ describe('isAppWindowVisible', () => {
   });
 
   it('returns true when dynamic import throws (fallback)', async () => {
-    vi.doMock('@tauri-apps/api/core', () => {
-      throw new Error('Module load failed');
-    });
-    // Reset modules to apply the new mock - actually vi.doMock is not hoisted
-    // and runs after imports. Simpler approach: make mockIsTauri throw
+    // Simulate dynamic import failure by making isTauri check throw
     mockIsTauri.mockImplementation(() => {
       throw new Error('Tauri check failed');
     });
