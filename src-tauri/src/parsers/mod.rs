@@ -30,6 +30,7 @@ pub struct EmailRow {
 mod hobbysearch_common;
 
 // ホビーサーチ用パーサー
+pub mod hobbysearch_cancel;
 pub mod hobbysearch_change;
 pub mod hobbysearch_change_yoyaku;
 pub mod hobbysearch_confirm;
@@ -379,6 +380,24 @@ pub async fn batch_parse_emails(
             iteration,
             batch_email_count
         );
+        if !emails.is_empty() {
+            let first = &emails[0];
+            let last = emails.last().unwrap();
+            log::debug!(
+                "[DEBUG] batch order: first email_id={} internal_date={:?} subject={:?}",
+                first.email_id,
+                first.internal_date,
+                first.subject.as_deref()
+            );
+            if emails.len() > 1 {
+                log::debug!(
+                    "[DEBUG] batch order: last email_id={} internal_date={:?} subject={:?}",
+                    last.email_id,
+                    last.internal_date,
+                    last.subject.as_deref()
+                );
+            }
+        }
 
         // OrderRepositoryインスタンスをループの外で作成（効率化のため）
         let order_repo = SqliteOrderRepository::new(pool.clone());
@@ -417,8 +436,63 @@ pub async fn batch_parse_emails(
             // 複数のパーサーを順番に試す（最初に成功したものを使用）
             let mut parse_result: Option<Result<(OrderInfo, String), String>> = None;
             let mut last_error = String::new();
+            let mut cancel_applied = false;
 
             for (parser_type, shop_name) in &candidate_parsers {
+                // キャンセルメールは専用パーサーで処理（OrderInfo を返さない）
+                if parser_type == "hobbysearch_cancel" {
+                    let cancel_parser = hobbysearch_cancel::HobbySearchCancelParser;
+                    match cancel_parser.parse_cancel(&row.body_plain) {
+                        Ok(cancel_info) => {
+                            log::debug!(
+                                "[DEBUG] cancel email_id={} internal_date={:?} order_number={} subject={:?}",
+                                row.email_id,
+                                row.internal_date,
+                                cancel_info.order_number,
+                                row.subject
+                            );
+                            let from_address = row.from_address.as_deref().unwrap_or("");
+                            let shop_domain = extract_email_address(from_address)
+                                .and_then(|email| extract_domain(&email).map(|s| s.to_string()));
+
+                            match order_repo
+                                .apply_cancel(
+                                    &cancel_info,
+                                    row.email_id,
+                                    shop_domain,
+                                    Some(shop_name.clone()),
+                                )
+                                .await
+                            {
+                                Ok(order_id) => {
+                                    log::info!(
+                                        "Successfully applied cancel for order {} (email {})",
+                                        order_id,
+                                        row.email_id
+                                    );
+                                    success_count += 1;
+                                }
+                                Err(e) => {
+                                    log::error!(
+                                        "Failed to apply cancel for email {}: {}",
+                                        row.email_id,
+                                        e
+                                    );
+                                    failed_count += 1;
+                                }
+                            }
+                            overall_parsed_count += 1;
+                            cancel_applied = true;
+                            break;
+                        }
+                        Err(e) => {
+                            log::debug!("hobbysearch_cancel parser failed: {}", e);
+                            last_error = e;
+                            continue;
+                        }
+                    }
+                }
+
                 let parser = match get_parser(parser_type) {
                     Some(p) => p,
                     None => {
@@ -469,6 +543,10 @@ pub async fn batch_parse_emails(
                         continue;
                     }
                 }
+            }
+
+            if cancel_applied {
+                continue;
             }
 
             let parse_result = match parse_result {

@@ -19,7 +19,7 @@
 use crate::batch_runner::BatchTask;
 use crate::logic::email_parser::extract_domain;
 use crate::logic::sync_logic::extract_email_address;
-use crate::parsers::{get_parser, EmailRow, OrderInfo, ParseState};
+use crate::parsers::{get_parser, hobbysearch_cancel, EmailRow, OrderInfo, ParseState};
 use crate::repository::{OrderRepository, ParseRepository, ShopSettingsRepository};
 use async_trait::async_trait;
 use chrono::DateTime;
@@ -62,12 +62,14 @@ impl From<EmailRow> for EmailParseInput {
 pub struct EmailParseOutput {
     /// メールID
     pub email_id: i64,
-    /// パースされた注文情報
+    /// パースされた注文情報（キャンセル適用時はダミー）
     pub order_info: OrderInfo,
     /// ショップ名
     pub shop_name: String,
     /// ショップドメイン
     pub shop_domain: Option<String>,
+    /// キャンセルメールを適用済み（apply_cancel 済みのため save_order 不要）
+    pub cancel_applied: bool,
 }
 
 /// パース失敗の理由
@@ -302,8 +304,85 @@ where
             // 複数のパーサーを順番に試す
             let mut parse_result: Option<(OrderInfo, String)> = None;
             let mut last_error = String::new();
+            let mut cancel_applied = false;
 
             for (parser_type, shop_name) in &candidate_parsers {
+                // キャンセルメールは専用パーサーで処理（OrderInfo を返さない）
+                if parser_type == "hobbysearch_cancel" {
+                    log::info!(
+                        "[cancel] trying hobbysearch_cancel email_id={} subject={:?}",
+                        input.email_id,
+                        input.subject
+                    );
+                    let cancel_parser = hobbysearch_cancel::HobbySearchCancelParser;
+                    match cancel_parser.parse_cancel(&input.body_plain) {
+                        Ok(cancel_info) => {
+                            log::info!(
+                                "[cancel] email_id={} internal_date={:?} order_number={} subject={:?}",
+                                input.email_id,
+                                input.internal_date,
+                                cancel_info.order_number,
+                                input.subject
+                            );
+                            let from_address = input.from_address.as_deref().unwrap_or("");
+                            let shop_domain = extract_email_address(from_address)
+                                .and_then(|email| extract_domain(&email).map(|s| s.to_string()));
+
+                            match context
+                                .order_repo
+                                .apply_cancel(
+                                    &cancel_info,
+                                    input.email_id,
+                                    shop_domain.clone(),
+                                    Some(shop_name.clone()),
+                                )
+                                .await
+                            {
+                                Ok(order_id) => {
+                                    log::debug!(
+                                        "Successfully applied cancel for order {} (email {})",
+                                        order_id,
+                                        input.email_id
+                                    );
+                                    results.push(Ok(EmailParseOutput {
+                                        email_id: input.email_id,
+                                        order_info: OrderInfo {
+                                            order_number: cancel_info.order_number,
+                                            order_date: None,
+                                            delivery_address: None,
+                                            delivery_info: None,
+                                            items: vec![],
+                                            subtotal: None,
+                                            shipping_fee: None,
+                                            total_amount: None,
+                                        },
+                                        shop_name: shop_name.clone(),
+                                        shop_domain: shop_domain,
+                                        cancel_applied: true,
+                                    }));
+                                    cancel_applied = true;
+                                }
+                                Err(e) => {
+                                    log::info!(
+                                        "[cancel] apply_cancel failed email_id={} order_number={}: {}",
+                                        input.email_id,
+                                        cancel_info.order_number,
+                                        e
+                                    );
+                                    last_error = e;
+                                    continue;
+                                }
+                            }
+                            break;
+                        }
+                        Err(e) => {
+                            log::debug!("hobbysearch_cancel parser failed: {}", e);
+                            last_error = e;
+                            continue;
+                        }
+                    }
+                }
+
                 let parser = match get_parser(parser_type) {
                     Some(p) => p,
                     None => {
@@ -355,26 +434,48 @@ where
                 }
             }
 
-            match parse_result {
-                Some((order_info, shop_name)) => {
-                    // ドメインを抽出
-                    let from_address = input.from_address.as_deref().unwrap_or("");
-                    let shop_domain = extract_email_address(from_address)
-                        .and_then(|email| extract_domain(&email).map(|s| s.to_string()));
+            if cancel_applied {
+                // 結果は既に push 済み
+            } else if let Some((order_info, shop_name)) = parse_result {
+                // ドメインを抽出
+                let from_address = input.from_address.as_deref().unwrap_or("");
+                let shop_domain = extract_email_address(from_address)
+                    .and_then(|email| extract_domain(&email).map(|s| s.to_string()));
 
-                    results.push(Ok(EmailParseOutput {
-                        email_id: input.email_id,
-                        order_info,
-                        shop_name,
-                        shop_domain,
-                    }));
+                // キャンセルメールが同一バッチ内の後続で apply_cancel するため、
+                // 確認・変更メールはここで即時 save_order する（after_batch に遅延すると注文が未コミットで見つからない）
+                match context
+                    .order_repo
+                    .save_order(
+                        &order_info,
+                        Some(input.email_id),
+                        shop_domain.clone(),
+                        Some(shop_name.clone()),
+                    )
+                    .await
+                {
+                    Ok(order_id) => {
+                        log::debug!("Saved order {} for email {} (in-batch)", order_id, input.email_id);
+                    }
+                    Err(e) => {
+                        log::error!("Failed to save order for email {}: {}", input.email_id, e);
+                        results.push(Err(format!("Failed to save order: {e}")));
+                        continue;
+                    }
                 }
-                None => {
-                    results.push(Err(format!(
-                        "All parsers failed for email {}: {}",
-                        input.email_id, last_error
-                    )));
-                }
+
+                results.push(Ok(EmailParseOutput {
+                    email_id: input.email_id,
+                    order_info,
+                    shop_name,
+                    shop_domain,
+                    cancel_applied: false,
+                }));
+            } else {
+                results.push(Err(format!(
+                    "All parsers failed for email {}: {}",
+                    input.email_id, last_error
+                )));
             }
         }
 
@@ -386,7 +487,7 @@ where
         &self,
         batch_number: usize,
         results: &[Result<Self::Output, String>],
-        context: &Self::Context,
+        _context: &Self::Context,
     ) -> Result<(), String> {
         log::debug!(
             "[{}] after_batch: batch {} with {} results",
@@ -396,36 +497,13 @@ where
         );
 
         let mut saved_count = 0;
-        let mut save_errors = 0;
 
         for result in results {
             match result {
-                Ok(output) => {
-                    // 注文をDBに保存
-                    match context
-                        .order_repo
-                        .save_order(
-                            &output.order_info,
-                            Some(output.email_id),
-                            output.shop_domain.clone(),
-                            Some(output.shop_name.clone()),
-                        )
-                        .await
-                    {
-                        Ok(order_id) => {
-                            log::debug!("Saved order {} for email {}", order_id, output.email_id);
-                            saved_count += 1;
-                        }
-                        Err(e) => {
-                            log::error!(
-                                "[{}] Failed to save order for email {}: {}",
-                                self.name(),
-                                output.email_id,
-                                e
-                            );
-                            save_errors += 1;
-                        }
-                    }
+                Ok(_output) => {
+                    // 確認・変更は process_batch で即時 save_order 済み。
+                    // キャンセルは apply_cancel 済み。いずれも after_batch での保存は不要。
+                    saved_count += 1;
                 }
                 Err(e) => {
                     // パース失敗: BatchRunnerがすでに失敗をカウントしているのでここではログのみ
@@ -438,13 +516,12 @@ where
         let success = results.iter().filter(|r| r.is_ok()).count();
         let failed = results.iter().filter(|r| r.is_err()).count();
         log::info!(
-            "[{}] Batch {} complete: {} parsed, {} failed, {} saved, {} save_errors",
+            "[{}] Batch {} complete: {} parsed, {} failed, {} saved",
             self.name(),
             batch_number,
             success,
             failed,
-            saved_count,
-            save_errors
+            saved_count
         );
 
         Ok(())
