@@ -317,7 +317,7 @@ pub trait OrderRepository: Send + Sync {
 
     /// 組み換えメールの商品を元注文から削除する。
     /// 新注文の各商品について、同じショップの過去注文（発送済みでない）から商品名でマッチする item を検索し削除する。
-    /// 残り商品が 0 になった order は削除する。
+    /// 残り商品が 0 になった order は deliveries のみクリーンアップし、orders/order_emails は再パース防止のため保持する。
     async fn apply_change_items(
         &self,
         order_info: &OrderInfo,
