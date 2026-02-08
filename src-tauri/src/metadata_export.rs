@@ -327,15 +327,11 @@ where
         .map_err(|e| format!("Failed to parse product_master.json: {e}"))?;
 
     // emails.json（オプション: 旧バックアップには含まれない）
-    let emails_rows: Vec<JsonEmailRow> = zip_archive
-        .by_name("emails.json")
-        .ok()
-        .and_then(|mut entry| {
-            let mut s = String::new();
-            entry.read_to_string(&mut s).ok()?;
-            serde_json::from_str(&s).ok()
-        })
-        .unwrap_or_default();
+    let emails_rows: Vec<JsonEmailRow> = match read_zip_entry_optional(&mut zip_archive, "emails.json")? {
+        None => Vec::new(),
+        Some(emails_json) => serde_json::from_str(&emails_json)
+            .map_err(|e| format!("Failed to parse emails.json: {e}"))?,
+    };
 
     // images.json に登場する安全な file_name のみをコピー対象とする（DoS 対策）
     let allowed_image_files: HashSet<String> = images_rows
@@ -524,6 +520,29 @@ fn read_zip_entry<R: Read + Seek>(
         .read_to_string(&mut s)
         .map_err(|e| format!("Failed to read {}: {e}", name))?;
     Ok(s)
+}
+
+/// オプションの ZIP エントリを読み込む。FileNotFound の場合は None、それ以外のエラーは Err。
+fn read_zip_entry_optional<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    name: &str,
+) -> Result<Option<String>, String> {
+    let mut entry = match archive.by_name(name) {
+        Ok(e) => e,
+        Err(zip::result::ZipError::FileNotFound) => return Ok(None),
+        Err(e) => return Err(format!("Failed to access {name} in archive: {e}")),
+    };
+    if entry.size() > MAX_JSON_ENTRY_SIZE {
+        return Err(format!(
+            "{} exceeds size limit (max {} bytes)",
+            name, MAX_JSON_ENTRY_SIZE
+        ));
+    }
+    let mut s = String::new();
+    entry
+        .read_to_string(&mut s)
+        .map_err(|e| format!("Failed to read {}: {e}", name))?;
+    Ok(Some(s))
 }
 
 /// JSON デシリアライズ用（タプル形式、id を含むがインポート時は未使用）
