@@ -445,23 +445,39 @@ where
                     .and_then(|email| extract_domain(&email).map(|s| s.to_string()));
 
                 // 組み換えメールの場合、同一トランザクションで元注文削除＋新注文登録（データ欠損を防ぐ）
-                // internal_date が無効値の場合、cutoff に使わず None を渡す
+                // internal_date が無効値の場合は安全のため組み換え処理をスキップし、単純な save_order にフォールバックする
                 let change_email_internal_date = input
                     .internal_date
                     .and_then(|ts| DateTime::from_timestamp_millis(ts).map(|_| ts));
                 let save_result = if parser_type == "hobbysearch_change"
                     || parser_type == "hobbysearch_change_yoyaku"
                 {
-                    context
-                        .order_repo
-                        .apply_change_items_and_save_order(
-                            &order_info,
-                            Some(input.email_id),
-                            shop_domain.clone(),
-                            Some(shop_name.clone()),
-                            change_email_internal_date,
-                        )
-                        .await
+                    if let Some(change_email_internal_date) = change_email_internal_date {
+                        context
+                            .order_repo
+                            .apply_change_items_and_save_order(
+                                &order_info,
+                                Some(input.email_id),
+                                shop_domain.clone(),
+                                Some(shop_name.clone()),
+                                Some(change_email_internal_date),
+                            )
+                            .await
+                    } else {
+                        log::warn!(
+                            "Invalid internal_date for change email {}, fallback to save_order without applying change items",
+                            input.email_id
+                        );
+                        context
+                            .order_repo
+                            .save_order(
+                                &order_info,
+                                Some(input.email_id),
+                                shop_domain.clone(),
+                                Some(shop_name.clone()),
+                            )
+                            .await
+                    }
                 } else {
                     context
                         .order_repo
