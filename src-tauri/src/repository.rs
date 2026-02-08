@@ -481,11 +481,14 @@ fn item_names_match(
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string())
         .unwrap_or_else(|| normalize_product_name(item_name));
-    product_normalized == db_normalized
-        || (!product_normalized.is_empty()
-            && !db_normalized.is_empty()
-            && (product_normalized.contains(db_normalized.as_str())
-                || db_normalized.contains(product_normalized.as_str())))
+    // 空正規化同士の一致は誤マッチ（別商品の削除）につながるため、両方が非空のときだけ有効
+    if !product_normalized.is_empty() && !db_normalized.is_empty() {
+        product_normalized == db_normalized
+            || product_normalized.contains(db_normalized.as_str())
+            || db_normalized.contains(product_normalized.as_str())
+    } else {
+        false
+    }
 }
 
 /// apply_change_items で order_id ごとの items を保持する型
@@ -575,36 +578,33 @@ impl SqliteOrderRepository {
             .map_err(|e| format!("Failed to fetch change-target orders: {e}"))?
         };
 
-        let mut items_by_order: ItemsByOrderMap = if order_ids
-            .is_empty()
-        {
-            HashMap::new()
-        } else {
-            let placeholders: Vec<String> = (0..order_ids.len()).map(|_| "?".to_string()).collect();
+        // SQLite のバインド変数上限（999）を超えないようチャンク単位で取得
+        const BIND_LIMIT: usize = 500;
+        let mut items_by_order: ItemsByOrderMap = HashMap::new();
+        for chunk in order_ids.chunks(BIND_LIMIT) {
+            let placeholders: Vec<String> = chunk.iter().map(|_| "?".to_string()).collect();
             let placeholders_str = placeholders.join(", ");
             let query_str = format!(
                 r#"SELECT order_id, id, item_name, item_name_normalized, quantity FROM items WHERE order_id IN ({}) ORDER BY order_id, id"#,
                 placeholders_str
             );
             let mut q = sqlx::query_as::<_, (i64, i64, String, Option<String>, i64)>(&query_str);
-            for id in &order_ids {
+            for id in chunk {
                 q = q.bind(id);
             }
             let rows: Vec<(i64, i64, String, Option<String>, i64)> = q
                 .fetch_all(tx.as_mut())
                 .await
                 .map_err(|e| format!("Failed to fetch items: {e}"))?;
-            let mut map: ItemsByOrderMap = HashMap::new();
             for (order_id, id, item_name, item_name_normalized, quantity) in rows {
-                map.entry(order_id).or_default().push((
+                items_by_order.entry(order_id).or_default().push((
                     id,
                     item_name,
                     item_name_normalized,
                     quantity,
                 ));
             }
-            map
-        };
+        }
 
         let mut orders_to_delete: HashSet<i64> = HashSet::new();
 
@@ -710,22 +710,19 @@ impl SqliteOrderRepository {
                 .await
                 .map_err(|e| format!("Failed to count items: {e}"))?;
             if remaining.0 == 0 {
-                sqlx::query("DELETE FROM order_emails WHERE order_id = ?")
-                    .bind(order_id)
-                    .execute(tx.as_mut())
-                    .await
-                    .map_err(|e| format!("Failed to delete order_emails: {e}"))?;
+                // NOTE: order_emails と orders は物理削除しない。
+                // get_unparsed_emails は order_emails の不在を「未パース」のシグナルとして使うため、
+                // これらを削除すると過去パース済みメールが未パースに戻り、再パースで元注文が復活する。
+                // そのため deliveries のみ削除し、order と order_emails は保持する。
                 sqlx::query("DELETE FROM deliveries WHERE order_id = ?")
                     .bind(order_id)
                     .execute(tx.as_mut())
                     .await
-                    .map_err(|e| format!("Failed to delete deliveries: {e}"))?;
-                sqlx::query("DELETE FROM orders WHERE id = ?")
-                    .bind(order_id)
-                    .execute(tx.as_mut())
-                    .await
-                    .map_err(|e| format!("Failed to delete order: {e}"))?;
-                log::info!("apply_change_items: removed empty order {}", order_id);
+                    .map_err(|e| format!("Failed to delete deliveries for empty order: {e}"))?;
+                log::info!(
+                    "apply_change_items: cleaned up deliveries for empty order {} (order and order_emails retained)",
+                    order_id
+                );
             }
         }
 
@@ -3090,13 +3087,13 @@ mod tests {
             .expect("count items");
         assert_eq!(count.0, 0, "item should be removed from old order");
 
-        // 残り商品 0 で元注文が削除されていること
+        // 残り商品 0 で deliveries がクリーンアップされること（order/order_emails は再パース防止のため保持）
         let order_exists: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM orders WHERE id = ?")
             .bind(old_order_id.0)
             .fetch_one(&pool)
             .await
             .expect("check order");
-        assert_eq!(order_exists.0, 0, "empty order should be deleted");
+        assert_eq!(order_exists.0, 1, "empty order is retained (deliveries cleaned only)");
     }
 
     #[tokio::test]
@@ -3339,7 +3336,7 @@ mod tests {
         assert_eq!(count1.0, 0, "order 1 items should be removed");
         assert_eq!(count2.0, 0, "order 2 items should be removed");
 
-        // 両方の元注文が削除されていること（残り商品0）
+        // 両方の元注文は保持されること（残り商品0、deliveries クリーンアップ。再パース防止のため order は削除しない）
         let order1_exists: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM orders WHERE id = ?")
             .bind(order1_id.0)
             .fetch_one(&pool)
@@ -3350,8 +3347,8 @@ mod tests {
             .fetch_one(&pool)
             .await
             .expect("check order 2");
-        assert_eq!(order1_exists.0, 0, "empty order 1 should be deleted");
-        assert_eq!(order2_exists.0, 0, "empty order 2 should be deleted");
+        assert_eq!(order1_exists.0, 1, "empty order 1 is retained");
+        assert_eq!(order2_exists.0, 1, "empty order 2 is retained");
     }
 
     #[tokio::test]
@@ -3406,7 +3403,7 @@ mod tests {
             .await;
         assert!(result.is_ok());
 
-        // 同一注文内の2行とも削除され、注文が削除されていること
+        // 同一注文内の2行とも削除され、注文は保持されること（deliveries クリーンアップのみ）
         let item_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items WHERE order_id = ?")
             .bind(order_id.0)
             .fetch_one(&pool)
@@ -3418,7 +3415,7 @@ mod tests {
             .fetch_one(&pool)
             .await
             .expect("check order");
-        assert_eq!(order_exists.0, 0, "empty order should be deleted");
+        assert_eq!(order_exists.0, 1, "empty order is retained");
     }
 
     #[tokio::test]
@@ -3511,13 +3508,19 @@ mod tests {
             .await;
         assert!(result.is_ok());
 
-        // 注文1: 商品削除 → 空注文削除
+        // 注文1: 商品削除 → 注文は保持（deliveries クリーンアップのみ）
+        let order1_items: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items WHERE order_id = ?")
+            .bind(order1_id.0)
+            .fetch_one(&pool)
+            .await
+            .expect("count order 1 items");
+        assert_eq!(order1_items.0, 0, "order 1 (before cutoff) items should be removed");
         let order1_exists: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM orders WHERE id = ?")
             .bind(order1_id.0)
             .fetch_one(&pool)
             .await
             .expect("check order 1");
-        assert_eq!(order1_exists.0, 0, "order 1 (before cutoff) should be removed");
+        assert_eq!(order1_exists.0, 1, "order 1 is retained");
 
         // 注文2: cutoff より後なので対象外 → 商品が残る
         let order2_items: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items WHERE order_id = ?")
@@ -3527,13 +3530,19 @@ mod tests {
             .expect("count order 2 items");
         assert_eq!(order2_items.0, 1, "order 2 (after cutoff) should keep its item");
 
-        // 注文3: order_date NULL だが created_at < cutoff なので対象 → 商品削除
+        // 注文3: order_date NULL だが created_at < cutoff なので対象 → 商品削除、注文は保持
+        let order3_items: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items WHERE order_id = ?")
+            .bind(order3_id.0)
+            .fetch_one(&pool)
+            .await
+            .expect("count order 3 items");
+        assert_eq!(order3_items.0, 0, "order 3 items should be removed");
         let order3_exists: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM orders WHERE id = ?")
             .bind(order3_id.0)
             .fetch_one(&pool)
             .await
             .expect("check order 3");
-        assert_eq!(order3_exists.0, 0, "order 3 (NULL order_date, created_at before cutoff) should be removed");
+        assert_eq!(order3_exists.0, 1, "order 3 is retained");
     }
 
     // --- apply_change_items_and_save_order 統合テスト ---
@@ -3600,13 +3609,19 @@ mod tests {
         assert!(result.is_ok());
         let new_order_id = result.unwrap();
 
-        // 元注文から商品が削除され、空注文が削除されていること
+        // 元注文から商品が削除され、注文は保持されること（deliveries クリーンアップのみ）
+        let old_order_items: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items WHERE order_id = ?")
+            .bind(old_order_id.0)
+            .fetch_one(&pool)
+            .await
+            .expect("count old order items");
+        assert_eq!(old_order_items.0, 0, "old order items should be removed");
         let old_order_exists: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM orders WHERE id = ?")
             .bind(old_order_id.0)
             .fetch_one(&pool)
             .await
             .expect("check old order");
-        assert_eq!(old_order_exists.0, 0, "old order should be deleted");
+        assert_eq!(old_order_exists.0, 1, "old order is retained");
 
         // 新注文が保存され、商品が含まれていること
         let new_order_items: (i64,) =

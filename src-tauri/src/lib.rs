@@ -584,10 +584,11 @@ pub fn run() {
                 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
                 use std::str::FromStr;
 
-                // DB接続オプション（create_if_missingを有効化）
+                // DB接続オプション（create_if_missing 有効化、foreign_keys でテストと挙動を統一）
                 let options = SqliteConnectOptions::from_str(&db_url)
                     .expect("Failed to parse database URL")
-                    .create_if_missing(true);
+                    .create_if_missing(true)
+                    .foreign_keys(true);
 
                 // DB接続プール作成
                 SqlitePoolOptions::new()
