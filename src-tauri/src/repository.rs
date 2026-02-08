@@ -12,6 +12,7 @@ use mockall::automock;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqlitePool;
+use std::collections::{HashMap, HashSet};
 
 /// メール統計情報
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -898,7 +899,7 @@ impl OrderRepository for SqliteOrderRepository {
         &self,
         order_info: &OrderInfo,
         shop_domain: Option<String>,
-        _change_email_internal_date: Option<i64>,
+        change_email_internal_date: Option<i64>,
     ) -> Result<(), String> {
         let mut tx = self
             .pool
@@ -909,7 +910,11 @@ impl OrderRepository for SqliteOrderRepository {
         // 組み換え対象外の注文番号（今回登録する新注文）
         let new_order_number = &order_info.order_number;
 
-        // 発送済みでない注文を取得（同じショップ、order_number が異なる）
+        // 組み換えメールより前の注文のみ対象（future orders の誤削除を防ぐ）
+        // None の場合は i64::MAX で比較し常に true にする
+        let cutoff_ts = change_email_internal_date.unwrap_or(i64::MAX);
+
+        // 発送済みでない注文を取得（同じショップ、order_number が異なる、組み換えメール日時より前）
         // 発送済み = deliveries に shipped/in_transit/out_for_delivery/delivered が1件以上ある
         let order_ids: Vec<i64> = if let Some(ref d) = shop_domain {
             if !d.is_empty() {
@@ -922,11 +927,13 @@ impl OrderRepository for SqliteOrderRepository {
                         SELECT d.order_id FROM deliveries d
                         WHERE d.delivery_status IN ('shipped', 'in_transit', 'out_for_delivery', 'delivered')
                     )
+                    AND (o.order_date IS NULL OR o.order_date < datetime(? / 1000, 'unixepoch'))
                     ORDER BY o.order_date DESC NULLS LAST, o.id DESC
                     "#,
                 )
                 .bind(new_order_number)
                 .bind(d)
+                .bind(cutoff_ts)
                 .fetch_all(&mut *tx)
                 .await
                 .map_err(|e| format!("Failed to fetch change-target orders: {e}"))?
@@ -940,10 +947,12 @@ impl OrderRepository for SqliteOrderRepository {
                         SELECT d.order_id FROM deliveries d
                         WHERE d.delivery_status IN ('shipped', 'in_transit', 'out_for_delivery', 'delivered')
                     )
+                    AND (o.order_date IS NULL OR o.order_date < datetime(? / 1000, 'unixepoch'))
                     ORDER BY o.order_date DESC NULLS LAST, o.id DESC
                     "#,
                 )
                 .bind(new_order_number)
+                .bind(cutoff_ts)
                 .fetch_all(&mut *tx)
                 .await
                 .map_err(|e| format!("Failed to fetch change-target orders: {e}"))?
@@ -958,16 +967,46 @@ impl OrderRepository for SqliteOrderRepository {
                     SELECT d.order_id FROM deliveries d
                     WHERE d.delivery_status IN ('shipped', 'in_transit', 'out_for_delivery', 'delivered')
                 )
+                AND (o.order_date IS NULL OR o.order_date < datetime(? / 1000, 'unixepoch'))
                 ORDER BY o.order_date DESC NULLS LAST, o.id DESC
                 "#,
             )
             .bind(new_order_number)
+            .bind(cutoff_ts)
             .fetch_all(&mut *tx)
             .await
             .map_err(|e| format!("Failed to fetch change-target orders: {e}"))?
         };
 
-        let mut orders_to_delete: Vec<i64> = Vec::new();
+        // 候補注文の items を一括取得（パフォーマンス改善）
+        let mut items_by_order: HashMap<i64, Vec<(i64, String, Option<String>, i64)>> =
+            if order_ids.is_empty() {
+                HashMap::new()
+            } else {
+                let placeholders: Vec<String> = (0..order_ids.len()).map(|_| "?".to_string()).collect();
+                let placeholders_str = placeholders.join(", ");
+                let query_str = format!(
+                    r#"SELECT order_id, id, item_name, item_name_normalized, quantity FROM items WHERE order_id IN ({}) ORDER BY order_id, id"#,
+                    placeholders_str
+                );
+                let mut q = sqlx::query_as::<_, (i64, i64, String, Option<String>, i64)>(&query_str);
+                for id in &order_ids {
+                    q = q.bind(id);
+                }
+                let rows: Vec<(i64, i64, String, Option<String>, i64)> = q
+                    .fetch_all(&mut *tx)
+                    .await
+                    .map_err(|e| format!("Failed to fetch items: {e}"))?;
+                let mut map: HashMap<i64, Vec<(i64, String, Option<String>, i64)>> = HashMap::new();
+                for (order_id, id, item_name, item_name_normalized, quantity) in rows {
+                    map.entry(order_id)
+                        .or_default()
+                        .push((id, item_name, item_name_normalized, quantity));
+                }
+                map
+            };
+
+        let mut orders_to_delete: HashSet<i64> = HashSet::new();
 
         for item in &order_info.items {
             let product_name = item.name.trim();
@@ -983,21 +1022,12 @@ impl OrderRepository for SqliteOrderRepository {
                 continue;
             }
 
-            // 各候補注文から商品を検索（apply_cancel と同様のマッチング）
+            // メモリ上の items でマッチング（apply_cancel と同様）
+            let mut matched = false;
             'order_loop: for &order_id in &order_ids {
-                let items: Vec<(i64, String, Option<String>, i64)> = sqlx::query_as(
-                    r#"
-                    SELECT id, item_name, item_name_normalized, quantity FROM items
-                    WHERE order_id = ?
-                    ORDER BY id
-                    "#,
-                )
-                .bind(order_id)
-                .fetch_all(&mut *tx)
-                .await
-                .map_err(|e| format!("Failed to fetch items: {e}"))?;
+                let items = items_by_order.get(&order_id).map(|v| v.as_slice()).unwrap_or(&[]);
 
-                let matched = items.iter().find(|(_, item_name, item_name_normalized, _)| {
+                let found = items.iter().find(|(_, item_name, item_name_normalized, _)| {
                     let item_trimmed = item_name.trim();
                     let item_stripped = strip_bracketed_content(item_trimmed);
                     if item_trimmed == product_name || item_trimmed == product_name_core {
@@ -1030,7 +1060,8 @@ impl OrderRepository for SqliteOrderRepository {
                         || db_normalized.contains(product_normalized.as_str())
                 });
 
-                if let Some((item_id, _, _, current_qty)) = matched {
+                if let Some((item_id, _, _, current_qty)) = found {
+                    matched = true;
                     let item_id = *item_id;
                     let current_qty = *current_qty;
                     let new_qty = current_qty - cancel_qty;
@@ -1046,7 +1077,10 @@ impl OrderRepository for SqliteOrderRepository {
                             item_id,
                             order_id
                         );
-                        orders_to_delete.push(order_id);
+                        if let Some(vec) = items_by_order.get_mut(&order_id) {
+                            vec.retain(|(id, _, _, _)| *id != item_id);
+                        }
+                        orders_to_delete.insert(order_id);
                     } else {
                         sqlx::query("UPDATE items SET quantity = ? WHERE id = ?")
                             .bind(new_qty)
@@ -1060,9 +1094,23 @@ impl OrderRepository for SqliteOrderRepository {
                             current_qty,
                             new_qty
                         );
+                        if let Some(vec) = items_by_order.get_mut(&order_id) {
+                            if let Some(entry) = vec.iter_mut().find(|(id, _, _, _)| *id == item_id) {
+                                entry.3 = new_qty;
+                            }
+                        }
                     }
                     break 'order_loop;
                 }
+            }
+
+            if !matched {
+                log::warn!(
+                    "apply_change_items: no matching order for item {:?} shop_domain={:?} order_number={}",
+                    product_name,
+                    shop_domain,
+                    order_info.order_number
+                );
             }
         }
 
@@ -3089,5 +3137,76 @@ mod tests {
             )
             .await;
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_apply_change_items_reduces_quantity() {
+        let pool = setup_test_db().await;
+        let repo = SqliteOrderRepository::new(pool.clone());
+
+        // 元注文に商品A が2個
+        sqlx::query(
+            r#"INSERT INTO orders (order_number, shop_domain, shop_name) VALUES ('99-3000-0001', '1999.co.jp', 'ホビーサーチ')"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert order");
+        let old_order_id: (i64,) =
+            sqlx::query_as("SELECT id FROM orders WHERE order_number = '99-3000-0001'")
+                .fetch_one(&pool)
+                .await
+                .expect("get order id");
+        sqlx::query(r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, '商品A', 2)"#)
+            .bind(old_order_id.0)
+            .execute(&pool)
+            .await
+            .expect("insert item");
+
+        // 組み換え後の新注文（商品A が1個のみ → 元注文の quantity が 2 -> 1 に減算）
+        let order_info = crate::parsers::OrderInfo {
+            order_number: "25-0918-1710".to_string(),
+            order_date: None,
+            delivery_address: None,
+            delivery_info: None,
+            items: vec![crate::parsers::OrderItem {
+                name: "商品A".to_string(),
+                manufacturer: None,
+                model_number: None,
+                unit_price: 1000,
+                quantity: 1,
+                subtotal: 1000,
+            }],
+            subtotal: Some(1000),
+            shipping_fee: None,
+            total_amount: Some(1000),
+        };
+
+        let result = repo
+            .apply_change_items(
+                &order_info,
+                Some("1999.co.jp".to_string()),
+                None,
+            )
+            .await;
+        assert!(result.is_ok());
+
+        // 元注文の商品A が quantity 1 に減算されていること
+        let (qty,): (i64,) = sqlx::query_as(
+            "SELECT quantity FROM items WHERE order_id = ? AND item_name = '商品A'",
+        )
+        .bind(old_order_id.0)
+        .fetch_one(&pool)
+        .await
+        .expect("get quantity");
+        assert_eq!(qty, 1, "quantity should be reduced from 2 to 1");
+
+        // 元注文は残っていること（商品がまだ1個あるため削除されない）
+        let order_exists: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM orders WHERE id = ?")
+                .bind(old_order_id.0)
+                .fetch_one(&pool)
+                .await
+                .expect("check order");
+        assert_eq!(order_exists.0, 1, "order should remain with remaining items");
     }
 }
