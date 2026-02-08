@@ -1,11 +1,19 @@
 # PR #78 対応計画
 
+**作成日**: 2026-02-08  
+**PR**: [#78 feat: 画像検索API失敗時にサブウィンドウでGoogle画像検索を開けるように](https://github.com/hina0118/paa/pull/78)  
+**ブランチ**: `image-search-sub-window` → `main`  
+**未解決レビュー**: 2件（P0: 1件、P1: 1件）
+
+---
+
 ## PR 概要
 
 **タイトル**: feat: 画像検索API失敗時にサブウィンドウでGoogle画像検索を開けるように  
 **ブランチ**: `image-search-sub-window` → `main`  
 **状態**: Open  
-**CI**: mergeable_state: unstable
+**CI**: pending（コミット `3fdc21e`）  
+**mergeable_state**: clean
 
 **変更内容**（2つの機能を1つのPRに含む）:
 
@@ -44,11 +52,12 @@
 
 ### 未対応（現行ブランチへの指摘）
 
-| #   | 優先度 | 指摘                                         | 行      | 概要                                                                                                                                |
-| --- | ------ | -------------------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| 7   | P0     | emails.ndjson の OOM                         | 437–445 | `.lines().collect::<Vec<_>>()` で全行をメモリに載せるため、バックアップサイズ次第で OOM                                             |
-| 8   | P0     | 長大行のメモリ確保                           | 441–456 | `BufRead::lines()` は改行まで 1 行丸ごと `String` に確保してから返すため、`MAX_NDJSON_LINE_SIZE` チェック前に大きなメモリ確保が発生 |
-| 9   | P0     | stream_deserialize_json_array のバッファ流失 | 641     | `Deserializer::from_reader` を都度作り直すと、内部バッファの先読み分が失われてパースが壊れる可能性                                  |
+| #   | 優先度 | 指摘                            | 行      | 概要                                                                                                                                           |
+| --- | ------ | ------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| 7   | P0     | emails.ndjson の OOM            | 437–473 | `read_to_end` + `content.lines()` + `Vec` で全行をメモリに載せる。BufReader で行単位ストリーミングし、1行ごとにサイズ上限→パース→INSERT に変更 |
+| 8   | P1     | 未使用ヘルパーの dead_code 抑制 | 619–651 | `read_zip_entry_optional` / `read_zip_entry_optional_with_limit` が未使用。削除するか、実際の読み込み箇所で使う形に寄せる                      |
+
+**※指摘9（stream_deserialize）**: 現行コードでは `emails.json` を `serde_json::from_reader` で一括読み取り済み。該当なし。
 
 ---
 
@@ -69,8 +78,8 @@
 
 ### 方針B: 本PRで一括対応
 
-- P0 指摘3件をすべて metadata_export.rs で修正
-- 工数・リスクは大きいが、1PRで完結
+- P0 指摘1件 + P1 指摘1件を metadata_export.rs で修正
+- 工数は中程度、1PRで完結
 
 ---
 
@@ -78,11 +87,11 @@
 
 ### metadata_export.rs の修正
 
-| #   | 優先度 | タスク                                                                                    | 対象          |
-| --- | ------ | ----------------------------------------------------------------------------------------- | ------------- |
-| 1   | P0     | emails.ndjson の読み込みを `read_until(b'\n')` で行単位にし、サイズ上限を確保前にチェック | 437–479行付近 |
-| 2   | P0     | 全行を `Vec` に保持せず、1行ずつパース・INSERT するループに変更（OOM 回避）               | 同上          |
-| 3   | P0     | `stream_deserialize_json_array` を `serde_json::from_reader::<_, Vec<T>>` に置き換え      | 581–641行     |
+| #   | 優先度 | タスク                                                                                                   | 対象          |
+| --- | ------ | -------------------------------------------------------------------------------------------------------- | ------------- |
+| 1   | P0     | emails.ndjson の読み込みを `read_until(b'\n')` で行単位にし、サイズ上限を確保前にチェック                | 437–497行付近 |
+| 2   | P0     | 全行を `Vec` に保持せず、1行ずつパース・INSERT するループに変更（OOM 回避）                              | 同上          |
+| 3   | P1     | 未使用の `read_zip_entry_optional` / `read_zip_entry_optional_with_limit` を削除、または使用箇所に寄せる | 619–651行     |
 
 ### 指摘7・8 の修正案（emails.ndjson インポート）
 
@@ -140,18 +149,12 @@ loop {
 - `read_until` で上限チェック後に `String` 化
 - ループ内で1行ずつパース・INSERT し、全行を保持しない
 
-### 指摘9 の修正案（emails.json レガシー）
+### 指摘8（P1）の修正案（dead_code 解消）
 
-```rust
-// 現在: stream_deserialize_json_array（Deserializer 都度破棄、バッファ流失リスク）
-let emails_rows: Vec<JsonEmailRow> = stream_deserialize_json_array(BufReader::new(&mut entry))?;
+- **案A**: `read_zip_entry_optional` / `read_zip_entry_optional_with_limit` を削除する（現状どの読み込みでも未使用）
+- **案B**: 将来的にオプションエントリ読み込みで使う想定なら保留し、`#[allow(dead_code)]` のままコメントで理由を明記
 
-// 修正後: 1つの Deserializer で全体を読み取る
-let emails_rows: Vec<JsonEmailRow> = serde_json::from_reader(BufReader::new(&mut entry))
-    .map_err(|e| format!("Failed to parse emails.json: {e}"))?;
-```
-
-**注意**: `emails.json` は `MAX_EMAILS_JSON_ENTRY_SIZE`（50MB）でサイズ制限済み。`from_reader` で一括読み取りは許容範囲。
+**推奨**: 現時点で使用箇所がなければ**案A（削除）**でシンプルに保つ。
 
 ---
 
@@ -166,11 +169,34 @@ let emails_rows: Vec<JsonEmailRow> = serde_json::from_reader(BufReader::new(&mut
 
 ### 方針B（一括対応）
 
-1. 上記 metadata_export.rs の修正3件を適用
+1. metadata_export.rs の修正2件を適用（P0: read_until ストリーミング + P1: dead_code 解消）
 2. 既存テスト実行: `cargo test -p tauri-app metadata_export`
 3. コミット・プッシュ
 4. CI 通過を確認
-5. レビュー再依頼
+5. Copilot レビュー再依頼
+
+---
+
+---
+
+## マージ前チェックリスト
+
+### 方針A の場合
+
+- [ ] emails 関連の変更を revert（metadata_export.rs, backup.tsx, BACKUP.md）
+- [ ] PR 説明を画像検索フォールバックのみに更新
+- [ ] `cargo test` / `npm test` 成功
+- [ ] CI 通過
+- [ ] Copilot レビュー再依頼
+
+### 方針B の場合
+
+- [ ] Task 1–2: emails.ndjson の read_until ストリーミング化
+- [ ] Task 3: read_zip_entry_optional 系の削除または使用
+- [ ] `cargo test -p tauri-app metadata_export` 成功
+- [ ] `cargo test` / `npm test` 成功
+- [ ] CI 通過
+- [ ] Copilot レビュー再依頼
 
 ---
 

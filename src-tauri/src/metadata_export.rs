@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqlitePool;
 use std::collections::HashSet;
 use std::fs::{self, File};
-use std::io::{BufReader, Read, Seek, Write};
+use std::io::{BufRead, BufReader, Read, Seek, Write};
 use std::path::Path;
 use tauri::{AppHandle, Manager};
 use zip::write::FileOptions;
@@ -435,7 +435,7 @@ where
 
     let mut emails_inserted = 0usize;
     if zip_archive.file_names().any(|n| n == "emails.ndjson") {
-        // 新形式: NDJSON（entry を await 前に drop して Send を満たす。行単位でパースし長大行を拒否）
+        // 新形式: NDJSON（read_until で行単位ストリーミング、長大行は確保前に拒否、OOM 回避）
         let rows: Vec<JsonEmailRow> = {
             let mut entry = zip_archive
                 .by_name("emails.ndjson")
@@ -446,24 +446,34 @@ where
                     MAX_EMAILS_NDJSON_ENTRY_SIZE
                 ));
             }
-            let mut bytes = Vec::new();
-            entry
-                .read_to_end(&mut bytes)
-                .map_err(|e| format!("Failed to read emails.ndjson: {e}"))?;
-            // entry をここで drop（await 前に必須）
-            let content = String::from_utf8(bytes)
-                .map_err(|e| format!("Failed to decode emails.ndjson as UTF-8: {e}"))?;
+            let mut reader = BufReader::new(&mut entry);
+            let mut buf = Vec::with_capacity(4096);
             let mut vec = Vec::new();
-            for line in content.lines() {
-                let line = line.trim();
-                if line.is_empty() {
-                    continue;
+            loop {
+                buf.clear();
+                let bytes_read = reader
+                    .read_until(b'\n', &mut buf)
+                    .map_err(|e| format!("Failed to read emails.ndjson: {e}"))?;
+                if bytes_read == 0 {
+                    break;
                 }
-                if line.len() > MAX_NDJSON_LINE_SIZE {
+                if buf.len() > MAX_NDJSON_LINE_SIZE + 1 {
                     return Err(format!(
                         "emails.ndjson line exceeds size limit (max {} bytes)",
                         MAX_NDJSON_LINE_SIZE
                     ));
+                }
+                if buf.last() == Some(&b'\n') {
+                    buf.pop();
+                }
+                if buf.is_empty() {
+                    continue;
+                }
+                let line = String::from_utf8(buf.clone())
+                    .map_err(|e| format!("Failed to decode emails.ndjson as UTF-8: {e}"))?;
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
                 }
                 let row: JsonEmailRow = serde_json::from_str(line)
                     .map_err(|e| format!("Failed to parse emails.ndjson line: {e}"))?;
@@ -614,39 +624,6 @@ fn read_zip_entry<R: Read + Seek>(
         .read_to_string(&mut s)
         .map_err(|e| format!("Failed to read {}: {e}", name))?;
     Ok(s)
-}
-
-/// オプションの ZIP エントリを読み込む。FileNotFound の場合は None、それ以外のエラーは Err。
-#[allow(dead_code)]
-fn read_zip_entry_optional<R: Read + Seek>(
-    archive: &mut ZipArchive<R>,
-    name: &str,
-) -> Result<Option<String>, String> {
-    read_zip_entry_optional_with_limit(archive, name, MAX_JSON_ENTRY_SIZE)
-}
-
-/// オプションの ZIP エントリを読み込む（カスタムサイズ上限付き）。
-fn read_zip_entry_optional_with_limit<R: Read + Seek>(
-    archive: &mut ZipArchive<R>,
-    name: &str,
-    max_size: u64,
-) -> Result<Option<String>, String> {
-    let mut entry = match archive.by_name(name) {
-        Ok(e) => e,
-        Err(zip::result::ZipError::FileNotFound) => return Ok(None),
-        Err(e) => return Err(format!("Failed to access {name} in archive: {e}")),
-    };
-    if entry.size() > max_size {
-        return Err(format!(
-            "{} exceeds size limit (max {} bytes)",
-            name, max_size
-        ));
-    }
-    let mut s = String::new();
-    entry
-        .read_to_string(&mut s)
-        .map_err(|e| format!("Failed to read {}: {e}", name))?;
-    Ok(Some(s))
 }
 
 /// JSON デシリアライズ用（タプル形式、id を含むがインポート時は未使用）
