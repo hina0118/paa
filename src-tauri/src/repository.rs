@@ -11,7 +11,8 @@ use async_trait::async_trait;
 use mockall::automock;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use sqlx::sqlite::SqlitePool;
+use sqlx::sqlite::{Sqlite, SqlitePool};
+use std::collections::{HashMap, HashSet};
 
 /// メール統計情報
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -313,6 +314,27 @@ pub trait OrderRepository: Send + Sync {
         shop_domain: Option<String>,
         shop_name: Option<String>,
     ) -> Result<i64, String>;
+
+    /// 組み換えメールの商品を元注文から削除する。
+    /// 新注文の各商品について、同じショップの過去注文（発送済みでない）から商品名でマッチする item を検索し削除する。
+    /// 残り商品が 0 になった order は deliveries のみクリーンアップし、orders/order_emails は再パース防止のため保持する。
+    async fn apply_change_items(
+        &self,
+        order_info: &OrderInfo,
+        shop_domain: Option<String>,
+        change_email_internal_date: Option<i64>,
+    ) -> Result<(), String>;
+
+    /// 組み換えメール用: apply_change_items と save_order を同一トランザクションで実行する。
+    /// データ欠損（元注文だけ減って新注文が保存されない）を防ぐ。
+    async fn apply_change_items_and_save_order(
+        &self,
+        order_info: &OrderInfo,
+        email_id: Option<i64>,
+        shop_domain: Option<String>,
+        shop_name: Option<String>,
+        change_email_internal_date: Option<i64>,
+    ) -> Result<i64, String>;
 }
 
 /// パース関連のDB操作を抽象化するトレイト
@@ -419,6 +441,60 @@ fn strip_bracketed_content(s: &str) -> String {
     RE.replace_all(s, "").trim().to_string()
 }
 
+/// 商品名がマッチするか判定（apply_cancel / apply_change_items で共通利用）
+fn item_names_match(
+    product_name: &str,
+    item_name: &str,
+    item_name_normalized: Option<&str>,
+) -> bool {
+    let product_name_core = product_name
+        .trim_end_matches(" (プラモデル)")
+        .trim_end_matches(" (ディスプレイ)")
+        .trim();
+    let product_name_stripped = strip_bracketed_content(product_name);
+    let product_normalized = normalize_product_name(product_name);
+
+    let item_trimmed = item_name.trim();
+    let item_stripped = strip_bracketed_content(item_trimmed);
+
+    if item_trimmed == product_name || item_trimmed == product_name_core {
+        return true;
+    }
+    if item_trimmed.contains(product_name)
+        || product_name.contains(item_trimmed)
+        || item_trimmed.contains(product_name_core)
+        || product_name_core.contains(item_trimmed)
+        || (!product_name_stripped.is_empty()
+            && (item_trimmed.contains(&product_name_stripped)
+                || product_name_stripped.contains(item_trimmed)))
+        || {
+            let item_stripped_nonempty = !item_stripped.is_empty();
+            !product_name_stripped.is_empty()
+                && item_stripped_nonempty
+                && (item_stripped.contains(&product_name_stripped)
+                    || product_name_stripped.contains(&item_stripped))
+        }
+    {
+        return true;
+    }
+    let db_normalized = item_name_normalized
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| normalize_product_name(item_name));
+    // 空正規化同士の一致は誤マッチ（別商品の削除）につながるため、両方が非空のときだけ有効
+    if !product_normalized.is_empty() && !db_normalized.is_empty() {
+        product_normalized == db_normalized
+            || product_normalized.contains(db_normalized.as_str())
+            || db_normalized.contains(product_normalized.as_str())
+    } else {
+        false
+    }
+}
+
+/// apply_change_items で order_id ごとの items を保持する型
+/// (item_id, item_name, item_name_normalized, quantity)
+type ItemsByOrderMap = HashMap<i64, Vec<(i64, String, Option<String>, i64)>>;
+
 /// SQLiteを使用したOrderRepositoryの実装
 pub struct SqliteOrderRepository {
     pool: SqlitePool,
@@ -428,25 +504,241 @@ impl SqliteOrderRepository {
     pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
-}
 
-#[async_trait]
-impl OrderRepository for SqliteOrderRepository {
-    async fn save_order(
-        &self,
+    /// apply_change_items のトランザクション内ロジック（tx は呼び出し元で commit）
+    async fn apply_change_items_in_tx(
+        tx: &mut sqlx::Transaction<'_, Sqlite>,
+        order_info: &OrderInfo,
+        shop_domain: Option<String>,
+        change_email_internal_date: Option<i64>,
+    ) -> Result<(), String> {
+        let new_order_number = &order_info.order_number;
+        // i64::MAX は SQLite datetime() でオーバーフローするため、None 時は 2100年 UTC を使用
+        let cutoff_ts = change_email_internal_date.unwrap_or(4_102_444_800_000i64); // 2100-01-01 00:00:00 UTC
+
+        let order_ids: Vec<i64> = if let Some(ref d) = shop_domain {
+            if !d.is_empty() {
+                sqlx::query_scalar(
+                    r#"
+                    SELECT o.id FROM orders o
+                    WHERE o.order_number != ?
+                    AND o.shop_domain = ?
+                    AND o.id NOT IN (
+                        SELECT d.order_id FROM deliveries d
+                        WHERE d.delivery_status IN ('shipped', 'in_transit', 'out_for_delivery', 'delivered')
+                    )
+                    AND COALESCE(o.order_date, o.created_at) < datetime(? / 1000, 'unixepoch')
+                    ORDER BY o.order_date IS NULL, o.order_date DESC, o.id DESC
+                    "#,
+                )
+                .bind(new_order_number)
+                .bind(d)
+                .bind(cutoff_ts)
+                .fetch_all(tx.as_mut())
+                .await
+                .map_err(|e| format!("Failed to fetch change-target orders: {e}"))?
+            } else {
+                sqlx::query_scalar(
+                    r#"
+                    SELECT o.id FROM orders o
+                    WHERE o.order_number != ?
+                    AND (o.shop_domain IS NULL OR o.shop_domain = '')
+                    AND o.id NOT IN (
+                        SELECT d.order_id FROM deliveries d
+                        WHERE d.delivery_status IN ('shipped', 'in_transit', 'out_for_delivery', 'delivered')
+                    )
+                    AND COALESCE(o.order_date, o.created_at) < datetime(? / 1000, 'unixepoch')
+                    ORDER BY o.order_date IS NULL, o.order_date DESC, o.id DESC
+                    "#,
+                )
+                .bind(new_order_number)
+                .bind(cutoff_ts)
+                .fetch_all(tx.as_mut())
+                .await
+                .map_err(|e| format!("Failed to fetch change-target orders: {e}"))?
+            }
+        } else {
+            sqlx::query_scalar(
+                r#"
+                SELECT o.id FROM orders o
+                WHERE o.order_number != ?
+                AND (o.shop_domain IS NULL OR o.shop_domain = '')
+                AND o.id NOT IN (
+                    SELECT d.order_id FROM deliveries d
+                    WHERE d.delivery_status IN ('shipped', 'in_transit', 'out_for_delivery', 'delivered')
+                )
+                AND COALESCE(o.order_date, o.created_at) < datetime(? / 1000, 'unixepoch')
+                ORDER BY o.order_date IS NULL, o.order_date DESC, o.id DESC
+                "#,
+            )
+            .bind(new_order_number)
+            .bind(cutoff_ts)
+            .fetch_all(tx.as_mut())
+            .await
+            .map_err(|e| format!("Failed to fetch change-target orders: {e}"))?
+        };
+
+        // SQLite のバインド変数上限（999）を超えないようチャンク単位で取得
+        const BIND_LIMIT: usize = 500;
+        let mut items_by_order: ItemsByOrderMap = HashMap::new();
+        for chunk in order_ids.chunks(BIND_LIMIT) {
+            let placeholders: Vec<String> = chunk.iter().map(|_| "?".to_string()).collect();
+            let placeholders_str = placeholders.join(", ");
+            let query_str = format!(
+                r#"SELECT order_id, id, item_name, item_name_normalized, quantity FROM items WHERE order_id IN ({}) ORDER BY order_id, id"#,
+                placeholders_str
+            );
+            let mut q = sqlx::query_as::<_, (i64, i64, String, Option<String>, i64)>(&query_str);
+            for id in chunk {
+                q = q.bind(id);
+            }
+            let rows: Vec<(i64, i64, String, Option<String>, i64)> = q
+                .fetch_all(tx.as_mut())
+                .await
+                .map_err(|e| format!("Failed to fetch items: {e}"))?;
+            for (order_id, id, item_name, item_name_normalized, quantity) in rows {
+                items_by_order.entry(order_id).or_default().push((
+                    id,
+                    item_name,
+                    item_name_normalized,
+                    quantity,
+                ));
+            }
+        }
+
+        let mut orders_to_delete: HashSet<i64> = HashSet::new();
+
+        for item in &order_info.items {
+            let product_name = item.name.trim();
+            let cancel_qty = item.quantity.max(0);
+
+            if cancel_qty <= 0 {
+                continue;
+            }
+
+            let mut remaining_qty = cancel_qty;
+            let mut matched_any = false;
+
+            for &order_id in &order_ids {
+                if remaining_qty <= 0 {
+                    break;
+                }
+                // 同一 order_id 内で remaining_qty > 0 の間は複数行を順次消費する
+                loop {
+                    if remaining_qty <= 0 {
+                        break;
+                    }
+                    let items = items_by_order
+                        .get(&order_id)
+                        .map(|v| v.as_slice())
+                        .unwrap_or(&[]);
+
+                    let found = items
+                        .iter()
+                        .find(|(_, item_name, item_name_normalized, _)| {
+                            item_names_match(
+                                product_name,
+                                item_name,
+                                item_name_normalized.as_deref(),
+                            )
+                        });
+
+                    if let Some((item_id, _, _, current_qty)) = found {
+                        matched_any = true;
+                        let item_id = *item_id;
+                        let current_qty = *current_qty;
+                        let take_qty = remaining_qty.min(current_qty);
+                        let new_qty = current_qty - take_qty;
+                        remaining_qty -= take_qty;
+
+                        if new_qty <= 0 {
+                            sqlx::query("DELETE FROM items WHERE id = ?")
+                                .bind(item_id)
+                                .execute(tx.as_mut())
+                                .await
+                                .map_err(|e| format!("Failed to delete item: {e}"))?;
+                            log::debug!(
+                                "apply_change_items: removed item id={} from order {}",
+                                item_id,
+                                order_id
+                            );
+                            if let Some(vec) = items_by_order.get_mut(&order_id) {
+                                vec.retain(|(id, _, _, _)| *id != item_id);
+                            }
+                            orders_to_delete.insert(order_id);
+                        } else {
+                            sqlx::query("UPDATE items SET quantity = ? WHERE id = ?")
+                                .bind(new_qty)
+                                .bind(item_id)
+                                .execute(tx.as_mut())
+                                .await
+                                .map_err(|e| format!("Failed to update item quantity: {e}"))?;
+                            log::debug!(
+                                "apply_change_items: item id={} quantity {} -> {}",
+                                item_id,
+                                current_qty,
+                                new_qty
+                            );
+                            if let Some(vec) = items_by_order.get_mut(&order_id) {
+                                if let Some(entry) =
+                                    vec.iter_mut().find(|(id, _, _, _)| *id == item_id)
+                                {
+                                    entry.3 = new_qty;
+                                }
+                            }
+                        }
+                    } else {
+                        // この order_id ではこれ以上マッチする items がない
+                        break;
+                    }
+                }
+            }
+
+            if !matched_any || remaining_qty > 0 {
+                log::warn!(
+                    "apply_change_items: no matching order for item {:?} shop_domain={:?} order_number={} (remaining_qty={})",
+                    product_name,
+                    shop_domain,
+                    order_info.order_number,
+                    remaining_qty
+                );
+            }
+        }
+
+        for order_id in orders_to_delete {
+            let remaining: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items WHERE order_id = ?")
+                .bind(order_id)
+                .fetch_one(tx.as_mut())
+                .await
+                .map_err(|e| format!("Failed to count items: {e}"))?;
+            if remaining.0 == 0 {
+                // NOTE: order_emails と orders は物理削除しない。
+                // get_unparsed_emails は order_emails の不在を「未パース」のシグナルとして使うため、
+                // これらを削除すると過去パース済みメールが未パースに戻り、再パースで元注文が復活する。
+                // そのため deliveries のみ削除し、order と order_emails は保持する。
+                sqlx::query("DELETE FROM deliveries WHERE order_id = ?")
+                    .bind(order_id)
+                    .execute(tx.as_mut())
+                    .await
+                    .map_err(|e| format!("Failed to delete deliveries for empty order: {e}"))?;
+                log::info!(
+                    "apply_change_items: cleaned up deliveries for empty order {} (order and order_emails retained)",
+                    order_id
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    /// save_order のトランザクション内ロジック（tx は呼び出し元で commit）
+    async fn save_order_in_tx(
+        tx: &mut sqlx::Transaction<'_, Sqlite>,
         order_info: &OrderInfo,
         email_id: Option<i64>,
         shop_domain: Option<String>,
         shop_name: Option<String>,
     ) -> Result<i64, String> {
-        // トランザクション開始
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|e| format!("Failed to start transaction: {e}"))?;
-
-        // 1. 既存の注文を検索（同じorder_numberとshop_domainの組み合わせ）
         let existing_order: Option<(i64,)> = sqlx::query_as(
             r#"
             SELECT id FROM orders
@@ -456,16 +748,14 @@ impl OrderRepository for SqliteOrderRepository {
         )
         .bind(&order_info.order_number)
         .bind(shop_domain.as_deref())
-        .fetch_optional(&mut *tx)
+        .fetch_optional(tx.as_mut())
         .await
         .map_err(|e| format!("Failed to check existing order: {e}"))?;
 
         let order_id = if let Some((existing_id,)) = existing_order {
-            // 既存の注文が見つかった場合、そのIDを使用
             log::debug!("Found existing order with id: {}", existing_id);
             existing_id
         } else {
-            // 新規注文を作成
             let new_order_id = sqlx::query(
                 r#"
                 INSERT INTO orders (order_number, order_date, shop_domain, shop_name)
@@ -476,7 +766,7 @@ impl OrderRepository for SqliteOrderRepository {
             .bind(&order_info.order_date)
             .bind(shop_domain.as_deref())
             .bind(shop_name.as_deref())
-            .execute(&mut *tx)
+            .execute(tx.as_mut())
             .await
             .map_err(|e| format!("Failed to insert order: {e}"))?
             .last_insert_rowid();
@@ -485,7 +775,6 @@ impl OrderRepository for SqliteOrderRepository {
             new_order_id
         };
 
-        // 2. 既存注文の場合は注文日を更新（より新しい情報で更新）
         if existing_order.is_some() && order_info.order_date.is_some() {
             sqlx::query(
                 r#"
@@ -496,16 +785,14 @@ impl OrderRepository for SqliteOrderRepository {
             )
             .bind(&order_info.order_date)
             .bind(order_id)
-            .execute(&mut *tx)
+            .execute(tx.as_mut())
             .await
             .map_err(|e| format!("Failed to update order date: {e}"))?;
 
             log::debug!("Updated order {} with new date info", order_id);
         }
 
-        // 3. itemsテーブルに商品を保存（重複チェック付き）
         for item in &order_info.items {
-            // 同じitem_nameとbrandの商品が既に存在するかチェック
             let existing_item: Option<(i64,)> = sqlx::query_as(
                 r#"
                 SELECT id FROM items
@@ -516,12 +803,11 @@ impl OrderRepository for SqliteOrderRepository {
             .bind(order_id)
             .bind(&item.name)
             .bind(&item.manufacturer)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(tx.as_mut())
             .await
             .map_err(|e| format!("Failed to check existing item: {e}"))?;
 
             if existing_item.is_none() {
-                // 新しい商品を追加
                 let item_name_normalized = {
                     let n = normalize_product_name(&item.name);
                     if n.is_empty() {
@@ -542,7 +828,7 @@ impl OrderRepository for SqliteOrderRepository {
                 .bind(&item.manufacturer)
                 .bind(item.unit_price)
                 .bind(item.quantity)
-                .execute(&mut *tx)
+                .execute(tx.as_mut())
                 .await
                 .map_err(|e| format!("Failed to insert item: {e}"))?;
 
@@ -552,9 +838,7 @@ impl OrderRepository for SqliteOrderRepository {
             }
         }
 
-        // 4. deliveriesテーブルに配送情報を保存（重複チェック・更新付き）
         if let Some(delivery_info) = &order_info.delivery_info {
-            // 同じtracking_numberの配送情報が既に存在するかチェック
             let existing_delivery: Option<(i64,)> = sqlx::query_as(
                 r#"
                 SELECT id FROM deliveries
@@ -564,12 +848,11 @@ impl OrderRepository for SqliteOrderRepository {
             )
             .bind(order_id)
             .bind(&delivery_info.tracking_number)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(tx.as_mut())
             .await
             .map_err(|e| format!("Failed to check existing delivery: {e}"))?;
 
             if existing_delivery.is_none() {
-                // 新しい配送情報を追加
                 sqlx::query(
                     r#"
                     INSERT INTO deliveries (order_id, tracking_number, carrier, delivery_status)
@@ -579,13 +862,12 @@ impl OrderRepository for SqliteOrderRepository {
                 .bind(order_id)
                 .bind(&delivery_info.tracking_number)
                 .bind(&delivery_info.carrier)
-                .execute(&mut *tx)
+                .execute(tx.as_mut())
                 .await
                 .map_err(|e| format!("Failed to insert delivery: {e}"))?;
 
                 log::debug!("Added new delivery info for order {}", order_id);
             } else {
-                // 既存の配送情報を更新（より詳細な情報で上書き）
                 sqlx::query(
                     r#"
                     UPDATE deliveries
@@ -597,7 +879,7 @@ impl OrderRepository for SqliteOrderRepository {
                 .bind(&delivery_info.carrier)
                 .bind(order_id)
                 .bind(&delivery_info.tracking_number)
-                .execute(&mut *tx)
+                .execute(tx.as_mut())
                 .await
                 .map_err(|e| format!("Failed to update delivery: {e}"))?;
 
@@ -605,9 +887,7 @@ impl OrderRepository for SqliteOrderRepository {
             }
         }
 
-        // 5. order_emailsテーブルにメールとの関連を保存（重複チェック）
         if let Some(email_id_val) = email_id {
-            // 既に同じ関連が存在するかチェック
             let existing_link: Option<(i64,)> = sqlx::query_as(
                 r#"
                 SELECT order_id FROM order_emails
@@ -617,12 +897,11 @@ impl OrderRepository for SqliteOrderRepository {
             )
             .bind(order_id)
             .bind(email_id_val)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(tx.as_mut())
             .await
             .map_err(|e| format!("Failed to check existing order_email link: {e}"))?;
 
             if existing_link.is_none() {
-                // 新しい関連を作成
                 sqlx::query(
                     r#"
                     INSERT INTO order_emails (order_id, email_id)
@@ -631,7 +910,7 @@ impl OrderRepository for SqliteOrderRepository {
                 )
                 .bind(order_id)
                 .bind(email_id_val)
-                .execute(&mut *tx)
+                .execute(tx.as_mut())
                 .await
                 .map_err(|e| format!("Failed to link order to email: {e}"))?;
 
@@ -645,7 +924,28 @@ impl OrderRepository for SqliteOrderRepository {
             }
         }
 
-        // トランザクションをコミット
+        Ok(order_id)
+    }
+}
+
+#[async_trait]
+impl OrderRepository for SqliteOrderRepository {
+    async fn save_order(
+        &self,
+        order_info: &OrderInfo,
+        email_id: Option<i64>,
+        shop_domain: Option<String>,
+        shop_name: Option<String>,
+    ) -> Result<i64, String> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| format!("Failed to start transaction: {e}"))?;
+
+        let order_id =
+            Self::save_order_in_tx(&mut tx, order_info, email_id, shop_domain, shop_name).await?;
+
         tx.commit()
             .await
             .map_err(|e| format!("Failed to commit transaction: {e}"))?;
@@ -736,55 +1036,15 @@ impl OrderRepository for SqliteOrderRepository {
             "#,
         )
         .bind(order_id)
-        .fetch_all(&mut *tx)
+        .fetch_all(tx.as_mut())
         .await
         .map_err(|e| format!("Failed to fetch items: {e}"))?;
 
         let product_name = cancel_info.product_name.trim();
-        // キャンセル側は末尾に " (プラモデル)" 等がつくが、注文側は parse_item_line で除去済み。比較用に除去した版を用意
-        let product_name_core = product_name
-            .trim_end_matches(" (プラモデル)")
-            .trim_end_matches(" (ディスプレイ)")
-            .trim();
-        // 【】[]（）() で囲まれた部分を除去した版（比較のため）
-        let product_name_stripped = strip_bracketed_content(product_name);
-        let product_normalized = normalize_product_name(product_name);
         let matched = items
             .iter()
             .find(|(_, item_name, item_name_normalized, _)| {
-                let item_trimmed = item_name.trim();
-                let item_stripped = strip_bracketed_content(item_trimmed);
-                // 優先1: item_name 完全一致
-                if item_trimmed == product_name || item_trimmed == product_name_core {
-                    return true;
-                }
-                // 優先2: item_name 包含（括弧除去版も試す）
-                if item_trimmed.contains(product_name)
-                    || product_name.contains(item_trimmed)
-                    || item_trimmed.contains(product_name_core)
-                    || product_name_core.contains(item_trimmed)
-                    || (!product_name_stripped.is_empty()
-                        && (item_trimmed.contains(&product_name_stripped)
-                            || product_name_stripped.contains(item_trimmed)))
-                    || {
-                        let item_stripped_nonempty = !item_stripped.is_empty();
-                        !product_name_stripped.is_empty()
-                            && item_stripped_nonempty
-                            && (item_stripped.contains(&product_name_stripped)
-                                || product_name_stripped.contains(&item_stripped))
-                    }
-                {
-                    return true;
-                }
-                // 優先3: item_name_normalized による正規化後の完全一致・部分一致
-                let db_normalized = item_name_normalized
-                    .as_deref()
-                    .filter(|s| !s.is_empty())
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| normalize_product_name(item_name));
-                product_normalized == db_normalized
-                    || product_normalized.contains(db_normalized.as_str())
-                    || db_normalized.contains(product_normalized.as_str())
+                item_names_match(product_name, item_name, item_name_normalized.as_deref())
             });
 
         match matched {
@@ -876,6 +1136,65 @@ impl OrderRepository for SqliteOrderRepository {
             .await
             .map_err(|e| format!("Failed to link order to email: {e}"))?;
         }
+
+        tx.commit()
+            .await
+            .map_err(|e| format!("Failed to commit transaction: {e}"))?;
+
+        Ok(order_id)
+    }
+
+    async fn apply_change_items(
+        &self,
+        order_info: &OrderInfo,
+        shop_domain: Option<String>,
+        change_email_internal_date: Option<i64>,
+    ) -> Result<(), String> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| format!("Failed to start transaction: {e}"))?;
+
+        Self::apply_change_items_in_tx(
+            &mut tx,
+            order_info,
+            shop_domain,
+            change_email_internal_date,
+        )
+        .await?;
+
+        tx.commit()
+            .await
+            .map_err(|e| format!("Failed to commit transaction: {e}"))?;
+
+        Ok(())
+    }
+
+    async fn apply_change_items_and_save_order(
+        &self,
+        order_info: &OrderInfo,
+        email_id: Option<i64>,
+        shop_domain: Option<String>,
+        shop_name: Option<String>,
+        change_email_internal_date: Option<i64>,
+    ) -> Result<i64, String> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| format!("Failed to start transaction: {e}"))?;
+
+        Self::apply_change_items_in_tx(
+            &mut tx,
+            order_info,
+            shop_domain.clone(),
+            change_email_internal_date,
+        )
+        .await?;
+
+        let order_id =
+            Self::save_order_in_tx(&mut tx, order_info, email_id, shop_domain, shop_name).await?;
 
         tx.commit()
             .await
@@ -1085,7 +1404,7 @@ impl EmailRepository for SqliteEmailRepository {
             let rows: Vec<(String,)> = sqlx::query_as(
                 "SELECT message_id FROM temp_filter_ids WHERE message_id NOT IN (SELECT message_id FROM emails)",
             )
-            .fetch_all(&mut *tx)
+            .fetch_all(tx.as_mut())
             .await
             .map_err(|e| format!("Failed to filter new IDs: {e}"))?;
 
@@ -1748,6 +2067,12 @@ mod tests {
         .execute(&pool)
         .await
         .expect("Failed to create product_master table");
+
+        // 外部キー制約を有効化（ロールバックテストで使用）
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&pool)
+            .await
+            .expect("Failed to enable foreign keys");
 
         pool
     }
@@ -2701,5 +3026,692 @@ mod tests {
             .await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Invalid cancel quantity"));
+    }
+
+    // --- apply_change_items 統合テスト ---
+
+    #[tokio::test]
+    async fn test_apply_change_items_removes_item_from_old_order() {
+        let pool = setup_test_db().await;
+        let repo = SqliteOrderRepository::new(pool.clone());
+
+        // 元注文 (order_number 99-1000-0001) に商品A を追加
+        sqlx::query(
+            r#"INSERT INTO orders (order_number, shop_domain, shop_name) VALUES ('99-1000-0001', '1999.co.jp', 'ホビーサーチ')"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert order");
+        let old_order_id: (i64,) =
+            sqlx::query_as("SELECT id FROM orders WHERE order_number = '99-1000-0001'")
+                .fetch_one(&pool)
+                .await
+                .expect("get order id");
+        sqlx::query(r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, '商品A', 1)"#)
+            .bind(old_order_id.0)
+            .execute(&pool)
+            .await
+            .expect("insert item");
+
+        // 組み換え後の新注文情報（商品A が新注文に含まれる）
+        let order_info = crate::parsers::OrderInfo {
+            order_number: "25-0918-1710".to_string(),
+            order_date: None,
+            delivery_address: None,
+            delivery_info: None,
+            items: vec![crate::parsers::OrderItem {
+                name: "商品A".to_string(),
+                manufacturer: None,
+                model_number: None,
+                unit_price: 1000,
+                quantity: 1,
+                subtotal: 1000,
+            }],
+            subtotal: Some(1000),
+            shipping_fee: None,
+            total_amount: Some(1000),
+        };
+
+        let result = repo
+            .apply_change_items(&order_info, Some("1999.co.jp".to_string()), None)
+            .await;
+        assert!(result.is_ok());
+
+        // 元注文から商品A が削除されていること
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items WHERE order_id = ?")
+            .bind(old_order_id.0)
+            .fetch_one(&pool)
+            .await
+            .expect("count items");
+        assert_eq!(count.0, 0, "item should be removed from old order");
+
+        // 残り商品 0 で deliveries がクリーンアップされること（order/order_emails は再パース防止のため保持）
+        let order_exists: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM orders WHERE id = ?")
+            .bind(old_order_id.0)
+            .fetch_one(&pool)
+            .await
+            .expect("check order");
+        assert_eq!(
+            order_exists.0, 1,
+            "empty order is retained (deliveries cleaned only)"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_apply_change_items_ignores_shipped_orders() {
+        let pool = setup_test_db().await;
+        let repo = SqliteOrderRepository::new(pool.clone());
+
+        // 発送済みの注文（deliveries に shipped あり）
+        sqlx::query(
+            r#"INSERT INTO orders (order_number, shop_domain, shop_name) VALUES ('99-2000-0001', '1999.co.jp', 'ホビーサーチ')"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert order");
+        let shipped_order_id: (i64,) =
+            sqlx::query_as("SELECT id FROM orders WHERE order_number = '99-2000-0001'")
+                .fetch_one(&pool)
+                .await
+                .expect("get order id");
+        sqlx::query(r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, '商品X', 1)"#)
+            .bind(shipped_order_id.0)
+            .execute(&pool)
+            .await
+            .expect("insert item");
+        sqlx::query(
+            r#"INSERT INTO deliveries (order_id, tracking_number, carrier, delivery_status) VALUES (?, '123456', '佐川', 'shipped')"#,
+        )
+        .bind(shipped_order_id.0)
+        .execute(&pool)
+        .await
+        .expect("insert delivery");
+
+        let order_info = crate::parsers::OrderInfo {
+            order_number: "25-0918-1710".to_string(),
+            order_date: None,
+            delivery_address: None,
+            delivery_info: None,
+            items: vec![crate::parsers::OrderItem {
+                name: "商品X".to_string(),
+                manufacturer: None,
+                model_number: None,
+                unit_price: 500,
+                quantity: 1,
+                subtotal: 500,
+            }],
+            subtotal: Some(500),
+            shipping_fee: None,
+            total_amount: Some(500),
+        };
+
+        let result = repo
+            .apply_change_items(&order_info, Some("1999.co.jp".to_string()), None)
+            .await;
+        assert!(result.is_ok());
+
+        // 発送済み注文の商品は削除されないこと
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items WHERE order_id = ?")
+            .bind(shipped_order_id.0)
+            .fetch_one(&pool)
+            .await
+            .expect("count items");
+        assert_eq!(count.0, 1, "shipped order items should not be removed");
+    }
+
+    #[tokio::test]
+    async fn test_apply_change_items_no_match_still_succeeds() {
+        let pool = setup_test_db().await;
+        let repo = SqliteOrderRepository::new(pool.clone());
+
+        // 元注文に商品A がない
+        let order_info = crate::parsers::OrderInfo {
+            order_number: "25-0918-1710".to_string(),
+            order_date: None,
+            delivery_address: None,
+            delivery_info: None,
+            items: vec![crate::parsers::OrderItem {
+                name: "存在しない商品".to_string(),
+                manufacturer: None,
+                model_number: None,
+                unit_price: 100,
+                quantity: 1,
+                subtotal: 100,
+            }],
+            subtotal: Some(100),
+            shipping_fee: None,
+            total_amount: Some(100),
+        };
+
+        // マッチする注文がなくても Err は返さない（フォールバック設計）
+        let result = repo
+            .apply_change_items(&order_info, Some("1999.co.jp".to_string()), None)
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_apply_change_items_reduces_quantity() {
+        let pool = setup_test_db().await;
+        let repo = SqliteOrderRepository::new(pool.clone());
+
+        // 元注文に商品A が2個
+        sqlx::query(
+            r#"INSERT INTO orders (order_number, shop_domain, shop_name) VALUES ('99-3000-0001', '1999.co.jp', 'ホビーサーチ')"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert order");
+        let old_order_id: (i64,) =
+            sqlx::query_as("SELECT id FROM orders WHERE order_number = '99-3000-0001'")
+                .fetch_one(&pool)
+                .await
+                .expect("get order id");
+        sqlx::query(r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, '商品A', 2)"#)
+            .bind(old_order_id.0)
+            .execute(&pool)
+            .await
+            .expect("insert item");
+
+        // 組み換え後の新注文（商品A が1個のみ → 元注文の quantity が 2 -> 1 に減算）
+        let order_info = crate::parsers::OrderInfo {
+            order_number: "25-0918-1710".to_string(),
+            order_date: None,
+            delivery_address: None,
+            delivery_info: None,
+            items: vec![crate::parsers::OrderItem {
+                name: "商品A".to_string(),
+                manufacturer: None,
+                model_number: None,
+                unit_price: 1000,
+                quantity: 1,
+                subtotal: 1000,
+            }],
+            subtotal: Some(1000),
+            shipping_fee: None,
+            total_amount: Some(1000),
+        };
+
+        let result = repo
+            .apply_change_items(&order_info, Some("1999.co.jp".to_string()), None)
+            .await;
+        assert!(result.is_ok());
+
+        // 元注文の商品A が quantity 1 に減算されていること
+        let (qty,): (i64,) =
+            sqlx::query_as("SELECT quantity FROM items WHERE order_id = ? AND item_name = '商品A'")
+                .bind(old_order_id.0)
+                .fetch_one(&pool)
+                .await
+                .expect("get quantity");
+        assert_eq!(qty, 1, "quantity should be reduced from 2 to 1");
+
+        // 元注文は残っていること（商品がまだ1個あるため削除されない）
+        let order_exists: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM orders WHERE id = ?")
+            .bind(old_order_id.0)
+            .fetch_one(&pool)
+            .await
+            .expect("check order");
+        assert_eq!(
+            order_exists.0, 1,
+            "order should remain with remaining items"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_apply_change_items_spans_multiple_orders() {
+        let pool = setup_test_db().await;
+        let repo = SqliteOrderRepository::new(pool.clone());
+
+        // 元注文1: 商品A が1個
+        sqlx::query(
+            r#"INSERT INTO orders (order_number, shop_domain, shop_name) VALUES ('99-4000-0001', '1999.co.jp', 'ホビーサーチ')"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert order 1");
+        let order1_id: (i64,) =
+            sqlx::query_as("SELECT id FROM orders WHERE order_number = '99-4000-0001'")
+                .fetch_one(&pool)
+                .await
+                .expect("get order 1 id");
+        sqlx::query(r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, '商品A', 1)"#)
+            .bind(order1_id.0)
+            .execute(&pool)
+            .await
+            .expect("insert item");
+
+        // 元注文2: 商品A が1個
+        sqlx::query(
+            r#"INSERT INTO orders (order_number, shop_domain, shop_name) VALUES ('99-4000-0002', '1999.co.jp', 'ホビーサーチ')"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert order 2");
+        let order2_id: (i64,) =
+            sqlx::query_as("SELECT id FROM orders WHERE order_number = '99-4000-0002'")
+                .fetch_one(&pool)
+                .await
+                .expect("get order 2 id");
+        sqlx::query(r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, '商品A', 1)"#)
+            .bind(order2_id.0)
+            .execute(&pool)
+            .await
+            .expect("insert item");
+
+        // 組み換え後の新注文（商品A が2個 → 2つの元注文から各1個ずつ削除）
+        let order_info = crate::parsers::OrderInfo {
+            order_number: "25-0918-1710".to_string(),
+            order_date: None,
+            delivery_address: None,
+            delivery_info: None,
+            items: vec![crate::parsers::OrderItem {
+                name: "商品A".to_string(),
+                manufacturer: None,
+                model_number: None,
+                unit_price: 1000,
+                quantity: 2,
+                subtotal: 2000,
+            }],
+            subtotal: Some(2000),
+            shipping_fee: None,
+            total_amount: Some(2000),
+        };
+
+        let result = repo
+            .apply_change_items(&order_info, Some("1999.co.jp".to_string()), None)
+            .await;
+        assert!(result.is_ok());
+
+        // 両方の元注文から商品A が削除されていること
+        let count1: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items WHERE order_id = ?")
+            .bind(order1_id.0)
+            .fetch_one(&pool)
+            .await
+            .expect("count order 1 items");
+        let count2: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items WHERE order_id = ?")
+            .bind(order2_id.0)
+            .fetch_one(&pool)
+            .await
+            .expect("count order 2 items");
+        assert_eq!(count1.0, 0, "order 1 items should be removed");
+        assert_eq!(count2.0, 0, "order 2 items should be removed");
+
+        // 両方の元注文は保持されること（残り商品0、deliveries クリーンアップ。再パース防止のため order は削除しない）
+        let order1_exists: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM orders WHERE id = ?")
+            .bind(order1_id.0)
+            .fetch_one(&pool)
+            .await
+            .expect("check order 1");
+        let order2_exists: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM orders WHERE id = ?")
+            .bind(order2_id.0)
+            .fetch_one(&pool)
+            .await
+            .expect("check order 2");
+        assert_eq!(order1_exists.0, 1, "empty order 1 is retained");
+        assert_eq!(order2_exists.0, 1, "empty order 2 is retained");
+    }
+
+    #[tokio::test]
+    async fn test_apply_change_items_consumes_multiple_rows_in_same_order() {
+        let pool = setup_test_db().await;
+        let repo = SqliteOrderRepository::new(pool.clone());
+
+        // 同一注文内に同名商品が複数行（商品A×1 が2行）
+        sqlx::query(
+            r#"INSERT INTO orders (order_number, shop_domain, shop_name) VALUES ('99-4500-0001', '1999.co.jp', 'ホビーサーチ')"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert order");
+        let order_id: (i64,) =
+            sqlx::query_as("SELECT id FROM orders WHERE order_number = '99-4500-0001'")
+                .fetch_one(&pool)
+                .await
+                .expect("get order id");
+        sqlx::query(r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, '商品A', 1)"#)
+            .bind(order_id.0)
+            .execute(&pool)
+            .await
+            .expect("insert item 1");
+        sqlx::query(r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, '商品A', 1)"#)
+            .bind(order_id.0)
+            .execute(&pool)
+            .await
+            .expect("insert item 2");
+
+        // 組み換え後は商品A が2個 → 同一注文内の2行から各1個ずつ消費
+        let order_info = crate::parsers::OrderInfo {
+            order_number: "25-0918-1710".to_string(),
+            order_date: None,
+            delivery_address: None,
+            delivery_info: None,
+            items: vec![crate::parsers::OrderItem {
+                name: "商品A".to_string(),
+                manufacturer: None,
+                model_number: None,
+                unit_price: 1000,
+                quantity: 2,
+                subtotal: 2000,
+            }],
+            subtotal: Some(2000),
+            shipping_fee: None,
+            total_amount: Some(2000),
+        };
+
+        let result = repo
+            .apply_change_items(&order_info, Some("1999.co.jp".to_string()), None)
+            .await;
+        assert!(result.is_ok());
+
+        // 同一注文内の2行とも削除され、注文は保持されること（deliveries クリーンアップのみ）
+        let item_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items WHERE order_id = ?")
+            .bind(order_id.0)
+            .fetch_one(&pool)
+            .await
+            .expect("count items");
+        assert_eq!(item_count.0, 0, "both rows should be consumed");
+        let order_exists: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM orders WHERE id = ?")
+            .bind(order_id.0)
+            .fetch_one(&pool)
+            .await
+            .expect("check order");
+        assert_eq!(order_exists.0, 1, "empty order is retained");
+    }
+
+    #[tokio::test]
+    async fn test_apply_change_items_respects_change_email_internal_date() {
+        let pool = setup_test_db().await;
+        let repo = SqliteOrderRepository::new(pool.clone());
+
+        // cutoff = 2024-06-01 00:00:00 UTC (1717200000000 ms)
+        let cutoff_ts = 1717200000000i64;
+
+        // 注文1: order_date が cutoff より前 → 対象になる
+        sqlx::query(
+            r#"INSERT INTO orders (order_number, shop_domain, shop_name, order_date, created_at) VALUES ('99-7100-0001', '1999.co.jp', 'ホビーサーチ', '2024-01-01 00:00:00', '2024-01-01 00:00:00')"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert order 1");
+        let order1_id: (i64,) =
+            sqlx::query_as("SELECT id FROM orders WHERE order_number = '99-7100-0001'")
+                .fetch_one(&pool)
+                .await
+                .expect("get order 1 id");
+        sqlx::query(r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, '商品D', 1)"#)
+            .bind(order1_id.0)
+            .execute(&pool)
+            .await
+            .expect("insert item");
+
+        // 注文2: order_date が cutoff より後 → 対象外
+        sqlx::query(
+            r#"INSERT INTO orders (order_number, shop_domain, shop_name, order_date, created_at) VALUES ('99-7100-0002', '1999.co.jp', 'ホビーサーチ', '2024-12-01 00:00:00', '2024-12-01 00:00:00')"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert order 2");
+        let order2_id: (i64,) =
+            sqlx::query_as("SELECT id FROM orders WHERE order_number = '99-7100-0002'")
+                .fetch_one(&pool)
+                .await
+                .expect("get order 2 id");
+        sqlx::query(r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, '商品D', 1)"#)
+            .bind(order2_id.0)
+            .execute(&pool)
+            .await
+            .expect("insert item");
+
+        // 注文3: order_date が NULL、created_at が cutoff より前 → COALESCE で created_at を使用、対象になる
+        sqlx::query(
+            r#"INSERT INTO orders (order_number, shop_domain, shop_name, order_date, created_at) VALUES ('99-7100-0003', '1999.co.jp', 'ホビーサーチ', NULL, '2024-01-15 00:00:00')"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert order 3");
+        let order3_id: (i64,) =
+            sqlx::query_as("SELECT id FROM orders WHERE order_number = '99-7100-0003'")
+                .fetch_one(&pool)
+                .await
+                .expect("get order 3 id");
+        sqlx::query(r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, '商品D', 1)"#)
+            .bind(order3_id.0)
+            .execute(&pool)
+            .await
+            .expect("insert item");
+
+        // 組み換え後は商品D が2個（注文1と3から。注文2は対象外）
+        let order_info = crate::parsers::OrderInfo {
+            order_number: "25-0918-1710".to_string(),
+            order_date: None,
+            delivery_address: None,
+            delivery_info: None,
+            items: vec![crate::parsers::OrderItem {
+                name: "商品D".to_string(),
+                manufacturer: None,
+                model_number: None,
+                unit_price: 800,
+                quantity: 2,
+                subtotal: 1600,
+            }],
+            subtotal: Some(1600),
+            shipping_fee: None,
+            total_amount: Some(1600),
+        };
+
+        let result = repo
+            .apply_change_items(&order_info, Some("1999.co.jp".to_string()), Some(cutoff_ts))
+            .await;
+        assert!(result.is_ok());
+
+        // 注文1: 商品削除 → 注文は保持（deliveries クリーンアップのみ）
+        let order1_items: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items WHERE order_id = ?")
+            .bind(order1_id.0)
+            .fetch_one(&pool)
+            .await
+            .expect("count order 1 items");
+        assert_eq!(
+            order1_items.0, 0,
+            "order 1 (before cutoff) items should be removed"
+        );
+        let order1_exists: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM orders WHERE id = ?")
+            .bind(order1_id.0)
+            .fetch_one(&pool)
+            .await
+            .expect("check order 1");
+        assert_eq!(order1_exists.0, 1, "order 1 is retained");
+
+        // 注文2: cutoff より後なので対象外 → 商品が残る
+        let order2_items: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items WHERE order_id = ?")
+            .bind(order2_id.0)
+            .fetch_one(&pool)
+            .await
+            .expect("count order 2 items");
+        assert_eq!(
+            order2_items.0, 1,
+            "order 2 (after cutoff) should keep its item"
+        );
+
+        // 注文3: order_date NULL だが created_at < cutoff なので対象 → 商品削除、注文は保持
+        let order3_items: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items WHERE order_id = ?")
+            .bind(order3_id.0)
+            .fetch_one(&pool)
+            .await
+            .expect("count order 3 items");
+        assert_eq!(order3_items.0, 0, "order 3 items should be removed");
+        let order3_exists: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM orders WHERE id = ?")
+            .bind(order3_id.0)
+            .fetch_one(&pool)
+            .await
+            .expect("check order 3");
+        assert_eq!(order3_exists.0, 1, "order 3 is retained");
+    }
+
+    // --- apply_change_items_and_save_order 統合テスト ---
+
+    #[tokio::test]
+    async fn test_apply_change_items_and_save_order_atomic_success() {
+        let pool = setup_test_db().await;
+        let repo = SqliteOrderRepository::new(pool.clone());
+
+        // 元注文とメールをセットアップ
+        sqlx::query(
+            r#"INSERT INTO orders (order_number, shop_domain, shop_name) VALUES ('99-5000-0001', '1999.co.jp', 'ホビーサーチ')"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert order");
+        let old_order_id: (i64,) =
+            sqlx::query_as("SELECT id FROM orders WHERE order_number = '99-5000-0001'")
+                .fetch_one(&pool)
+                .await
+                .expect("get order id");
+        sqlx::query(r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, '商品B', 1)"#)
+            .bind(old_order_id.0)
+            .execute(&pool)
+            .await
+            .expect("insert item");
+        sqlx::query("INSERT INTO emails (message_id, body_plain) VALUES ('change-email-1', '')")
+            .execute(&pool)
+            .await
+            .expect("insert email");
+        let email_id: (i64,) =
+            sqlx::query_as("SELECT id FROM emails WHERE message_id = 'change-email-1'")
+                .fetch_one(&pool)
+                .await
+                .expect("get email id");
+
+        let order_info = crate::parsers::OrderInfo {
+            order_number: "25-0918-1710".to_string(),
+            order_date: None,
+            delivery_address: None,
+            delivery_info: None,
+            items: vec![crate::parsers::OrderItem {
+                name: "商品B".to_string(),
+                manufacturer: None,
+                model_number: None,
+                unit_price: 500,
+                quantity: 1,
+                subtotal: 500,
+            }],
+            subtotal: Some(500),
+            shipping_fee: None,
+            total_amount: Some(500),
+        };
+
+        let result = repo
+            .apply_change_items_and_save_order(
+                &order_info,
+                Some(email_id.0),
+                Some("1999.co.jp".to_string()),
+                Some("ホビーサーチ".to_string()),
+                None,
+            )
+            .await;
+        assert!(result.is_ok());
+        let new_order_id = result.unwrap();
+
+        // 元注文から商品が削除され、注文は保持されること（deliveries クリーンアップのみ）
+        let old_order_items: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM items WHERE order_id = ?")
+                .bind(old_order_id.0)
+                .fetch_one(&pool)
+                .await
+                .expect("count old order items");
+        assert_eq!(old_order_items.0, 0, "old order items should be removed");
+        let old_order_exists: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM orders WHERE id = ?")
+            .bind(old_order_id.0)
+            .fetch_one(&pool)
+            .await
+            .expect("check old order");
+        assert_eq!(old_order_exists.0, 1, "old order is retained");
+
+        // 新注文が保存され、商品が含まれていること
+        let new_order_items: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM items WHERE order_id = ?")
+                .bind(new_order_id)
+                .fetch_one(&pool)
+                .await
+                .expect("count new order items");
+        assert_eq!(new_order_items.0, 1, "new order should have 1 item");
+
+        // order_emails に紐づいていること
+        let link_count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM order_emails WHERE order_id = ? AND email_id = ?")
+                .bind(new_order_id)
+                .bind(email_id.0)
+                .fetch_one(&pool)
+                .await
+                .expect("count order_emails");
+        assert_eq!(
+            link_count.0, 1,
+            "order_emails should link new order to email"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_apply_change_items_and_save_order_rollback_on_save_failure() {
+        let pool = setup_test_db().await;
+        let repo = SqliteOrderRepository::new(pool.clone());
+
+        // 元注文をセットアップ（email は作成しない → 存在しない email_id を渡す）
+        sqlx::query(
+            r#"INSERT INTO orders (order_number, shop_domain, shop_name) VALUES ('99-6000-0001', '1999.co.jp', 'ホビーサーチ')"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert order");
+        let old_order_id: (i64,) =
+            sqlx::query_as("SELECT id FROM orders WHERE order_number = '99-6000-0001'")
+                .fetch_one(&pool)
+                .await
+                .expect("get order id");
+        sqlx::query(r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, '商品C', 1)"#)
+            .bind(old_order_id.0)
+            .execute(&pool)
+            .await
+            .expect("insert item");
+
+        // 存在しない email_id を渡す（order_emails INSERT で FK 違反 → トランザクションロールバック）
+        let order_info = crate::parsers::OrderInfo {
+            order_number: "25-0918-1710".to_string(),
+            order_date: None,
+            delivery_address: None,
+            delivery_info: None,
+            items: vec![crate::parsers::OrderItem {
+                name: "商品C".to_string(),
+                manufacturer: None,
+                model_number: None,
+                unit_price: 300,
+                quantity: 1,
+                subtotal: 300,
+            }],
+            subtotal: Some(300),
+            shipping_fee: None,
+            total_amount: Some(300),
+        };
+
+        let result = repo
+            .apply_change_items_and_save_order(
+                &order_info,
+                Some(99999), // 存在しない email_id
+                Some("1999.co.jp".to_string()),
+                Some("ホビーサーチ".to_string()),
+                None,
+            )
+            .await;
+        assert!(result.is_err());
+
+        // ロールバックにより元注文の商品が残っていること
+        let item_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items WHERE order_id = ?")
+            .bind(old_order_id.0)
+            .fetch_one(&pool)
+            .await
+            .expect("count items");
+        assert_eq!(
+            item_count.0, 1,
+            "old order items should remain after rollback"
+        );
     }
 }
