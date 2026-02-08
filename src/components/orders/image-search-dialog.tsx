@@ -83,7 +83,11 @@ export function ImageSearchDialog({
 
   const handleOpenBrowserSearch = useCallback(() => {
     const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(itemName)}&tbm=isch`;
-    const label = `image-search-${Date.now()}`;
+    const uniqueSuffix =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const label = `image-search-${uniqueSuffix}`;
     try {
       const webview = new WebviewWindow(label, {
         url: searchUrl,
