@@ -302,7 +302,7 @@ where
             }
 
             // 複数のパーサーを順番に試す
-            let mut parse_result: Option<(OrderInfo, String)> = None;
+            let mut parse_result: Option<(OrderInfo, String, String)> = None; // (order_info, shop_name, parser_type)
             let mut last_error = String::new();
             let mut cancel_applied = false;
 
@@ -425,7 +425,7 @@ where
                             }
                         }
 
-                        parse_result = Some((order_info, shop_name.clone()));
+                        parse_result = Some((order_info, shop_name.clone(), parser_type.clone()));
                         break;
                     }
                     Err(e) => {
@@ -438,11 +438,30 @@ where
 
             if cancel_applied {
                 // 結果は既に push 済み
-            } else if let Some((order_info, shop_name)) = parse_result {
+            } else if let Some((order_info, shop_name, parser_type)) = parse_result {
                 // ドメインを抽出
                 let from_address = input.from_address.as_deref().unwrap_or("");
                 let shop_domain = extract_email_address(from_address)
                     .and_then(|email| extract_domain(&email).map(|s| s.to_string()));
+
+                // 組み換えメールの場合、元注文の商品を削除してから新注文を登録
+                if parser_type == "hobbysearch_change" || parser_type == "hobbysearch_change_yoyaku" {
+                    if let Err(e) = context
+                        .order_repo
+                        .apply_change_items(
+                            &order_info,
+                            shop_domain.clone(),
+                            input.internal_date,
+                        )
+                        .await
+                    {
+                        log::warn!(
+                            "apply_change_items failed for email {} (will still save new order): {}",
+                            input.email_id,
+                            e
+                        );
+                    }
+                }
 
                 // キャンセルメールが同一バッチ内の後続で apply_cancel するため、
                 // 確認・変更メールはここで即時 save_order する（after_batch に遅延すると注文が未コミットで見つからない）
