@@ -1,6 +1,6 @@
 //! メタデータのエクスポート/インポート（Issue #40）
 //!
-//! images, shop_settings, product_master, emails テーブルと画像ファイルを
+//! images, shop_settings, product_master テーブルと画像ファイルを
 //! ZIP 形式でバックアップ・復元する。
 
 use futures::StreamExt;
@@ -435,8 +435,8 @@ where
 
     let mut emails_inserted = 0usize;
     if zip_archive.file_names().any(|n| n == "emails.ndjson") {
-        // 新形式: NDJSON（サイズ制限付きで一括読み込み後、行単位で処理。OOM・長大行対策）
-        let content = {
+        // 新形式: NDJSON（entry を await 前に drop して Send を満たす。行単位でパースし長大行を拒否）
+        let rows: Vec<JsonEmailRow> = {
             let mut entry = zip_archive
                 .by_name("emails.ndjson")
                 .map_err(|e| format!("Failed to access emails.ndjson: {e}"))?;
@@ -446,25 +446,32 @@ where
                     MAX_EMAILS_NDJSON_ENTRY_SIZE
                 ));
             }
-            let mut s = String::new();
+            let mut bytes = Vec::new();
             entry
-                .read_to_string(&mut s)
+                .read_to_end(&mut bytes)
                 .map_err(|e| format!("Failed to read emails.ndjson: {e}"))?;
-            s
+            // entry をここで drop（await 前に必須）
+            let content =
+                String::from_utf8(bytes).map_err(|e| format!("Failed to decode emails.ndjson as UTF-8: {e}"))?;
+            let mut vec = Vec::new();
+            for line in content.lines() {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+                if line.len() > MAX_NDJSON_LINE_SIZE {
+                    return Err(format!(
+                        "emails.ndjson line exceeds size limit (max {} bytes)",
+                        MAX_NDJSON_LINE_SIZE
+                    ));
+                }
+                let row: JsonEmailRow = serde_json::from_str(line)
+                    .map_err(|e| format!("Failed to parse emails.ndjson line: {e}"))?;
+                vec.push(row);
+            }
+            vec
         };
-        for line in content.lines() {
-            let line = line.trim();
-            if line.is_empty() {
-                continue;
-            }
-            if line.len() > MAX_NDJSON_LINE_SIZE {
-                return Err(format!(
-                    "emails.ndjson line exceeds size limit (max {} bytes)",
-                    MAX_NDJSON_LINE_SIZE
-                ));
-            }
-            let row: JsonEmailRow = serde_json::from_str(line)
-                .map_err(|e| format!("Failed to parse emails.ndjson line: {e}"))?;
+        for row in &rows {
             let result = sqlx::query(
                 r#"
                 INSERT OR IGNORE INTO emails (message_id, body_plain, body_html, analysis_status, created_at, updated_at, internal_date, from_address, subject)
