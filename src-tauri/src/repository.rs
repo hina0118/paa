@@ -482,8 +482,10 @@ fn item_names_match(
         .map(|s| s.to_string())
         .unwrap_or_else(|| normalize_product_name(item_name));
     product_normalized == db_normalized
-        || product_normalized.contains(db_normalized.as_str())
-        || db_normalized.contains(product_normalized.as_str())
+        || (!product_normalized.is_empty()
+            && !db_normalized.is_empty()
+            && (product_normalized.contains(db_normalized.as_str())
+                || db_normalized.contains(product_normalized.as_str())))
 }
 
 /// apply_change_items で order_id ごとの items を保持する型
@@ -3417,6 +3419,121 @@ mod tests {
             .await
             .expect("check order");
         assert_eq!(order_exists.0, 0, "empty order should be deleted");
+    }
+
+    #[tokio::test]
+    async fn test_apply_change_items_respects_change_email_internal_date() {
+        let pool = setup_test_db().await;
+        let repo = SqliteOrderRepository::new(pool.clone());
+
+        // cutoff = 2024-06-01 00:00:00 UTC (1717200000000 ms)
+        let cutoff_ts = 1717200000000i64;
+
+        // 注文1: order_date が cutoff より前 → 対象になる
+        sqlx::query(
+            r#"INSERT INTO orders (order_number, shop_domain, shop_name, order_date, created_at) VALUES ('99-7100-0001', '1999.co.jp', 'ホビーサーチ', '2024-01-01 00:00:00', '2024-01-01 00:00:00')"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert order 1");
+        let order1_id: (i64,) =
+            sqlx::query_as("SELECT id FROM orders WHERE order_number = '99-7100-0001'")
+                .fetch_one(&pool)
+                .await
+                .expect("get order 1 id");
+        sqlx::query(r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, '商品D', 1)"#)
+            .bind(order1_id.0)
+            .execute(&pool)
+            .await
+            .expect("insert item");
+
+        // 注文2: order_date が cutoff より後 → 対象外
+        sqlx::query(
+            r#"INSERT INTO orders (order_number, shop_domain, shop_name, order_date, created_at) VALUES ('99-7100-0002', '1999.co.jp', 'ホビーサーチ', '2024-12-01 00:00:00', '2024-12-01 00:00:00')"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert order 2");
+        let order2_id: (i64,) =
+            sqlx::query_as("SELECT id FROM orders WHERE order_number = '99-7100-0002'")
+                .fetch_one(&pool)
+                .await
+                .expect("get order 2 id");
+        sqlx::query(r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, '商品D', 1)"#)
+            .bind(order2_id.0)
+            .execute(&pool)
+            .await
+            .expect("insert item");
+
+        // 注文3: order_date が NULL、created_at が cutoff より前 → COALESCE で created_at を使用、対象になる
+        sqlx::query(
+            r#"INSERT INTO orders (order_number, shop_domain, shop_name, order_date, created_at) VALUES ('99-7100-0003', '1999.co.jp', 'ホビーサーチ', NULL, '2024-01-15 00:00:00')"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert order 3");
+        let order3_id: (i64,) =
+            sqlx::query_as("SELECT id FROM orders WHERE order_number = '99-7100-0003'")
+                .fetch_one(&pool)
+                .await
+                .expect("get order 3 id");
+        sqlx::query(r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, '商品D', 1)"#)
+            .bind(order3_id.0)
+            .execute(&pool)
+            .await
+            .expect("insert item");
+
+        // 組み換え後は商品D が2個（注文1と3から。注文2は対象外）
+        let order_info = crate::parsers::OrderInfo {
+            order_number: "25-0918-1710".to_string(),
+            order_date: None,
+            delivery_address: None,
+            delivery_info: None,
+            items: vec![crate::parsers::OrderItem {
+                name: "商品D".to_string(),
+                manufacturer: None,
+                model_number: None,
+                unit_price: 800,
+                quantity: 2,
+                subtotal: 1600,
+            }],
+            subtotal: Some(1600),
+            shipping_fee: None,
+            total_amount: Some(1600),
+        };
+
+        let result = repo
+            .apply_change_items(
+                &order_info,
+                Some("1999.co.jp".to_string()),
+                Some(cutoff_ts),
+            )
+            .await;
+        assert!(result.is_ok());
+
+        // 注文1: 商品削除 → 空注文削除
+        let order1_exists: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM orders WHERE id = ?")
+            .bind(order1_id.0)
+            .fetch_one(&pool)
+            .await
+            .expect("check order 1");
+        assert_eq!(order1_exists.0, 0, "order 1 (before cutoff) should be removed");
+
+        // 注文2: cutoff より後なので対象外 → 商品が残る
+        let order2_items: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items WHERE order_id = ?")
+            .bind(order2_id.0)
+            .fetch_one(&pool)
+            .await
+            .expect("count order 2 items");
+        assert_eq!(order2_items.0, 1, "order 2 (after cutoff) should keep its item");
+
+        // 注文3: order_date NULL だが created_at < cutoff なので対象 → 商品削除
+        let order3_exists: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM orders WHERE id = ?")
+            .bind(order3_id.0)
+            .fetch_one(&pool)
+            .await
+            .expect("check order 3");
+        assert_eq!(order3_exists.0, 0, "order 3 (NULL order_date, created_at before cutoff) should be removed");
     }
 
     // --- apply_change_items_and_save_order 統合テスト ---

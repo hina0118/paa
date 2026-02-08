@@ -13,7 +13,8 @@ export default defineConfig({
   expect: {
     timeout: 5_000,
   },
-  fullyParallel: true,
+  // CI ではカバレッジ収集のため並列を無効化（複数ワーカーが同一ファイルに書き込むと競合する）
+  fullyParallel: !process.env.CI,
   // CI環境ではHTMLレポートも生成
   reporter: process.env.CI
     ? [['list'], ['html', { outputFolder: 'playwright-report' }]]
