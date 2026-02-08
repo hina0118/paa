@@ -57,6 +57,7 @@ export function ImageSearchDialog({
     setSelectedUrl(null);
     setSavedSuccess(false);
     setApiSearchFailed(false);
+    setManualUrlInput('');
 
     try {
       const results = await invoke<ImageSearchResult[]>(
