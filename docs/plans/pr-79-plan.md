@@ -21,7 +21,7 @@
 - **OrderRepository**: `apply_change_items` メソッドを追加
 - **email_parse_task.rs**: hobbysearch_change / hobbysearch_change_yoyaku の場合、`save_order` の前に `apply_change_items` を呼び出し
 - **parsers/mod.rs**: batch_parse_emails で同様に `apply_change_items` を呼び出し
-- **テスト**: 統合テスト 3 件追加（商品削除・発送済み除外・マッチ無し）
+- **テスト**: 統合テスト 5 件追加（商品削除・発送済み除外・マッチ無し・数量減算・複数注文跨ぎ）
 
 **変更ファイル**:
 
