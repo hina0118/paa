@@ -451,8 +451,8 @@ where
                 .read_to_end(&mut bytes)
                 .map_err(|e| format!("Failed to read emails.ndjson: {e}"))?;
             // entry をここで drop（await 前に必須）
-            let content =
-                String::from_utf8(bytes).map_err(|e| format!("Failed to decode emails.ndjson as UTF-8: {e}"))?;
+            let content = String::from_utf8(bytes)
+                .map_err(|e| format!("Failed to decode emails.ndjson as UTF-8: {e}"))?;
             let mut vec = Vec::new();
             for line in content.lines() {
                 let line = line.trim();
@@ -780,10 +780,7 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query(SCHEMA_EMAILS)
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(SCHEMA_EMAILS).execute(&pool).await.unwrap();
         pool
     }
 
@@ -1110,5 +1107,62 @@ mod tests {
         let result = import_metadata_from_reader(&pool, &images_dir, buf).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Unsupported backup version"));
+    }
+
+    #[tokio::test]
+    async fn test_import_legacy_emails_json() {
+        use zip::write::FileOptions;
+
+        let pool = create_test_pool().await;
+        let tmp = TempDir::new().unwrap();
+        let images_dir = tmp.path().join("images");
+        std::fs::create_dir_all(&images_dir).unwrap();
+
+        // emails.ndjson が無く emails.json（レガシー形式）のみを含む ZIP
+        let emails_json = r#"[1,"msg-legacy-001","body plain","body html","pending","2024-01-01 00:00:00",null,null,"legacy@test.com","Legacy Subject"]"#;
+        let mut buf = Cursor::new(Vec::new());
+        {
+            let mut zip = zip::ZipWriter::new(&mut buf);
+            let options: zip::write::FileOptions<()> =
+                FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+            zip.start_file("manifest.json", options).unwrap();
+            zip.write_all(b"{\"version\": 1, \"exported_at\": \"2024-01-01 00:00:00\"}")
+                .unwrap();
+            zip.start_file("images.json", options).unwrap();
+            zip.write_all(b"[]").unwrap();
+            zip.start_file("shop_settings.json", options).unwrap();
+            zip.write_all(b"[]").unwrap();
+            zip.start_file("product_master.json", options).unwrap();
+            zip.write_all(b"[]").unwrap();
+            zip.start_file("emails.json", options).unwrap();
+            zip.write_all(format!("[{}]", emails_json).as_bytes())
+                .unwrap();
+            zip.finish().unwrap();
+        }
+        buf.set_position(0);
+
+        let import_result = import_metadata_from_reader(&pool, &images_dir, buf).await;
+        assert!(
+            import_result.is_ok(),
+            "import failed: {:?}",
+            import_result.err()
+        );
+        let r = import_result.unwrap();
+        assert_eq!(r.emails_inserted, 1, "emails_inserted should be 1");
+
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM emails")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count.0, 1, "emails table should have 1 row");
+
+        let row: (String, String, Option<String>) =
+            sqlx::query_as("SELECT message_id, analysis_status, subject FROM emails LIMIT 1")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(row.0, "msg-legacy-001");
+        assert_eq!(row.1, "pending");
+        assert_eq!(row.2.as_deref(), Some("Legacy Subject"));
     }
 }
