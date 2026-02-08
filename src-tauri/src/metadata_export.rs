@@ -3,11 +3,12 @@
 //! images, shop_settings, product_master テーブルと画像ファイルを
 //! ZIP 形式でバックアップ・復元する。
 
+use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqlitePool;
 use std::collections::HashSet;
 use std::fs::{self, File};
-use std::io::{Read, Seek, Write};
+use std::io::{BufRead, BufReader, Read, Seek, Write};
 use std::path::Path;
 use tauri::{AppHandle, Manager};
 use zip::write::FileOptions;
@@ -20,6 +21,15 @@ const MAX_IMAGE_ENTRY_SIZE: u64 = 10 * 1024 * 1024; // 10MB
 
 /// JSON エントリ1件あたりの最大サイズ（バイト）。巨大 ZIP による DoS を防ぐ。
 const MAX_JSON_ENTRY_SIZE: u64 = 10 * 1024 * 1024; // 10MB
+
+/// NDJSON 1行あたりの最大サイズ。メール本文（最大1MB級）を含むため余裕を持たせる。
+const MAX_NDJSON_LINE_SIZE: usize = 2 * 1024 * 1024; // 2MB
+
+/// レガシー emails.json の最大サイズ。本文を含むため 10MB を超えやすいので緩和。
+const MAX_EMAILS_JSON_ENTRY_SIZE: u64 = 50 * 1024 * 1024; // 50MB
+
+/// emails.ndjson 全体の最大サイズ。OOM 対策。
+const MAX_EMAILS_NDJSON_ENTRY_SIZE: u64 = 100 * 1024 * 1024; // 100MB
 
 /// file_name が安全な単一ファイル名か検証（パストラバーサル対策）
 fn is_safe_file_name(file_name: &str) -> bool {
@@ -61,11 +71,26 @@ type ProductMasterRow = (
     String,
 );
 
+/// emails テーブル行 (id, message_id, body_plain, body_html, analysis_status, created_at, updated_at, internal_date, from_address, subject)
+type EmailRow = (
+    i64,
+    String,
+    Option<String>,
+    Option<String>,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<i64>,
+    Option<String>,
+    Option<String>,
+);
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ExportResult {
     pub images_count: usize,
     pub shop_settings_count: usize,
     pub product_master_count: usize,
+    pub emails_count: usize,
     pub image_files_count: usize,
     /// スキップした画像数（不正な file_name、サイズ超過、ファイル不存在）
     pub images_skipped: usize,
@@ -76,6 +101,7 @@ pub struct ImportResult {
     pub images_inserted: usize,
     pub shop_settings_inserted: usize,
     pub product_master_inserted: usize,
+    pub emails_inserted: usize,
     pub image_files_copied: usize,
 }
 
@@ -136,7 +162,7 @@ where
     .await
     .map_err(|e| format!("Failed to fetch product_master: {e}"))?;
 
-    // 2. JSON にシリアライズ
+    // 2. JSON にシリアライズ（emails は後でストリーミング出力するため除外）
     let images_json = serde_json::to_string_pretty(&images_rows)
         .map_err(|e| format!("Failed to serialize images: {e}"))?;
     let shop_settings_json = serde_json::to_string_pretty(&shop_settings_rows)
@@ -188,6 +214,39 @@ where
         .write_all(product_master_json.as_bytes())
         .map_err(|e| format!("Failed to write product_master: {e}"))?;
 
+    // emails: ストリーミングで NDJSON 出力（OOM 回避）
+    zip_writer
+        .start_file("emails.ndjson", options)
+        .map_err(|e| format!("Failed to add emails.ndjson: {e}"))?;
+    let mut emails_count = 0usize;
+    {
+        let mut stream = sqlx::query_as::<_, EmailRow>(
+            r#"
+            SELECT id, message_id, body_plain, body_html, analysis_status,
+                   created_at, updated_at, internal_date, from_address, subject FROM emails
+            "#,
+        )
+        .fetch(pool);
+        while let Some(row) = stream.next().await {
+            let row = row.map_err(|e| format!("Failed to fetch emails: {e}"))?;
+            let line = serde_json::to_string(&row)
+                .map_err(|e| format!("Failed to serialize email: {e}"))?;
+            if line.len() > MAX_NDJSON_LINE_SIZE {
+                return Err(format!(
+                    "Email row exceeds line size limit (max {} bytes)",
+                    MAX_NDJSON_LINE_SIZE
+                ));
+            }
+            zip_writer
+                .write_all(line.as_bytes())
+                .map_err(|e| format!("Failed to write email: {e}"))?;
+            zip_writer
+                .write_all(b"\n")
+                .map_err(|e| format!("Failed to write newline: {e}"))?;
+            emails_count += 1;
+        }
+    }
+
     let mut image_files_count = 0usize;
     let mut images_skipped = 0usize;
     for (_, _norm, file_name_opt, _) in &images_rows {
@@ -230,6 +289,7 @@ where
         images_count: images_rows.len(),
         shop_settings_count: shop_settings_rows.len(),
         product_master_count: product_master_rows.len(),
+        emails_count,
         image_files_count,
         images_skipped,
     })
@@ -373,6 +433,118 @@ where
         }
     }
 
+    let mut emails_inserted = 0usize;
+    if zip_archive.file_names().any(|n| n == "emails.ndjson") {
+        // 新形式: NDJSON（read_until で行単位ストリーミング、長大行は確保前に拒否、OOM 回避）
+        let rows: Vec<JsonEmailRow> = {
+            let mut entry = zip_archive
+                .by_name("emails.ndjson")
+                .map_err(|e| format!("Failed to access emails.ndjson: {e}"))?;
+            if entry.size() > MAX_EMAILS_NDJSON_ENTRY_SIZE {
+                return Err(format!(
+                    "emails.ndjson exceeds size limit (max {} bytes)",
+                    MAX_EMAILS_NDJSON_ENTRY_SIZE
+                ));
+            }
+            let mut reader = BufReader::new(&mut entry);
+            let mut buf = Vec::with_capacity(4096);
+            let mut vec = Vec::new();
+            loop {
+                buf.clear();
+                let bytes_read = reader
+                    .read_until(b'\n', &mut buf)
+                    .map_err(|e| format!("Failed to read emails.ndjson: {e}"))?;
+                if bytes_read == 0 {
+                    break;
+                }
+                if buf.len() > MAX_NDJSON_LINE_SIZE + 1 {
+                    return Err(format!(
+                        "emails.ndjson line exceeds size limit (max {} bytes)",
+                        MAX_NDJSON_LINE_SIZE
+                    ));
+                }
+                if buf.last() == Some(&b'\n') {
+                    buf.pop();
+                }
+                if buf.is_empty() {
+                    continue;
+                }
+                let line = std::str::from_utf8(&buf)
+                    .map_err(|e| format!("Failed to decode emails.ndjson as UTF-8: {e}"))?;
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+                let row: JsonEmailRow = serde_json::from_str(line)
+                    .map_err(|e| format!("Failed to parse emails.ndjson line: {e}"))?;
+                vec.push(row);
+            }
+            vec
+        };
+        for row in &rows {
+            let result = sqlx::query(
+                r#"
+                INSERT OR IGNORE INTO emails (message_id, body_plain, body_html, analysis_status, created_at, updated_at, internal_date, from_address, subject)
+                VALUES (?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP), ?, ?, ?)
+                "#,
+            )
+            .bind(&row.1)
+            .bind(&row.2)
+            .bind(&row.3)
+            .bind(&row.4)
+            .bind(&row.5)
+            .bind(&row.6)
+            .bind(row.7)
+            .bind(&row.8)
+            .bind(&row.9)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| format!("Failed to insert email: {e}"))?;
+            if result.rows_affected() > 0 {
+                emails_inserted += 1;
+            }
+        }
+    } else if zip_archive.file_names().any(|n| n == "emails.json") {
+        // 旧形式: emails.json（レガシーバックアップ互換）
+        // 1つの Deserializer で全体を読み取り、バッファ先読みとの不整合を防ぐ
+        let emails_rows: Vec<JsonEmailRow> = {
+            let mut entry = zip_archive
+                .by_name("emails.json")
+                .map_err(|e| format!("Failed to access emails.json: {e}"))?;
+            if entry.size() > MAX_EMAILS_JSON_ENTRY_SIZE {
+                return Err(format!(
+                    "emails.json exceeds size limit (max {} bytes)",
+                    MAX_EMAILS_JSON_ENTRY_SIZE
+                ));
+            }
+            serde_json::from_reader(BufReader::new(&mut entry))
+                .map_err(|e| format!("Failed to parse emails.json: {e}"))?
+        };
+        for row in &emails_rows {
+            let result = sqlx::query(
+                r#"
+                INSERT OR IGNORE INTO emails (message_id, body_plain, body_html, analysis_status, created_at, updated_at, internal_date, from_address, subject)
+                VALUES (?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP), ?, ?, ?)
+                "#,
+            )
+            .bind(&row.1)
+            .bind(&row.2)
+            .bind(&row.3)
+            .bind(&row.4)
+            .bind(&row.5)
+            .bind(&row.6)
+            .bind(row.7)
+            .bind(&row.8)
+            .bind(&row.9)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| format!("Failed to insert email: {e}"))?;
+            if result.rows_affected() > 0 {
+                emails_inserted += 1;
+            }
+        }
+    }
+
     tx.commit()
         .await
         .map_err(|e| format!("Failed to commit transaction: {e}"))?;
@@ -429,6 +601,7 @@ where
         images_inserted,
         shop_settings_inserted,
         product_master_inserted,
+        emails_inserted,
         image_files_copied,
     })
 }
@@ -492,6 +665,21 @@ struct JsonProductMasterRow(
     Option<String>, // updated_at (未使用)
 );
 
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+struct JsonEmailRow(
+    i64,            // id (未使用)
+    String,         // message_id
+    Option<String>, // body_plain
+    Option<String>, // body_html
+    String,         // analysis_status
+    Option<String>, // created_at
+    Option<String>, // updated_at
+    Option<i64>,    // internal_date
+    Option<String>, // from_address
+    Option<String>, // subject
+);
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -537,6 +725,20 @@ mod tests {
             updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
     ";
+    const SCHEMA_EMAILS: &str = r"
+        CREATE TABLE IF NOT EXISTS emails (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            message_id TEXT UNIQUE NOT NULL,
+            body_plain TEXT,
+            body_html TEXT,
+            analysis_status TEXT NOT NULL DEFAULT 'pending' CHECK(analysis_status IN ('pending', 'completed')),
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            internal_date INTEGER,
+            from_address TEXT,
+            subject TEXT
+        );
+    ";
 
     async fn create_test_pool() -> SqlitePool {
         let options = SqliteConnectOptions::from_str("sqlite::memory:")
@@ -555,6 +757,7 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
+        sqlx::query(SCHEMA_EMAILS).execute(&pool).await.unwrap();
         pool
     }
 
@@ -584,6 +787,13 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
+        sqlx::query(
+            r"INSERT INTO emails (message_id, body_plain, analysis_status, from_address, subject)
+              VALUES ('msg-001', 'body text', 'pending', 'a@test.com', 'Subject')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
 
         let tmp = TempDir::new().unwrap();
         let images_dir = tmp.path().join("images");
@@ -597,6 +807,7 @@ mod tests {
         assert_eq!(export_result.images_count, 2);
         assert_eq!(export_result.shop_settings_count, 1);
         assert_eq!(export_result.product_master_count, 1);
+        assert_eq!(export_result.emails_count, 1);
         assert_eq!(export_result.image_files_count, 0); // img1.png は存在しない
         assert_eq!(export_result.images_skipped, 1); // img1.png が存在しないためスキップ
 
@@ -614,6 +825,7 @@ mod tests {
         assert_eq!(import_result.images_inserted, 2);
         assert_eq!(import_result.shop_settings_inserted, 1);
         assert_eq!(import_result.product_master_inserted, 1);
+        assert_eq!(import_result.emails_inserted, 1);
 
         // データが正しく復元されているか確認
         let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM images")
@@ -627,6 +839,11 @@ mod tests {
             .unwrap();
         assert_eq!(count.0, 1);
         let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM product_master")
+            .fetch_one(&pool2)
+            .await
+            .unwrap();
+        assert_eq!(count.0, 1);
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM emails")
             .fetch_one(&pool2)
             .await
             .unwrap();
@@ -709,6 +926,11 @@ mod tests {
         assert!(
             names.contains(&"product_master.json".to_string()),
             "product_master.json should exist, got: {:?}",
+            names
+        );
+        assert!(
+            names.contains(&"emails.ndjson".to_string()),
+            "emails.ndjson should exist, got: {:?}",
             names
         );
     }
@@ -862,5 +1084,62 @@ mod tests {
         let result = import_metadata_from_reader(&pool, &images_dir, buf).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Unsupported backup version"));
+    }
+
+    #[tokio::test]
+    async fn test_import_legacy_emails_json() {
+        use zip::write::FileOptions;
+
+        let pool = create_test_pool().await;
+        let tmp = TempDir::new().unwrap();
+        let images_dir = tmp.path().join("images");
+        std::fs::create_dir_all(&images_dir).unwrap();
+
+        // emails.ndjson が無く emails.json（レガシー形式）のみを含む ZIP
+        let emails_json = r#"[1,"msg-legacy-001","body plain","body html","pending","2024-01-01 00:00:00",null,null,"legacy@test.com","Legacy Subject"]"#;
+        let mut buf = Cursor::new(Vec::new());
+        {
+            let mut zip = zip::ZipWriter::new(&mut buf);
+            let options: zip::write::FileOptions<()> =
+                FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+            zip.start_file("manifest.json", options).unwrap();
+            zip.write_all(b"{\"version\": 1, \"exported_at\": \"2024-01-01 00:00:00\"}")
+                .unwrap();
+            zip.start_file("images.json", options).unwrap();
+            zip.write_all(b"[]").unwrap();
+            zip.start_file("shop_settings.json", options).unwrap();
+            zip.write_all(b"[]").unwrap();
+            zip.start_file("product_master.json", options).unwrap();
+            zip.write_all(b"[]").unwrap();
+            zip.start_file("emails.json", options).unwrap();
+            zip.write_all(format!("[{}]", emails_json).as_bytes())
+                .unwrap();
+            zip.finish().unwrap();
+        }
+        buf.set_position(0);
+
+        let import_result = import_metadata_from_reader(&pool, &images_dir, buf).await;
+        assert!(
+            import_result.is_ok(),
+            "import failed: {:?}",
+            import_result.err()
+        );
+        let r = import_result.unwrap();
+        assert_eq!(r.emails_inserted, 1, "emails_inserted should be 1");
+
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM emails")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count.0, 1, "emails table should have 1 row");
+
+        let row: (String, String, Option<String>) =
+            sqlx::query_as("SELECT message_id, analysis_status, subject FROM emails LIMIT 1")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(row.0, "msg-legacy-001");
+        assert_eq!(row.1, "pending");
+        assert_eq!(row.2.as_deref(), Some("Legacy Subject"));
     }
 }
