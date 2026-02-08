@@ -11,6 +11,7 @@ PAA のメタデータ（AI解析済み商品データ、画像キャッシュ�
 | images         | 商品画像のメタデータ（item_name_normalized と file_name の対応） |
 | shop_settings  | 店舗設定（送信元アドレス、パーサータイプなど）                   |
 | product_master | AI（Gemini）解析済みの商品情報（メーカー、シリーズ、スケール等） |
+| emails         | 取得済みメール（message_id、本文、差出人、件名など）             |
 
 画像ファイルは `app_data_dir/images/` に保存されている実体が ZIP 内の `images/` フォルダに含まれます。
 
@@ -41,6 +42,7 @@ paa_export_YYYYMMDD_HHmmss.zip
 ├── images.json         # images テーブル
 ├── shop_settings.json  # shop_settings テーブル
 ├── product_master.json # product_master テーブル
+├── emails.ndjson       # emails テーブル（NDJSON形式、旧形式は emails.json も読み込み可）
 └── images/             # 画像ファイル
     ├── xxx.jpg
     └── yyy.png

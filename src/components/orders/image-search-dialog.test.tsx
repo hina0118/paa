@@ -4,6 +4,13 @@ import userEvent from '@testing-library/user-event';
 import { Toaster } from 'sonner';
 import { ImageSearchDialog } from './image-search-dialog';
 import { mockInvoke } from '@/test/setup';
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
+
+vi.mock('@tauri-apps/api/webviewWindow', () => ({
+  WebviewWindow: vi.fn().mockImplementation(() => ({
+    once: vi.fn(),
+  })),
+}));
 
 const renderWithToaster = (ui: React.ReactElement) =>
   render(
@@ -25,6 +32,9 @@ describe('ImageSearchDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockInvoke.mockResolvedValue(undefined);
+    vi.mocked(WebviewWindow).mockImplementation(() => ({
+      once: vi.fn(),
+    }));
   });
 
   it('renders dialog when open', () => {
@@ -278,6 +288,64 @@ describe('ImageSearchDialog', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/string error/)).toBeInTheDocument();
+    });
+  });
+
+  it('shows fallback message and opens sub-window when API search fails', async () => {
+    const user = userEvent.setup();
+    mockInvoke.mockRejectedValue(new Error('API limit reached'));
+
+    renderWithToaster(<ImageSearchDialog {...defaultProps} />);
+
+    const dialog = screen.getByRole('dialog');
+    await user.click(
+      within(dialog).getByRole('button', { name: /画像を検索/ })
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          /結果が見つからない場合もサブウィンドウでGoogle画像検索を開き/
+        )
+      ).toBeInTheDocument();
+    });
+
+    const browserButton = screen.getByRole('button', {
+      name: /サブウィンドウでGoogle画像検索を開く/,
+    });
+    await user.click(browserButton);
+
+    expect(WebviewWindow).toHaveBeenCalledWith(
+      expect.stringMatching(/^image-search-.+$/),
+      expect.objectContaining({
+        url: 'https://www.google.com/search?q=%E3%83%86%E3%82%B9%E3%83%88%E5%95%86%E5%93%81&tbm=isch',
+        title: 'Google画像検索: テスト商品',
+        width: 900,
+        height: 700,
+      })
+    );
+  });
+
+  it('saves image from manual URL input', async () => {
+    const user = userEvent.setup();
+    mockInvoke.mockResolvedValue(undefined);
+
+    renderWithToaster(<ImageSearchDialog {...defaultProps} />);
+
+    const urlInput = screen.getByPlaceholderText('画像のURLをここに貼り付け');
+    await user.type(urlInput, 'https://example.com/my-image.jpg');
+
+    const saveButton = screen.getByRole('button', {
+      name: '選択した画像を保存',
+    });
+    expect(saveButton).not.toBeDisabled();
+    await user.click(saveButton);
+
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith('save_image_from_url', {
+        itemId: 1,
+        imageUrl: 'https://example.com/my-image.jpg',
+      });
     });
   });
 });
