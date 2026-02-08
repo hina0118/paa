@@ -168,7 +168,7 @@ WHERE o.shop_domain = ?
 - [x] Phase 1: `apply_change_items` 実装（repository.rs）
 - [x] Phase 2: `email_parse_task.rs` で apply_change_items 呼び出し
 - [x] Phase 2: `parsers/mod.rs`（batch_parse_emails）で apply_change_items 呼び出し
-- [x] Phase 4: 統合テスト 3 件追加（repository.rs）
+- [x] Phase 4: 統合テスト 5 件追加（repository.rs）
 
 ## 9. 見積もり
 

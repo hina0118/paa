@@ -444,37 +444,35 @@ where
                 let shop_domain = extract_email_address(from_address)
                     .and_then(|email| extract_domain(&email).map(|s| s.to_string()));
 
-                // 組み換えメールの場合、元注文の商品を削除してから新注文を登録
-                if parser_type == "hobbysearch_change" || parser_type == "hobbysearch_change_yoyaku" {
-                    if let Err(e) = context
+                // 組み換えメールの場合、同一トランザクションで元注文削除＋新注文登録（データ欠損を防ぐ）
+                let save_result = if parser_type == "hobbysearch_change"
+                    || parser_type == "hobbysearch_change_yoyaku"
+                {
+                    context
                         .order_repo
-                        .apply_change_items(
+                        .apply_change_items_and_save_order(
                             &order_info,
+                            Some(input.email_id),
                             shop_domain.clone(),
+                            Some(shop_name.clone()),
                             input.internal_date,
                         )
                         .await
-                    {
-                        log::warn!(
-                            "apply_change_items failed for email {} (will still save new order): {}",
-                            input.email_id,
-                            e
-                        );
-                    }
-                }
+                } else {
+                    context
+                        .order_repo
+                        .save_order(
+                            &order_info,
+                            Some(input.email_id),
+                            shop_domain.clone(),
+                            Some(shop_name.clone()),
+                        )
+                        .await
+                };
 
                 // キャンセルメールが同一バッチ内の後続で apply_cancel するため、
                 // 確認・変更メールはここで即時 save_order する（after_batch に遅延すると注文が未コミットで見つからない）
-                match context
-                    .order_repo
-                    .save_order(
-                        &order_info,
-                        Some(input.email_id),
-                        shop_domain.clone(),
-                        Some(shop_name.clone()),
-                    )
-                    .await
-                {
+                match save_result {
                     Ok(order_id) => {
                         log::debug!(
                             "Saved order {} for email {} (in-batch)",
