@@ -32,7 +32,7 @@ describe('ImageSearchDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockInvoke.mockResolvedValue(undefined);
-    (WebviewWindow as ReturnType<typeof vi.fn>).mockImplementation(() => ({
+    vi.mocked(WebviewWindow).mockImplementation(() => ({
       once: vi.fn(),
     }));
   });
