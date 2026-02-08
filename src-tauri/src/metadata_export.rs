@@ -469,7 +469,7 @@ where
                 if buf.is_empty() {
                     continue;
                 }
-                let line = String::from_utf8(buf.clone())
+                let line = std::str::from_utf8(&buf)
                     .map_err(|e| format!("Failed to decode emails.ndjson as UTF-8: {e}"))?;
                 let line = line.trim();
                 if line.is_empty() {
