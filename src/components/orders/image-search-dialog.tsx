@@ -238,7 +238,7 @@ export function ImageSearchDialog({
           <div className="space-y-3 pt-3 border-t">
             {apiSearchFailed && (
               <p className="text-sm text-muted-foreground">
-                APIが利用できません。サブウィンドウでGoogle画像検索を開き、画像を選択してURLを貼り付けて登録できます。
+                結果が見つからない場合もサブウィンドウでGoogle画像検索を開き、画像を選択してURLを貼り付けて登録できます。
               </p>
             )}
             <div className="flex flex-col sm:flex-row gap-2">
