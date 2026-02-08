@@ -423,7 +423,7 @@ pub async fn batch_parse_emails(
             }
 
             // 複数のパーサーを順番に試す（最初に成功したものを使用）
-            let mut parse_result: Option<Result<(OrderInfo, String), String>> = None;
+            let mut parse_result: Option<Result<(OrderInfo, String, String), String>> = None; // (order_info, shop_name, parser_type)
             let mut last_error = String::new();
             // キャンセルメールとして処理した（成功・失敗いずれも）。通常の OrderInfo フローをスキップする。
             let mut handled_as_cancel = false;
@@ -525,7 +525,8 @@ pub async fn batch_parse_emails(
                             }
                         }
 
-                        parse_result = Some(Ok((order_info, shop_name.clone())));
+                        parse_result =
+                            Some(Ok((order_info, shop_name.clone(), parser_type.clone())));
                         break;
                     }
                     Err(e) => {
@@ -553,23 +554,41 @@ pub async fn batch_parse_emails(
             };
 
             match parse_result {
-                Ok((order_info, shop_name)) => {
+                Ok((order_info, shop_name, parser_type)) => {
                     // ドメインを抽出（extract_email_address で <> 形式に対応、extract_domain でドメイン部分のみ取得）
                     let from_address = row.from_address.as_deref().unwrap_or("");
                     let shop_domain = extract_email_address(from_address)
                         .and_then(|email| extract_domain(&email).map(|s| s.to_string()));
 
-                    // 同一バッチ内でキャンセルが先に来た場合に apply_cancel で注文を参照できるよう、
-                    // confirm/change は即時 save_order する（フェーズ2に遅延すると注文が未コミットで見つからない）
-                    match order_repo
-                        .save_order(
-                            &order_info,
-                            Some(row.email_id),
-                            shop_domain.clone(),
-                            Some(shop_name.clone()),
-                        )
-                        .await
+                    // 組み換えメールの場合、同一トランザクションで元注文削除＋新注文登録（データ欠損を防ぐ）
+                    // internal_date が無効値の場合、cutoff に使わず None を渡す
+                    let change_email_internal_date = row
+                        .internal_date
+                        .and_then(|ts| DateTime::from_timestamp_millis(ts).map(|_| ts));
+                    let save_result = if parser_type == "hobbysearch_change"
+                        || parser_type == "hobbysearch_change_yoyaku"
                     {
+                        order_repo
+                            .apply_change_items_and_save_order(
+                                &order_info,
+                                Some(row.email_id),
+                                shop_domain.clone(),
+                                Some(shop_name.clone()),
+                                change_email_internal_date,
+                            )
+                            .await
+                    } else {
+                        order_repo
+                            .save_order(
+                                &order_info,
+                                Some(row.email_id),
+                                shop_domain.clone(),
+                                Some(shop_name.clone()),
+                            )
+                            .await
+                    };
+
+                    match save_result {
                         Ok(order_id) => {
                             log::info!("Successfully parsed and saved order: {}", order_id);
                             success_count += 1;
