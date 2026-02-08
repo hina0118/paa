@@ -305,7 +305,7 @@ describe('ImageSearchDialog', () => {
     await waitFor(() => {
       expect(
         screen.getByText(
-          /APIが利用できません。サブウィンドウでGoogle画像検索を開き/
+          /結果が見つからない場合もサブウィンドウでGoogle画像検索を開き/
         )
       ).toBeInTheDocument();
     });

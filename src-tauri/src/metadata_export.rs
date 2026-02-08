@@ -3,11 +3,13 @@
 //! images, shop_settings, product_master, emails テーブルと画像ファイルを
 //! ZIP 形式でバックアップ・復元する。
 
+use futures::StreamExt;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqlitePool;
 use std::collections::HashSet;
 use std::fs::{self, File};
-use std::io::{Read, Seek, Write};
+use std::io::{self, BufRead, BufReader, Read, Seek, Write};
 use std::path::Path;
 use tauri::{AppHandle, Manager};
 use zip::write::FileOptions;
@@ -20,6 +22,12 @@ const MAX_IMAGE_ENTRY_SIZE: u64 = 10 * 1024 * 1024; // 10MB
 
 /// JSON エントリ1件あたりの最大サイズ（バイト）。巨大 ZIP による DoS を防ぐ。
 const MAX_JSON_ENTRY_SIZE: u64 = 10 * 1024 * 1024; // 10MB
+
+/// NDJSON 1行あたりの最大サイズ。メール本文（最大1MB級）を含むため余裕を持たせる。
+const MAX_NDJSON_LINE_SIZE: usize = 2 * 1024 * 1024; // 2MB
+
+/// レガシー emails.json の最大サイズ。本文を含むため 10MB を超えやすいので緩和。
+const MAX_EMAILS_JSON_ENTRY_SIZE: u64 = 50 * 1024 * 1024; // 50MB
 
 /// file_name が安全な単一ファイル名か検証（パストラバーサル対策）
 fn is_safe_file_name(file_name: &str) -> bool {
@@ -152,25 +160,13 @@ where
     .await
     .map_err(|e| format!("Failed to fetch product_master: {e}"))?;
 
-    let emails_rows: Vec<EmailRow> = sqlx::query_as(
-        r#"
-        SELECT id, message_id, body_plain, body_html, analysis_status,
-               created_at, updated_at, internal_date, from_address, subject FROM emails
-        "#,
-    )
-    .fetch_all(pool)
-    .await
-    .map_err(|e| format!("Failed to fetch emails: {e}"))?;
-
-    // 2. JSON にシリアライズ
+    // 2. JSON にシリアライズ（emails は後でストリーミング出力するため除外）
     let images_json = serde_json::to_string_pretty(&images_rows)
         .map_err(|e| format!("Failed to serialize images: {e}"))?;
     let shop_settings_json = serde_json::to_string_pretty(&shop_settings_rows)
         .map_err(|e| format!("Failed to serialize shop_settings: {e}"))?;
     let product_master_json = serde_json::to_string_pretty(&product_master_rows)
         .map_err(|e| format!("Failed to serialize product_master: {e}"))?;
-    let emails_json = serde_json::to_string_pretty(&emails_rows)
-        .map_err(|e| format!("Failed to serialize emails: {e}"))?;
 
     let manifest = Manifest {
         version: MANIFEST_VERSION,
@@ -216,12 +212,38 @@ where
         .write_all(product_master_json.as_bytes())
         .map_err(|e| format!("Failed to write product_master: {e}"))?;
 
+    // emails: ストリーミングで NDJSON 出力（OOM 回避）
     zip_writer
-        .start_file("emails.json", options)
-        .map_err(|e| format!("Failed to add emails.json: {e}"))?;
-    zip_writer
-        .write_all(emails_json.as_bytes())
-        .map_err(|e| format!("Failed to write emails: {e}"))?;
+        .start_file("emails.ndjson", options)
+        .map_err(|e| format!("Failed to add emails.ndjson: {e}"))?;
+    let mut emails_count = 0usize;
+    {
+        let mut stream = sqlx::query_as::<_, EmailRow>(
+            r#"
+            SELECT id, message_id, body_plain, body_html, analysis_status,
+                   created_at, updated_at, internal_date, from_address, subject FROM emails
+            "#,
+        )
+        .fetch(pool);
+        while let Some(row) = stream.next().await {
+            let row = row.map_err(|e| format!("Failed to fetch emails: {e}"))?;
+            let line = serde_json::to_string(&row)
+                .map_err(|e| format!("Failed to serialize email: {e}"))?;
+            if line.len() > MAX_NDJSON_LINE_SIZE {
+                return Err(format!(
+                    "Email row exceeds line size limit (max {} bytes)",
+                    MAX_NDJSON_LINE_SIZE
+                ));
+            }
+            zip_writer
+                .write_all(line.as_bytes())
+                .map_err(|e| format!("Failed to write email: {e}"))?;
+            zip_writer
+                .write_all(b"\n")
+                .map_err(|e| format!("Failed to write newline: {e}"))?;
+            emails_count += 1;
+        }
+    }
 
     let mut image_files_count = 0usize;
     let mut images_skipped = 0usize;
@@ -265,7 +287,7 @@ where
         images_count: images_rows.len(),
         shop_settings_count: shop_settings_rows.len(),
         product_master_count: product_master_rows.len(),
-        emails_count: emails_rows.len(),
+        emails_count,
         image_files_count,
         images_skipped,
     })
@@ -325,13 +347,6 @@ where
     let product_master_json = read_zip_entry(&mut zip_archive, "product_master.json")?;
     let product_master_rows: Vec<JsonProductMasterRow> = serde_json::from_str(&product_master_json)
         .map_err(|e| format!("Failed to parse product_master.json: {e}"))?;
-
-    // emails.json（オプション: 旧バックアップには含まれない）
-    let emails_rows: Vec<JsonEmailRow> = match read_zip_entry_optional(&mut zip_archive, "emails.json")? {
-        None => Vec::new(),
-        Some(emails_json) => serde_json::from_str(&emails_json)
-            .map_err(|e| format!("Failed to parse emails.json: {e}"))?,
-    };
 
     // images.json に登場する安全な file_name のみをコピー対象とする（DoS 対策）
     let allowed_image_files: HashSet<String> = images_rows
@@ -417,27 +432,88 @@ where
     }
 
     let mut emails_inserted = 0usize;
-    for row in &emails_rows {
-        let result = sqlx::query(
-            r#"
-            INSERT OR IGNORE INTO emails (message_id, body_plain, body_html, analysis_status, created_at, updated_at, internal_date, from_address, subject)
-            VALUES (?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP), ?, ?, ?)
-            "#,
-        )
-        .bind(&row.1)
-        .bind(&row.2)
-        .bind(&row.3)
-        .bind(&row.4)
-        .bind(&row.5)
-        .bind(&row.6)
-        .bind(row.7)
-        .bind(&row.8)
-        .bind(&row.9)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| format!("Failed to insert email: {e}"))?;
-        if result.rows_affected() > 0 {
-            emails_inserted += 1;
+    if zip_archive.file_names().any(|n| n == "emails.ndjson") {
+        // 新形式: NDJSON（行を収集してから await、Send を満たす）
+        let lines: Vec<String> = {
+            let mut entry = zip_archive
+                .by_name("emails.ndjson")
+                .map_err(|e| format!("Failed to access emails.ndjson: {e}"))?;
+            BufReader::new(&mut entry)
+                .lines()
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| format!("Failed to read emails.ndjson: {e}"))?
+        };
+        for line in lines {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if line.len() > MAX_NDJSON_LINE_SIZE {
+                return Err(format!(
+                    "emails.ndjson line exceeds size limit (max {} bytes)",
+                    MAX_NDJSON_LINE_SIZE
+                ));
+            }
+            let row: JsonEmailRow = serde_json::from_str(line)
+                .map_err(|e| format!("Failed to parse emails.ndjson line: {e}"))?;
+            let result = sqlx::query(
+                r#"
+                INSERT OR IGNORE INTO emails (message_id, body_plain, body_html, analysis_status, created_at, updated_at, internal_date, from_address, subject)
+                VALUES (?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP), ?, ?, ?)
+                "#,
+            )
+            .bind(&row.1)
+            .bind(&row.2)
+            .bind(&row.3)
+            .bind(&row.4)
+            .bind(&row.5)
+            .bind(&row.6)
+            .bind(row.7)
+            .bind(&row.8)
+            .bind(&row.9)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| format!("Failed to insert email: {e}"))?;
+            if result.rows_affected() > 0 {
+                emails_inserted += 1;
+            }
+        }
+    } else if zip_archive.file_names().any(|n| n == "emails.json") {
+        // 旧形式: emails.json（レガシーバックアップ互換、ストリーミングで String に載せない）
+        let emails_rows: Vec<JsonEmailRow> = {
+            let mut entry = zip_archive
+                .by_name("emails.json")
+                .map_err(|e| format!("Failed to access emails.json: {e}"))?;
+            if entry.size() > MAX_EMAILS_JSON_ENTRY_SIZE {
+                return Err(format!(
+                    "emails.json exceeds size limit (max {} bytes)",
+                    MAX_EMAILS_JSON_ENTRY_SIZE
+                ));
+            }
+            stream_deserialize_json_array(BufReader::new(&mut entry))?
+        };
+        for row in &emails_rows {
+            let result = sqlx::query(
+                r#"
+                INSERT OR IGNORE INTO emails (message_id, body_plain, body_html, analysis_status, created_at, updated_at, internal_date, from_address, subject)
+                VALUES (?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP), ?, ?, ?)
+                "#,
+            )
+            .bind(&row.1)
+            .bind(&row.2)
+            .bind(&row.3)
+            .bind(&row.4)
+            .bind(&row.5)
+            .bind(&row.6)
+            .bind(row.7)
+            .bind(&row.8)
+            .bind(&row.9)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| format!("Failed to insert email: {e}"))?;
+            if result.rows_affected() > 0 {
+                emails_inserted += 1;
+            }
         }
     }
 
@@ -502,6 +578,69 @@ where
     })
 }
 
+/// JSON 配列を Reader から要素ごとにストリーミングデシリアライズする。
+/// 全体を String に読み込まず、メモリ使用量を抑える。
+fn stream_deserialize_json_array<T: DeserializeOwned, R: Read>(
+    mut reader: R,
+) -> Result<Vec<T>, String> {
+    fn read_skipping_ws(mut reader: impl Read) -> io::Result<u8> {
+        loop {
+            let mut byte = 0u8;
+            reader.read_exact(std::slice::from_mut(&mut byte))?;
+            if !byte.is_ascii_whitespace() {
+                return Ok(byte);
+            }
+        }
+    }
+    fn invalid_data(msg: &str) -> io::Error {
+        io::Error::new(io::ErrorKind::InvalidData, msg)
+    }
+    fn deserialize_single<T: DeserializeOwned, R: Read>(reader: R) -> io::Result<T> {
+        let next_obj = serde_json::Deserializer::from_reader(reader)
+            .into_iter::<T>()
+            .next();
+        match next_obj {
+            Some(result) => result.map_err(Into::into),
+            None => Err(invalid_data("premature EOF")),
+        }
+    }
+    fn yield_next_obj<T: DeserializeOwned, R: Read>(
+        mut reader: R,
+        at_start: &mut bool,
+    ) -> io::Result<Option<T>> {
+        if !*at_start {
+            *at_start = true;
+            if read_skipping_ws(&mut reader)? == b'[' {
+                let peek = read_skipping_ws(&mut reader)?;
+                if peek == b']' {
+                    Ok(None)
+                } else {
+                    let obj = deserialize_single(io::Cursor::new([peek]).chain(reader))?;
+                    Ok(Some(obj))
+                }
+            } else {
+                Err(invalid_data("`[` not found"))
+            }
+        } else {
+            match read_skipping_ws(&mut reader)? {
+                b',' => deserialize_single(reader).map(Some),
+                b']' => Ok(None),
+                _ => Err(invalid_data("`,` or `]` not found")),
+            }
+        }
+    }
+    let mut at_start = false;
+    let mut out = Vec::new();
+    loop {
+        match yield_next_obj(&mut reader, &mut at_start) {
+            Ok(Some(obj)) => out.push(obj),
+            Ok(None) => break,
+            Err(e) => return Err(format!("Failed to parse emails.json: {e}")),
+        }
+    }
+    Ok(out)
+}
+
 fn read_zip_entry<R: Read + Seek>(
     archive: &mut ZipArchive<R>,
     name: &str,
@@ -523,19 +662,29 @@ fn read_zip_entry<R: Read + Seek>(
 }
 
 /// オプションの ZIP エントリを読み込む。FileNotFound の場合は None、それ以外のエラーは Err。
+#[allow(dead_code)]
 fn read_zip_entry_optional<R: Read + Seek>(
     archive: &mut ZipArchive<R>,
     name: &str,
+) -> Result<Option<String>, String> {
+    read_zip_entry_optional_with_limit(archive, name, MAX_JSON_ENTRY_SIZE)
+}
+
+/// オプションの ZIP エントリを読み込む（カスタムサイズ上限付き）。
+fn read_zip_entry_optional_with_limit<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    name: &str,
+    max_size: u64,
 ) -> Result<Option<String>, String> {
     let mut entry = match archive.by_name(name) {
         Ok(e) => e,
         Err(zip::result::ZipError::FileNotFound) => return Ok(None),
         Err(e) => return Err(format!("Failed to access {name} in archive: {e}")),
     };
-    if entry.size() > MAX_JSON_ENTRY_SIZE {
+    if entry.size() > max_size {
         return Err(format!(
             "{} exceeds size limit (max {} bytes)",
-            name, MAX_JSON_ENTRY_SIZE
+            name, max_size
         ));
     }
     let mut s = String::new();
@@ -851,8 +1000,8 @@ mod tests {
             names
         );
         assert!(
-            names.contains(&"emails.json".to_string()),
-            "emails.json should exist, got: {:?}",
+            names.contains(&"emails.ndjson".to_string()),
+            "emails.ndjson should exist, got: {:?}",
             names
         );
     }

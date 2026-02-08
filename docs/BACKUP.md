@@ -42,7 +42,7 @@ paa_export_YYYYMMDD_HHmmss.zip
 ├── images.json         # images テーブル
 ├── shop_settings.json  # shop_settings テーブル
 ├── product_master.json # product_master テーブル
-├── emails.json         # emails テーブル
+├── emails.ndjson       # emails テーブル（NDJSON形式、旧形式は emails.json も読み込み可）
 └── images/             # 画像ファイル
     ├── xxx.jpg
     └── yyy.png
