@@ -117,7 +117,8 @@
 /// 組み換えメールに含まれる商品を元注文から削除する。
 /// 新注文の各商品について、同じショップの過去注文（発送済みでない）から
 /// 商品名でマッチする item を検索し、削除または quantity 減算する。
-/// 残り商品が 0 になった order は削除する。
+/// 残り商品が 0 になっても orders / order_emails は保持し、
+/// 関連する deliveries のみ削除する（再パース時に元メールを再度組み換え対象としないため）。
 async fn apply_change_items(
     &self,
     order_info: &OrderInfo,
@@ -141,10 +142,11 @@ WHERE o.shop_domain = ?
 - apply_cancel と同様: `strip_bracketed_content`, `item_name` / `item_name_normalized` による比較
 - 新注文の商品が元注文の「どの item に対応するか」を 1:1 で特定
 
-### 5.4 空注文の削除
+### 5.4 空注文の扱い
 
-- 商品削除後に `SELECT COUNT(*) FROM items WHERE order_id = ?` が 0 の場合、`DELETE FROM orders WHERE id = ?`
-- order_emails, deliveries は CASCADE または明示削除
+- 商品削除後に `SELECT COUNT(*) FROM items WHERE order_id = ?` が 0 の場合でも、`orders` / `order_emails` は**物理削除しない**
+- 理由: 同一メールを再パースした際に、元注文が存在しないことで不整合が発生するのを防ぐ（再パース防止）。`internal_date` 昇順パース＋`order_emails` 紐付けロジックと整合性を保つ
+- 空注文となった注文に紐づく `deliveries` のみクリーンアップする
 
 ## 6. 実装上の注意点（issue 27 より）
 
