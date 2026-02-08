@@ -4,12 +4,11 @@
 //! ZIP 形式でバックアップ・復元する。
 
 use futures::StreamExt;
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqlitePool;
 use std::collections::HashSet;
 use std::fs::{self, File};
-use std::io::{self, BufRead, BufReader, Read, Seek, Write};
+use std::io::{BufReader, Read, Seek, Write};
 use std::path::Path;
 use tauri::{AppHandle, Manager};
 use zip::write::FileOptions;
@@ -28,6 +27,9 @@ const MAX_NDJSON_LINE_SIZE: usize = 2 * 1024 * 1024; // 2MB
 
 /// レガシー emails.json の最大サイズ。本文を含むため 10MB を超えやすいので緩和。
 const MAX_EMAILS_JSON_ENTRY_SIZE: u64 = 50 * 1024 * 1024; // 50MB
+
+/// emails.ndjson 全体の最大サイズ。OOM 対策。
+const MAX_EMAILS_NDJSON_ENTRY_SIZE: u64 = 100 * 1024 * 1024; // 100MB
 
 /// file_name が安全な単一ファイル名か検証（パストラバーサル対策）
 fn is_safe_file_name(file_name: &str) -> bool {
@@ -433,17 +435,24 @@ where
 
     let mut emails_inserted = 0usize;
     if zip_archive.file_names().any(|n| n == "emails.ndjson") {
-        // 新形式: NDJSON（行を収集してから await、Send を満たす）
-        let lines: Vec<String> = {
+        // 新形式: NDJSON（サイズ制限付きで一括読み込み後、行単位で処理。OOM・長大行対策）
+        let content = {
             let mut entry = zip_archive
                 .by_name("emails.ndjson")
                 .map_err(|e| format!("Failed to access emails.ndjson: {e}"))?;
-            BufReader::new(&mut entry)
-                .lines()
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|e| format!("Failed to read emails.ndjson: {e}"))?
+            if entry.size() > MAX_EMAILS_NDJSON_ENTRY_SIZE {
+                return Err(format!(
+                    "emails.ndjson exceeds size limit (max {} bytes)",
+                    MAX_EMAILS_NDJSON_ENTRY_SIZE
+                ));
+            }
+            let mut s = String::new();
+            entry
+                .read_to_string(&mut s)
+                .map_err(|e| format!("Failed to read emails.ndjson: {e}"))?;
+            s
         };
-        for line in lines {
+        for line in content.lines() {
             let line = line.trim();
             if line.is_empty() {
                 continue;
@@ -479,7 +488,8 @@ where
             }
         }
     } else if zip_archive.file_names().any(|n| n == "emails.json") {
-        // 旧形式: emails.json（レガシーバックアップ互換、ストリーミングで String に載せない）
+        // 旧形式: emails.json（レガシーバックアップ互換）
+        // 1つの Deserializer で全体を読み取り、バッファ先読みとの不整合を防ぐ
         let emails_rows: Vec<JsonEmailRow> = {
             let mut entry = zip_archive
                 .by_name("emails.json")
@@ -490,7 +500,8 @@ where
                     MAX_EMAILS_JSON_ENTRY_SIZE
                 ));
             }
-            stream_deserialize_json_array(BufReader::new(&mut entry))?
+            serde_json::from_reader(BufReader::new(&mut entry))
+                .map_err(|e| format!("Failed to parse emails.json: {e}"))?
         };
         for row in &emails_rows {
             let result = sqlx::query(
@@ -576,69 +587,6 @@ where
         emails_inserted,
         image_files_copied,
     })
-}
-
-/// JSON 配列を Reader から要素ごとにストリーミングデシリアライズする。
-/// 全体を String に読み込まず、メモリ使用量を抑える。
-fn stream_deserialize_json_array<T: DeserializeOwned, R: Read>(
-    mut reader: R,
-) -> Result<Vec<T>, String> {
-    fn read_skipping_ws(mut reader: impl Read) -> io::Result<u8> {
-        loop {
-            let mut byte = 0u8;
-            reader.read_exact(std::slice::from_mut(&mut byte))?;
-            if !byte.is_ascii_whitespace() {
-                return Ok(byte);
-            }
-        }
-    }
-    fn invalid_data(msg: &str) -> io::Error {
-        io::Error::new(io::ErrorKind::InvalidData, msg)
-    }
-    fn deserialize_single<T: DeserializeOwned, R: Read>(reader: R) -> io::Result<T> {
-        let next_obj = serde_json::Deserializer::from_reader(reader)
-            .into_iter::<T>()
-            .next();
-        match next_obj {
-            Some(result) => result.map_err(Into::into),
-            None => Err(invalid_data("premature EOF")),
-        }
-    }
-    fn yield_next_obj<T: DeserializeOwned, R: Read>(
-        mut reader: R,
-        at_start: &mut bool,
-    ) -> io::Result<Option<T>> {
-        if !*at_start {
-            *at_start = true;
-            if read_skipping_ws(&mut reader)? == b'[' {
-                let peek = read_skipping_ws(&mut reader)?;
-                if peek == b']' {
-                    Ok(None)
-                } else {
-                    let obj = deserialize_single(io::Cursor::new([peek]).chain(reader))?;
-                    Ok(Some(obj))
-                }
-            } else {
-                Err(invalid_data("`[` not found"))
-            }
-        } else {
-            match read_skipping_ws(&mut reader)? {
-                b',' => deserialize_single(reader).map(Some),
-                b']' => Ok(None),
-                _ => Err(invalid_data("`,` or `]` not found")),
-            }
-        }
-    }
-    let mut at_start = false;
-    let mut out = Vec::new();
-    loop {
-        match yield_next_obj(&mut reader, &mut at_start) {
-            Ok(Some(obj)) => out.push(obj),
-            Ok(None) => break,
-            Err(e) => return Err(format!("Failed to parse emails.json: {e}")),
-        }
-    }
-    Ok(out)
 }
 
 fn read_zip_entry<R: Read + Seek>(
