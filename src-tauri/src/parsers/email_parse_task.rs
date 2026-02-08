@@ -445,6 +445,10 @@ where
                     .and_then(|email| extract_domain(&email).map(|s| s.to_string()));
 
                 // 組み換えメールの場合、同一トランザクションで元注文削除＋新注文登録（データ欠損を防ぐ）
+                // internal_date が無効値の場合、cutoff に使わず None を渡す
+                let change_email_internal_date = input
+                    .internal_date
+                    .and_then(|ts| DateTime::from_timestamp_millis(ts).map(|_| ts));
                 let save_result = if parser_type == "hobbysearch_change"
                     || parser_type == "hobbysearch_change_yoyaku"
                 {
@@ -455,7 +459,7 @@ where
                             Some(input.email_id),
                             shop_domain.clone(),
                             Some(shop_name.clone()),
-                            input.internal_date,
+                            change_email_internal_date,
                         )
                         .await
                 } else {
