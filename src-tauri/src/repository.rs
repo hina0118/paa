@@ -633,13 +633,15 @@ impl SqliteOrderRepository {
                         .map(|v| v.as_slice())
                         .unwrap_or(&[]);
 
-                    let found = items.iter().find(|(_, item_name, item_name_normalized, _)| {
-                        item_names_match(
-                            product_name,
-                            item_name,
-                            item_name_normalized.as_deref(),
-                        )
-                    });
+                    let found = items
+                        .iter()
+                        .find(|(_, item_name, item_name_normalized, _)| {
+                            item_names_match(
+                                product_name,
+                                item_name,
+                                item_name_normalized.as_deref(),
+                            )
+                        });
 
                     if let Some((item_id, _, _, current_qty)) = found {
                         matched_any = true;
@@ -1042,11 +1044,7 @@ impl OrderRepository for SqliteOrderRepository {
         let matched = items
             .iter()
             .find(|(_, item_name, item_name_normalized, _)| {
-                item_names_match(
-                    product_name,
-                    item_name,
-                    item_name_normalized.as_deref(),
-                )
+                item_names_match(product_name, item_name, item_name_normalized.as_deref())
             });
 
         match matched {
@@ -3093,7 +3091,10 @@ mod tests {
             .fetch_one(&pool)
             .await
             .expect("check order");
-        assert_eq!(order_exists.0, 1, "empty order is retained (deliveries cleaned only)");
+        assert_eq!(
+            order_exists.0, 1,
+            "empty order is retained (deliveries cleaned only)"
+        );
     }
 
     #[tokio::test]
@@ -3500,11 +3501,7 @@ mod tests {
         };
 
         let result = repo
-            .apply_change_items(
-                &order_info,
-                Some("1999.co.jp".to_string()),
-                Some(cutoff_ts),
-            )
+            .apply_change_items(&order_info, Some("1999.co.jp".to_string()), Some(cutoff_ts))
             .await;
         assert!(result.is_ok());
 
@@ -3514,7 +3511,10 @@ mod tests {
             .fetch_one(&pool)
             .await
             .expect("count order 1 items");
-        assert_eq!(order1_items.0, 0, "order 1 (before cutoff) items should be removed");
+        assert_eq!(
+            order1_items.0, 0,
+            "order 1 (before cutoff) items should be removed"
+        );
         let order1_exists: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM orders WHERE id = ?")
             .bind(order1_id.0)
             .fetch_one(&pool)
@@ -3528,7 +3528,10 @@ mod tests {
             .fetch_one(&pool)
             .await
             .expect("count order 2 items");
-        assert_eq!(order2_items.0, 1, "order 2 (after cutoff) should keep its item");
+        assert_eq!(
+            order2_items.0, 1,
+            "order 2 (after cutoff) should keep its item"
+        );
 
         // 注文3: order_date NULL だが created_at < cutoff なので対象 → 商品削除、注文は保持
         let order3_items: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items WHERE order_id = ?")
@@ -3610,11 +3613,12 @@ mod tests {
         let new_order_id = result.unwrap();
 
         // 元注文から商品が削除され、注文は保持されること（deliveries クリーンアップのみ）
-        let old_order_items: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items WHERE order_id = ?")
-            .bind(old_order_id.0)
-            .fetch_one(&pool)
-            .await
-            .expect("count old order items");
+        let old_order_items: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM items WHERE order_id = ?")
+                .bind(old_order_id.0)
+                .fetch_one(&pool)
+                .await
+                .expect("count old order items");
         assert_eq!(old_order_items.0, 0, "old order items should be removed");
         let old_order_exists: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM orders WHERE id = ?")
             .bind(old_order_id.0)
@@ -3640,7 +3644,10 @@ mod tests {
                 .fetch_one(&pool)
                 .await
                 .expect("count order_emails");
-        assert_eq!(link_count.0, 1, "order_emails should link new order to email");
+        assert_eq!(
+            link_count.0, 1,
+            "order_emails should link new order to email"
+        );
     }
 
     #[tokio::test]
@@ -3702,6 +3709,9 @@ mod tests {
             .fetch_one(&pool)
             .await
             .expect("count items");
-        assert_eq!(item_count.0, 1, "old order items should remain after rollback");
+        assert_eq!(
+            item_count.0, 1,
+            "old order items should remain after rollback"
+        );
     }
 }
