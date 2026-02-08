@@ -160,16 +160,16 @@ WHERE o.shop_domain = ?
 
 ## 7. 実装順序
 
-1. **Phase 1**: apply_change_items 実装（repository.rs）
+1. **Phase 1**: apply_change_items_and_save_order 実装（repository.rs、同一トランザクションで注文保存まで実行）
 2. **Phase 2**: バッチパース・email_parse_task での呼び出し
 3. **Phase 3**: マッチング精度の調整（必要に応じて）
 4. **Phase 4**: テスト追加・検証
 
 ## 8. 実装状況（2026-02-08）
 
-- [x] Phase 1: `apply_change_items` 実装（repository.rs）
-- [x] Phase 2: `email_parse_task.rs` で apply_change_items 呼び出し
-- [x] Phase 2: `parsers/mod.rs`（batch_parse_emails）で apply_change_items 呼び出し
+- [x] Phase 1: `apply_change_items_and_save_order` 実装（repository.rs）
+- [x] Phase 2: `email_parse_task.rs` で apply_change_items_and_save_order 呼び出し
+- [x] Phase 2: `parsers/mod.rs`（batch_parse_emails）で apply_change_items_and_save_order 呼び出し
 - [x] Phase 4: 統合テスト 5 件追加（repository.rs）
 
 ## 9. 見積もり
