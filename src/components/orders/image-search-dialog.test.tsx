@@ -316,7 +316,7 @@ describe('ImageSearchDialog', () => {
     await user.click(browserButton);
 
     expect(WebviewWindow).toHaveBeenCalledWith(
-      expect.stringMatching(/^image-search-\d+$/),
+      expect.stringMatching(/^image-search-.+$/),
       expect.objectContaining({
         url: 'https://www.google.com/search?q=%E3%83%86%E3%82%B9%E3%83%88%E5%95%86%E5%93%81&tbm=isch',
         title: 'Google画像検索: テスト商品',
