@@ -423,7 +423,7 @@ pub async fn batch_parse_emails(
             }
 
             // 複数のパーサーを順番に試す（最初に成功したものを使用）
-            let mut parse_result: Option<Result<(OrderInfo, String), String>> = None;
+            let mut parse_result: Option<Result<(OrderInfo, String, String), String>> = None; // (order_info, shop_name, parser_type)
             let mut last_error = String::new();
             // キャンセルメールとして処理した（成功・失敗いずれも）。通常の OrderInfo フローをスキップする。
             let mut handled_as_cancel = false;
@@ -525,7 +525,7 @@ pub async fn batch_parse_emails(
                             }
                         }
 
-                        parse_result = Some(Ok((order_info, shop_name.clone())));
+                        parse_result = Some(Ok((order_info, shop_name.clone(), parser_type.clone())));
                         break;
                     }
                     Err(e) => {
@@ -553,11 +553,29 @@ pub async fn batch_parse_emails(
             };
 
             match parse_result {
-                Ok((order_info, shop_name)) => {
+                Ok((order_info, shop_name, parser_type)) => {
                     // ドメインを抽出（extract_email_address で <> 形式に対応、extract_domain でドメイン部分のみ取得）
                     let from_address = row.from_address.as_deref().unwrap_or("");
                     let shop_domain = extract_email_address(from_address)
                         .and_then(|email| extract_domain(&email).map(|s| s.to_string()));
+
+                    // 組み換えメールの場合、元注文の商品を削除してから新注文を登録
+                    if parser_type == "hobbysearch_change" || parser_type == "hobbysearch_change_yoyaku" {
+                        if let Err(e) = order_repo
+                            .apply_change_items(
+                                &order_info,
+                                shop_domain.clone(),
+                                row.internal_date,
+                            )
+                            .await
+                        {
+                            log::warn!(
+                                "apply_change_items failed for email {} (will still save new order): {}",
+                                row.email_id,
+                                e
+                            );
+                        }
+                    }
 
                     // 同一バッチ内でキャンセルが先に来た場合に apply_cancel で注文を参照できるよう、
                     // confirm/change は即時 save_order する（フェーズ2に遅延すると注文が未コミットで見つからない）
