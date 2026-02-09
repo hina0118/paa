@@ -1,4 +1,5 @@
 import type { OrderItemRow } from '@/lib/types';
+import { escapeFts5Query, escapeLikePrefix } from './search-utils';
 
 type LoadParams = {
   search?: string;
@@ -28,11 +29,31 @@ export async function loadOrderItems(
   const args: unknown[] = [];
 
   if (search.trim()) {
-    conditions.push(
-      '(i.item_name LIKE ? OR i.brand LIKE ? OR o.order_number LIKE ? OR o.shop_domain LIKE ? OR o.shop_name LIKE ?)'
-    );
-    const pattern = `%${search.trim()}%`;
-    args.push(pattern, pattern, pattern, pattern, pattern);
+    const trimmed = search.trim();
+    const ftsQuery = escapeFts5Query(trimmed);
+    const likePrefix = escapeLikePrefix(trimmed) + '%';
+
+    if (ftsQuery) {
+      conditions.push(
+        `(
+          i.id IN (SELECT rowid FROM items_fts WHERE items_fts MATCH ?)
+          OR o.order_number LIKE ? ESCAPE '\\'
+          OR o.shop_domain LIKE ? ESCAPE '\\'
+          OR o.shop_name LIKE ? ESCAPE '\\'
+        )`
+      );
+      args.push(ftsQuery, likePrefix, likePrefix, likePrefix);
+    } else {
+      // トークンが空（不正な入力など）の場合は orders の前方一致のみ
+      conditions.push(
+        `(
+          o.order_number LIKE ? ESCAPE '\\'
+          OR o.shop_domain LIKE ? ESCAPE '\\'
+          OR o.shop_name LIKE ? ESCAPE '\\'
+        )`
+      );
+      args.push(likePrefix, likePrefix, likePrefix);
+    }
   }
   if (shopDomain) {
     conditions.push('o.shop_domain = ?');
