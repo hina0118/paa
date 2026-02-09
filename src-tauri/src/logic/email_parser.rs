@@ -22,6 +22,7 @@ pub fn is_valid_parser_type(parser_type: &str) -> bool {
             | "hobbysearch_change_yoyaku"
             | "hobbysearch_send"
             | "hobbysearch_cancel"
+            | "dmm_confirm"
     )
 }
 
@@ -168,6 +169,11 @@ mod tests {
     #[test]
     fn test_is_valid_parser_type_unknown() {
         assert!(!is_valid_parser_type("unknown_parser"));
+    }
+
+    #[test]
+    fn test_is_valid_parser_type_dmm_confirm() {
+        assert!(is_valid_parser_type("dmm_confirm"));
     }
 
     #[test]

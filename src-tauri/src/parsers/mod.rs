@@ -20,10 +20,24 @@ pub struct EmailRow {
     #[sqlx(rename = "id")]
     pub email_id: i64,
     pub message_id: String,
-    pub body_plain: String,
+    pub body_plain: Option<String>,
+    pub body_html: Option<String>,
     pub from_address: Option<String>,
     pub subject: Option<String>,
     pub internal_date: Option<i64>,
+}
+
+/// body_html があれば使用、なければ body_plain を返す（タグ除去は行わない）。
+/// DMM 等は HTML から直接パースするため、HTML 優先で精度が上がる。
+pub fn get_body_for_parse(row: &EmailRow) -> String {
+    let html = row.body_html.as_deref().unwrap_or("").trim();
+    if !html.is_empty() {
+        return html.to_string();
+    }
+    row.body_plain
+        .as_deref()
+        .unwrap_or("")
+        .to_string()
 }
 
 // ホビーサーチ用の共通パースユーティリティ関数
@@ -36,6 +50,7 @@ pub mod hobbysearch_change_yoyaku;
 pub mod hobbysearch_confirm;
 pub mod hobbysearch_confirm_yoyaku;
 pub mod hobbysearch_send;
+pub mod dmm_confirm;
 
 // BatchTask 実装
 pub mod email_parse_task;
@@ -260,6 +275,7 @@ pub fn get_parser(parser_type: &str) -> Option<Box<dyn EmailParser>> {
             hobbysearch_change_yoyaku::HobbySearchChangeYoyakuParser,
         )),
         "hobbysearch_send" => Some(Box::new(hobbysearch_send::HobbySearchSendParser)),
+        "dmm_confirm" => Some(Box::new(dmm_confirm::DmmConfirmParser)),
         _ => None,
     }
 }
@@ -432,7 +448,8 @@ pub async fn batch_parse_emails(
                 // キャンセルメールは専用パーサーで処理（OrderInfo を返さない）
                 if parser_type == "hobbysearch_cancel" {
                     let cancel_parser = hobbysearch_cancel::HobbySearchCancelParser;
-                    match cancel_parser.parse_cancel(&row.body_plain) {
+                    let body = get_body_for_parse(row);
+                    match cancel_parser.parse_cancel(&body) {
                         Ok(cancel_info) => {
                             log::debug!(
                                 "[DEBUG] cancel email_id={} internal_date={:?} order_number={} subject={:?}",
@@ -492,11 +509,12 @@ pub async fn batch_parse_emails(
                     }
                 };
 
-                match parser.parse(&row.body_plain) {
+                let body = get_body_for_parse(row);
+                match parser.parse(&body) {
                     Ok(mut order_info) => {
                         log::debug!("Successfully parsed with parser: {}", parser_type);
 
-                        // confirm, confirm_yoyaku, change の場合はメール受信日を order_date に使用
+                        // confirm, confirm_yoyaku, change, dmm_confirm の場合はメール受信日を order_date に使用
                         if order_info.order_date.is_none()
                             && row.internal_date.is_some()
                             && matches!(
@@ -505,6 +523,7 @@ pub async fn batch_parse_emails(
                                     | "hobbysearch_confirm_yoyaku"
                                     | "hobbysearch_change"
                                     | "hobbysearch_change_yoyaku"
+                                    | "dmm_confirm"
                             )
                         {
                             if let Some(ts_ms) = row.internal_date {
@@ -761,6 +780,68 @@ mod tests {
         assert!(!*state.is_running.lock().unwrap());
     }
 
+    // ==================== get_body_for_parse Tests ====================
+
+    #[test]
+    fn test_get_body_for_parse_prefers_html() {
+        let row = EmailRow {
+            email_id: 1,
+            message_id: "m1".to_string(),
+            body_plain: Some("plain text".to_string()),
+            body_html: Some("<p>html</p>".to_string()),
+            from_address: None,
+            subject: None,
+            internal_date: None,
+        };
+        assert_eq!(get_body_for_parse(&row), "<p>html</p>");
+    }
+
+    #[test]
+    fn test_get_body_for_parse_fallback_to_plain() {
+        let row = EmailRow {
+            email_id: 1,
+            message_id: "m1".to_string(),
+            body_plain: Some("plain text".to_string()),
+            body_html: None,
+            from_address: None,
+            subject: None,
+            internal_date: None,
+        };
+        assert_eq!(get_body_for_parse(&row), "plain text");
+    }
+
+    #[test]
+    fn test_get_body_for_parse_html_only() {
+        let row = EmailRow {
+            email_id: 1,
+            message_id: "m1".to_string(),
+            body_plain: None,
+            body_html: Some("<p>注文番号:12345</p>".to_string()),
+            from_address: None,
+            subject: None,
+            internal_date: None,
+        };
+        let body = get_body_for_parse(&row);
+        assert!(body.contains("注文番号:12345"));
+        assert!(body.contains("<p>")); // HTML は生のまま返す（DMM 等が HTML からパースするため）
+    }
+
+    #[test]
+    fn test_get_body_for_parse_empty_plain_uses_html() {
+        let row = EmailRow {
+            email_id: 1,
+            message_id: "m1".to_string(),
+            body_plain: Some("".to_string()),
+            body_html: Some("<div>内容</div>".to_string()),
+            from_address: None,
+            subject: None,
+            internal_date: None,
+        };
+        let body = get_body_for_parse(&row);
+        assert!(body.contains("内容"));
+        assert!(body.contains("<div>")); // HTML は生のまま返す
+    }
+
     // ==================== get_parser Tests ====================
 
     #[test]
@@ -790,6 +871,12 @@ mod tests {
     #[test]
     fn test_get_parser_hobbysearch_send() {
         let parser = get_parser("hobbysearch_send");
+        assert!(parser.is_some());
+    }
+
+    #[test]
+    fn test_get_parser_dmm_confirm() {
+        let parser = get_parser("dmm_confirm");
         assert!(parser.is_some());
     }
 

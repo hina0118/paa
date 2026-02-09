@@ -46,10 +46,11 @@ pub struct EmailParseInput {
 
 impl From<EmailRow> for EmailParseInput {
     fn from(row: EmailRow) -> Self {
+        let body = crate::parsers::get_body_for_parse(&row);
         Self {
             email_id: row.email_id,
             message_id: row.message_id,
-            body_plain: row.body_plain,
+            body_plain: body,
             from_address: row.from_address,
             subject: row.subject,
             internal_date: row.internal_date,
@@ -650,7 +651,8 @@ mod tests {
         let row = EmailRow {
             email_id: 123,
             message_id: "msg-001".to_string(),
-            body_plain: "Hello".to_string(),
+            body_plain: Some("Hello".to_string()),
+            body_html: None,
             from_address: Some("test@example.com".to_string()),
             subject: Some("Test Subject".to_string()),
             internal_date: Some(1700000000000),
