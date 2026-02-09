@@ -1,6 +1,7 @@
 use crate::batch_runner::BatchProgressEvent;
 use crate::logic::email_parser::extract_domain;
 use crate::logic::sync_logic::extract_email_address;
+use crate::parsers::cancel_info::CancelInfo;
 use crate::repository::{
     OrderRepository, ParseRepository, ShopSettingsRepository, SqliteOrderRepository,
     SqliteParseRepository, SqliteShopSettingsRepository,
@@ -40,6 +41,9 @@ pub fn get_body_for_parse(row: &EmailRow) -> String {
         .to_string()
 }
 
+// キャンセル情報（全店舗共通）
+pub mod cancel_info;
+
 // ホビーサーチ用の共通パースユーティリティ関数
 mod hobbysearch_common;
 
@@ -51,6 +55,7 @@ pub mod hobbysearch_confirm;
 pub mod hobbysearch_confirm_yoyaku;
 pub mod hobbysearch_send;
 pub mod dmm_confirm;
+pub mod dmm_cancel;
 
 // BatchTask 実装
 pub mod email_parse_task;
@@ -263,6 +268,20 @@ pub fn get_candidate_parsers_for_batch(
         .collect()
 }
 
+/// パーサータイプがキャンセル専用かどうか
+pub(crate) fn is_cancel_parser(parser_type: &str) -> bool {
+    matches!(parser_type, "hobbysearch_cancel" | "dmm_cancel")
+}
+
+/// キャンセルパーサーから CancelInfo を抽出（失敗時は Err）
+pub(crate) fn parse_cancel_with_parser(parser_type: &str, body: &str) -> Result<CancelInfo, String> {
+    match parser_type {
+        "hobbysearch_cancel" => hobbysearch_cancel::HobbySearchCancelParser.parse_cancel(body),
+        "dmm_cancel" => dmm_cancel::DmmCancelParser.parse_cancel(body),
+        _ => Err(format!("Unknown cancel parser: {}", parser_type)),
+    }
+}
+
 /// パーサータイプから適切なパーサーを取得する
 pub fn get_parser(parser_type: &str) -> Option<Box<dyn EmailParser>> {
     match parser_type {
@@ -446,10 +465,9 @@ pub async fn batch_parse_emails(
 
             for (parser_type, shop_name) in &candidate_parsers {
                 // キャンセルメールは専用パーサーで処理（OrderInfo を返さない）
-                if parser_type == "hobbysearch_cancel" {
-                    let cancel_parser = hobbysearch_cancel::HobbySearchCancelParser;
+                if is_cancel_parser(parser_type) {
                     let body = get_body_for_parse(row);
-                    match cancel_parser.parse_cancel(&body) {
+                    match parse_cancel_with_parser(parser_type, &body) {
                         Ok(cancel_info) => {
                             log::debug!(
                                 "[DEBUG] cancel email_id={} internal_date={:?} order_number={} subject={:?}",
@@ -494,7 +512,7 @@ pub async fn batch_parse_emails(
                             break;
                         }
                         Err(e) => {
-                            log::debug!("hobbysearch_cancel parser failed: {}", e);
+                            log::debug!("{} parser failed: {}", parser_type, e);
                             last_error = e;
                             continue;
                         }

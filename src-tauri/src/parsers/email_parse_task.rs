@@ -19,7 +19,7 @@
 use crate::batch_runner::BatchTask;
 use crate::logic::email_parser::extract_domain;
 use crate::logic::sync_logic::extract_email_address;
-use crate::parsers::{get_parser, hobbysearch_cancel, EmailRow, OrderInfo, ParseState};
+use crate::parsers::{get_parser, is_cancel_parser, parse_cancel_with_parser, EmailRow, OrderInfo, ParseState};
 use crate::repository::{OrderRepository, ParseRepository, ShopSettingsRepository};
 use async_trait::async_trait;
 use chrono::DateTime;
@@ -309,14 +309,14 @@ where
 
             for (parser_type, shop_name) in &candidate_parsers {
                 // キャンセルメールは専用パーサーで処理（OrderInfo を返さない）
-                if parser_type == "hobbysearch_cancel" {
+                if is_cancel_parser(parser_type) {
                     log::debug!(
-                        "[cancel] trying hobbysearch_cancel email_id={} subject={:?}",
+                        "[cancel] trying {} email_id={} subject={:?}",
+                        parser_type,
                         input.email_id,
                         input.subject
                     );
-                    let cancel_parser = hobbysearch_cancel::HobbySearchCancelParser;
-                    match cancel_parser.parse_cancel(&input.body_plain) {
+                    match parse_cancel_with_parser(parser_type, &input.body_plain) {
                         Ok(cancel_info) => {
                             log::debug!(
                                 "[cancel] email_id={} internal_date={:?} order_number={} subject={:?}",
@@ -379,7 +379,7 @@ where
                             break;
                         }
                         Err(e) => {
-                            log::debug!("hobbysearch_cancel parser failed: {}", e);
+                            log::debug!("{} parser failed: {}", parser_type, e);
                             last_error = e;
                             continue;
                         }
