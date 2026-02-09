@@ -110,6 +110,8 @@ where
     pub shop_settings_cache: Arc<Mutex<ShopSettingsCache>>,
     /// パース状態（キャンセル用）
     pub parse_state: Arc<ParseState>,
+    /// 画像保存用: (pool, images_dir)。None の場合は画像登録をスキップ
+    pub image_save_ctx: Option<(std::sync::Arc<sqlx::SqlitePool>, std::path::PathBuf)>,
 }
 
 /// メールパースタスク
@@ -581,6 +583,32 @@ where
                             order_id,
                             input.email_id
                         );
+                        // 商品画像URLがある場合、images テーブルに登録
+                        if let Some((ref pool, ref images_dir)) = context.image_save_ctx {
+                            for item in &order_info.items {
+                                if let Some(ref url) = item.image_url {
+                                    let normalized =
+                                        crate::gemini::normalize_product_name(&item.name);
+                                    if !normalized.is_empty() {
+                                        if let Err(e) = crate::image_utils::save_image_from_url_for_item(
+                                            pool.as_ref(),
+                                            images_dir,
+                                            &normalized,
+                                            url,
+                                            true, // パース: 既存レコードがあればスキップ
+                                        )
+                                        .await
+                                        {
+                                            log::warn!(
+                                                "[parse] Failed to save image for item '{}': {}",
+                                                item.name,
+                                                e
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                     Err(e) => {
                         log::error!("Failed to save order for email {}: {}", input.email_id, e);
