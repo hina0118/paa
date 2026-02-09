@@ -1,4 +1,5 @@
 import type { OrderItemRow } from '@/lib/types';
+import { buildFts5ItemBrandQuery, escapeLikePrefix } from './search-utils';
 
 type LoadParams = {
   search?: string;
@@ -28,11 +29,19 @@ export async function loadOrderItems(
   const args: unknown[] = [];
 
   if (search.trim()) {
+    const trimmed = search.trim();
+    const ftsQuery = buildFts5ItemBrandQuery(trimmed);
+    const likePrefix = escapeLikePrefix(trimmed) + '%';
+
     conditions.push(
-      '(i.item_name LIKE ? OR i.brand LIKE ? OR o.order_number LIKE ? OR o.shop_domain LIKE ? OR o.shop_name LIKE ?)'
+      `(
+          i.id IN (SELECT rowid FROM items_fts WHERE items_fts MATCH ?)
+          OR o.order_number LIKE ? ESCAPE '\\'
+          OR o.shop_domain LIKE ? ESCAPE '\\'
+          OR o.shop_name LIKE ? ESCAPE '\\'
+        )`
     );
-    const pattern = `%${search.trim()}%`;
-    args.push(pattern, pattern, pattern, pattern, pattern);
+    args.push(ftsQuery, likePrefix, likePrefix, likePrefix);
   }
   if (shopDomain) {
     conditions.push('o.shop_domain = ?');
