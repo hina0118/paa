@@ -38,7 +38,7 @@ describe('loadOrderItems', () => {
     expect(sql).toContain('items_fts');
     expect(sql).toContain('MATCH');
     expect(sql).toContain("ESCAPE '\\'");
-    expect(args).toContain('"商品"');
+    expect(args[0]).toBe('(item_name:"商品" OR brand:"商品")');
     expect(args).toContain('商品%');
   });
 
