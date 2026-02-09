@@ -24,6 +24,7 @@ use crate::parsers::{EmailParser, OrderInfo};
             | "hobbysearch_cancel"
             | "dmm_confirm"
             | "dmm_cancel"
+            | "dmm_order_number_change"
     )
 }
 
@@ -99,7 +100,9 @@ pub fn get_candidate_parsers<'a>(
             }
         })
         .filter(|parser_type| {
-            *parser_type != "hobbysearch_cancel" && *parser_type != "dmm_cancel"
+            *parser_type != "hobbysearch_cancel"
+                && *parser_type != "dmm_cancel"
+                && *parser_type != "dmm_order_number_change"
         }) // バッチパース専用、get_parser 非対応のため除外
         .collect()
 }

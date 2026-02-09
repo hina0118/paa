@@ -19,7 +19,11 @@
 use crate::batch_runner::BatchTask;
 use crate::logic::email_parser::extract_domain;
 use crate::logic::sync_logic::extract_email_address;
-use crate::parsers::{get_parser, is_cancel_parser, parse_cancel_with_parser, EmailRow, OrderInfo, ParseState};
+use crate::parsers::{
+    get_parser, is_cancel_parser, is_order_number_change_parser, order_lookup_alternate_domains,
+    parse_cancel_with_parser, parse_order_number_change_with_parser, EmailRow, OrderInfo,
+    ParseState,
+};
 use crate::repository::{OrderRepository, ParseRepository, ShopSettingsRepository};
 use async_trait::async_trait;
 use chrono::DateTime;
@@ -336,6 +340,7 @@ where
                                     input.email_id,
                                     shop_domain.clone(),
                                     Some(shop_name.clone()),
+                                    order_lookup_alternate_domains(&shop_domain),
                                 )
                                 .await
                             {
@@ -370,6 +375,82 @@ where
                                         "[cancel] apply_cancel failed email_id={} order_number={}: {}",
                                         input.email_id,
                                         cancel_info.order_number,
+                                        e
+                                    );
+                                    last_error = e;
+                                    break;
+                                }
+                            }
+                            break;
+                        }
+                        Err(e) => {
+                            log::debug!("{} parser failed: {}", parser_type, e);
+                            last_error = e;
+                            continue;
+                        }
+                    }
+                }
+
+                // 注文番号変更メールは専用パーサーで処理
+                if is_order_number_change_parser(parser_type) {
+                    log::debug!(
+                        "[order_number_change] trying {} email_id={} subject={:?}",
+                        parser_type,
+                        input.email_id,
+                        input.subject
+                    );
+                    match parse_order_number_change_with_parser(parser_type, &input.body_plain) {
+                        Ok(change_info) => {
+                            log::debug!(
+                                "[order_number_change] email_id={} {} -> {}",
+                                input.email_id,
+                                change_info.old_order_number,
+                                change_info.new_order_number
+                            );
+                            let from_address = input.from_address.as_deref().unwrap_or("");
+                            let shop_domain = extract_email_address(from_address)
+                                .and_then(|email| extract_domain(&email).map(|s| s.to_string()));
+
+                            match context
+                                .order_repo
+                                .apply_order_number_change(
+                                    &change_info,
+                                    input.email_id,
+                                    shop_domain.clone(),
+                                    Some(shop_name.clone()),
+                                    order_lookup_alternate_domains(&shop_domain),
+                                )
+                                .await
+                            {
+                                Ok(order_id) => {
+                                    log::debug!(
+                                        "Successfully applied order number change for order {} (email {})",
+                                        order_id,
+                                        input.email_id
+                                    );
+                                    results.push(Ok(EmailParseOutput {
+                                        email_id: input.email_id,
+                                        order_info: OrderInfo {
+                                            order_number: change_info.new_order_number.clone(),
+                                            order_date: None,
+                                            delivery_address: None,
+                                            delivery_info: None,
+                                            items: vec![],
+                                            subtotal: None,
+                                            shipping_fee: None,
+                                            total_amount: None,
+                                        },
+                                        shop_name: shop_name.clone(),
+                                        shop_domain,
+                                        cancel_applied: true, // save_order 不要のため
+                                    }));
+                                    cancel_applied = true;
+                                }
+                                Err(e) => {
+                                    log::info!(
+                                        "[order_number_change] apply failed email_id={} old={}: {}",
+                                        input.email_id,
+                                        change_info.old_order_number,
                                         e
                                     );
                                     last_error = e;
