@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { escapeFts5Query, escapeLikePrefix } from './search-utils';
+import {
+  buildFts5ItemBrandQuery,
+  escapeFts5Query,
+  escapeLikePrefix,
+} from './search-utils';
 
 describe('escapeFts5Query', () => {
   it('returns empty string for empty or whitespace-only input', () => {
@@ -18,6 +22,31 @@ describe('escapeFts5Query', () => {
 
   it('escapes double quotes in tokens', () => {
     expect(escapeFts5Query('It\'s "quoted"')).toBe('"It\'s" AND """quoted"""');
+  });
+});
+
+describe('buildFts5ItemBrandQuery', () => {
+  it('returns empty string for empty or whitespace-only input', () => {
+    expect(buildFts5ItemBrandQuery('')).toBe('');
+    expect(buildFts5ItemBrandQuery('   ')).toBe('');
+  });
+
+  it('builds single-token query with item_name and brand columns', () => {
+    expect(buildFts5ItemBrandQuery('商品')).toBe(
+      '(item_name:"商品" OR brand:"商品")'
+    );
+  });
+
+  it('builds multi-token query with AND', () => {
+    expect(buildFts5ItemBrandQuery('RG ガンダム')).toBe(
+      '(item_name:"RG" OR brand:"RG") AND (item_name:"ガンダム" OR brand:"ガンダム")'
+    );
+  });
+
+  it('escapes double quotes in tokens', () => {
+    expect(buildFts5ItemBrandQuery('It\'s "quoted"')).toBe(
+      '(item_name:"It\'s" OR brand:"It\'s") AND (item_name:"""quoted""" OR brand:"""quoted""")'
+    );
   });
 });
 

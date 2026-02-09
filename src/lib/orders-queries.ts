@@ -1,5 +1,5 @@
 import type { OrderItemRow } from '@/lib/types';
-import { escapeFts5Query, escapeLikePrefix } from './search-utils';
+import { buildFts5ItemBrandQuery, escapeLikePrefix } from './search-utils';
 
 type LoadParams = {
   search?: string;
@@ -30,7 +30,7 @@ export async function loadOrderItems(
 
   if (search.trim()) {
     const trimmed = search.trim();
-    const ftsQuery = escapeFts5Query(trimmed);
+    const ftsQuery = buildFts5ItemBrandQuery(trimmed);
     const likePrefix = escapeLikePrefix(trimmed) + '%';
 
     conditions.push(
