@@ -33,27 +33,15 @@ export async function loadOrderItems(
     const ftsQuery = escapeFts5Query(trimmed);
     const likePrefix = escapeLikePrefix(trimmed) + '%';
 
-    if (ftsQuery) {
-      conditions.push(
-        `(
+    conditions.push(
+      `(
           i.id IN (SELECT rowid FROM items_fts WHERE items_fts MATCH ?)
           OR o.order_number LIKE ? ESCAPE '\\'
           OR o.shop_domain LIKE ? ESCAPE '\\'
           OR o.shop_name LIKE ? ESCAPE '\\'
         )`
-      );
-      args.push(ftsQuery, likePrefix, likePrefix, likePrefix);
-    } else {
-      // トークンが空（不正な入力など）の場合は orders の前方一致のみ
-      conditions.push(
-        `(
-          o.order_number LIKE ? ESCAPE '\\'
-          OR o.shop_domain LIKE ? ESCAPE '\\'
-          OR o.shop_name LIKE ? ESCAPE '\\'
-        )`
-      );
-      args.push(likePrefix, likePrefix, likePrefix);
-    }
+    );
+    args.push(ftsQuery, likePrefix, likePrefix, likePrefix);
   }
   if (shopDomain) {
     conditions.push('o.shop_domain = ?');
