@@ -21,23 +21,14 @@ export function escapeFts5Query(userInput: string): string {
 }
 
 /**
- * items_fts において item_name と brand のみを検索対象とする FTS5 クエリを生成する。
- * 各トークンが item_name または brand のいずれかに含まれるものをヒットさせる。
+ * items_fts の item_name と brand 列のみを検索対象とする FTS5 クエリを生成。
+ * 列指定なしの MATCH だと category / item_name_normalized もヒットするため、
+ * 仕様（item_name, brand のみ）に合わせて列を明示する。
  */
 export function buildFts5ItemBrandQuery(userInput: string): string {
-  const trimmed = userInput.trim();
-  if (!trimmed) return '';
-
-  const tokens = trimmed.split(/\s+/).filter(Boolean);
-  if (tokens.length === 0) return '';
-
-  const termParts = tokens.map((t) => {
-    const escaped = t.replace(/"/g, '""');
-    const quoted = `"${escaped}"`;
-    return `(item_name:${quoted} OR brand:${quoted})`;
-  });
-
-  return termParts.join(' AND ');
+  const escaped = escapeFts5Query(userInput);
+  if (!escaped) return '';
+  return `(item_name:(${escaped}) OR brand:(${escaped}))`;
 }
 
 /**

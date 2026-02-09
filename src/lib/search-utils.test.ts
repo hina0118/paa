@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  buildFts5ItemBrandQuery,
   escapeFts5Query,
+  buildFts5ItemBrandQuery,
   escapeLikePrefix,
 } from './search-utils';
 
@@ -31,21 +31,15 @@ describe('buildFts5ItemBrandQuery', () => {
     expect(buildFts5ItemBrandQuery('   ')).toBe('');
   });
 
-  it('builds single-token query with item_name and brand columns', () => {
+  it('generates column-prefixed query for item_name and brand only', () => {
     expect(buildFts5ItemBrandQuery('商品')).toBe(
-      '(item_name:"商品" OR brand:"商品")'
+      '(item_name:("商品") OR brand:("商品"))'
     );
   });
 
-  it('builds multi-token query with AND', () => {
+  it('handles multiple tokens with AND', () => {
     expect(buildFts5ItemBrandQuery('RG ガンダム')).toBe(
-      '(item_name:"RG" OR brand:"RG") AND (item_name:"ガンダム" OR brand:"ガンダム")'
-    );
-  });
-
-  it('escapes double quotes in tokens', () => {
-    expect(buildFts5ItemBrandQuery('It\'s "quoted"')).toBe(
-      '(item_name:"It\'s" OR brand:"It\'s") AND (item_name:"""quoted""" OR brand:"""quoted""")'
+      '(item_name:("RG" AND "ガンダム") OR brand:("RG" AND "ガンダム"))'
     );
   });
 });
