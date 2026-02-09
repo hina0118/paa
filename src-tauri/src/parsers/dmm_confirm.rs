@@ -77,10 +77,18 @@ fn parse_from_html(html: &str) -> Result<OrderInfo, String> {
 }
 
 fn extract_order_number_from_html(document: &Html) -> Result<String, String> {
+    let text = document.root_element().text().collect::<String>();
+    // KC-, BS- 等のプレフィックス付き形式を優先（発送ブロック内に出現）
+    let prefix_re = Regex::new(r"\b([A-Z]{2}-\d+)\b").unwrap();
+    if let Some(cap) = prefix_re.captures(&text) {
+        if let Some(m) = cap.get(1) {
+            return Ok(m.as_str().to_string());
+        }
+    }
+    // フォールバック: ご注文番号：数値
     let td_selector = Selector::parse("td").unwrap_or_else(|_| Selector::parse("div").unwrap());
     let re = Regex::new(r"ご注文番号\s*[：:]\s*(\d+)").unwrap();
     let re2 = Regex::new(r"注文番号\s*[：:]\s*(\d+)").unwrap();
-
     for el in document.select(&td_selector) {
         let text = el.text().collect::<String>();
         if let Some(cap) = re.captures(&text).or_else(|| re2.captures(&text)) {
@@ -331,6 +339,16 @@ fn parse_from_text(body: &str) -> Result<OrderInfo, String> {
 }
 
 fn extract_order_number(lines: &[&str]) -> Result<String, String> {
+    // KC-, BS- 等のプレフィックス付き形式を優先（発送ブロック内に出現）
+    let prefix_re = Regex::new(r"\b([A-Z]{2}-\d+)\b").unwrap();
+    for line in lines {
+        if let Some(cap) = prefix_re.captures(line) {
+            if let Some(m) = cap.get(1) {
+                return Ok(m.as_str().to_string());
+            }
+        }
+    }
+    // フォールバック: ご注文番号：数値
     let patterns = [
         Regex::new(r"ご注文番号\s*[：:]\s*(\d+)"),
         Regex::new(r"注文番号\s*[：:]\s*(\d+)"),
@@ -538,7 +556,7 @@ mod tests {
         assert!(result.is_ok());
         let order_info = result.unwrap();
 
-        assert_eq!(order_info.order_number, "27599843");
+        assert_eq!(order_info.order_number, "BS-27599843");
         assert_eq!(order_info.order_date, Some("2025-06-01".to_string()));
         assert_eq!(order_info.items.len(), 1);
         assert_eq!(
@@ -592,7 +610,7 @@ BS-28156389　発送元：千葉配送センター　発送：配送業者は発
         assert!(result.is_ok(), "Parse failed: {:?}", result.err());
         let order_info = result.unwrap();
 
-        assert_eq!(order_info.order_number, "28156389");
+        assert_eq!(order_info.order_number, "BS-28156389");
         assert_eq!(order_info.order_date, Some("2025-09-16".to_string()));
         assert_eq!(order_info.items.len(), 1);
         assert_eq!(
@@ -639,7 +657,7 @@ KC-24167237　発送元：石川配送センター　発送：日本郵便
         assert!(result.is_ok(), "Parse failed: {:?}", result.err());
         let order_info = result.unwrap();
 
-        assert_eq!(order_info.order_number, "24167237");
+        assert_eq!(order_info.order_number, "KC-24167237");
         assert_eq!(order_info.order_date, Some("2023-12-26".to_string()));
         assert_eq!(order_info.items.len(), 1);
         assert_eq!(order_info.items[0].name, "サンプル商品【テスト】");
@@ -765,7 +783,7 @@ CD（オトギフロンティア サウンドトラック2 Verion.319）(グッ�
         assert!(result.is_ok(), "Parse failed: {:?}", result.err());
         let order_info = result.unwrap();
 
-        assert_eq!(order_info.order_number, "17033992");
+        assert_eq!(order_info.order_number, "KC-17033992");
         assert_eq!(order_info.order_date, Some("2019-12-05".to_string()));
         assert_eq!(order_info.items.len(), 1);
         assert_eq!(

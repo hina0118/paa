@@ -13,7 +13,7 @@ use crate::parsers::{EmailParser, OrderInfo};
 ///
 /// # Returns
 /// パーサーが存在する場合はtrue
-pub fn is_valid_parser_type(parser_type: &str) -> bool {
+ pub fn is_valid_parser_type(parser_type: &str) -> bool {
     matches!(
         parser_type,
         "hobbysearch_confirm"
@@ -23,6 +23,7 @@ pub fn is_valid_parser_type(parser_type: &str) -> bool {
             | "hobbysearch_send"
             | "hobbysearch_cancel"
             | "dmm_confirm"
+            | "dmm_cancel"
     )
 }
 
@@ -97,7 +98,9 @@ pub fn get_candidate_parsers<'a>(
                 None
             }
         })
-        .filter(|parser_type| *parser_type != "hobbysearch_cancel") // バッチパース専用、get_parser 非対応のため除外
+        .filter(|parser_type| {
+            *parser_type != "hobbysearch_cancel" && *parser_type != "dmm_cancel"
+        }) // バッチパース専用、get_parser 非対応のため除外
         .collect()
 }
 
@@ -174,6 +177,11 @@ mod tests {
     #[test]
     fn test_is_valid_parser_type_dmm_confirm() {
         assert!(is_valid_parser_type("dmm_confirm"));
+    }
+
+    #[test]
+    fn test_is_valid_parser_type_dmm_cancel() {
+        assert!(is_valid_parser_type("dmm_cancel"));
     }
 
     #[test]

@@ -4,7 +4,7 @@
 
 use crate::gemini::normalize_product_name;
 use crate::gmail::{CreateShopSettings, GmailMessage, ShopSettings, UpdateShopSettings};
-use crate::parsers::hobbysearch_cancel::CancelInfo;
+use crate::parsers::cancel_info::CancelInfo;
 use crate::parsers::{EmailRow, OrderInfo};
 use async_trait::async_trait;
 #[cfg(test)]
@@ -1041,71 +1041,88 @@ impl OrderRepository for SqliteOrderRepository {
         .map_err(|e| format!("Failed to fetch items: {e}"))?;
 
         let product_name = cancel_info.product_name.trim();
-        let matched = items
-            .iter()
-            .find(|(_, item_name, item_name_normalized, _)| {
-                item_names_match(product_name, item_name, item_name_normalized.as_deref())
-            });
 
-        match matched {
-            Some((item_id, _, _, current_qty)) => {
-                let item_id = *item_id;
-                let current_qty = *current_qty;
+        if product_name.is_empty() {
+            // 商品名未記載 = 注文全体キャンセル → 全商品を削除
+            for (item_id, _, _, _) in &items {
+                sqlx::query("DELETE FROM items WHERE id = ?")
+                    .bind(item_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| format!("Failed to delete item: {e}"))?;
+                log::info!(
+                    "Cancel applied (entire order): removed item id={} from order {}",
+                    item_id,
+                    order_id
+                );
+            }
+        } else {
+            let matched = items
+                .iter()
+                .find(|(_, item_name, item_name_normalized, _)| {
+                    item_names_match(product_name, item_name, item_name_normalized.as_deref())
+                });
 
-                if cancel_info.cancel_quantity <= 0 {
+            match matched {
+                Some((item_id, _, _, current_qty)) => {
+                    let item_id = *item_id;
+                    let current_qty = *current_qty;
+
+                    if cancel_info.cancel_quantity <= 0 {
+                        log::warn!(
+                            "Invalid cancel quantity {} for product '{}' in order {}",
+                            cancel_info.cancel_quantity,
+                            product_name,
+                            order_id
+                        );
+                        tx.rollback()
+                            .await
+                            .map_err(|e| format!("Failed to rollback: {e}"))?;
+                        return Err(format!(
+                            "Invalid cancel quantity {} for product '{}'",
+                            cancel_info.cancel_quantity, product_name
+                        ));
+                    }
+
+                    let new_qty = current_qty - cancel_info.cancel_quantity;
+
+                    if new_qty <= 0 {
+                        sqlx::query("DELETE FROM items WHERE id = ?")
+                            .bind(item_id)
+                            .execute(&mut *tx)
+                            .await
+                            .map_err(|e| format!("Failed to delete item: {e}"))?;
+                        log::info!(
+                            "Cancel applied: removed item id={} from order {}",
+                            item_id,
+                            order_id
+                        );
+                    } else {
+                        sqlx::query("UPDATE items SET quantity = ? WHERE id = ?")
+                            .bind(new_qty)
+                            .bind(item_id)
+                            .execute(&mut *tx)
+                            .await
+                            .map_err(|e| format!("Failed to update item quantity: {e}"))?;
+                        log::info!(
+                            "Cancel applied: item id={} quantity {} -> {}",
+                            item_id,
+                            current_qty,
+                            new_qty
+                        );
+                    }
+                }
+                None => {
                     log::warn!(
-                        "Invalid cancel quantity {} for product '{}' in order {}",
-                        cancel_info.cancel_quantity,
+                        "Cancel mail: product '{}' not found in order {}",
                         product_name,
                         order_id
                     );
                     tx.rollback()
                         .await
                         .map_err(|e| format!("Failed to rollback: {e}"))?;
-                    return Err(format!(
-                        "Invalid cancel quantity {} for product '{}'",
-                        cancel_info.cancel_quantity, product_name
-                    ));
+                    return Err(format!("Product '{}' not found in order", product_name));
                 }
-
-                let new_qty = current_qty - cancel_info.cancel_quantity;
-
-                if new_qty <= 0 {
-                    sqlx::query("DELETE FROM items WHERE id = ?")
-                        .bind(item_id)
-                        .execute(&mut *tx)
-                        .await
-                        .map_err(|e| format!("Failed to delete item: {e}"))?;
-                    log::info!(
-                        "Cancel applied: removed item id={} from order {}",
-                        item_id,
-                        order_id
-                    );
-                } else {
-                    sqlx::query("UPDATE items SET quantity = ? WHERE id = ?")
-                        .bind(new_qty)
-                        .bind(item_id)
-                        .execute(&mut *tx)
-                        .await
-                        .map_err(|e| format!("Failed to update item quantity: {e}"))?;
-                    log::info!(
-                        "Cancel applied: item id={} quantity {} -> {}",
-                        item_id,
-                        current_qty,
-                        new_qty
-                    );
-                }
-            }
-            None => {
-                log::warn!(
-                    "Cancel mail: product '{}' not found in order {}",
-                    product_name,
-                    order_id
-                );
-                tx.rollback()
-                    .await
-                    .map_err(|e| format!("Failed to rollback: {e}"))?;
-                return Err(format!("Product '{}' not found in order", product_name));
             }
         }
 
@@ -1920,7 +1937,7 @@ impl ProductMasterRepository for SqliteProductMasterRepository {
 mod tests {
     use super::*;
     use crate::gemini::ParsedProduct;
-    use crate::parsers::hobbysearch_cancel::CancelInfo;
+    use crate::parsers::cancel_info::CancelInfo;
     use sqlx::sqlite::SqlitePoolOptions;
 
     async fn setup_test_db() -> SqlitePool {
@@ -3049,6 +3066,67 @@ mod tests {
             .await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Invalid cancel quantity"));
+    }
+
+    #[tokio::test]
+    async fn test_apply_cancel_entire_order_no_product_name() {
+        let pool = setup_test_db().await;
+        let repo = SqliteOrderRepository::new(pool.clone());
+
+        sqlx::query(
+            r#"INSERT INTO orders (order_number, shop_domain, shop_name) VALUES ('KC-99999', 'mail.dmm.com', 'DMM')"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert order");
+        let order_id: (i64,) =
+            sqlx::query_as("SELECT id FROM orders WHERE order_number = 'KC-99999'")
+                .fetch_one(&pool)
+                .await
+                .expect("get order id");
+        sqlx::query(r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, '商品A', 1)"#)
+            .bind(order_id.0)
+            .execute(&pool)
+            .await
+            .expect("insert item");
+        sqlx::query(r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, '商品B', 2)"#)
+            .bind(order_id.0)
+            .execute(&pool)
+            .await
+            .expect("insert item");
+        sqlx::query("INSERT INTO emails (message_id, body_plain) VALUES ('cancel-email-7', '')")
+            .execute(&pool)
+            .await
+            .expect("insert email");
+        let email_id: (i64,) =
+            sqlx::query_as("SELECT id FROM emails WHERE message_id = 'cancel-email-7'")
+                .fetch_one(&pool)
+                .await
+                .expect("get email id");
+
+        let cancel_info = CancelInfo {
+            order_number: "KC-99999".to_string(),
+            product_name: "".to_string(),
+            cancel_quantity: 1,
+        };
+        let result = repo
+            .apply_cancel(
+                &cancel_info,
+                email_id.0,
+                Some("mail.dmm.com".to_string()),
+                None,
+            )
+            .await;
+        assert!(result.is_ok(), "apply_cancel failed: {:?}", result.err());
+        assert_eq!(result.unwrap(), order_id.0);
+
+        let count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM items WHERE order_id = ?")
+                .bind(order_id.0)
+                .fetch_one(&pool)
+                .await
+                .expect("count items");
+        assert_eq!(count.0, 0, "all items should be removed");
     }
 
     // --- apply_change_items 統合テスト ---
