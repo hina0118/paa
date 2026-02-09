@@ -73,7 +73,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
     category,
     content=items,
     content_rowid=id,
-    tokenize='unicode61 remove_diacritics 2'
+    tokenize='trigram'
 );
 CREATE TRIGGER items_fts_insert AFTER INSERT ON items BEGIN
     INSERT INTO items_fts(rowid, item_name, item_name_normalized, brand, category)
