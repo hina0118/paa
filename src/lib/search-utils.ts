@@ -32,9 +32,9 @@ export function buildFts5ItemBrandQuery(userInput: string): string {
 }
 
 /**
- * LIKE 前方一致用パターンのエスケープ。
- * % と _ をエスケープし、末尾に % を付与しない（呼び出し側で prefix 用に付与する）。
+ * LIKE 用パターンのエスケープ（% と _ をエスケープ）。
  * SQLite の ESCAPE '\' と併用する。
+ * 前方一致なら escapeLikePrefix(x) + '%'、部分一致なら '%' + escapeLikePrefix(x) + '%'
  */
 export function escapeLikePrefix(userInput: string): string {
   const trimmed = userInput.trim();
@@ -45,3 +45,9 @@ export function escapeLikePrefix(userInput: string): string {
     .replace(/%/g, '\\%')
     .replace(/_/g, '\\_');
 }
+
+/**
+ * trigram トークナイザーは3文字以上で有効。
+ * 1-2文字の検索では FTS5 の替わりに LIKE フォールバックが必要。
+ */
+export const TRIGRAM_MIN_LENGTH = 3;

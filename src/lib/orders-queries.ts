@@ -1,5 +1,9 @@
 import type { OrderItemRow } from '@/lib/types';
-import { buildFts5ItemBrandQuery, escapeLikePrefix } from './search-utils';
+import {
+  buildFts5ItemBrandQuery,
+  escapeLikePrefix,
+  TRIGRAM_MIN_LENGTH,
+} from './search-utils';
 
 type LoadParams = {
   search?: string;
@@ -30,18 +34,33 @@ export async function loadOrderItems(
 
   if (search.trim()) {
     const trimmed = search.trim();
-    const ftsQuery = buildFts5ItemBrandQuery(trimmed);
     const likePrefix = escapeLikePrefix(trimmed) + '%';
+    const likeContains = '%' + escapeLikePrefix(trimmed) + '%';
+    const useTrigram = trimmed.length >= TRIGRAM_MIN_LENGTH;
+    const ftsQuery = buildFts5ItemBrandQuery(trimmed);
 
-    conditions.push(
-      `(
-          i.id IN (SELECT rowid FROM items_fts WHERE items_fts MATCH ?)
-          OR o.order_number LIKE ? ESCAPE '\\'
-          OR o.shop_domain LIKE ? ESCAPE '\\'
-          OR o.shop_name LIKE ? ESCAPE '\\'
-        )`
-    );
-    args.push(ftsQuery, likePrefix, likePrefix, likePrefix);
+    if (useTrigram && ftsQuery) {
+      conditions.push(
+        `(
+            i.id IN (SELECT rowid FROM items_fts WHERE items_fts MATCH ?)
+            OR o.order_number LIKE ? ESCAPE '\\'
+            OR o.shop_domain LIKE ? ESCAPE '\\'
+            OR o.shop_name LIKE ? ESCAPE '\\'
+          )`
+      );
+      args.push(ftsQuery, likePrefix, likePrefix, likePrefix);
+    } else {
+      conditions.push(
+        `(
+            o.order_number LIKE ? ESCAPE '\\'
+            OR o.shop_domain LIKE ? ESCAPE '\\'
+            OR o.shop_name LIKE ? ESCAPE '\\'
+            OR i.item_name LIKE ? ESCAPE '\\'
+            OR i.brand LIKE ? ESCAPE '\\'
+          )`
+      );
+      args.push(likePrefix, likePrefix, likePrefix, likeContains, likeContains);
+    }
   }
   if (shopDomain) {
     conditions.push('o.shop_domain = ?');
