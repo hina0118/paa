@@ -1220,12 +1220,15 @@ impl ParseRepository for SqliteParseRepository {
     async fn get_unparsed_emails(&self, batch_size: usize) -> Result<Vec<EmailRow>, String> {
         let emails: Vec<EmailRow> = sqlx::query_as(
             r#"
-            SELECT e.id, e.message_id, e.body_plain, e.from_address, e.subject, e.internal_date
+            SELECT e.id, e.message_id, e.body_plain, e.body_html, e.from_address, e.subject, e.internal_date
             FROM emails e
             LEFT JOIN order_emails oe ON e.id = oe.email_id
-            WHERE e.body_plain IS NOT NULL
-            AND e.from_address IS NOT NULL
+            WHERE e.from_address IS NOT NULL
             AND oe.email_id IS NULL
+            AND (
+                (e.body_plain IS NOT NULL AND LENGTH(TRIM(e.body_plain)) > 0)
+                OR (e.body_html IS NOT NULL AND LENGTH(TRIM(e.body_html)) > 0)
+            )
             ORDER BY e.internal_date ASC
             LIMIT ?
             "#,
@@ -1279,8 +1282,11 @@ impl ParseRepository for SqliteParseRepository {
             r#"
             SELECT COUNT(*)
             FROM emails
-            WHERE body_plain IS NOT NULL
-            AND from_address IS NOT NULL
+            WHERE from_address IS NOT NULL
+            AND (
+                (body_plain IS NOT NULL AND LENGTH(TRIM(body_plain)) > 0)
+                OR (body_html IS NOT NULL AND LENGTH(TRIM(body_html)) > 0)
+            )
             "#,
         )
         .fetch_one(&self.pool)
@@ -2444,6 +2450,23 @@ mod tests {
         // クリア後、未パースのメールは再び3件になる
         let emails = repo.get_unparsed_emails(10).await.unwrap();
         assert_eq!(emails.len(), 3);
+
+        // body_html のみのメールも取得対象（HTML メールのフォールバック）
+        sqlx::query(
+            r#"
+            INSERT INTO emails (message_id, body_html, from_address, subject, internal_date)
+            VALUES ('email-html-only', '<p>注文番号:99999</p>', 'html@example.com', 'Subject', 4000)
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("Failed to insert HTML-only email");
+
+        let emails = repo.get_unparsed_emails(10).await.unwrap();
+        assert_eq!(emails.len(), 4, "HTML-only email should be included");
+        let html_email = emails.iter().find(|e| e.message_id == "email-html-only").unwrap();
+        assert!(html_email.body_plain.is_none());
+        assert!(html_email.body_html.as_deref().unwrap().contains("注文番号:99999"));
     }
 
     #[tokio::test]

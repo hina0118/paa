@@ -493,12 +493,20 @@ fn get_logs(level_filter: Option<String>, limit: Option<usize>) -> Result<Vec<Lo
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let migrations = || {
-        vec![Migration {
-            version: 1,
-            description: "init",
-            sql: include_str!("../migrations/001_init.sql"),
-            kind: MigrationKind::Up,
-        }]
+        vec![
+            Migration {
+                version: 1,
+                description: "init",
+                sql: include_str!("../migrations/001_init.sql"),
+                kind: MigrationKind::Up,
+            },
+            Migration {
+                version: 2,
+                description: "add_dmm_shop_settings",
+                sql: include_str!("../migrations/002_add_dmm_shop_settings.sql"),
+                kind: MigrationKind::Up,
+            },
+        ]
     };
 
     tauri::Builder::default()
