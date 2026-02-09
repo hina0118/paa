@@ -12,8 +12,8 @@ export function escapeFts5Query(userInput: string): string {
 
   const escaped = tokens
     .map((t) => {
-      const escaped = t.replace(/"/g, '""');
-      return `"${escaped}"`;
+      const escapedToken = t.replace(/"/g, '""');
+      return `"${escapedToken}"`;
     })
     .join(' AND ');
 
