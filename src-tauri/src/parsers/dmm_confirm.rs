@@ -167,13 +167,40 @@ fn extract_delivery_address_from_html(document: &Html) -> Option<super::Delivery
     None
 }
 
+/// 同一行（tr）内の商品画像URLを取得（pics.dmm.com の https のみ）
+fn find_image_url_in_same_row(element: scraper::ElementRef) -> Option<String> {
+    let img_selector = Selector::parse("img[src]").ok()?;
+    let mut current = element;
+    for _ in 0..15 {
+        if let Some(p) = current.parent_element() {
+            current = p;
+            if current.value().name() == "tr" {
+                if let Some(img) = current.select(&img_selector).next() {
+                    if let Some(src) = img.value().attr("src") {
+                        if src.starts_with("https://") && src.contains("pics.dmm.com") {
+                            return Some(src.to_string());
+                        }
+                    }
+                }
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+    None
+}
+
 fn extract_items_from_html(document: &Html) -> Result<Vec<OrderItem>, String> {
     let mut items = Vec::new();
 
     // 商品リンク（dmmref=gMono_Mail_Purchase）から商品名を取得
     // おすすめ商品（Recommend を含む）は除外
+    // 形式A: <a>商品名</a>（テキスト）＋同一行に img
+    // 形式B: <a><img src="..." alt="商品名"></a>（アンカー内に img のみ）
     let a_selector = Selector::parse("a[href*='dmmref=gMono_Mail_Purchase']").ok();
-    if let Some(ref sel) = a_selector {
+    let img_in_a_selector = Selector::parse("img[alt]").ok();
+    if let (Some(ref sel), Some(ref img_sel)) = (a_selector, img_in_a_selector) {
         for el in document.select(sel) {
             // おすすめ商品のリンクを除外（Recommend を含む場合はスキップ）
             if let Some(href) = el.value().attr("href") {
@@ -181,7 +208,27 @@ fn extract_items_from_html(document: &Html) -> Result<Vec<OrderItem>, String> {
                     continue;
                 }
             }
-            let name = normalize_product_name(&el.text().collect::<String>());
+            let (name, image_url) = if !el.text().collect::<String>().trim().is_empty() {
+                // 形式A: アンカーにテキストあり、同一行の img を探す
+                let name = normalize_product_name(&el.text().collect::<String>());
+                let image_url = find_image_url_in_same_row(el);
+                (name, image_url)
+            } else if let Some(img) = el.select(img_sel).next() {
+                // 形式B: <a><img src="..." alt="商品名"></a>（img の alt が商品名、src が画像URL）
+                let name = img
+                    .value()
+                    .attr("alt")
+                    .map(|s| normalize_product_name(s))
+                    .unwrap_or_default();
+                let image_url = img
+                    .value()
+                    .attr("src")
+                    .filter(|s| s.starts_with("https://") && s.contains("pics.dmm.com"))
+                    .map(String::from);
+                (name, image_url)
+            } else {
+                continue;
+            };
             if name.is_empty() {
                 continue;
             }
@@ -195,6 +242,7 @@ fn extract_items_from_html(document: &Html) -> Result<Vec<OrderItem>, String> {
                         unit_price,
                         quantity,
                         subtotal: unit_price * quantity,
+                        image_url,
                     });
                 }
             }
@@ -234,6 +282,11 @@ fn extract_items_from_html(document: &Html) -> Result<Vec<OrderItem>, String> {
                     // 親テーブル内の価格を探す
                     if let Some((unit_price, quantity)) = find_price_quantity_near_element(document, el) {
                         if unit_price > 0 {
+                            let image_url = el
+                                .value()
+                                .attr("src")
+                                .filter(|s| s.starts_with("https://") && s.contains("pics.dmm.com"))
+                                .map(String::from);
                             items.push(OrderItem {
                                 name,
                                 manufacturer: None,
@@ -241,6 +294,7 @@ fn extract_items_from_html(document: &Html) -> Result<Vec<OrderItem>, String> {
                                 unit_price,
                                 quantity,
                                 subtotal: unit_price * quantity,
+                                image_url,
                             });
                         }
                     }
@@ -467,6 +521,7 @@ fn extract_order_items(lines: &[&str]) -> Result<Vec<OrderItem>, String> {
                                 unit_price: p,
                                 quantity: q,
                                 subtotal: p * q,
+                                image_url: None,
                             });
                         }
                     }
@@ -487,6 +542,7 @@ fn extract_order_items(lines: &[&str]) -> Result<Vec<OrderItem>, String> {
                                 unit_price: p,
                                 quantity: q,
                                 subtotal: p * q,
+                                image_url: None,
                             });
                         }
                     }
@@ -507,6 +563,7 @@ fn extract_order_items(lines: &[&str]) -> Result<Vec<OrderItem>, String> {
                                 unit_price: p,
                                 quantity: q,
                                 subtotal: p * q,
+                                image_url: None,
                             });
                         }
                     }
@@ -529,6 +586,7 @@ fn extract_order_items(lines: &[&str]) -> Result<Vec<OrderItem>, String> {
                                     unit_price: p,
                                     quantity: q,
                                     subtotal: p * q,
+                                    image_url: None,
                                 });
                             }
                         }
@@ -886,6 +944,52 @@ CD（オトギフロンティア サウンドトラック2 Verion.319）(グッ�
         assert_eq!(
             order_info.delivery_address.as_ref().unwrap().name,
             "テスト 太郎"
+        );
+    }
+
+    /// アンカー内に img のみの形式: <a><img src="..." alt="商品名"></a>
+    #[test]
+    fn test_parse_dmm_confirm_html_anchor_with_img_only() {
+        let html = r#"<html><body>
+<table>
+<tr><td>KC-23458091</td><td>発送元：千葉配送センター</td><td>発送：日本郵便</td></tr>
+<tr><td>ご注文日：2023/8/22</td></tr>
+<tr><td>受取人のお名前：テスト 太郎 様</td></tr>
+</table>
+<table>
+<tr>
+<td>
+<a href="https://www.dmm.com/mono/hobby/-/detail/=/cid=c250901398/?dmmref=gMono_Mail_Purchase">
+<img src="https://pics.dmm.com/mono/hobby/c250901398/c250901398ps.jpg" alt="30MF クラスアップアーマー（ローザングラディエーター）" width="120">
+</a>
+</td>
+<td>979円</td>
+<td>数量：1</td>
+</tr>
+</table>
+<table>
+<tr><td>商品小計：979円</td></tr>
+<tr><td>送料：530円</td></tr>
+<tr><td>お支払い金額：979円(税込)</td></tr>
+</table>
+</body></html>"#;
+        let parser = DmmConfirmParser;
+        let result = parser.parse(html);
+
+        assert!(result.is_ok(), "Parse failed: {:?}", result.err());
+        let order_info = result.unwrap();
+
+        assert_eq!(order_info.order_number, "KC-23458091");
+        assert_eq!(order_info.items.len(), 1);
+        assert_eq!(
+            order_info.items[0].name,
+            "30MF クラスアップアーマー（ローザングラディエーター）"
+        );
+        assert_eq!(order_info.items[0].unit_price, 979);
+        assert_eq!(order_info.items[0].quantity, 1);
+        assert_eq!(
+            order_info.items[0].image_url,
+            Some("https://pics.dmm.com/mono/hobby/c250901398/c250901398ps.jpg".to_string())
         );
     }
 

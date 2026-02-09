@@ -1,5 +1,6 @@
 use crate::batch_runner::BatchProgressEvent;
 use crate::logic::email_parser::extract_domain;
+use tauri::Manager;
 use crate::logic::sync_logic::extract_email_address;
 use crate::parsers::cancel_info::CancelInfo;
 use crate::repository::{
@@ -220,6 +221,8 @@ pub struct OrderItem {
     pub quantity: i64,
     /// 小計
     pub subtotal: i64,
+    /// 商品画像URL（注文確認メールに含まれる場合、images テーブルへ登録する）
+    pub image_url: Option<String>,
 }
 
 /// メールパーサーのトレイト
@@ -662,6 +665,33 @@ pub async fn batch_parse_emails(
                         Ok(order_id) => {
                             log::info!("Successfully parsed and saved order: {}", order_id);
                             success_count += 1;
+                            // 商品画像URLがある場合、images テーブルに登録
+                            if let Ok(app_data_dir) = app_handle.path().app_data_dir() {
+                                let images_dir = app_data_dir.join("images");
+                                for item in &order_info.items {
+                                    if let Some(ref url) = item.image_url {
+                                        let normalized =
+                                            crate::gemini::normalize_product_name(&item.name);
+                                        if !normalized.is_empty() {
+                                            if let Err(e) = crate::image_utils::save_image_from_url_for_item(
+                                                &pool,
+                                                &images_dir,
+                                                &normalized,
+                                                url,
+                                                true, // パース: 既存レコードがあればスキップ
+                                            )
+                                            .await
+                                            {
+                                                log::warn!(
+                                                    "[batch_parse] Failed to save image for item '{}': {}",
+                                                    item.name,
+                                                    e
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                         Err(e) => {
                             log::error!("Failed to save order: {}", e);
@@ -972,6 +1002,7 @@ mod tests {
             unit_price: 1000,
             quantity: 2,
             subtotal: 2000,
+            image_url: None,
         };
 
         let order = OrderInfo {
@@ -1080,6 +1111,7 @@ mod tests {
             unit_price: 2500,
             quantity: 1,
             subtotal: 2500,
+            image_url: None,
         };
 
         let json = serde_json::to_string(&item).unwrap();
@@ -1136,6 +1168,7 @@ mod tests {
                 unit_price: 100,
                 quantity: 1,
                 subtotal: 100,
+                image_url: None,
             }],
             subtotal: None,
             shipping_fee: None,

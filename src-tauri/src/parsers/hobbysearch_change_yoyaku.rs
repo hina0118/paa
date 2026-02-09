@@ -109,6 +109,7 @@ fn extract_yoyaku_items(lines: &[&str]) -> Result<Vec<OrderItem>, String> {
                         unit_price,
                         quantity,
                         subtotal,
+                        image_url: None,
                     });
 
                     // 価格情報の行をスキップ
