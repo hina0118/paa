@@ -28,6 +28,17 @@ pub struct EmailRow {
     pub internal_date: Option<i64>,
 }
 
+/// 注文検索で試す追加ドメインを返す（店舗固有）。
+/// DMM: 注文確認は mail.dmm.com / mono.dmm.com のどちらかから届く。キャンセル・注文番号変更は mail.dmm.com から。
+/// 呼び出し元（apply_cancel / apply_order_number_change）で alternate_domains として渡す。
+pub fn order_lookup_alternate_domains(shop_domain: &Option<String>) -> Option<Vec<String>> {
+    match shop_domain.as_deref() {
+        Some("mail.dmm.com") => Some(vec!["mono.dmm.com".into()]),
+        Some("mono.dmm.com") => Some(vec!["mail.dmm.com".into()]),
+        _ => None,
+    }
+}
+
 /// body_html があれば使用、なければ body_plain を返す（タグ除去は行わない）。
 /// DMM 等は HTML から直接パースするため、HTML 優先で精度が上がる。
 pub fn get_body_for_parse(row: &EmailRow) -> String {
@@ -43,6 +54,8 @@ pub fn get_body_for_parse(row: &EmailRow) -> String {
 
 // キャンセル情報（全店舗共通）
 pub mod cancel_info;
+// 注文番号変更情報（全店舗共通）
+pub mod order_number_change_info;
 
 // ホビーサーチ用の共通パースユーティリティ関数
 mod hobbysearch_common;
@@ -56,6 +69,7 @@ pub mod hobbysearch_confirm_yoyaku;
 pub mod hobbysearch_send;
 pub mod dmm_confirm;
 pub mod dmm_cancel;
+pub mod dmm_order_number_change;
 
 // BatchTask 実装
 pub mod email_parse_task;
@@ -273,12 +287,30 @@ pub(crate) fn is_cancel_parser(parser_type: &str) -> bool {
     matches!(parser_type, "hobbysearch_cancel" | "dmm_cancel")
 }
 
+/// パーサータイプが注文番号変更専用かどうか
+pub(crate) fn is_order_number_change_parser(parser_type: &str) -> bool {
+    matches!(parser_type, "dmm_order_number_change")
+}
+
 /// キャンセルパーサーから CancelInfo を抽出（失敗時は Err）
 pub(crate) fn parse_cancel_with_parser(parser_type: &str, body: &str) -> Result<CancelInfo, String> {
     match parser_type {
         "hobbysearch_cancel" => hobbysearch_cancel::HobbySearchCancelParser.parse_cancel(body),
         "dmm_cancel" => dmm_cancel::DmmCancelParser.parse_cancel(body),
         _ => Err(format!("Unknown cancel parser: {}", parser_type)),
+    }
+}
+
+/// 注文番号変更パーサーから OrderNumberChangeInfo を抽出（失敗時は Err）
+pub(crate) fn parse_order_number_change_with_parser(
+    parser_type: &str,
+    body: &str,
+) -> Result<order_number_change_info::OrderNumberChangeInfo, String> {
+    match parser_type {
+        "dmm_order_number_change" => {
+            dmm_order_number_change::DmmOrderNumberChangeParser.parse_order_number_change(body)
+        }
+        _ => Err(format!("Unknown order number change parser: {}", parser_type)),
     }
 }
 
@@ -484,8 +516,9 @@ pub async fn batch_parse_emails(
                                 .apply_cancel(
                                     &cancel_info,
                                     row.email_id,
-                                    shop_domain,
+                                    shop_domain.clone(),
                                     Some(shop_name.clone()),
+                                    order_lookup_alternate_domains(&shop_domain),
                                 )
                                 .await
                             {

@@ -5,6 +5,7 @@
 use crate::gemini::normalize_product_name;
 use crate::gmail::{CreateShopSettings, GmailMessage, ShopSettings, UpdateShopSettings};
 use crate::parsers::cancel_info::CancelInfo;
+use crate::parsers::order_number_change_info::OrderNumberChangeInfo;
 use crate::parsers::{EmailRow, OrderInfo};
 use async_trait::async_trait;
 #[cfg(test)]
@@ -307,12 +308,25 @@ pub trait OrderRepository: Send + Sync {
     ) -> Result<i64, String>;
 
     /// キャンセルメールの内容を適用（該当商品の数量減算または削除）
+    /// * `alternate_domains`: 検索失敗時に試す追加ドメイン（店舗固有、DMM の mail/mono 等）
     async fn apply_cancel(
         &self,
         cancel_info: &CancelInfo,
         email_id: i64,
         shop_domain: Option<String>,
         shop_name: Option<String>,
+        alternate_domains: Option<Vec<String>>,
+    ) -> Result<i64, String>;
+
+    /// 注文番号変更メールの内容を適用（旧番号の注文を新番号に更新）
+    /// * `alternate_domains`: 検索失敗時に試す追加ドメイン（店舗固有、DMM の mail/mono 等）
+    async fn apply_order_number_change(
+        &self,
+        change_info: &OrderNumberChangeInfo,
+        email_id: i64,
+        shop_domain: Option<String>,
+        shop_name: Option<String>,
+        alternate_domains: Option<Vec<String>>,
     ) -> Result<i64, String>;
 
     /// 組み換えメールの商品を元注文から削除する。
@@ -505,6 +519,59 @@ impl SqliteOrderRepository {
         Self { pool }
     }
 
+    /// 注文番号＋ドメインで注文IDを検索。alternate_domains が渡された場合、検索失敗時に追加ドメインで再試行。
+    async fn find_order_by_number_and_domain(
+        tx: &mut sqlx::Transaction<'_, Sqlite>,
+        order_number: &str,
+        shop_domain: &Option<String>,
+        alternate_domains: Option<&[String]>,
+    ) -> Result<Option<i64>, sqlx::Error> {
+        let mut domains_to_try: Vec<Option<String>> = match shop_domain {
+            Some(d) if !d.is_empty() => vec![Some(d.clone())],
+            _ => vec![None],
+        };
+        if let Some(alts) = alternate_domains {
+            for alt in alts.iter() {
+                if !alt.is_empty() {
+                    domains_to_try.push(Some(alt.clone()));
+                }
+            }
+        }
+        for domain_opt in domains_to_try {
+            let row: Option<(i64,)> = match &domain_opt {
+                Some(domain) => {
+                    sqlx::query_as(
+                        r#"
+                        SELECT id FROM orders
+                        WHERE LOWER(order_number) = LOWER(?) AND shop_domain = ?
+                        LIMIT 1
+                        "#,
+                    )
+                    .bind(order_number)
+                    .bind(domain)
+                    .fetch_optional(tx.as_mut())
+                    .await?
+                }
+                None => {
+                    sqlx::query_as(
+                        r#"
+                        SELECT id FROM orders
+                        WHERE LOWER(order_number) = LOWER(?) AND (shop_domain IS NULL OR shop_domain = '')
+                        LIMIT 1
+                        "#,
+                    )
+                    .bind(order_number)
+                    .fetch_optional(tx.as_mut())
+                    .await?
+                }
+            };
+            if let Some((id,)) = row {
+                return Ok(Some(id));
+            }
+        }
+        Ok(None)
+    }
+
     /// apply_change_items のトランザクション内ロジック（tx は呼び出し元で commit）
     async fn apply_change_items_in_tx(
         tx: &mut sqlx::Transaction<'_, Sqlite>,
@@ -521,7 +588,7 @@ impl SqliteOrderRepository {
                 sqlx::query_scalar(
                     r#"
                     SELECT o.id FROM orders o
-                    WHERE o.order_number != ?
+                    WHERE LOWER(o.order_number) != LOWER(?)
                     AND o.shop_domain = ?
                     AND o.id NOT IN (
                         SELECT d.order_id FROM deliveries d
@@ -541,7 +608,7 @@ impl SqliteOrderRepository {
                 sqlx::query_scalar(
                     r#"
                     SELECT o.id FROM orders o
-                    WHERE o.order_number != ?
+                    WHERE LOWER(o.order_number) != LOWER(?)
                     AND (o.shop_domain IS NULL OR o.shop_domain = '')
                     AND o.id NOT IN (
                         SELECT d.order_id FROM deliveries d
@@ -561,7 +628,7 @@ impl SqliteOrderRepository {
             sqlx::query_scalar(
                 r#"
                 SELECT o.id FROM orders o
-                WHERE o.order_number != ?
+                WHERE LOWER(o.order_number) != LOWER(?)
                 AND (o.shop_domain IS NULL OR o.shop_domain = '')
                 AND o.id NOT IN (
                     SELECT d.order_id FROM deliveries d
@@ -739,10 +806,11 @@ impl SqliteOrderRepository {
         shop_domain: Option<String>,
         shop_name: Option<String>,
     ) -> Result<i64, String> {
+        // 注文番号は大文字小文字を区別せずマッチ（メールからそのまま保存するため表記が揺れる場合あり）
         let existing_order: Option<(i64,)> = sqlx::query_as(
             r#"
             SELECT id FROM orders
-            WHERE order_number = ? AND shop_domain = ?
+            WHERE LOWER(order_number) = LOWER(?) AND shop_domain = ?
             LIMIT 1
             "#,
         )
@@ -959,6 +1027,7 @@ impl OrderRepository for SqliteOrderRepository {
         email_id: i64,
         shop_domain: Option<String>,
         _shop_name: Option<String>,
+        alternate_domains: Option<Vec<String>>,
     ) -> Result<i64, String> {
         let mut tx = self
             .pool
@@ -967,55 +1036,24 @@ impl OrderRepository for SqliteOrderRepository {
             .map_err(|e| format!("Failed to start transaction: {e}"))?;
 
         // 1. 既存の注文を検索（order_number + shop_domain）
-        // インデックス (order_number, shop_domain) を活かすため、shop_domain に関数をかけずクエリを分岐
-        let order_row: Option<(i64,)> = if let Some(ref domain) = shop_domain {
-            if !domain.is_empty() {
-                sqlx::query_as(
-                    r#"
-                    SELECT id FROM orders
-                    WHERE order_number = ? AND shop_domain = ?
-                    LIMIT 1
-                    "#,
-                )
-                .bind(&cancel_info.order_number)
-                .bind(domain)
-                .fetch_optional(&mut *tx)
-                .await
-                .map_err(|e| format!("Failed to find order: {e}"))?
-            } else {
-                sqlx::query_as(
-                    r#"
-                    SELECT id FROM orders
-                    WHERE order_number = ? AND (shop_domain IS NULL OR shop_domain = '')
-                    LIMIT 1
-                    "#,
-                )
-                .bind(&cancel_info.order_number)
-                .fetch_optional(&mut *tx)
-                .await
-                .map_err(|e| format!("Failed to find order: {e}"))?
-            }
-        } else {
-            sqlx::query_as(
-                r#"
-                SELECT id FROM orders
-                WHERE order_number = ? AND (shop_domain IS NULL OR shop_domain = '')
-                LIMIT 1
-                "#,
-            )
-            .bind(&cancel_info.order_number)
-            .fetch_optional(&mut *tx)
-            .await
-            .map_err(|e| format!("Failed to find order: {e}"))?
-        };
-
-        let order_id = match order_row {
-            Some((id,)) => id,
+        // 注文番号は大文字小文字を区別せずマッチ（メールからそのまま保存するため表記が揺れる場合あり）
+        // alternate_domains が渡された場合、検索失敗時に追加ドメインで再試行（店舗固有ロジックは呼び出し元で設定）
+        let order_id = match Self::find_order_by_number_and_domain(
+            &mut tx,
+            &cancel_info.order_number,
+            &shop_domain,
+            alternate_domains.as_deref(),
+        )
+        .await
+        .map_err(|e| format!("Failed to find order: {e}"))?
+        {
+            Some(id) => id,
             None => {
                 log::warn!(
-                    "Cancel mail: order {} not found (shop_domain={:?})",
+                    "Cancel mail: order {} not found (shop_domain={:?}, alternate_domains={:?})",
                     cancel_info.order_number,
-                    shop_domain
+                    shop_domain,
+                    alternate_domains
                 );
                 tx.rollback()
                     .await
@@ -1125,6 +1163,99 @@ impl OrderRepository for SqliteOrderRepository {
                 }
             }
         }
+
+        // 3. order_emails にメールとの関連を保存
+        let existing_link: Option<(i64,)> = sqlx::query_as(
+            r#"
+            SELECT order_id FROM order_emails
+            WHERE order_id = ? AND email_id = ?
+            LIMIT 1
+            "#,
+        )
+        .bind(order_id)
+        .bind(email_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| format!("Failed to check order_email link: {e}"))?;
+
+        if existing_link.is_none() {
+            sqlx::query(
+                r#"
+                INSERT INTO order_emails (order_id, email_id)
+                VALUES (?, ?)
+                "#,
+            )
+            .bind(order_id)
+            .bind(email_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| format!("Failed to link order to email: {e}"))?;
+        }
+
+        tx.commit()
+            .await
+            .map_err(|e| format!("Failed to commit transaction: {e}"))?;
+
+        Ok(order_id)
+    }
+
+    async fn apply_order_number_change(
+        &self,
+        change_info: &OrderNumberChangeInfo,
+        email_id: i64,
+        shop_domain: Option<String>,
+        _shop_name: Option<String>,
+        alternate_domains: Option<Vec<String>>,
+    ) -> Result<i64, String> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| format!("Failed to start transaction: {e}"))?;
+
+        // 1. 既存の注文を検索（旧注文番号 + shop_domain）
+        // 注文番号は大文字小文字を区別せずマッチ（メールからそのまま保存するため表記が揺れる場合あり）
+        // alternate_domains が渡された場合、検索失敗時に追加ドメインで再試行（店舗固有ロジックは呼び出し元で設定）
+        let order_id = match Self::find_order_by_number_and_domain(
+            &mut tx,
+            &change_info.old_order_number,
+            &shop_domain,
+            alternate_domains.as_deref(),
+        )
+        .await
+        .map_err(|e| format!("Failed to find order: {e}"))?
+        {
+            Some(id) => id,
+            None => {
+                log::warn!(
+                    "Order number change: order {} not found (shop_domain={:?}, alternate_domains={:?})",
+                    change_info.old_order_number,
+                    shop_domain,
+                    alternate_domains
+                );
+                tx.rollback()
+                    .await
+                    .map_err(|e| format!("Failed to rollback: {e}"))?;
+                return Err(format!(
+                    "Order {} not found for number change",
+                    change_info.old_order_number
+                ));
+            }
+        };
+
+        // 2. 注文番号を更新
+        sqlx::query("UPDATE orders SET order_number = ? WHERE id = ?")
+            .bind(&change_info.new_order_number)
+            .bind(order_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| format!("Failed to update order number: {e}"))?;
+        log::info!(
+            "Order number changed: {} -> {} (order_id={})",
+            change_info.old_order_number,
+            change_info.new_order_number,
+            order_id
+        );
 
         // 3. order_emails にメールとの関連を保存
         let existing_link: Option<(i64,)> = sqlx::query_as(
@@ -2800,6 +2931,7 @@ mod tests {
                 email_id.0,
                 Some("1999.co.jp".to_string()),
                 None,
+                None,
             )
             .await;
         assert!(result.is_ok());
@@ -2867,6 +2999,7 @@ mod tests {
             email_id.0,
             Some("1999.co.jp".to_string()),
             None,
+            None,
         )
         .await
         .expect("first apply");
@@ -2875,6 +3008,7 @@ mod tests {
             &cancel_info,
             email_id.0,
             Some("1999.co.jp".to_string()),
+            None,
             None,
         )
         .await
@@ -2932,6 +3066,7 @@ mod tests {
                 email_id.0,
                 Some("1999.co.jp".to_string()),
                 None,
+                None,
             )
             .await;
         assert!(result.is_ok());
@@ -2969,6 +3104,7 @@ mod tests {
                 &cancel_info,
                 email_id.0,
                 Some("1999.co.jp".to_string()),
+                None,
                 None,
             )
             .await;
@@ -3018,6 +3154,7 @@ mod tests {
                 email_id.0,
                 Some("1999.co.jp".to_string()),
                 None,
+                None,
             )
             .await;
         assert!(result.is_err());
@@ -3061,6 +3198,7 @@ mod tests {
                 &cancel_info,
                 email_id.0,
                 Some("1999.co.jp".to_string()),
+                None,
                 None,
             )
             .await;
@@ -3115,6 +3253,7 @@ mod tests {
                 email_id.0,
                 Some("mail.dmm.com".to_string()),
                 None,
+                Some(vec!["mono.dmm.com".to_string()]), // DMM alternate domain
             )
             .await;
         assert!(result.is_ok(), "apply_cancel failed: {:?}", result.err());
@@ -3127,6 +3266,62 @@ mod tests {
                 .await
                 .expect("count items");
         assert_eq!(count.0, 0, "all items should be removed");
+    }
+
+    #[tokio::test]
+    async fn test_apply_order_number_change() {
+        let pool = setup_test_db().await;
+        let repo = SqliteOrderRepository::new(pool.clone());
+
+        sqlx::query(
+            r#"INSERT INTO orders (order_number, shop_domain, shop_name) VALUES ('KC-26407532', 'mail.dmm.com', 'DMM')"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert order");
+        let order_id: (i64,) =
+            sqlx::query_as("SELECT id FROM orders WHERE order_number = 'KC-26407532'")
+                .fetch_one(&pool)
+                .await
+                .expect("get order id");
+        sqlx::query(r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, '商品A', 1)"#)
+            .bind(order_id.0)
+            .execute(&pool)
+            .await
+            .expect("insert item");
+        sqlx::query("INSERT INTO emails (message_id, body_plain) VALUES ('change-email-1', '')")
+            .execute(&pool)
+            .await
+            .expect("insert email");
+        let email_id: (i64,) =
+            sqlx::query_as("SELECT id FROM emails WHERE message_id = 'change-email-1'")
+                .fetch_one(&pool)
+                .await
+                .expect("get email id");
+
+        let change_info = crate::parsers::order_number_change_info::OrderNumberChangeInfo {
+            old_order_number: "KC-26407532".to_string(),
+            new_order_number: "BS-26888944".to_string(),
+        };
+        let result = repo
+            .apply_order_number_change(
+                &change_info,
+                email_id.0,
+                Some("mail.dmm.com".to_string()),
+                None,
+                Some(vec!["mono.dmm.com".to_string()]), // DMM alternate domain
+            )
+            .await;
+        assert!(result.is_ok(), "apply_order_number_change failed: {:?}", result.err());
+        assert_eq!(result.unwrap(), order_id.0);
+
+        let row: (String,) =
+            sqlx::query_as("SELECT order_number FROM orders WHERE id = ?")
+                .bind(order_id.0)
+                .fetch_one(&pool)
+                .await
+                .expect("get order");
+        assert_eq!(row.0, "BS-26888944");
     }
 
     // --- apply_change_items 統合テスト ---

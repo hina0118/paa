@@ -30,29 +30,18 @@ impl DmmCancelParser {
 }
 
 /// 注文番号を抽出（ご注文番号：KC-25278366 形式）
-/// KC-, BS- 等のプレフィックス付き形式をそのまま使用（confirm と一致させる）
+/// 大文字・小文字の両方でパースし、そのまま使用（将来の注文詳細ページURL対応のため）
 fn extract_order_number(lines: &[&str]) -> Result<String, String> {
-    // ご注文番号：KC-25278366 形式（プレフィックス付きを優先）
-    let prefix_re = Regex::new(r"ご注文番号\s*[：:]\s*([A-Z]{2}-\d+)")
+    let prefix_re = Regex::new(r"ご注文番号\s*[：:]\s*([A-Za-z]{2}-\d+)")
         .map_err(|e| format!("Regex error: {e}"))?;
     for line in lines {
         if let Some(captures) = prefix_re.captures(line) {
             if let Some(m) = captures.get(1) {
-                return Ok(m.as_str().to_string());
+                return Ok(m.as_str().trim().to_string());
             }
         }
     }
-    // フォールバック: ご注文番号：数値のみ
-    let numeric_re = Regex::new(r"ご注文番号\s*[：:]\s*(\d+)")
-        .map_err(|e| format!("Regex error: {e}"))?;
-    for line in lines {
-        if let Some(captures) = numeric_re.captures(line) {
-            if let Some(m) = captures.get(1) {
-                return Ok(m.as_str().to_string());
-            }
-        }
-    }
-    Err("Order number not found".to_string())
+    Err("Order number with prefix (KC-, BS-, etc.) not found".to_string())
 }
 
 /// 商品名を抽出（商品名　　：... 形式）
@@ -115,15 +104,15 @@ DMM通販をご利用いただき、ありがとうございます。
     }
 
     #[test]
-    fn test_parse_dmm_cancel_no_prefix() {
-        let email = r#"ご注文番号：12345678
+    fn test_parse_dmm_cancel_lowercase_prefix() {
+        let email = r#"ご注文番号：kc-12345678
 商品名：サンプル商品"#;
         let parser = DmmCancelParser;
         let result = parser.parse_cancel(email);
 
         assert!(result.is_ok());
         let info = result.unwrap();
-        assert_eq!(info.order_number, "12345678");
+        assert_eq!(info.order_number, "kc-12345678");
         assert_eq!(info.product_name, "サンプル商品");
     }
 

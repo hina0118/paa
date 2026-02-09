@@ -512,6 +512,18 @@ pub fn run() {
                 sql: include_str!("../migrations/003_add_dmm_cancel_shop_settings.sql"),
                 kind: MigrationKind::Up,
             },
+            Migration {
+                version: 4,
+                description: "add_dmm_order_number_change_shop_settings",
+                sql: include_str!("../migrations/004_add_dmm_order_number_change_shop_settings.sql"),
+                kind: MigrationKind::Up,
+            },
+            Migration {
+                version: 5,
+                description: "add_dmm_confirm_mono_sender",
+                sql: include_str!("../migrations/005_add_dmm_confirm_mono_sender.sql"),
+                kind: MigrationKind::Up,
+            },
         ]
     };
 

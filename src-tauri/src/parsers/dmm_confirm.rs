@@ -77,27 +77,50 @@ fn parse_from_html(html: &str) -> Result<OrderInfo, String> {
 }
 
 fn extract_order_number_from_html(document: &Html) -> Result<String, String> {
-    let text = document.root_element().text().collect::<String>();
-    // KC-, BS- 等のプレフィックス付き形式を優先（発送ブロック内に出現）
-    let prefix_re = Regex::new(r"\b([A-Z]{2}-\d+)\b").unwrap();
-    if let Some(cap) = prefix_re.captures(&text) {
-        if let Some(m) = cap.get(1) {
-            return Ok(m.as_str().to_string());
-        }
-    }
-    // フォールバック: ご注文番号：数値
+    let tr_selector = Selector::parse("tr").unwrap_or_else(|_| Selector::parse("div").unwrap());
     let td_selector = Selector::parse("td").unwrap_or_else(|_| Selector::parse("div").unwrap());
-    let re = Regex::new(r"ご注文番号\s*[：:]\s*(\d+)").unwrap();
-    let re2 = Regex::new(r"注文番号\s*[：:]\s*(\d+)").unwrap();
-    for el in document.select(&td_selector) {
-        let text = el.text().collect::<String>();
-        if let Some(cap) = re.captures(&text).or_else(|| re2.captures(&text)) {
-            if let Some(m) = cap.get(1) {
-                return Ok(m.as_str().to_string());
+    // 大文字・小文字の両方でパースし、そのまま使用（将来の注文詳細ページURL対応のため）
+    let prefix_re = Regex::new(r"([A-Za-z]{2}-\d+)").unwrap();
+
+    // 接頭辞（KC-, BS-等）必須。数字のみだと他メール（キャンセル・番号変更）と連携できないためエラー
+    // 構造: <tr><td>BS-27892474</td><td>発送元：千葉配送センター</td><td>発送：...</td></tr>
+    for tr in document.select(&tr_selector) {
+        let tds: Vec<_> = tr.select(&td_selector).collect();
+        for (i, td) in tds.iter().enumerate() {
+            let text = td.text().collect::<String>();
+            if text.contains("発送元") || text.contains("発送先") {
+                if i > 0 {
+                    let prev_td = &tds[i - 1];
+                    let prev_text = prev_td.text().collect::<String>().trim().to_string();
+                    if !prev_text.is_empty() {
+                        if let Some(cap) = prefix_re.captures(&prev_text) {
+                            if let Some(m) = cap.get(1) {
+                                return Ok(m.as_str().to_string());
+                            }
+                        }
+                    }
+                }
+                break;
             }
         }
     }
-    Err("Order number not found".to_string())
+
+    // フォールバック: ご注文番号：KC-12345678 形式（接頭辞必須、大文字小文字両対応）
+    let prefix_patterns = [
+        Regex::new(r"ご注文番号\s*[：:]\s*([A-Za-z]{2}-\d+)"),
+        Regex::new(r"注文番号\s*[：:]\s*([A-Za-z]{2}-\d+)"),
+    ];
+    for el in document.select(&td_selector) {
+        let text = el.text().collect::<String>();
+        for re in prefix_patterns.iter().flatten() {
+            if let Some(cap) = re.captures(&text) {
+                if let Some(m) = cap.get(1) {
+                    return Ok(m.as_str().to_string());
+                }
+            }
+        }
+    }
+    Err("Order number with prefix (KC-, BS-, etc.) not found".to_string())
 }
 
 fn extract_order_date_from_html(document: &Html) -> Option<String> {
@@ -339,19 +362,35 @@ fn parse_from_text(body: &str) -> Result<OrderInfo, String> {
 }
 
 fn extract_order_number(lines: &[&str]) -> Result<String, String> {
-    // KC-, BS- 等のプレフィックス付き形式を優先（発送ブロック内に出現）
-    let prefix_re = Regex::new(r"\b([A-Z]{2}-\d+)\b").unwrap();
+    // 大文字・小文字の両方でパースし、そのまま使用（将来の注文詳細ページURL対応のため）
+    let prefix_re = Regex::new(r"([A-Za-z]{2}-\d+)").unwrap();
+
+    // 接頭辞（KC-, BS-等）必須。数字のみだと他メール（キャンセル・番号変更）と連携できないためエラー
+    // 「発送元」「発送先」を含む行から、その直前の部分で注文番号を抽出
     for line in lines {
-        if let Some(cap) = prefix_re.captures(line) {
-            if let Some(m) = cap.get(1) {
-                return Ok(m.as_str().to_string());
+        if line.contains("発送元") || line.contains("発送先") {
+            let before_ship = line
+                .split("発送元")
+                .next()
+                .unwrap_or("")
+                .split("発送先")
+                .next()
+                .unwrap_or("")
+                .trim();
+            if !before_ship.is_empty() {
+                if let Some(cap) = prefix_re.captures(before_ship) {
+                    if let Some(m) = cap.get(1) {
+                        return Ok(m.as_str().to_string());
+                    }
+                }
             }
         }
     }
-    // フォールバック: ご注文番号：数値
+
+    // フォールバック: ご注文番号：KC-12345678 形式（接頭辞必須、大文字小文字両対応）
     let patterns = [
-        Regex::new(r"ご注文番号\s*[：:]\s*(\d+)"),
-        Regex::new(r"注文番号\s*[：:]\s*(\d+)"),
+        Regex::new(r"ご注文番号\s*[：:]\s*([A-Za-z]{2}-\d+)"),
+        Regex::new(r"注文番号\s*[：:]\s*([A-Za-z]{2}-\d+)"),
     ];
     for line in lines {
         for re in patterns.iter().flatten() {
@@ -362,7 +401,7 @@ fn extract_order_number(lines: &[&str]) -> Result<String, String> {
             }
         }
     }
-    Err("Order number not found".to_string())
+    Err("Order number with prefix (KC-, BS-, etc.) not found".to_string())
 }
 
 fn extract_order_date(lines: &[&str]) -> Option<String> {
@@ -672,7 +711,7 @@ KC-24167237　発送元：石川配送センター　発送：日本郵便
     fn test_parse_dmm_confirm_html() {
         let html = r#"<html><body>
 <table>
-<tr><td>ご注文番号：23458091</td></tr>
+<tr><td>KC-23458091</td><td>発送元：千葉配送センター</td><td>発送：日本郵便</td></tr>
 <tr><td>ご注文日：2023/8/22</td></tr>
 <tr><td>受取人のお名前：テスト 太郎 様</td></tr>
 </table>
@@ -697,7 +736,7 @@ KC-24167237　発送元：石川配送センター　発送：日本郵便
         assert!(result.is_ok(), "Parse failed: {:?}", result.err());
         let order_info = result.unwrap();
 
-        assert_eq!(order_info.order_number, "23458091");
+        assert_eq!(order_info.order_number, "KC-23458091");
         assert_eq!(order_info.order_date, Some("2023-08-22".to_string()));
         assert_eq!(order_info.items.len(), 1);
         assert_eq!(order_info.items[0].name, "BUSTER DOLL ガンナー");
@@ -712,10 +751,60 @@ KC-24167237　発送元：石川配送センター　発送：日本郵便
         );
     }
 
+    /// 注文番号が「発送元」の td と別セル（直前の td）にある構造
+    #[test]
+    fn test_parse_dmm_confirm_html_order_number_in_prev_td() {
+        let html = r#"<html><body>
+<table><tr><td>受取人のお名前：テスト 太郎 様</td></tr></table>
+<table>
+<tbody>
+<tr>
+<td align="left" valign="middle">BS-27892474</td>
+<td align="left" valign="middle">発送元：千葉配送センター</td>
+<td align="left" valign="middle">発送：配送業者は発送時に確定</td>
+</tr>
+</tbody>
+</table>
+<table>
+<tr>
+<td><a href="https://www.dmm.com/mono/hobby/-/detail/=/cid=test/?dmmref=gMono_Mail_Purchase">サンプル商品</a></td>
+<td>1,000円</td>
+<td>数量：1</td>
+</tr>
+</table>
+<table>
+<tr><td>商品小計：1,000円</td></tr>
+<tr><td>送料：0円</td></tr>
+<tr><td>お支払い金額：1,000円(税込)</td></tr>
+</table>
+</body></html>"#;
+        let parser = DmmConfirmParser;
+        let result = parser.parse(html);
+
+        assert!(result.is_ok(), "Parse failed: {:?}", result.err());
+        let order_info = result.unwrap();
+        assert_eq!(order_info.order_number, "BS-27892474");
+    }
+
+    /// 数字のみの注文番号はエラー（接頭辞必須、他メールと連携できないため）
+    #[test]
+    fn test_parse_dmm_confirm_rejects_numeric_only_order_number() {
+        let email = r#"ご注文番号:23458091
+ご注文日：2024/1/1
+受取人のお名前：テスト 太郎 様
+
+商品A 1個 1,000円
+合計:1,000円(税込)"#;
+        let parser = DmmConfirmParser;
+        let result = parser.parse(email);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("prefix"));
+    }
+
     /// 【11月再生産分】等のプレフィックスが除去される
     #[test]
     fn test_parse_dmm_confirm_product_name_normalize() {
-        let email = r#"ご注文番号:99999999
+        let email = r#"ご注文番号:KC-99999999
 ご注文日：2024/1/1
 受取人のお名前：テスト 太郎 様
 
@@ -733,7 +822,7 @@ KC-24167237　発送元：石川配送センター　発送：日本郵便
     /// ご注文確定日形式
     #[test]
     fn test_parse_dmm_confirm_order_date_kakutei() {
-        let email = r#"ご注文番号:12345678
+        let email = r#"ご注文番号:KC-12345678
 ご注文確定日：2024/3/15
 受取人のお名前：テスト 太郎 様
 
@@ -745,7 +834,7 @@ KC-24167237　発送元：石川配送センター　発送：日本郵便
         assert!(result.is_ok(), "Parse failed: {:?}", result.err());
         let order_info = result.unwrap();
 
-        assert_eq!(order_info.order_number, "12345678");
+        assert_eq!(order_info.order_number, "KC-12345678");
         assert_eq!(order_info.order_date, Some("2024-03-15".to_string()));
     }
 
@@ -805,7 +894,7 @@ CD（オトギフロンティア サウンドトラック2 Verion.319）(グッ�
     fn test_parse_dmm_confirm_html_exclude_recommend() {
         let html = r#"<html><body>
 <table>
-<tr><td>ご注文番号：23458091</td></tr>
+<tr><td>KC-23458091</td><td>発送元：千葉配送センター</td><td>発送：日本郵便</td></tr>
 <tr><td>ご注文日：2023/8/22</td></tr>
 <tr><td>受取人のお名前：テスト 太郎 様</td></tr>
 </table>
@@ -842,7 +931,7 @@ CD（オトギフロンティア サウンドトラック2 Verion.319）(グッ�
         assert!(result.is_ok(), "Parse failed: {:?}", result.err());
         let order_info = result.unwrap();
 
-        assert_eq!(order_info.order_number, "23458091");
+        assert_eq!(order_info.order_number, "KC-23458091");
         assert_eq!(order_info.order_date, Some("2023-08-22".to_string()));
         // おすすめ商品は除外され、注文商品のみが取得される
         assert_eq!(order_info.items.len(), 1);
