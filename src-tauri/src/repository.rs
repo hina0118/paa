@@ -349,6 +349,17 @@ pub trait OrderRepository: Send + Sync {
         shop_name: Option<String>,
         change_email_internal_date: Option<i64>,
     ) -> Result<i64, String>;
+
+    /// 分割完了メール用: 先頭の注文を「元注文」として扱い、既存注文があれば商品を差し替え、なければ新規登録する。
+    /// * `alternate_domains`: 検索失敗時に試す追加ドメイン（DMM の mail.dmm.com / mono.dmm.com 等）
+    async fn apply_split_first_order(
+        &self,
+        order_info: &OrderInfo,
+        email_id: Option<i64>,
+        shop_domain: Option<String>,
+        shop_name: Option<String>,
+        alternate_domains: Option<Vec<String>>,
+    ) -> Result<i64, String>;
 }
 
 /// パース関連のDB操作を抽象化するトレイト
@@ -994,6 +1005,47 @@ impl SqliteOrderRepository {
 
         Ok(order_id)
     }
+
+    /// 指定注文の商品を削除し、order_info の商品で置き換える（分割完了の元注文更新用）
+    async fn replace_items_for_order_in_tx(
+        tx: &mut sqlx::Transaction<'_, Sqlite>,
+        order_id: i64,
+        order_info: &OrderInfo,
+    ) -> Result<(), String> {
+        sqlx::query("DELETE FROM items WHERE order_id = ?")
+            .bind(order_id)
+            .execute(tx.as_mut())
+            .await
+            .map_err(|e| format!("Failed to delete existing items: {e}"))?;
+        log::debug!("Replaced items for order {} (split first order)", order_id);
+
+        for item in &order_info.items {
+            let item_name_normalized = {
+                let n = normalize_product_name(&item.name);
+                if n.is_empty() {
+                    None
+                } else {
+                    Some(n)
+                }
+            };
+            sqlx::query(
+                r#"
+                INSERT INTO items (order_id, item_name, item_name_normalized, brand, price, quantity)
+                VALUES (?, ?, ?, ?, ?, ?)
+                "#,
+            )
+            .bind(order_id)
+            .bind(&item.name)
+            .bind(item_name_normalized.as_deref())
+            .bind(&item.manufacturer)
+            .bind(item.unit_price)
+            .bind(item.quantity)
+            .execute(tx.as_mut())
+            .await
+            .map_err(|e| format!("Failed to insert item: {e}"))?;
+        }
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -1348,6 +1400,96 @@ impl OrderRepository for SqliteOrderRepository {
             .await
             .map_err(|e| format!("Failed to commit transaction: {e}"))?;
 
+        Ok(order_id)
+    }
+
+    async fn apply_split_first_order(
+        &self,
+        order_info: &OrderInfo,
+        email_id: Option<i64>,
+        shop_domain: Option<String>,
+        shop_name: Option<String>,
+        alternate_domains: Option<Vec<String>>,
+    ) -> Result<i64, String> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| format!("Failed to start transaction: {e}"))?;
+
+        let order_id = match Self::find_order_by_number_and_domain(
+            &mut tx,
+            &order_info.order_number,
+            &shop_domain,
+            alternate_domains.as_deref(),
+        )
+        .await
+        .map_err(|e| format!("Failed to find order: {e}"))?
+        {
+            Some(existing_id) => {
+                Self::replace_items_for_order_in_tx(&mut tx, existing_id, order_info).await?;
+                if order_info.order_date.is_some() {
+                    sqlx::query(
+                        r#"
+                        UPDATE orders
+                        SET order_date = COALESCE(?, order_date)
+                        WHERE id = ?
+                        "#,
+                    )
+                    .bind(&order_info.order_date)
+                    .bind(existing_id)
+                    .execute(tx.as_mut())
+                    .await
+                    .map_err(|e| format!("Failed to update order date: {e}"))?;
+                }
+                if let Some(email_id_val) = email_id {
+                    let existing_link: Option<(i64,)> = sqlx::query_as(
+                        r#"SELECT order_id FROM order_emails WHERE order_id = ? AND email_id = ? LIMIT 1"#,
+                    )
+                    .bind(existing_id)
+                    .bind(email_id_val)
+                    .fetch_optional(tx.as_mut())
+                    .await
+                    .map_err(|e| format!("Failed to check order_email link: {e}"))?;
+                    if existing_link.is_none() {
+                        sqlx::query(
+                            r#"INSERT INTO order_emails (order_id, email_id) VALUES (?, ?)"#,
+                        )
+                        .bind(existing_id)
+                        .bind(email_id_val)
+                        .execute(tx.as_mut())
+                        .await
+                        .map_err(|e| format!("Failed to link order to email: {e}"))?;
+                    }
+                }
+                log::info!(
+                    "Split first order: updated existing order {} (order_number={})",
+                    existing_id,
+                    order_info.order_number
+                );
+                existing_id
+            }
+            None => {
+                let id = Self::save_order_in_tx(
+                    &mut tx,
+                    order_info,
+                    email_id,
+                    shop_domain.clone(),
+                    shop_name,
+                )
+                .await?;
+                log::debug!(
+                    "Split first order: created new order {} (order_number={})",
+                    id,
+                    order_info.order_number
+                );
+                id
+            }
+        };
+
+        tx.commit()
+            .await
+            .map_err(|e| format!("Failed to commit transaction: {e}"))?;
         Ok(order_id)
     }
 }

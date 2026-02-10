@@ -469,19 +469,180 @@ where
                     }
                 }
 
-                let parser = match get_parser(parser_type) {
-                    Some(p) => p,
+                // parse_multi を先に試す（parser を await の向こうに渡さないためブロックで分離）
+                let multi_orders = match get_parser(parser_type) {
+                    Some(p) => p.parse_multi(&input.body_plain),
                     None => {
                         log::warn!("Unknown parser type: {}", parser_type);
                         continue;
                     }
                 };
 
-                match parser.parse(&input.body_plain) {
+                // 複数注文を返すパーサー（dmm_split_complete 等）
+                if let Some(multi_result) = multi_orders {
+                    match multi_result {
+                        Ok(orders) if orders.len() > 1 => {
+                            log::debug!(
+                                "Parser {} returned {} orders (multi)",
+                                parser_type,
+                                orders.len()
+                            );
+                            let from_address = input.from_address.as_deref().unwrap_or("");
+                            let shop_domain = extract_email_address(from_address)
+                                .and_then(|email| extract_domain(&email).map(|s| s.to_string()));
+                            let alternate_domains = order_lookup_alternate_domains(&shop_domain);
+                            let mut first_order_info = None;
+                            for (idx, mut order_info) in orders.into_iter().enumerate() {
+                                if order_info.order_date.is_none()
+                                    && input.internal_date.is_some()
+                                    && matches!(
+                                        parser_type.as_str(),
+                                        "dmm_split_complete"
+                                    )
+                                {
+                                    if let Some(ts_ms) = input.internal_date {
+                                        if let Some(dt) = DateTime::from_timestamp_millis(ts_ms) {
+                                            order_info.order_date =
+                                                Some(dt.format("%Y-%m-%d %H:%M:%S").to_string());
+                                        }
+                                    }
+                                }
+                                let save_result = if idx == 0
+                                    && parser_type.as_str() == "dmm_split_complete"
+                                {
+                                    context
+                                        .order_repo
+                                        .apply_split_first_order(
+                                            &order_info,
+                                            Some(input.email_id),
+                                            shop_domain.clone(),
+                                            Some(shop_name.clone()),
+                                            alternate_domains.clone(),
+                                        )
+                                        .await
+                                } else {
+                                    context
+                                        .order_repo
+                                        .save_order(
+                                            &order_info,
+                                            Some(input.email_id),
+                                            shop_domain.clone(),
+                                            Some(shop_name.clone()),
+                                        )
+                                        .await
+                                };
+                                match save_result {
+                                    Ok(order_id) => {
+                                        log::debug!(
+                                            "Saved split order {} ({} of N) for email {}",
+                                            order_id,
+                                            idx + 1,
+                                            input.email_id
+                                        );
+                                        if let Some((ref pool, ref images_dir)) =
+                                            context.image_save_ctx
+                                        {
+                                            for item in &order_info.items {
+                                                if let Some(ref url) = item.image_url {
+                                                    let normalized =
+                                                        crate::gemini::normalize_product_name(
+                                                            &item.name,
+                                                        );
+                                                    if !normalized.is_empty() {
+                                                        let _ = crate::image_utils::save_image_from_url_for_item(
+                                                            pool.as_ref(),
+                                                            images_dir,
+                                                            &normalized,
+                                                            url,
+                                                            true,
+                                                        )
+                                                        .await;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        if first_order_info.is_none() {
+                                            first_order_info = Some(order_info);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        log::error!(
+                                            "Failed to save split order {} for email {}: {}",
+                                            idx + 1,
+                                            input.email_id,
+                                            e
+                                        );
+                                        last_error = e.to_string();
+                                        break;
+                                    }
+                                }
+                            }
+                            if let Some(order_info) = first_order_info {
+                                parse_result =
+                                    Some((order_info, shop_name.clone(), parser_type.clone()));
+                            }
+                            break;
+                        }
+                        Ok(orders) if orders.len() == 1 => {
+                            let mut order_info = orders.into_iter().next().unwrap();
+                            if order_info.order_date.is_none()
+                                && input.internal_date.is_some()
+                                && matches!(parser_type.as_str(), "dmm_split_complete")
+                            {
+                                if let Some(ts_ms) = input.internal_date {
+                                    if let Some(dt) = DateTime::from_timestamp_millis(ts_ms) {
+                                        order_info.order_date =
+                                            Some(dt.format("%Y-%m-%d %H:%M:%S").to_string());
+                                    }
+                                }
+                            }
+                            if parser_type.as_str() == "dmm_split_complete" {
+                                let from_address = input.from_address.as_deref().unwrap_or("");
+                                let shop_domain = extract_email_address(from_address)
+                                    .and_then(|email| extract_domain(&email).map(|s| s.to_string()));
+                                let alternate_domains = order_lookup_alternate_domains(&shop_domain);
+                                match context
+                                    .order_repo
+                                    .apply_split_first_order(
+                                        &order_info,
+                                        Some(input.email_id),
+                                        shop_domain,
+                                        Some(shop_name.clone()),
+                                        alternate_domains,
+                                    )
+                                    .await
+                                {
+                                    Ok(_) => {
+                                        parse_result =
+                                            Some((order_info, shop_name.clone(), parser_type.clone()));
+                                    }
+                                    Err(e) => {
+                                        last_error = e;
+                                        continue;
+                                    }
+                                }
+                            } else {
+                                parse_result =
+                                    Some((order_info, shop_name.clone(), parser_type.clone()));
+                            }
+                            break;
+                        }
+                        Ok(_) => {
+                            last_error = "Parser returned empty orders".to_string();
+                            continue;
+                        }
+                        Err(e) => {
+                            log::debug!("Parser {} parse_multi failed: {}", parser_type, e);
+                            last_error = e;
+                            continue;
+                        }
+                    }
+                } else if let Some(parser) = get_parser(parser_type) {
+                    match parser.parse(&input.body_plain) {
                     Ok(mut order_info) => {
                         log::debug!("Successfully parsed with parser: {}", parser_type);
 
-                        // confirm, confirm_yoyaku, change の場合はメール受信日を order_date に使用
+                        // confirm, confirm_yoyaku, change, dmm_confirm の場合はメール受信日を order_date に使用
                         if order_info.order_date.is_none()
                             && input.internal_date.is_some()
                             && matches!(
@@ -490,6 +651,7 @@ where
                                     | "hobbysearch_confirm_yoyaku"
                                     | "hobbysearch_change"
                                     | "hobbysearch_change_yoyaku"
+                                    | "dmm_confirm"
                             )
                         {
                             if let Some(ts_ms) = input.internal_date {
@@ -518,6 +680,10 @@ where
                         continue;
                     }
                 }
+            } else {
+                    log::warn!("Unknown parser type: {}", parser_type);
+                    continue;
+                }
             }
 
             if cancel_applied {
@@ -533,7 +699,10 @@ where
                 let change_email_internal_date = input
                     .internal_date
                     .and_then(|ts| DateTime::from_timestamp_millis(ts).map(|_| ts));
-                let save_result = if parser_type == "hobbysearch_change"
+                // 分割完了は先頭を apply_split_first_order / 残りを save_order で既に保存済みのためここでは保存しない
+                let save_result = if parser_type == "dmm_split_complete" {
+                    Ok(0i64)
+                } else if parser_type == "hobbysearch_change"
                     || parser_type == "hobbysearch_change_yoyaku"
                 {
                     if let Some(change_email_internal_date) = change_email_internal_date {
