@@ -1,6 +1,17 @@
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqlitePool;
 use std::collections::VecDeque;
+
+/// items_fts の trigram トークナイザーは SQLite 3.43 で追加。3.43 以降であることを確認する。
+fn is_sqlite_version_supported(version: &str) -> bool {
+    let parts: Vec<&str> = version.split('.').collect();
+    if parts.len() < 2 {
+        return false;
+    }
+    let major: u32 = parts[0].parse().unwrap_or(0);
+    let minor: u32 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+    major > 3 || (major == 3 && minor >= 43)
+}
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 use tauri::menu::{Menu, MenuItem, Submenu};
@@ -551,6 +562,12 @@ pub fn run() {
                 sql: include_str!("../migrations/010_update_dmm_subject_filters.sql"),
                 kind: MigrationKind::Up,
             },
+            Migration {
+                version: 11,
+                description: "orders_order_number_nocase_index",
+                sql: include_str!("../migrations/011_orders_order_number_nocase_index.sql"),
+                kind: MigrationKind::Up,
+            },
         ]
     };
 
@@ -644,10 +661,28 @@ pub fn run() {
                     .foreign_keys(true);
 
                 // DB接続プール作成
-                SqlitePoolOptions::new()
+                let pool = SqlitePoolOptions::new()
                     .connect_with(options)
                     .await
-                    .expect("Failed to create sqlx pool")
+                    .expect("Failed to create sqlx pool");
+
+                // items_fts の trigram トークナイザーは SQLite 3.43+ が前提。起動時にバージョンチェック
+                let version: (String,) =
+                    sqlx::query_as("SELECT sqlite_version()")
+                        .fetch_one(&pool)
+                        .await
+                        .expect("Failed to query SQLite version");
+                let v = version.0.as_str();
+                if !is_sqlite_version_supported(v) {
+                    panic!(
+                        "SQLite 3.43 以降が必要です（現在: {}）。trigram FTS5 を使用しています。\
+                         bundled SQLite を使うには sqlx の sqlite feature を確認してください。",
+                        v
+                    );
+                }
+                log::info!("SQLite version: {} (trigram FTS5 supported)", v);
+
+                pool
             });
 
             app.manage(pool.clone());
