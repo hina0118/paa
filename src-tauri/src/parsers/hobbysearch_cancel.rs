@@ -2,15 +2,8 @@
 //!
 //! [キャンセル] セクションから注文番号・商品名・キャンセル個数を抽出する。
 
+use crate::parsers::cancel_info::CancelInfo;
 use regex::Regex;
-
-/// キャンセルメールから抽出した情報
-#[derive(Debug, Clone)]
-pub struct CancelInfo {
-    pub order_number: String,
-    pub product_name: String,
-    pub cancel_quantity: i64,
-}
 
 /// キャンセルメール用パーサー
 pub struct HobbySearchCancelParser;

@@ -441,12 +441,19 @@ pub async fn run_batch_parse_task(
         SqliteShopSettingsRepository,
     > = EmailParseTask::new();
 
+    let image_save_ctx = app
+        .path()
+        .app_data_dir()
+        .ok()
+        .map(|dir| (std::sync::Arc::new(pool.clone()), dir.join("images")));
+
     let context = EmailParseContext {
         order_repo: Arc::new(order_repo),
         parse_repo: Arc::new(parse_repo),
         shop_settings_repo: Arc::new(shop_settings_repo),
         shop_settings_cache: Arc::new(Mutex::new(ShopSettingsCache::default())),
         parse_state: Arc::new(parse_state.clone()),
+        image_save_ctx,
     };
 
     let runner = BatchRunner::new(task, batch_size, 0);

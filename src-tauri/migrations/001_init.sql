@@ -73,7 +73,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
     category,
     content=items,
     content_rowid=id,
-    tokenize='unicode61 remove_diacritics 2'
+    tokenize='trigram'
 );
 CREATE TRIGGER items_fts_insert AFTER INSERT ON items BEGIN
     INSERT INTO items_fts(rowid, item_name, item_name_normalized, brand, category)
@@ -192,6 +192,7 @@ CREATE INDEX IF NOT EXISTS idx_shop_settings_sender_address ON shop_settings(sen
 CREATE INDEX IF NOT EXISTS idx_shop_settings_is_enabled ON shop_settings(is_enabled);
 
 INSERT OR IGNORE INTO shop_settings (shop_name, sender_address, parser_type, subject_filters, is_enabled) VALUES
+    ('DMM通販', 'info@mail.dmm.com', 'dmm_confirm', '["DMM通販：ご注文手続き完了のお知らせ"]', 1),
     ('ホビーサーチ', 'hs-support@1999.co.jp', 'hobbysearch_cancel', '["【ホビーサーチ】ご注文のキャンセルが完了致しました"]', 1),
     ('ホビーサーチ', 'hs-support@1999.co.jp', 'hobbysearch_send', '["【ホビーサーチ】ご注文の発送が完了しました"]', 1),
     ('ホビーサーチ', 'hs-support@1999.co.jp', 'hobbysearch_change', '["【ホビーサーチ】ご注文が組み替えられました"]', 1),

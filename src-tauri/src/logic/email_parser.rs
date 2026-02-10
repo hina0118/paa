@@ -22,6 +22,12 @@ pub fn is_valid_parser_type(parser_type: &str) -> bool {
             | "hobbysearch_change_yoyaku"
             | "hobbysearch_send"
             | "hobbysearch_cancel"
+            | "dmm_confirm"
+            | "dmm_send"
+            | "dmm_cancel"
+            | "dmm_order_number_change"
+            | "dmm_merge_complete"
+            | "dmm_split_complete"
     )
 }
 
@@ -96,7 +102,11 @@ pub fn get_candidate_parsers<'a>(
                 None
             }
         })
-        .filter(|parser_type| *parser_type != "hobbysearch_cancel") // バッチパース専用、get_parser 非対応のため除外
+        .filter(|parser_type| {
+            *parser_type != "hobbysearch_cancel"
+                && *parser_type != "dmm_cancel"
+                && *parser_type != "dmm_order_number_change"
+        }) // バッチパース専用、get_parser 非対応のため除外
         .collect()
 }
 
@@ -168,6 +178,21 @@ mod tests {
     #[test]
     fn test_is_valid_parser_type_unknown() {
         assert!(!is_valid_parser_type("unknown_parser"));
+    }
+
+    #[test]
+    fn test_is_valid_parser_type_dmm_confirm() {
+        assert!(is_valid_parser_type("dmm_confirm"));
+    }
+
+    #[test]
+    fn test_is_valid_parser_type_dmm_cancel() {
+        assert!(is_valid_parser_type("dmm_cancel"));
+    }
+
+    #[test]
+    fn test_is_valid_parser_type_dmm_split_complete() {
+        assert!(is_valid_parser_type("dmm_split_complete"));
     }
 
     #[test]

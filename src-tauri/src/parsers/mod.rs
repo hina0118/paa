@@ -1,6 +1,7 @@
 use crate::batch_runner::BatchProgressEvent;
 use crate::logic::email_parser::extract_domain;
 use crate::logic::sync_logic::extract_email_address;
+use crate::parsers::cancel_info::CancelInfo;
 use crate::repository::{
     OrderRepository, ParseRepository, ShopSettingsRepository, SqliteOrderRepository,
     SqliteParseRepository, SqliteShopSettingsRepository,
@@ -10,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, SqlitePool};
 use std::sync::{Arc, Mutex};
 use tauri::Emitter;
+use tauri::Manager;
 
 // 定数はemail_parse_taskモジュールからエクスポート
 pub use email_parse_task::{EMAIL_PARSE_EVENT_NAME, EMAIL_PARSE_TASK_NAME};
@@ -20,16 +22,51 @@ pub struct EmailRow {
     #[sqlx(rename = "id")]
     pub email_id: i64,
     pub message_id: String,
-    pub body_plain: String,
+    pub body_plain: Option<String>,
+    pub body_html: Option<String>,
     pub from_address: Option<String>,
     pub subject: Option<String>,
     pub internal_date: Option<i64>,
 }
 
+/// 注文検索で試す追加ドメインを返す（店舗固有）。
+/// DMM: 注文確認は mail.dmm.com / mono.dmm.com のどちらかから届く。キャンセル・注文番号変更は mail.dmm.com から。
+/// 呼び出し元（apply_cancel / apply_order_number_change）で alternate_domains として渡す。
+pub fn order_lookup_alternate_domains(shop_domain: &Option<String>) -> Option<Vec<String>> {
+    match shop_domain.as_deref() {
+        Some("mail.dmm.com") => Some(vec!["mono.dmm.com".into()]),
+        Some("mono.dmm.com") => Some(vec!["mail.dmm.com".into()]),
+        _ => None,
+    }
+}
+
+/// body_html があれば使用、なければ body_plain を返す（タグ除去は行わない）。
+/// DMM 等は HTML から直接パースするため、HTML 優先で精度が上がる。
+pub fn get_body_for_parse(row: &EmailRow) -> String {
+    let html = row.body_html.as_deref().unwrap_or("").trim();
+    if !html.is_empty() {
+        return html.to_string();
+    }
+    row.body_plain.as_deref().unwrap_or("").to_string()
+}
+
+// キャンセル情報（全店舗共通）
+pub mod cancel_info;
+// 注文番号変更情報（全店舗共通）
+pub mod order_number_change_info;
+// まとめ完了情報（全店舗共通）
+pub mod consolidation_info;
+
 // ホビーサーチ用の共通パースユーティリティ関数
 mod hobbysearch_common;
 
 // ホビーサーチ用パーサー
+pub mod dmm_cancel;
+pub mod dmm_confirm;
+pub mod dmm_merge_complete;
+pub mod dmm_order_number_change;
+pub mod dmm_send;
+pub mod dmm_split_complete;
 pub mod hobbysearch_cancel;
 pub mod hobbysearch_change;
 pub mod hobbysearch_change_yoyaku;
@@ -186,12 +223,21 @@ pub struct OrderItem {
     pub quantity: i64,
     /// 小計
     pub subtotal: i64,
+    /// 商品画像URL（注文確認メールに含まれる場合、images テーブルへ登録する）
+    pub image_url: Option<String>,
 }
 
 /// メールパーサーのトレイト
 pub trait EmailParser {
     /// メール本文から注文情報をパースする
     fn parse(&self, email_body: &str) -> Result<OrderInfo, String>;
+
+    /// 1通のメールから複数注文を返す場合に実装する。
+    /// デフォルトは None（単一注文として parse() を使用）。
+    /// Some(Ok(orders)) を返すとバッチで各注文を save_order する。
+    fn parse_multi(&self, _email_body: &str) -> Option<Result<Vec<OrderInfo>, String>> {
+        None
+    }
 }
 
 /// バッチパース用: 送信元アドレスと件名から候補パーサー(parser_type, shop_name)を取得
@@ -248,6 +294,62 @@ pub fn get_candidate_parsers_for_batch(
         .collect()
 }
 
+/// パーサータイプがキャンセル専用かどうか
+pub(crate) fn is_cancel_parser(parser_type: &str) -> bool {
+    matches!(parser_type, "hobbysearch_cancel" | "dmm_cancel")
+}
+
+/// パーサータイプが注文番号変更専用かどうか
+pub(crate) fn is_order_number_change_parser(parser_type: &str) -> bool {
+    matches!(parser_type, "dmm_order_number_change")
+}
+
+/// パーサータイプがまとめ完了専用かどうか
+pub(crate) fn is_merge_complete_parser(parser_type: &str) -> bool {
+    matches!(parser_type, "dmm_merge_complete")
+}
+
+/// キャンセルパーサーから CancelInfo を抽出（失敗時は Err）
+pub(crate) fn parse_cancel_with_parser(
+    parser_type: &str,
+    body: &str,
+) -> Result<CancelInfo, String> {
+    match parser_type {
+        "hobbysearch_cancel" => hobbysearch_cancel::HobbySearchCancelParser.parse_cancel(body),
+        "dmm_cancel" => dmm_cancel::DmmCancelParser.parse_cancel(body),
+        _ => Err(format!("Unknown cancel parser: {}", parser_type)),
+    }
+}
+
+/// 注文番号変更パーサーから OrderNumberChangeInfo を抽出（失敗時は Err）
+pub(crate) fn parse_order_number_change_with_parser(
+    parser_type: &str,
+    body: &str,
+) -> Result<order_number_change_info::OrderNumberChangeInfo, String> {
+    match parser_type {
+        "dmm_order_number_change" => {
+            dmm_order_number_change::DmmOrderNumberChangeParser.parse_order_number_change(body)
+        }
+        _ => Err(format!(
+            "Unknown order number change parser: {}",
+            parser_type
+        )),
+    }
+}
+
+/// まとめ完了パーサーから ConsolidationInfo を抽出（失敗時は Err）
+pub(crate) fn parse_consolidation_with_parser(
+    parser_type: &str,
+    body: &str,
+) -> Result<consolidation_info::ConsolidationInfo, String> {
+    match parser_type {
+        "dmm_merge_complete" => {
+            dmm_merge_complete::DmmMergeCompleteParser.parse_consolidation(body)
+        }
+        _ => Err(format!("Unknown merge complete parser: {}", parser_type)),
+    }
+}
+
 /// パーサータイプから適切なパーサーを取得する
 pub fn get_parser(parser_type: &str) -> Option<Box<dyn EmailParser>> {
     match parser_type {
@@ -260,6 +362,9 @@ pub fn get_parser(parser_type: &str) -> Option<Box<dyn EmailParser>> {
             hobbysearch_change_yoyaku::HobbySearchChangeYoyakuParser,
         )),
         "hobbysearch_send" => Some(Box::new(hobbysearch_send::HobbySearchSendParser)),
+        "dmm_confirm" => Some(Box::new(dmm_confirm::DmmConfirmParser)),
+        "dmm_send" => Some(Box::new(dmm_send::DmmSendParser)),
+        "dmm_split_complete" => Some(Box::new(dmm_split_complete::DmmSplitCompleteParser)),
         _ => None,
     }
 }
@@ -427,12 +532,14 @@ pub async fn batch_parse_emails(
             let mut last_error = String::new();
             // キャンセルメールとして処理した（成功・失敗いずれも）。通常の OrderInfo フローをスキップする。
             let mut handled_as_cancel = false;
+            // 複数注文パーサーで保存済み（後段の save_order をスキップする）
+            let mut handled_as_multi = false;
 
             for (parser_type, shop_name) in &candidate_parsers {
                 // キャンセルメールは専用パーサーで処理（OrderInfo を返さない）
-                if parser_type == "hobbysearch_cancel" {
-                    let cancel_parser = hobbysearch_cancel::HobbySearchCancelParser;
-                    match cancel_parser.parse_cancel(&row.body_plain) {
+                if is_cancel_parser(parser_type) {
+                    let body = get_body_for_parse(row);
+                    match parse_cancel_with_parser(parser_type, &body) {
                         Ok(cancel_info) => {
                             log::debug!(
                                 "[DEBUG] cancel email_id={} internal_date={:?} order_number={} subject={:?}",
@@ -449,8 +556,9 @@ pub async fn batch_parse_emails(
                                 .apply_cancel(
                                     &cancel_info,
                                     row.email_id,
-                                    shop_domain,
+                                    shop_domain.clone(),
                                     Some(shop_name.clone()),
+                                    order_lookup_alternate_domains(&shop_domain),
                                 )
                                 .await
                             {
@@ -477,7 +585,7 @@ pub async fn batch_parse_emails(
                             break;
                         }
                         Err(e) => {
-                            log::debug!("hobbysearch_cancel parser failed: {}", e);
+                            log::debug!("{} parser failed: {}", parser_type, e);
                             last_error = e;
                             continue;
                         }
@@ -492,52 +600,154 @@ pub async fn batch_parse_emails(
                     }
                 };
 
-                match parser.parse(&row.body_plain) {
-                    Ok(mut order_info) => {
-                        log::debug!("Successfully parsed with parser: {}", parser_type);
+                let body = get_body_for_parse(row);
 
-                        // confirm, confirm_yoyaku, change の場合はメール受信日を order_date に使用
-                        if order_info.order_date.is_none()
-                            && row.internal_date.is_some()
-                            && matches!(
-                                parser_type.as_str(),
-                                "hobbysearch_confirm"
-                                    | "hobbysearch_confirm_yoyaku"
-                                    | "hobbysearch_change"
-                                    | "hobbysearch_change_yoyaku"
-                            )
-                        {
-                            if let Some(ts_ms) = row.internal_date {
-                                let dt = match DateTime::from_timestamp_millis(ts_ms) {
-                                    Some(d) => d,
-                                    None => {
-                                        log::warn!(
-                                            "Failed to parse internal_date {} for email {} (invalid timestamp), using current time as order_date fallback",
-                                            ts_ms, row.email_id
-                                        );
-                                        chrono::Utc::now()
+                // 複数注文を返すパーサー（dmm_split_complete 等）
+                if let Some(multi_result) = parser.parse_multi(&body) {
+                    match multi_result {
+                        Ok(orders) if !orders.is_empty() => {
+                            let from_address = row.from_address.as_deref().unwrap_or("");
+                            let shop_domain = extract_email_address(from_address)
+                                .and_then(|email| extract_domain(&email).map(|s| s.to_string()));
+                            let alternate_domains = order_lookup_alternate_domains(&shop_domain);
+                            let total_orders = orders.len();
+                            let mut saved_count_multi = 0usize;
+                            let mut multi_save_error: Option<String> = None;
+                            for (idx, mut order_info) in orders.into_iter().enumerate() {
+                                if order_info.order_date.is_none()
+                                    && row.internal_date.is_some()
+                                    && matches!(parser_type.as_str(), "dmm_split_complete")
+                                {
+                                    if let Some(ts_ms) = row.internal_date {
+                                        if let Some(dt) = DateTime::from_timestamp_millis(ts_ms) {
+                                            order_info.order_date =
+                                                Some(dt.format("%Y-%m-%d %H:%M:%S").to_string());
+                                        }
                                     }
-                                };
-                                // internal_date は UTC ミリ秒タイムスタンプ。order_date は UTC の日時文字列として DB に保存。
-                                // フロントはタイムゾーン未指定を UTC と解釈し JST で表示（README §4 規約）。
-                                order_info.order_date =
-                                    Some(dt.format("%Y-%m-%d %H:%M:%S").to_string());
+                                }
+                                let save_result =
+                                    if idx == 0 && parser_type.as_str() == "dmm_split_complete" {
+                                        order_repo
+                                            .apply_split_first_order(
+                                                &order_info,
+                                                Some(row.email_id),
+                                                shop_domain.clone(),
+                                                Some(shop_name.clone()),
+                                                alternate_domains.clone(),
+                                            )
+                                            .await
+                                    } else {
+                                        order_repo
+                                            .save_order(
+                                                &order_info,
+                                                Some(row.email_id),
+                                                shop_domain.clone(),
+                                                Some(shop_name.clone()),
+                                            )
+                                            .await
+                                    };
+                                match save_result {
+                                    Ok(order_id) => {
+                                        log::info!(
+                                            "Saved split order {} ({} of {}) for email {}",
+                                            order_id,
+                                            idx + 1,
+                                            total_orders,
+                                            row.email_id
+                                        );
+                                        success_count += 1;
+                                        saved_count_multi += 1;
+                                    }
+                                    Err(e) => {
+                                        log::warn!(
+                                            "Failed to save split order {} for email {}: {}",
+                                            idx + 1,
+                                            row.email_id,
+                                            e
+                                        );
+                                        multi_save_error = Some(e);
+                                        break;
+                                    }
+                                }
                             }
+                            // 途中失敗した場合はメール全体を失敗扱い（リトライ前提）
+                            if let Some(err) = multi_save_error {
+                                log::error!(
+                                    "Split order save partially failed for email {} ({}/{} saved): {}",
+                                    row.email_id,
+                                    saved_count_multi,
+                                    total_orders,
+                                    err
+                                );
+                                failed_count += 1;
+                            } else if saved_count_multi > 0 {
+                                handled_as_multi = true;
+                            }
+                            overall_parsed_count += 1;
+                            break;
                         }
-
-                        parse_result =
-                            Some(Ok((order_info, shop_name.clone(), parser_type.clone())));
-                        break;
+                        Ok(_) => {
+                            last_error = "Parser returned empty orders".to_string();
+                            continue;
+                        }
+                        Err(e) => {
+                            log::debug!("Parser {} parse_multi failed: {}", parser_type, e);
+                            last_error = e;
+                            continue;
+                        }
                     }
-                    Err(e) => {
-                        log::debug!("Parser {} failed: {}", parser_type, e);
-                        last_error = e;
-                        continue;
+                } else {
+                    match parser.parse(&body) {
+                        Ok(mut order_info) => {
+                            log::debug!("Successfully parsed with parser: {}", parser_type);
+
+                            // confirm, confirm_yoyaku, change, dmm_confirm の場合はメール受信日を order_date に使用
+                            if order_info.order_date.is_none()
+                                && row.internal_date.is_some()
+                                && matches!(
+                                    parser_type.as_str(),
+                                    "hobbysearch_confirm"
+                                        | "hobbysearch_confirm_yoyaku"
+                                        | "hobbysearch_change"
+                                        | "hobbysearch_change_yoyaku"
+                                        | "dmm_confirm"
+                                )
+                            {
+                                if let Some(ts_ms) = row.internal_date {
+                                    let dt = match DateTime::from_timestamp_millis(ts_ms) {
+                                        Some(d) => d,
+                                        None => {
+                                            log::warn!(
+                                                "Failed to parse internal_date {} for email {} (invalid timestamp), using current time as order_date fallback",
+                                                ts_ms, row.email_id
+                                            );
+                                            chrono::Utc::now()
+                                        }
+                                    };
+                                    // internal_date は UTC ミリ秒タイムスタンプ。order_date は UTC の日時文字列として DB に保存。
+                                    // フロントはタイムゾーン未指定を UTC と解釈し JST で表示（README §4 規約）。
+                                    order_info.order_date =
+                                        Some(dt.format("%Y-%m-%d %H:%M:%S").to_string());
+                                }
+                            }
+
+                            parse_result =
+                                Some(Ok((order_info, shop_name.clone(), parser_type.clone())));
+                            break;
+                        }
+                        Err(e) => {
+                            log::debug!("Parser {} failed: {}", parser_type, e);
+                            last_error = e;
+                            continue;
+                        }
                     }
                 }
             }
 
             if handled_as_cancel {
+                continue;
+            }
+            if handled_as_multi {
                 continue;
             }
 
@@ -592,6 +802,34 @@ pub async fn batch_parse_emails(
                         Ok(order_id) => {
                             log::info!("Successfully parsed and saved order: {}", order_id);
                             success_count += 1;
+                            // 商品画像URLがある場合、images テーブルに登録
+                            if let Ok(app_data_dir) = app_handle.path().app_data_dir() {
+                                let images_dir = app_data_dir.join("images");
+                                for item in &order_info.items {
+                                    if let Some(ref url) = item.image_url {
+                                        let normalized =
+                                            crate::gemini::normalize_product_name(&item.name);
+                                        if !normalized.is_empty() {
+                                            if let Err(e) =
+                                                crate::image_utils::save_image_from_url_for_item(
+                                                    pool,
+                                                    &images_dir,
+                                                    &normalized,
+                                                    url,
+                                                    true, // パース: 既存レコードがあればスキップ
+                                                )
+                                                .await
+                                            {
+                                                log::warn!(
+                                                    "[batch_parse] Failed to save image for item '{}': {}",
+                                                    item.name,
+                                                    e
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                         Err(e) => {
                             log::error!("Failed to save order: {}", e);
@@ -761,6 +999,68 @@ mod tests {
         assert!(!*state.is_running.lock().unwrap());
     }
 
+    // ==================== get_body_for_parse Tests ====================
+
+    #[test]
+    fn test_get_body_for_parse_prefers_html() {
+        let row = EmailRow {
+            email_id: 1,
+            message_id: "m1".to_string(),
+            body_plain: Some("plain text".to_string()),
+            body_html: Some("<p>html</p>".to_string()),
+            from_address: None,
+            subject: None,
+            internal_date: None,
+        };
+        assert_eq!(get_body_for_parse(&row), "<p>html</p>");
+    }
+
+    #[test]
+    fn test_get_body_for_parse_fallback_to_plain() {
+        let row = EmailRow {
+            email_id: 1,
+            message_id: "m1".to_string(),
+            body_plain: Some("plain text".to_string()),
+            body_html: None,
+            from_address: None,
+            subject: None,
+            internal_date: None,
+        };
+        assert_eq!(get_body_for_parse(&row), "plain text");
+    }
+
+    #[test]
+    fn test_get_body_for_parse_html_only() {
+        let row = EmailRow {
+            email_id: 1,
+            message_id: "m1".to_string(),
+            body_plain: None,
+            body_html: Some("<p>注文番号:12345</p>".to_string()),
+            from_address: None,
+            subject: None,
+            internal_date: None,
+        };
+        let body = get_body_for_parse(&row);
+        assert!(body.contains("注文番号:12345"));
+        assert!(body.contains("<p>")); // HTML は生のまま返す（DMM 等が HTML からパースするため）
+    }
+
+    #[test]
+    fn test_get_body_for_parse_empty_plain_uses_html() {
+        let row = EmailRow {
+            email_id: 1,
+            message_id: "m1".to_string(),
+            body_plain: Some("".to_string()),
+            body_html: Some("<div>内容</div>".to_string()),
+            from_address: None,
+            subject: None,
+            internal_date: None,
+        };
+        let body = get_body_for_parse(&row);
+        assert!(body.contains("内容"));
+        assert!(body.contains("<div>")); // HTML は生のまま返す
+    }
+
     // ==================== get_parser Tests ====================
 
     #[test]
@@ -790,6 +1090,18 @@ mod tests {
     #[test]
     fn test_get_parser_hobbysearch_send() {
         let parser = get_parser("hobbysearch_send");
+        assert!(parser.is_some());
+    }
+
+    #[test]
+    fn test_get_parser_dmm_confirm() {
+        let parser = get_parser("dmm_confirm");
+        assert!(parser.is_some());
+    }
+
+    #[test]
+    fn test_get_parser_dmm_split_complete() {
+        let parser = get_parser("dmm_split_complete");
         assert!(parser.is_some());
     }
 
@@ -834,6 +1146,7 @@ mod tests {
             unit_price: 1000,
             quantity: 2,
             subtotal: 2000,
+            image_url: None,
         };
 
         let order = OrderInfo {
@@ -942,6 +1255,7 @@ mod tests {
             unit_price: 2500,
             quantity: 1,
             subtotal: 2500,
+            image_url: None,
         };
 
         let json = serde_json::to_string(&item).unwrap();
@@ -998,6 +1312,7 @@ mod tests {
                 unit_price: 100,
                 quantity: 1,
                 subtotal: 100,
+                image_url: None,
             }],
             subtotal: None,
             shipping_fee: None,
