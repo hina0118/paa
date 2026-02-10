@@ -11,13 +11,13 @@ use tauri_plugin_sql::{Migration, MigrationKind};
 pub mod batch_commands;
 pub mod batch_runner;
 pub mod config;
-pub mod image_utils;
 pub mod e2e_mocks;
 pub mod e2e_seed;
 pub mod gemini;
 pub mod gmail;
 pub mod gmail_client;
 pub mod google_search;
+pub mod image_utils;
 pub mod logic;
 pub mod metadata_export;
 pub mod parsers;
@@ -516,7 +516,9 @@ pub fn run() {
             Migration {
                 version: 4,
                 description: "add_dmm_order_number_change_shop_settings",
-                sql: include_str!("../migrations/004_add_dmm_order_number_change_shop_settings.sql"),
+                sql: include_str!(
+                    "../migrations/004_add_dmm_order_number_change_shop_settings.sql"
+                ),
                 kind: MigrationKind::Up,
             },
             Migration {
@@ -1856,6 +1858,8 @@ mod tests {
         assert!(image_utils::is_private_ip("10.0.0.1".parse().unwrap()));
         assert!(image_utils::is_private_ip("192.168.1.1".parse().unwrap()));
         assert!(image_utils::is_private_ip("172.16.0.1".parse().unwrap()));
-        assert!(!image_utils::is_private_ip("8.8.8.8".parse::<IpAddr>().unwrap()));
+        assert!(!image_utils::is_private_ip(
+            "8.8.8.8".parse::<IpAddr>().unwrap()
+        ));
     }
 }

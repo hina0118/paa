@@ -441,12 +441,11 @@ pub async fn run_batch_parse_task(
         SqliteShopSettingsRepository,
     > = EmailParseTask::new();
 
-    let image_save_ctx = app.path().app_data_dir().ok().map(|dir| {
-        (
-            std::sync::Arc::new(pool.clone()),
-            dir.join("images"),
-        )
-    });
+    let image_save_ctx = app
+        .path()
+        .app_data_dir()
+        .ok()
+        .map(|dir| (std::sync::Arc::new(pool.clone()), dir.join("images")));
 
     let context = EmailParseContext {
         order_repo: Arc::new(order_repo),

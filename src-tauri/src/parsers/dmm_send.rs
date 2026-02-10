@@ -23,7 +23,8 @@ impl EmailParser for DmmSendParser {
 
             // 確定メールと同じロジックで注文番号・商品・金額を取得
             let order_number = super::dmm_confirm::extract_order_number_from_html(&document)?;
-            let delivery_address = super::dmm_confirm::extract_delivery_address_from_html(&document);
+            let delivery_address =
+                super::dmm_confirm::extract_delivery_address_from_html(&document);
             let items = super::dmm_confirm::extract_items_from_html(&document)?;
             let (subtotal, shipping_fee, total_amount) =
                 super::dmm_confirm::extract_amounts_from_html(&document);
@@ -117,10 +118,9 @@ fn extract_delivery_address(lines: &[&str]) -> Option<DeliveryAddress> {
 /// - お問い合わせ伝票番号：364629550353
 fn extract_delivery_info(lines: &[&str]) -> Option<DeliveryInfo> {
     let carrier_re = Regex::new(r"配送業者\s*[：:]\s*(.+)").ok()?;
-    let tracking_re = Regex::new(
-        r"(お問い合わせ伝票番号|お問い合わせ番号|お問合せ番号)\s*[：:]\s*([\d\-]+)",
-    )
-    .ok()?;
+    let tracking_re =
+        Regex::new(r"(お問い合わせ伝票番号|お問い合わせ番号|お問合せ番号)\s*[：:]\s*([\d\-]+)")
+            .ok()?;
 
     let mut carrier: Option<String> = None;
     let mut tracking: Option<String> = None;
@@ -196,4 +196,3 @@ DMM通販をご利用いただき、ありがとうございます。
         assert_eq!(order.items.len(), 0);
     }
 }
-
