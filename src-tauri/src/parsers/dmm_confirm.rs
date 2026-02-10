@@ -76,7 +76,7 @@ fn parse_from_html(html: &str) -> Result<OrderInfo, String> {
     })
 }
 
-fn extract_order_number_from_html(document: &Html) -> Result<String, String> {
+pub(crate) fn extract_order_number_from_html(document: &Html) -> Result<String, String> {
     let tr_selector = Selector::parse("tr").unwrap_or_else(|_| Selector::parse("div").unwrap());
     let td_selector = Selector::parse("td").unwrap_or_else(|_| Selector::parse("div").unwrap());
     // 大文字・小文字の両方でパースし、そのまま使用（将来の注文詳細ページURL対応のため）
@@ -144,7 +144,7 @@ fn extract_order_date_from_html(document: &Html) -> Option<String> {
     None
 }
 
-fn extract_delivery_address_from_html(document: &Html) -> Option<super::DeliveryAddress> {
+pub(crate) fn extract_delivery_address_from_html(document: &Html) -> Option<super::DeliveryAddress> {
     let td_selector = Selector::parse("td").unwrap_or_else(|_| Selector::parse("div").unwrap());
     let re = Regex::new(r"受取人のお名前\s*[：:]\s*(.+)").ok()?;
     let re2 = Regex::new(r"購入者のお名前\s*[：:]\s*(.+)").ok()?;

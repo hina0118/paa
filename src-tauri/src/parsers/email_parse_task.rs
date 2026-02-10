@@ -807,6 +807,19 @@ where
                             )
                             .await
                     }
+                } else if parser_type == "dmm_send" {
+                    // 発送完了メール: 発送メール時点の items + 金額で元注文を更新しつつ、deliveries を shipped に更新
+                    let alternate_domains = order_lookup_alternate_domains(&shop_domain);
+                    context
+                        .order_repo
+                        .apply_send_and_replace_items(
+                            &order_info,
+                            Some(input.email_id),
+                            shop_domain.clone(),
+                            Some(shop_name.clone()),
+                            alternate_domains,
+                        )
+                        .await
                 } else {
                     context
                         .order_repo

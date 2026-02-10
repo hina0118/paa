@@ -1497,7 +1497,7 @@ impl OrderRepository for SqliteOrderRepository {
         order_info: &OrderInfo,
         email_id: Option<i64>,
         shop_domain: Option<String>,
-        _shop_name: Option<String>,
+        shop_name: Option<String>,
         alternate_domains: Option<Vec<String>>,
     ) -> Result<i64, String> {
         let mut tx = self
@@ -1507,44 +1507,59 @@ impl OrderRepository for SqliteOrderRepository {
             .map_err(|e| format!("Failed to start transaction: {e}"))?;
 
         // 1. 既存の注文を検索（注文番号 + shop_domain、alternate_domains を含めて検索）
-        let order_id = match Self::find_order_by_number_and_domain(
+        let existing_order_id = Self::find_order_by_number_and_domain(
             &mut tx,
             &order_info.order_number,
             &shop_domain,
             alternate_domains.as_deref(),
         )
         .await
-        .map_err(|e| format!("Failed to find order: {e}"))?
-        {
-            Some(id) => {
-                log::debug!(
-                    "[dmm_send] found existing order id={} for number {} (shop_domain={:?}, alternate_domains={:?})",
-                    id,
-                    order_info.order_number,
-                    shop_domain,
-                    alternate_domains
-                );
-                id
-            }
-            None => {
-                log::warn!(
-                    "[dmm_send] Send mail: order {} not found (shop_domain={:?}, alternate_domains={:?})",
-                    order_info.order_number,
-                    shop_domain,
-                    alternate_domains
-                );
-                tx.rollback()
-                    .await
-                    .map_err(|e| format!("Failed to rollback: {e}"))?;
-                return Err(format!(
-                    "Order {} not found for send mail",
-                    order_info.order_number
-                ));
-            }
-        };
+        .map_err(|e| format!("Failed to find order: {e}"))?;
 
-        // 2. 商品を発送メールの内容で置き換え
-        Self::replace_items_for_order_in_tx(&mut tx, order_id, order_info).await?;
+        // 既存注文がある場合は items を丸ごと差し替え。なければ発送メールから新規注文を作成。
+        let order_id = if let Some(id) = existing_order_id {
+            log::debug!(
+                "[dmm_send] found existing order id={} for number {} (shop_domain={:?}, alternate_domains={:?})",
+                id,
+                order_info.order_number,
+                shop_domain,
+                alternate_domains
+            );
+            // 2. 既存注文: 商品を発送メールの内容で丸ごと置き換え（items が空でも最終状態として採用）
+            Self::replace_items_for_order_in_tx(&mut tx, id, order_info).await?;
+            log::info!(
+                "[dmm_send] replaced items for existing order {} with {} items from send mail",
+                id,
+                order_info.items.len()
+            );
+            id
+        } else {
+            log::warn!(
+                "[dmm_send] existing order not found for {}, creating new order from send mail (shop_domain={:?}, alternate_domains={:?})",
+                order_info.order_number,
+                shop_domain,
+                alternate_domains
+            );
+            // save_order_in_tx で注文・商品・deliveries・order_emails まで一括作成
+            let new_id = Self::save_order_in_tx(
+                &mut tx,
+                order_info,
+                email_id,
+                shop_domain.clone(),
+                shop_name.clone(),
+            )
+            .await?;
+            log::info!(
+                "[dmm_send] created new order {} from send mail (items={})",
+                new_id,
+                order_info.items.len()
+            );
+            // save_order_in_tx 内で deliveries / order_emails も処理済みなので、以降の deliveries/order_emails 更新はスキップして commit
+            tx.commit()
+                .await
+                .map_err(|e| format!("Failed to commit transaction: {e}"))?;
+            return Ok(new_id);
+        };
 
         // 3. 発送情報を deliveries に反映
         if let Some(delivery_info) = &order_info.delivery_info {
