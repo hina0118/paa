@@ -30,16 +30,28 @@ describe('loadOrderItems', () => {
     expect(mockDb.select).toHaveBeenCalled();
   });
 
-  it('applies search filter with FTS5 and prefix match', async () => {
+  it('applies search filter with FTS5 (trigram) for 3+ chars', async () => {
     const mockDb = { select: vi.fn().mockResolvedValue([]) };
-    await loadOrderItems(mockDb as never, { search: '商品' });
+    await loadOrderItems(mockDb as never, { search: '商品名' });
     const [sql, args] = (mockDb.select as ReturnType<typeof vi.fn>).mock
       .calls[0];
     expect(sql).toContain('items_fts');
     expect(sql).toContain('MATCH');
     expect(sql).toContain("ESCAPE '\\'");
-    expect(args).toContain('(item_name:("商品") OR brand:("商品"))');
+    expect(args).toContain('(item_name:("商品名") OR brand:("商品名"))');
+    expect(args).toContain('商品名%');
+  });
+
+  it('applies search filter with LIKE fallback for 1-2 chars', async () => {
+    const mockDb = { select: vi.fn().mockResolvedValue([]) };
+    await loadOrderItems(mockDb as never, { search: '商品' });
+    const [sql, args] = (mockDb.select as ReturnType<typeof vi.fn>).mock
+      .calls[0];
+    expect(sql).not.toContain('items_fts');
+    expect(sql).not.toContain('MATCH');
+    expect(sql).toContain("ESCAPE '\\'");
     expect(args).toContain('商品%');
+    expect(args).toContain('%商品%');
   });
 
   it('applies shopDomain filter', async () => {

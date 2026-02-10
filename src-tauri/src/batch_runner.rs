@@ -510,9 +510,16 @@ impl<T: BatchTask> BatchRunner<T> {
                         batch_success += 1;
                     }
                     Err(e) => {
-                        log::warn!("[{}] Item processing failed: {}", task_name, e);
-                        failed_count += 1;
-                        batch_failed += 1;
+                        // パーサー非マッチ（設定対象外のメール）はスキップ扱い、失敗ではない
+                        if e.starts_with(
+                            crate::parsers::email_parse_task::NO_MATCHING_PARSER_PREFIX,
+                        ) {
+                            log::debug!("[{}] Skipped (no matching shop): {}", task_name, e);
+                        } else {
+                            log::warn!("[{}] Item processing failed: {}", task_name, e);
+                            failed_count += 1;
+                            batch_failed += 1;
+                        }
                     }
                 }
                 processed_count += 1;
