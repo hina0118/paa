@@ -133,6 +133,8 @@ where
 pub const EMAIL_PARSE_TASK_NAME: &str = "メールパース";
 /// イベント名
 pub const EMAIL_PARSE_EVENT_NAME: &str = "batch-progress";
+/// パーサー非マッチエラーの固定プレフィックス（batch_runner でスキップ判定に使用）
+pub const NO_MATCHING_PARSER_PREFIX: &str = "No matching parser";
 
 impl<O, P, S> EmailParseTask<O, P, S>
 where
@@ -302,8 +304,8 @@ where
 
             if candidate_parsers.is_empty() {
                 results.push(Err(format!(
-                    "No matching parser for email {} (from: {:?})",
-                    input.email_id, input.from_address
+                    "{} for email {} (from: {:?})",
+                    NO_MATCHING_PARSER_PREFIX, input.email_id, input.from_address
                 )));
                 continue;
             }
@@ -569,7 +571,9 @@ where
                             let shop_domain = extract_email_address(from_address)
                                 .and_then(|email| extract_domain(&email).map(|s| s.to_string()));
                             let alternate_domains = order_lookup_alternate_domains(&shop_domain);
-                            let mut first_order_info = None;
+                            let total_orders = orders.len();
+                            let mut saved_orders: Vec<OrderInfo> = Vec::new();
+                            let mut multi_save_error: Option<String> = None;
                             for (idx, mut order_info) in orders.into_iter().enumerate() {
                                 if order_info.order_date.is_none()
                                     && input.internal_date.is_some()
@@ -608,9 +612,10 @@ where
                                 match save_result {
                                     Ok(order_id) => {
                                         log::debug!(
-                                            "Saved split order {} ({} of N) for email {}",
+                                            "Saved split order {} ({} of {}) for email {}",
                                             order_id,
                                             idx + 1,
+                                            total_orders,
                                             input.email_id
                                         );
                                         if let Some((ref pool, ref images_dir)) =
@@ -635,9 +640,7 @@ where
                                                 }
                                             }
                                         }
-                                        if first_order_info.is_none() {
-                                            first_order_info = Some(order_info);
-                                        }
+                                        saved_orders.push(order_info);
                                     }
                                     Err(e) => {
                                         log::error!(
@@ -646,14 +649,29 @@ where
                                             input.email_id,
                                             e
                                         );
-                                        last_error = e.to_string();
+                                        multi_save_error = Some(e.to_string());
                                         break;
                                     }
                                 }
                             }
-                            if let Some(order_info) = first_order_info {
-                                parse_result =
-                                    Some((order_info, shop_name.clone(), parser_type.clone()));
+                            // 途中失敗した場合はメール全体を Err 扱いにしてリトライ可能にする
+                            if let Some(err) = multi_save_error {
+                                results.push(Err(format!(
+                                    "Split order save failed for email {}: {}",
+                                    input.email_id, err
+                                )));
+                                break;
+                            }
+                            if let Some(order_info) = saved_orders.into_iter().next() {
+                                // 分割完了は全注文が保存済みなので cancel_applied=true で後段の save_order をスキップ
+                                results.push(Ok(EmailParseOutput {
+                                    email_id: input.email_id,
+                                    order_info,
+                                    shop_name: shop_name.clone(),
+                                    shop_domain,
+                                    cancel_applied: true,
+                                }));
+                                cancel_applied = true;
                             }
                             break;
                         }
@@ -780,10 +798,20 @@ where
                 let change_email_internal_date = input
                     .internal_date
                     .and_then(|ts| DateTime::from_timestamp_millis(ts).map(|_| ts));
-                // 分割完了は先頭を apply_split_first_order / 残りを save_order で既に保存済みのためここでは保存しない
-                let save_result = if parser_type == "dmm_split_complete" {
-                    Ok(0i64)
-                } else if parser_type == "hobbysearch_change"
+                // 分割完了は先頭を apply_split_first_order / 残りを save_order で既に保存済みのため
+                // ここでの追加保存は不要。cancel_applied=true でスキップされるはずだが、
+                // 1件の場合のフォールバックとして continue で保存フェーズをスキップする。
+                if parser_type == "dmm_split_complete" {
+                    results.push(Ok(EmailParseOutput {
+                        email_id: input.email_id,
+                        order_info,
+                        shop_name,
+                        shop_domain,
+                        cancel_applied: true,
+                    }));
+                    continue;
+                }
+                let save_result = if parser_type == "hobbysearch_change"
                     || parser_type == "hobbysearch_change_yoyaku"
                 {
                     if let Some(change_email_internal_date) = change_email_internal_date {

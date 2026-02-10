@@ -610,7 +610,9 @@ pub async fn batch_parse_emails(
                             let shop_domain = extract_email_address(from_address)
                                 .and_then(|email| extract_domain(&email).map(|s| s.to_string()));
                             let alternate_domains = order_lookup_alternate_domains(&shop_domain);
-                            let mut first_order_info = None;
+                            let total_orders = orders.len();
+                            let mut saved_count_multi = 0usize;
+                            let mut multi_save_error: Option<String> = None;
                             for (idx, mut order_info) in orders.into_iter().enumerate() {
                                 if order_info.order_date.is_none()
                                     && row.internal_date.is_some()
@@ -647,15 +649,14 @@ pub async fn batch_parse_emails(
                                 match save_result {
                                     Ok(order_id) => {
                                         log::info!(
-                                            "Saved split order {} ({} of N) for email {}",
+                                            "Saved split order {} ({} of {}) for email {}",
                                             order_id,
                                             idx + 1,
+                                            total_orders,
                                             row.email_id
                                         );
                                         success_count += 1;
-                                        if first_order_info.is_none() {
-                                            first_order_info = Some(order_info);
-                                        }
+                                        saved_count_multi += 1;
                                     }
                                     Err(e) => {
                                         log::warn!(
@@ -664,12 +665,22 @@ pub async fn batch_parse_emails(
                                             row.email_id,
                                             e
                                         );
-                                        last_error = e;
+                                        multi_save_error = Some(e);
                                         break;
                                     }
                                 }
                             }
-                            if first_order_info.is_some() {
+                            // 途中失敗した場合はメール全体を失敗扱い（リトライ前提）
+                            if let Some(err) = multi_save_error {
+                                log::error!(
+                                    "Split order save partially failed for email {} ({}/{} saved): {}",
+                                    row.email_id,
+                                    saved_count_multi,
+                                    total_orders,
+                                    err
+                                );
+                                failed_count += 1;
+                            } else if saved_count_multi > 0 {
                                 handled_as_multi = true;
                             }
                             overall_parsed_count += 1;

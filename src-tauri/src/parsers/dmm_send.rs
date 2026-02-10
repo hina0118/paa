@@ -30,7 +30,14 @@ impl EmailParser for DmmSendParser {
                 super::dmm_confirm::extract_amounts_from_html(&document);
 
             // 発送メール特有の配送業者・お問い合わせ番号をテキストから抽出
-            let text = document.root_element().text().collect::<String>();
+            // text() はテキストノード間に区切りを入れないため、\n で結合して改行を保持する
+            let mut text = String::new();
+            for t in document.root_element().text() {
+                if !text.is_empty() {
+                    text.push('\n');
+                }
+                text.push_str(t);
+            }
             let lines: Vec<&str> = text.lines().collect();
             let delivery_info = extract_delivery_info(&lines);
 
@@ -194,5 +201,44 @@ DMM通販をご利用いただき、ありがとうございます。
         assert_eq!(order.delivery_address.as_ref().unwrap().name, "テスト 太郎");
         // dmm_send は発送情報のみを扱うため、items は空のまま
         assert_eq!(order.items.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_dmm_send_html() {
+        // HTML メールでは dmm_confirm と同じロジックで注文番号・商品・金額をパースし、
+        // 配送業者・お問い合わせ番号もテキストから抽出する
+        // 商品リンクは dmmref=gMono_Mail_Purchase を含む href が必要
+        let body = r#"<html><body>
+<table>
+<tr><td>BS-27322313</td><td>発送元：千葉配送センター</td><td>発送：2024/06/15</td></tr>
+</table>
+<table>
+<tr>
+<td><a href="https://www.dmm.com/mono/detail/?dmmref=gMono_Mail_Purchase&i3_ref=mail_purchase&i3_ord=1">テスト商品A</a></td>
+</tr>
+</table>
+<table>
+<tr><td>商品小計</td><td>1,000円</td></tr>
+<tr><td>送料</td><td>550円</td></tr>
+<tr><td>合計</td><td>1,550円</td></tr>
+</table>
+<p>配送業者：佐川急便</p>
+<p>お問い合わせ番号：364631890991</p>
+</body></html>"#;
+        let parser = DmmSendParser;
+        let result = parser.parse(body);
+        assert!(result.is_ok(), "Parse failed: {:?}", result.err());
+        let order = result.unwrap();
+        assert_eq!(order.order_number, "BS-27322313");
+        assert_eq!(order.items.len(), 1);
+        assert!(order.items[0].name.contains("テスト商品A"));
+        // HTML パスでは配送情報もテキストから抽出される
+        assert!(
+            order.delivery_info.is_some(),
+            "delivery_info should be extracted from HTML text"
+        );
+        let info = order.delivery_info.unwrap();
+        assert_eq!(info.carrier, "佐川急便");
+        assert_eq!(info.tracking_number, "364631890991");
     }
 }
