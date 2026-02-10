@@ -57,6 +57,8 @@ pub fn get_body_for_parse(row: &EmailRow) -> String {
 pub mod cancel_info;
 // 注文番号変更情報（全店舗共通）
 pub mod order_number_change_info;
+// まとめ完了情報（全店舗共通）
+pub mod consolidation_info;
 
 // ホビーサーチ用の共通パースユーティリティ関数
 mod hobbysearch_common;
@@ -71,6 +73,7 @@ pub mod hobbysearch_send;
 pub mod dmm_confirm;
 pub mod dmm_cancel;
 pub mod dmm_order_number_change;
+pub mod dmm_merge_complete;
 pub mod dmm_split_complete;
 
 // BatchTask 実装
@@ -303,6 +306,11 @@ pub(crate) fn is_order_number_change_parser(parser_type: &str) -> bool {
     matches!(parser_type, "dmm_order_number_change")
 }
 
+/// パーサータイプがまとめ完了専用かどうか
+pub(crate) fn is_merge_complete_parser(parser_type: &str) -> bool {
+    matches!(parser_type, "dmm_merge_complete")
+}
+
 /// キャンセルパーサーから CancelInfo を抽出（失敗時は Err）
 pub(crate) fn parse_cancel_with_parser(parser_type: &str, body: &str) -> Result<CancelInfo, String> {
     match parser_type {
@@ -322,6 +330,19 @@ pub(crate) fn parse_order_number_change_with_parser(
             dmm_order_number_change::DmmOrderNumberChangeParser.parse_order_number_change(body)
         }
         _ => Err(format!("Unknown order number change parser: {}", parser_type)),
+    }
+}
+
+/// まとめ完了パーサーから ConsolidationInfo を抽出（失敗時は Err）
+pub(crate) fn parse_consolidation_with_parser(
+    parser_type: &str,
+    body: &str,
+) -> Result<consolidation_info::ConsolidationInfo, String> {
+    match parser_type {
+        "dmm_merge_complete" => {
+            dmm_merge_complete::DmmMergeCompleteParser.parse_consolidation(body)
+        }
+        _ => Err(format!("Unknown merge complete parser: {}", parser_type)),
     }
 }
 
