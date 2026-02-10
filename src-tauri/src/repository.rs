@@ -1158,19 +1158,17 @@ impl OrderRepository for SqliteOrderRepository {
         let product_name = cancel_info.product_name.trim();
 
         if product_name.is_empty() {
-            // 商品名未記載 = 注文全体キャンセル → 全商品を削除
-            for (item_id, _, _, _) in &items {
-                sqlx::query("DELETE FROM items WHERE id = ?")
-                    .bind(item_id)
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(|e| format!("Failed to delete item: {e}"))?;
-                log::info!(
-                    "Cancel applied (entire order): removed item id={} from order {}",
-                    item_id,
-                    order_id
-                );
-            }
+            // 商品名未記載 = 注文全体キャンセル → 全商品を一括削除
+            sqlx::query("DELETE FROM items WHERE order_id = ?")
+                .bind(order_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| format!("Failed to delete items: {e}"))?;
+            log::info!(
+                "Cancel applied (entire order): removed {} items from order {}",
+                items.len(),
+                order_id
+            );
         } else {
             let matched = items
                 .iter()
@@ -4486,5 +4484,457 @@ mod tests {
             item_count.0, 1,
             "old order items should remain after rollback"
         );
+    }
+
+    // --- apply_split_first_order 統合テスト ---
+
+    #[tokio::test]
+    async fn test_apply_split_first_order_existing_order() {
+        let pool = setup_test_db().await;
+        let repo = SqliteOrderRepository::new(pool.clone());
+
+        // 既存注文を作成
+        sqlx::query(
+            r#"INSERT INTO orders (order_number, shop_domain, shop_name) VALUES ('KC-12345', 'mail.dmm.com', 'DMM通販')"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert order");
+        let order_id: (i64,) =
+            sqlx::query_as("SELECT id FROM orders WHERE order_number = 'KC-12345'")
+                .fetch_one(&pool)
+                .await
+                .expect("get order id");
+        sqlx::query(r#"INSERT INTO items (order_id, item_name, quantity, price) VALUES (?, '旧商品A', 2, 1000)"#)
+            .bind(order_id.0)
+            .execute(&pool)
+            .await
+            .expect("insert item");
+
+        // メールを作成
+        sqlx::query("INSERT INTO emails (message_id, body_plain) VALUES ('split-email-1', '')")
+            .execute(&pool)
+            .await
+            .expect("insert email");
+        let email_id: (i64,) =
+            sqlx::query_as("SELECT id FROM emails WHERE message_id = 'split-email-1'")
+                .fetch_one(&pool)
+                .await
+                .expect("get email id");
+
+        // 分割完了の先頭注文（既存注文の items を差し替え）
+        let order_info = crate::parsers::OrderInfo {
+            order_number: "KC-12345".to_string(),
+            order_date: Some("2024-06-01 10:00:00".to_string()),
+            delivery_address: None,
+            delivery_info: None,
+            items: vec![crate::parsers::OrderItem {
+                name: "新商品A".to_string(),
+                manufacturer: None,
+                model_number: None,
+                unit_price: 500,
+                quantity: 1,
+                subtotal: 500,
+                image_url: None,
+            }],
+            subtotal: Some(500),
+            shipping_fee: None,
+            total_amount: Some(500),
+        };
+
+        let result = repo
+            .apply_split_first_order(
+                &order_info,
+                Some(email_id.0),
+                Some("mail.dmm.com".to_string()),
+                Some("DMM通販".to_string()),
+                Some(vec!["mono.dmm.com".to_string()]),
+            )
+            .await;
+        assert!(result.is_ok());
+        let result_id = result.unwrap();
+        assert_eq!(result_id, order_id.0, "should update existing order");
+
+        // items が差し替わっていること
+        let items: Vec<(String, i64)> =
+            sqlx::query_as("SELECT item_name, quantity FROM items WHERE order_id = ?")
+                .bind(order_id.0)
+                .fetch_all(&pool)
+                .await
+                .expect("fetch items");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].0, "新商品A");
+        assert_eq!(items[0].1, 1);
+
+        // order_emails に紐づいていること
+        let link_count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM order_emails WHERE order_id = ? AND email_id = ?")
+                .bind(order_id.0)
+                .bind(email_id.0)
+                .fetch_one(&pool)
+                .await
+                .expect("count order_emails");
+        assert_eq!(link_count.0, 1);
+    }
+
+    #[tokio::test]
+    async fn test_apply_split_first_order_no_existing() {
+        let pool = setup_test_db().await;
+        let repo = SqliteOrderRepository::new(pool.clone());
+
+        // メールを作成
+        sqlx::query("INSERT INTO emails (message_id, body_plain) VALUES ('split-email-2', '')")
+            .execute(&pool)
+            .await
+            .expect("insert email");
+        let email_id: (i64,) =
+            sqlx::query_as("SELECT id FROM emails WHERE message_id = 'split-email-2'")
+                .fetch_one(&pool)
+                .await
+                .expect("get email id");
+
+        // 既存注文がない場合は新規作成
+        let order_info = crate::parsers::OrderInfo {
+            order_number: "KC-99999".to_string(),
+            order_date: Some("2024-06-01 10:00:00".to_string()),
+            delivery_address: None,
+            delivery_info: None,
+            items: vec![crate::parsers::OrderItem {
+                name: "新商品B".to_string(),
+                manufacturer: None,
+                model_number: None,
+                unit_price: 800,
+                quantity: 1,
+                subtotal: 800,
+                image_url: None,
+            }],
+            subtotal: Some(800),
+            shipping_fee: None,
+            total_amount: Some(800),
+        };
+
+        let result = repo
+            .apply_split_first_order(
+                &order_info,
+                Some(email_id.0),
+                Some("mail.dmm.com".to_string()),
+                Some("DMM通販".to_string()),
+                None,
+            )
+            .await;
+        assert!(result.is_ok());
+        let new_id = result.unwrap();
+
+        // 新規注文が作成されていること
+        let order: (String,) = sqlx::query_as("SELECT order_number FROM orders WHERE id = ?")
+            .bind(new_id)
+            .fetch_one(&pool)
+            .await
+            .expect("get order");
+        assert_eq!(order.0, "KC-99999");
+
+        // items が保存されていること
+        let items: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items WHERE order_id = ?")
+            .bind(new_id)
+            .fetch_one(&pool)
+            .await
+            .expect("count items");
+        assert_eq!(items.0, 1);
+    }
+
+    // --- apply_consolidation 統合テスト ---
+
+    #[tokio::test]
+    async fn test_apply_consolidation_merges_orders() {
+        let pool = setup_test_db().await;
+        let repo = SqliteOrderRepository::new(pool.clone());
+
+        // 2つの注文を作成
+        sqlx::query(
+            r#"INSERT INTO orders (order_number, shop_domain, shop_name) VALUES ('KC-00001', 'mail.dmm.com', 'DMM通販')"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert order 1");
+        sqlx::query(
+            r#"INSERT INTO orders (order_number, shop_domain, shop_name) VALUES ('KC-00002', 'mail.dmm.com', 'DMM通販')"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert order 2");
+
+        let order1_id: (i64,) =
+            sqlx::query_as("SELECT id FROM orders WHERE order_number = 'KC-00001'")
+                .fetch_one(&pool)
+                .await
+                .expect("get order 1 id");
+        let order2_id: (i64,) =
+            sqlx::query_as("SELECT id FROM orders WHERE order_number = 'KC-00002'")
+                .fetch_one(&pool)
+                .await
+                .expect("get order 2 id");
+
+        // 各注文に商品を追加
+        sqlx::query(r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, '商品1', 1)"#)
+            .bind(order1_id.0)
+            .execute(&pool)
+            .await
+            .expect("insert item 1");
+        sqlx::query(r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, '商品2', 1)"#)
+            .bind(order2_id.0)
+            .execute(&pool)
+            .await
+            .expect("insert item 2");
+
+        // メールを作成
+        sqlx::query("INSERT INTO emails (message_id, body_plain) VALUES ('merge-email-1', '')")
+            .execute(&pool)
+            .await
+            .expect("insert email");
+        let email_id: (i64,) =
+            sqlx::query_as("SELECT id FROM emails WHERE message_id = 'merge-email-1'")
+                .fetch_one(&pool)
+                .await
+                .expect("get email id");
+
+        let consolidation_info = crate::parsers::consolidation_info::ConsolidationInfo {
+            old_order_numbers: vec!["KC-00001".to_string(), "KC-00002".to_string()],
+            new_order_number: "KC-NEW-001".to_string(),
+        };
+
+        let result = repo
+            .apply_consolidation(
+                &consolidation_info,
+                email_id.0,
+                Some("mail.dmm.com".to_string()),
+                Some("DMM通販".to_string()),
+                Some(vec!["mono.dmm.com".to_string()]),
+            )
+            .await;
+        assert!(result.is_ok());
+        let result_id = result.unwrap();
+        assert_eq!(result_id, order1_id.0, "should return first order id");
+
+        // 先頭注文の番号が新番号に更新されていること
+        let order1_number: (String,) =
+            sqlx::query_as("SELECT order_number FROM orders WHERE id = ?")
+                .bind(order1_id.0)
+                .fetch_one(&pool)
+                .await
+                .expect("get order 1 number");
+        assert_eq!(order1_number.0, "KC-NEW-001");
+
+        // 先頭注文の items は残っていること
+        let order1_items: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items WHERE order_id = ?")
+            .bind(order1_id.0)
+            .fetch_one(&pool)
+            .await
+            .expect("count order 1 items");
+        assert_eq!(order1_items.0, 1, "first order items should remain");
+
+        // 2番目の注文の items は削除されていること
+        let order2_items: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items WHERE order_id = ?")
+            .bind(order2_id.0)
+            .fetch_one(&pool)
+            .await
+            .expect("count order 2 items");
+        assert_eq!(order2_items.0, 0, "second order items should be cleared");
+
+        // order_emails に紐づいていること
+        let link_count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM order_emails WHERE order_id = ? AND email_id = ?")
+                .bind(order1_id.0)
+                .bind(email_id.0)
+                .fetch_one(&pool)
+                .await
+                .expect("count order_emails");
+        assert_eq!(link_count.0, 1);
+    }
+
+    // --- apply_send_and_replace_items 統合テスト ---
+
+    #[tokio::test]
+    async fn test_apply_send_and_replace_items_existing_order() {
+        let pool = setup_test_db().await;
+        let repo = SqliteOrderRepository::new(pool.clone());
+
+        // 既存注文を作成
+        sqlx::query(
+            r#"INSERT INTO orders (order_number, shop_domain, shop_name) VALUES ('BS-11111', 'mail.dmm.com', 'DMM通販')"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert order");
+        let order_id: (i64,) =
+            sqlx::query_as("SELECT id FROM orders WHERE order_number = 'BS-11111'")
+                .fetch_one(&pool)
+                .await
+                .expect("get order id");
+        sqlx::query(r#"INSERT INTO items (order_id, item_name, quantity, price) VALUES (?, '旧商品X', 2, 1000)"#)
+            .bind(order_id.0)
+            .execute(&pool)
+            .await
+            .expect("insert item");
+
+        // メールを作成
+        sqlx::query("INSERT INTO emails (message_id, body_plain) VALUES ('send-email-1', '')")
+            .execute(&pool)
+            .await
+            .expect("insert email");
+        let email_id: (i64,) =
+            sqlx::query_as("SELECT id FROM emails WHERE message_id = 'send-email-1'")
+                .fetch_one(&pool)
+                .await
+                .expect("get email id");
+
+        let order_info = crate::parsers::OrderInfo {
+            order_number: "BS-11111".to_string(),
+            order_date: None,
+            delivery_address: None,
+            delivery_info: Some(crate::parsers::DeliveryInfo {
+                carrier: "佐川急便".to_string(),
+                tracking_number: "364631890991".to_string(),
+                delivery_date: None,
+                delivery_time: None,
+                carrier_url: None,
+            }),
+            items: vec![crate::parsers::OrderItem {
+                name: "発送商品X".to_string(),
+                manufacturer: None,
+                model_number: None,
+                unit_price: 800,
+                quantity: 1,
+                subtotal: 800,
+                image_url: None,
+            }],
+            subtotal: Some(800),
+            shipping_fee: None,
+            total_amount: Some(800),
+        };
+
+        let result = repo
+            .apply_send_and_replace_items(
+                &order_info,
+                Some(email_id.0),
+                Some("mail.dmm.com".to_string()),
+                Some("DMM通販".to_string()),
+                Some(vec!["mono.dmm.com".to_string()]),
+            )
+            .await;
+        assert!(result.is_ok());
+        let result_id = result.unwrap();
+        assert_eq!(result_id, order_id.0);
+
+        // items が差し替わっていること
+        let items: Vec<(String, i64)> =
+            sqlx::query_as("SELECT item_name, quantity FROM items WHERE order_id = ?")
+                .bind(order_id.0)
+                .fetch_all(&pool)
+                .await
+                .expect("fetch items");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].0, "発送商品X");
+
+        // deliveries が作成されていること
+        let deliveries: Vec<(String, String, String)> = sqlx::query_as(
+            "SELECT tracking_number, carrier, delivery_status FROM deliveries WHERE order_id = ?",
+        )
+        .bind(order_id.0)
+        .fetch_all(&pool)
+        .await
+        .expect("fetch deliveries");
+        assert_eq!(deliveries.len(), 1);
+        assert_eq!(deliveries[0].0, "364631890991");
+        assert_eq!(deliveries[0].1, "佐川急便");
+        assert_eq!(deliveries[0].2, "shipped");
+
+        // order_emails に紐づいていること
+        let link_count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM order_emails WHERE order_id = ? AND email_id = ?")
+                .bind(order_id.0)
+                .bind(email_id.0)
+                .fetch_one(&pool)
+                .await
+                .expect("count order_emails");
+        assert_eq!(link_count.0, 1);
+    }
+
+    #[tokio::test]
+    async fn test_apply_send_and_replace_items_no_existing() {
+        let pool = setup_test_db().await;
+        let repo = SqliteOrderRepository::new(pool.clone());
+
+        // メールを作成
+        sqlx::query("INSERT INTO emails (message_id, body_plain) VALUES ('send-email-2', '')")
+            .execute(&pool)
+            .await
+            .expect("insert email");
+        let email_id: (i64,) =
+            sqlx::query_as("SELECT id FROM emails WHERE message_id = 'send-email-2'")
+                .fetch_one(&pool)
+                .await
+                .expect("get email id");
+
+        let order_info = crate::parsers::OrderInfo {
+            order_number: "BS-99999".to_string(),
+            order_date: None,
+            delivery_address: None,
+            delivery_info: Some(crate::parsers::DeliveryInfo {
+                carrier: "ヤマト運輸".to_string(),
+                tracking_number: "111222333444".to_string(),
+                delivery_date: None,
+                delivery_time: None,
+                carrier_url: None,
+            }),
+            items: vec![crate::parsers::OrderItem {
+                name: "新規商品Y".to_string(),
+                manufacturer: None,
+                model_number: None,
+                unit_price: 1200,
+                quantity: 1,
+                subtotal: 1200,
+                image_url: None,
+            }],
+            subtotal: Some(1200),
+            shipping_fee: None,
+            total_amount: Some(1200),
+        };
+
+        let result = repo
+            .apply_send_and_replace_items(
+                &order_info,
+                Some(email_id.0),
+                Some("mail.dmm.com".to_string()),
+                Some("DMM通販".to_string()),
+                None,
+            )
+            .await;
+        assert!(result.is_ok());
+        let new_id = result.unwrap();
+
+        // 新規注文が作成されていること
+        let order: (String,) = sqlx::query_as("SELECT order_number FROM orders WHERE id = ?")
+            .bind(new_id)
+            .fetch_one(&pool)
+            .await
+            .expect("get order");
+        assert_eq!(order.0, "BS-99999");
+
+        // items が保存されていること
+        let items: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items WHERE order_id = ?")
+            .bind(new_id)
+            .fetch_one(&pool)
+            .await
+            .expect("count items");
+        assert_eq!(items.0, 1);
+
+        // deliveries が作成されていること
+        let deliveries: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM deliveries WHERE order_id = ?")
+                .bind(new_id)
+                .fetch_one(&pool)
+                .await
+                .expect("count deliveries");
+        assert_eq!(deliveries.0, 1);
     }
 }

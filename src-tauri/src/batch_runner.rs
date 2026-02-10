@@ -511,7 +511,9 @@ impl<T: BatchTask> BatchRunner<T> {
                     }
                     Err(e) => {
                         // パーサー非マッチ（設定対象外のメール）はスキップ扱い、失敗ではない
-                        if e.contains("No matching parser") {
+                        if e.starts_with(
+                            crate::parsers::email_parse_task::NO_MATCHING_PARSER_PREFIX,
+                        ) {
                             log::debug!("[{}] Skipped (no matching shop): {}", task_name, e);
                         } else {
                             log::warn!("[{}] Item processing failed: {}", task_name, e);
