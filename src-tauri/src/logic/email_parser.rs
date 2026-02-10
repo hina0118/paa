@@ -25,6 +25,7 @@ use crate::parsers::{EmailParser, OrderInfo};
             | "dmm_confirm"
             | "dmm_cancel"
             | "dmm_order_number_change"
+            | "dmm_split_complete"
     )
 }
 
@@ -185,6 +186,11 @@ mod tests {
     #[test]
     fn test_is_valid_parser_type_dmm_cancel() {
         assert!(is_valid_parser_type("dmm_cancel"));
+    }
+
+    #[test]
+    fn test_is_valid_parser_type_dmm_split_complete() {
+        assert!(is_valid_parser_type("dmm_split_complete"));
     }
 
     #[test]

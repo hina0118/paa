@@ -525,6 +525,12 @@ pub fn run() {
                 sql: include_str!("../migrations/005_add_dmm_confirm_mono_sender.sql"),
                 kind: MigrationKind::Up,
             },
+            Migration {
+                version: 7,
+                description: "add_dmm_split_complete_shop_settings",
+                sql: include_str!("../migrations/007_add_dmm_split_complete_shop_settings.sql"),
+                kind: MigrationKind::Up,
+            },
         ]
     };
 

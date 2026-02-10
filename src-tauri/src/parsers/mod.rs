@@ -71,6 +71,7 @@ pub mod hobbysearch_send;
 pub mod dmm_confirm;
 pub mod dmm_cancel;
 pub mod dmm_order_number_change;
+pub mod dmm_split_complete;
 
 // BatchTask 実装
 pub mod email_parse_task;
@@ -229,6 +230,13 @@ pub struct OrderItem {
 pub trait EmailParser {
     /// メール本文から注文情報をパースする
     fn parse(&self, email_body: &str) -> Result<OrderInfo, String>;
+
+    /// 1通のメールから複数注文を返す場合に実装する。
+    /// デフォルトは None（単一注文として parse() を使用）。
+    /// Some(Ok(orders)) を返すとバッチで各注文を save_order する。
+    fn parse_multi(&self, _email_body: &str) -> Option<Result<Vec<OrderInfo>, String>> {
+        None
+    }
 }
 
 /// バッチパース用: 送信元アドレスと件名から候補パーサー(parser_type, shop_name)を取得
@@ -330,6 +338,7 @@ pub fn get_parser(parser_type: &str) -> Option<Box<dyn EmailParser>> {
         )),
         "hobbysearch_send" => Some(Box::new(hobbysearch_send::HobbySearchSendParser)),
         "dmm_confirm" => Some(Box::new(dmm_confirm::DmmConfirmParser)),
+        "dmm_split_complete" => Some(Box::new(dmm_split_complete::DmmSplitCompleteParser)),
         _ => None,
     }
 }
@@ -497,6 +506,8 @@ pub async fn batch_parse_emails(
             let mut last_error = String::new();
             // キャンセルメールとして処理した（成功・失敗いずれも）。通常の OrderInfo フローをスキップする。
             let mut handled_as_cancel = false;
+            // 複数注文パーサーで保存済み（後段の save_order をスキップする）
+            let mut handled_as_multi = false;
 
             for (parser_type, shop_name) in &candidate_parsers {
                 // キャンセルメールは専用パーサーで処理（OrderInfo を返さない）
@@ -564,53 +575,143 @@ pub async fn batch_parse_emails(
                 };
 
                 let body = get_body_for_parse(row);
-                match parser.parse(&body) {
-                    Ok(mut order_info) => {
-                        log::debug!("Successfully parsed with parser: {}", parser_type);
 
-                        // confirm, confirm_yoyaku, change, dmm_confirm の場合はメール受信日を order_date に使用
-                        if order_info.order_date.is_none()
-                            && row.internal_date.is_some()
-                            && matches!(
-                                parser_type.as_str(),
-                                "hobbysearch_confirm"
-                                    | "hobbysearch_confirm_yoyaku"
-                                    | "hobbysearch_change"
-                                    | "hobbysearch_change_yoyaku"
-                                    | "dmm_confirm"
-                            )
-                        {
-                            if let Some(ts_ms) = row.internal_date {
-                                let dt = match DateTime::from_timestamp_millis(ts_ms) {
-                                    Some(d) => d,
-                                    None => {
-                                        log::warn!(
-                                            "Failed to parse internal_date {} for email {} (invalid timestamp), using current time as order_date fallback",
-                                            ts_ms, row.email_id
-                                        );
-                                        chrono::Utc::now()
+                // 複数注文を返すパーサー（dmm_split_complete 等）
+                if let Some(multi_result) = parser.parse_multi(&body) {
+                    match multi_result {
+                        Ok(orders) if !orders.is_empty() => {
+                            let from_address = row.from_address.as_deref().unwrap_or("");
+                            let shop_domain = extract_email_address(from_address)
+                                .and_then(|email| extract_domain(&email).map(|s| s.to_string()));
+                            let alternate_domains = order_lookup_alternate_domains(&shop_domain);
+                            let mut first_order_info = None;
+                            for (idx, mut order_info) in orders.into_iter().enumerate() {
+                                if order_info.order_date.is_none()
+                                    && row.internal_date.is_some()
+                                    && matches!(parser_type.as_str(), "dmm_split_complete")
+                                {
+                                    if let Some(ts_ms) = row.internal_date {
+                                        if let Some(dt) = DateTime::from_timestamp_millis(ts_ms) {
+                                            order_info.order_date =
+                                                Some(dt.format("%Y-%m-%d %H:%M:%S").to_string());
+                                        }
                                     }
+                                }
+                                let save_result = if idx == 0
+                                    && parser_type.as_str() == "dmm_split_complete"
+                                {
+                                    order_repo
+                                        .apply_split_first_order(
+                                            &order_info,
+                                            Some(row.email_id),
+                                            shop_domain.clone(),
+                                            Some(shop_name.clone()),
+                                            alternate_domains.clone(),
+                                        )
+                                        .await
+                                } else {
+                                    order_repo
+                                        .save_order(
+                                            &order_info,
+                                            Some(row.email_id),
+                                            shop_domain.clone(),
+                                            Some(shop_name.clone()),
+                                        )
+                                        .await
                                 };
-                                // internal_date は UTC ミリ秒タイムスタンプ。order_date は UTC の日時文字列として DB に保存。
-                                // フロントはタイムゾーン未指定を UTC と解釈し JST で表示（README §4 規約）。
-                                order_info.order_date =
-                                    Some(dt.format("%Y-%m-%d %H:%M:%S").to_string());
+                                match save_result {
+                                    Ok(order_id) => {
+                                        log::info!(
+                                            "Saved split order {} ({} of N) for email {}",
+                                            order_id,
+                                            idx + 1,
+                                            row.email_id
+                                        );
+                                        success_count += 1;
+                                        if first_order_info.is_none() {
+                                            first_order_info = Some(order_info);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        log::warn!(
+                                            "Failed to save split order {} for email {}: {}",
+                                            idx + 1,
+                                            row.email_id,
+                                            e
+                                        );
+                                        last_error = e;
+                                        break;
+                                    }
+                                }
                             }
+                            if first_order_info.is_some() {
+                                handled_as_multi = true;
+                            }
+                            overall_parsed_count += 1;
+                            break;
                         }
-
-                        parse_result =
-                            Some(Ok((order_info, shop_name.clone(), parser_type.clone())));
-                        break;
+                        Ok(_) => {
+                            last_error = "Parser returned empty orders".to_string();
+                            continue;
+                        }
+                        Err(e) => {
+                            log::debug!("Parser {} parse_multi failed: {}", parser_type, e);
+                            last_error = e;
+                            continue;
+                        }
                     }
-                    Err(e) => {
-                        log::debug!("Parser {} failed: {}", parser_type, e);
-                        last_error = e;
-                        continue;
+                } else {
+                    match parser.parse(&body) {
+                        Ok(mut order_info) => {
+                            log::debug!("Successfully parsed with parser: {}", parser_type);
+
+                            // confirm, confirm_yoyaku, change, dmm_confirm の場合はメール受信日を order_date に使用
+                            if order_info.order_date.is_none()
+                                && row.internal_date.is_some()
+                                && matches!(
+                                    parser_type.as_str(),
+                                    "hobbysearch_confirm"
+                                        | "hobbysearch_confirm_yoyaku"
+                                        | "hobbysearch_change"
+                                        | "hobbysearch_change_yoyaku"
+                                        | "dmm_confirm"
+                                )
+                            {
+                                if let Some(ts_ms) = row.internal_date {
+                                    let dt = match DateTime::from_timestamp_millis(ts_ms) {
+                                        Some(d) => d,
+                                        None => {
+                                            log::warn!(
+                                                "Failed to parse internal_date {} for email {} (invalid timestamp), using current time as order_date fallback",
+                                                ts_ms, row.email_id
+                                            );
+                                            chrono::Utc::now()
+                                        }
+                                    };
+                                    // internal_date は UTC ミリ秒タイムスタンプ。order_date は UTC の日時文字列として DB に保存。
+                                    // フロントはタイムゾーン未指定を UTC と解釈し JST で表示（README §4 規約）。
+                                    order_info.order_date =
+                                        Some(dt.format("%Y-%m-%d %H:%M:%S").to_string());
+                                }
+                            }
+
+                            parse_result =
+                                Some(Ok((order_info, shop_name.clone(), parser_type.clone())));
+                            break;
+                        }
+                        Err(e) => {
+                            log::debug!("Parser {} failed: {}", parser_type, e);
+                            last_error = e;
+                            continue;
+                        }
                     }
                 }
             }
 
             if handled_as_cancel {
+                continue;
+            }
+            if handled_as_multi {
                 continue;
             }
 
@@ -958,6 +1059,12 @@ mod tests {
     #[test]
     fn test_get_parser_dmm_confirm() {
         let parser = get_parser("dmm_confirm");
+        assert!(parser.is_some());
+    }
+
+    #[test]
+    fn test_get_parser_dmm_split_complete() {
+        let parser = get_parser("dmm_split_complete");
         assert!(parser.is_some());
     }
 
