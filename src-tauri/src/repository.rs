@@ -325,6 +325,7 @@ pub trait OrderRepository: Send + Sync {
         &self,
         change_info: &OrderNumberChangeInfo,
         email_id: i64,
+        change_email_internal_date: Option<i64>,
         shop_domain: Option<String>,
         shop_name: Option<String>,
         alternate_domains: Option<Vec<String>>,
@@ -368,6 +369,18 @@ pub trait OrderRepository: Send + Sync {
         &self,
         consolidation_info: &ConsolidationInfo,
         email_id: i64,
+        shop_domain: Option<String>,
+        shop_name: Option<String>,
+        alternate_domains: Option<Vec<String>>,
+    ) -> Result<i64, String>;
+
+    /// 発送完了メール用: 発送メールに記載された商品・金額を最終状態として扱い、
+    /// 既存注文の items を置き換え、delivery 情報を更新する。
+    /// * `alternate_domains`: 検索失敗時に試す追加ドメイン（DMM の mail.dmm.com / mono.dmm.com 等）
+    async fn apply_send_and_replace_items(
+        &self,
+        order_info: &OrderInfo,
+        email_id: Option<i64>,
         shop_domain: Option<String>,
         shop_name: Option<String>,
         alternate_domains: Option<Vec<String>>,
@@ -1267,8 +1280,9 @@ impl OrderRepository for SqliteOrderRepository {
         &self,
         change_info: &OrderNumberChangeInfo,
         email_id: i64,
+        change_email_internal_date: Option<i64>,
         shop_domain: Option<String>,
-        _shop_name: Option<String>,
+        shop_name: Option<String>,
         alternate_domains: Option<Vec<String>>,
     ) -> Result<i64, String> {
         let mut tx = self
@@ -1280,31 +1294,55 @@ impl OrderRepository for SqliteOrderRepository {
         // 1. 既存の注文を検索（旧注文番号 + shop_domain）
         // 注文番号は大文字小文字を区別せずマッチ（メールからそのまま保存するため表記が揺れる場合あり）
         // alternate_domains が渡された場合、検索失敗時に追加ドメインで再試行（店舗固有ロジックは呼び出し元で設定）
-        let order_id = match Self::find_order_by_number_and_domain(
+        let existing_order_id = Self::find_order_by_number_and_domain(
             &mut tx,
             &change_info.old_order_number,
             &shop_domain,
             alternate_domains.as_deref(),
         )
         .await
-        .map_err(|e| format!("Failed to find order: {e}"))?
-        {
-            Some(id) => id,
-            None => {
-                log::warn!(
-                    "Order number change: order {} not found (shop_domain={:?}, alternate_domains={:?})",
-                    change_info.old_order_number,
-                    shop_domain,
-                    alternate_domains
-                );
-                tx.rollback()
-                    .await
-                    .map_err(|e| format!("Failed to rollback: {e}"))?;
-                return Err(format!(
-                    "Order {} not found for number change",
-                    change_info.old_order_number
-                ));
-            }
+        .map_err(|e| format!("Failed to find order: {e}"))?;
+
+        let order_id = if let Some(id) = existing_order_id {
+            id
+        } else {
+            // 旧注文が見つからない場合は、新注文番号で新規注文を作成する。
+            // （元メール不足などで旧注文が作られていないケースを許容）
+            log::warn!(
+                "Order number change: old order {} not found (shop_domain={:?}, alternate_domains={:?}); creating new order with {}",
+                change_info.old_order_number,
+                shop_domain,
+                alternate_domains,
+                change_info.new_order_number
+            );
+
+            // internal_date があれば受信日時を order_date に使用
+            let order_date_str = change_email_internal_date.and_then(|ts| {
+                chrono::DateTime::from_timestamp_millis(ts)
+                    .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+            });
+
+            let new_order_id = sqlx::query(
+                r#"
+                INSERT INTO orders (order_number, order_date, shop_domain, shop_name)
+                VALUES (?, ?, ?, ?)
+                "#,
+            )
+            .bind(&change_info.new_order_number)
+            .bind(&order_date_str)
+            .bind(shop_domain.as_deref())
+            .bind(shop_name.as_deref())
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| format!("Failed to insert order for number change fallback: {e}"))?
+            .last_insert_rowid();
+
+            log::info!(
+                "Order number change fallback: created new order {} with number {}",
+                new_order_id,
+                change_info.new_order_number
+            );
+            new_order_id
         };
 
         // 2. 注文番号を更新
@@ -1452,6 +1490,153 @@ impl OrderRepository for SqliteOrderRepository {
             .await
             .map_err(|e| format!("Failed to commit transaction: {e}"))?;
         Ok(first_order_id)
+    }
+
+    async fn apply_send_and_replace_items(
+        &self,
+        order_info: &OrderInfo,
+        email_id: Option<i64>,
+        shop_domain: Option<String>,
+        _shop_name: Option<String>,
+        alternate_domains: Option<Vec<String>>,
+    ) -> Result<i64, String> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| format!("Failed to start transaction: {e}"))?;
+
+        // 1. 既存の注文を検索（注文番号 + shop_domain、alternate_domains を含めて検索）
+        let order_id = match Self::find_order_by_number_and_domain(
+            &mut tx,
+            &order_info.order_number,
+            &shop_domain,
+            alternate_domains.as_deref(),
+        )
+        .await
+        .map_err(|e| format!("Failed to find order: {e}"))?
+        {
+            Some(id) => {
+                log::debug!(
+                    "[dmm_send] found existing order id={} for number {} (shop_domain={:?}, alternate_domains={:?})",
+                    id,
+                    order_info.order_number,
+                    shop_domain,
+                    alternate_domains
+                );
+                id
+            }
+            None => {
+                log::warn!(
+                    "[dmm_send] Send mail: order {} not found (shop_domain={:?}, alternate_domains={:?})",
+                    order_info.order_number,
+                    shop_domain,
+                    alternate_domains
+                );
+                tx.rollback()
+                    .await
+                    .map_err(|e| format!("Failed to rollback: {e}"))?;
+                return Err(format!(
+                    "Order {} not found for send mail",
+                    order_info.order_number
+                ));
+            }
+        };
+
+        // 2. 商品を発送メールの内容で置き換え
+        Self::replace_items_for_order_in_tx(&mut tx, order_id, order_info).await?;
+
+        // 3. 発送情報を deliveries に反映
+        if let Some(delivery_info) = &order_info.delivery_info {
+            let existing_delivery: Option<(i64,)> = sqlx::query_as(
+                r#"
+                SELECT id FROM deliveries
+                WHERE order_id = ? AND tracking_number = ?
+                LIMIT 1
+                "#,
+            )
+            .bind(order_id)
+            .bind(&delivery_info.tracking_number)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|e| format!("Failed to check existing delivery: {e}"))?;
+
+            if existing_delivery.is_none() {
+                sqlx::query(
+                    r#"
+                    INSERT INTO deliveries (order_id, tracking_number, carrier, delivery_status)
+                    VALUES (?, ?, ?, 'shipped')
+                    "#,
+                )
+                .bind(order_id)
+                .bind(&delivery_info.tracking_number)
+                .bind(&delivery_info.carrier)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| format!("Failed to insert delivery: {e}"))?;
+
+                log::debug!("Added new delivery info for order {} (send mail)", order_id);
+            } else {
+                sqlx::query(
+                    r#"
+                    UPDATE deliveries
+                    SET carrier = COALESCE(?, carrier),
+                        delivery_status = 'shipped'
+                    WHERE order_id = ? AND tracking_number = ?
+                    "#,
+                )
+                .bind(&delivery_info.carrier)
+                .bind(order_id)
+                .bind(&delivery_info.tracking_number)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| format!("Failed to update delivery: {e}"))?;
+
+                log::debug!("Updated delivery info for order {} (send mail)", order_id);
+            }
+        }
+
+        // 4. order_emails にメールとの関連を保存
+        if let Some(email_id_val) = email_id {
+            let existing_link: Option<(i64,)> = sqlx::query_as(
+                r#"
+                SELECT order_id FROM order_emails
+                WHERE order_id = ? AND email_id = ?
+                LIMIT 1
+                "#,
+            )
+            .bind(order_id)
+            .bind(email_id_val)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|e| format!("Failed to check order_email link: {e}"))?;
+
+            if existing_link.is_none() {
+                sqlx::query(
+                    r#"
+                    INSERT INTO order_emails (order_id, email_id)
+                    VALUES (?, ?)
+                    "#,
+                )
+                .bind(order_id)
+                .bind(email_id_val)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| format!("Failed to link order to email: {e}"))?;
+
+                log::debug!(
+                    "Linked order {} to email {} (send mail)",
+                    order_id,
+                    email_id_val
+                );
+            }
+        }
+
+        tx.commit()
+            .await
+            .map_err(|e| format!("Failed to commit transaction: {e}"))?;
+
+        Ok(order_id)
     }
 
     async fn apply_change_items(
@@ -3561,6 +3746,7 @@ mod tests {
             .apply_order_number_change(
                 &change_info,
                 email_id.0,
+                None,
                 Some("mail.dmm.com".to_string()),
                 None,
                 Some(vec!["mono.dmm.com".to_string()]), // DMM alternate domain

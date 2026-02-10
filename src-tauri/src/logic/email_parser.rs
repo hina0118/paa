@@ -23,6 +23,7 @@ use crate::parsers::{EmailParser, OrderInfo};
             | "hobbysearch_send"
             | "hobbysearch_cancel"
             | "dmm_confirm"
+            | "dmm_send"
             | "dmm_cancel"
             | "dmm_order_number_change"
             | "dmm_merge_complete"

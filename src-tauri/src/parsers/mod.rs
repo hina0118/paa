@@ -75,6 +75,7 @@ pub mod dmm_cancel;
 pub mod dmm_order_number_change;
 pub mod dmm_merge_complete;
 pub mod dmm_split_complete;
+pub mod dmm_send;
 
 // BatchTask 実装
 pub mod email_parse_task;
@@ -359,6 +360,7 @@ pub fn get_parser(parser_type: &str) -> Option<Box<dyn EmailParser>> {
         )),
         "hobbysearch_send" => Some(Box::new(hobbysearch_send::HobbySearchSendParser)),
         "dmm_confirm" => Some(Box::new(dmm_confirm::DmmConfirmParser)),
+        "dmm_send" => Some(Box::new(dmm_send::DmmSendParser)),
         "dmm_split_complete" => Some(Box::new(dmm_split_complete::DmmSplitCompleteParser)),
         _ => None,
     }

@@ -418,6 +418,7 @@ where
                                 .apply_order_number_change(
                                     &change_info,
                                     input.email_id,
+                                    input.internal_date,
                                     shop_domain.clone(),
                                     Some(shop_name.clone()),
                                     order_lookup_alternate_domains(&shop_domain),
@@ -823,9 +824,10 @@ where
                 match save_result {
                     Ok(order_id) => {
                         log::debug!(
-                            "Saved order {} for email {} (in-batch)",
+                            "Saved order {} for email {} (in-batch, parser_type={})",
                             order_id,
-                            input.email_id
+                            input.email_id,
+                            parser_type
                         );
                         // 商品画像URLがある場合、images テーブルに登録
                         if let Some((ref pool, ref images_dir)) = context.image_save_ctx {
