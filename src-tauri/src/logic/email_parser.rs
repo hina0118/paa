@@ -25,6 +25,7 @@ use crate::parsers::{EmailParser, OrderInfo};
             | "dmm_confirm"
             | "dmm_cancel"
             | "dmm_order_number_change"
+            | "dmm_merge_complete"
             | "dmm_split_complete"
     )
 }

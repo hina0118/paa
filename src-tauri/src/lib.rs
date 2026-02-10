@@ -531,6 +531,12 @@ pub fn run() {
                 sql: include_str!("../migrations/007_add_dmm_split_complete_shop_settings.sql"),
                 kind: MigrationKind::Up,
             },
+            Migration {
+                version: 8,
+                description: "add_dmm_merge_complete_shop_settings",
+                sql: include_str!("../migrations/008_add_dmm_merge_complete_shop_settings.sql"),
+                kind: MigrationKind::Up,
+            },
         ]
     };
 

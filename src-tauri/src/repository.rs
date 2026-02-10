@@ -5,6 +5,7 @@
 use crate::gemini::normalize_product_name;
 use crate::gmail::{CreateShopSettings, GmailMessage, ShopSettings, UpdateShopSettings};
 use crate::parsers::cancel_info::CancelInfo;
+use crate::parsers::consolidation_info::ConsolidationInfo;
 use crate::parsers::order_number_change_info::OrderNumberChangeInfo;
 use crate::parsers::{EmailRow, OrderInfo};
 use async_trait::async_trait;
@@ -356,6 +357,17 @@ pub trait OrderRepository: Send + Sync {
         &self,
         order_info: &OrderInfo,
         email_id: Option<i64>,
+        shop_domain: Option<String>,
+        shop_name: Option<String>,
+        alternate_domains: Option<Vec<String>>,
+    ) -> Result<i64, String>;
+
+    /// まとめ完了メール用: 複数注文を1注文に統合。先頭の注文を新番号に更新し、残りは商品を削除（注文は保持）。
+    /// * `alternate_domains`: 検索失敗時に試す追加ドメイン（DMM の mail.dmm.com / mono.dmm.com 等）
+    async fn apply_consolidation(
+        &self,
+        consolidation_info: &ConsolidationInfo,
+        email_id: i64,
         shop_domain: Option<String>,
         shop_name: Option<String>,
         alternate_domains: Option<Vec<String>>,
@@ -1342,6 +1354,104 @@ impl OrderRepository for SqliteOrderRepository {
             .map_err(|e| format!("Failed to commit transaction: {e}"))?;
 
         Ok(order_id)
+    }
+
+    async fn apply_consolidation(
+        &self,
+        consolidation_info: &ConsolidationInfo,
+        email_id: i64,
+        shop_domain: Option<String>,
+        _shop_name: Option<String>,
+        alternate_domains: Option<Vec<String>>,
+    ) -> Result<i64, String> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| format!("Failed to start transaction: {e}"))?;
+
+        // まとめる前の注文番号で注文IDを検索（重複除く、order_id 昇順）
+        let mut order_ids: Vec<i64> = Vec::new();
+        let mut seen = HashSet::new();
+        for old_num in &consolidation_info.old_order_numbers {
+            if let Some(id) = Self::find_order_by_number_and_domain(
+                &mut tx,
+                old_num,
+                &shop_domain,
+                alternate_domains.as_deref(),
+            )
+            .await
+            .map_err(|e| format!("Failed to find order: {e}"))?
+            {
+                if seen.insert(id) {
+                    order_ids.push(id);
+                }
+            }
+        }
+        order_ids.sort_unstable();
+        let first_order_id = match order_ids.first() {
+            Some(&id) => id,
+            None => {
+                tx.rollback()
+                    .await
+                    .map_err(|e| format!("Failed to rollback: {e}"))?;
+                return Err("No orders found for consolidation".to_string());
+            }
+        };
+
+        // 先頭の注文を新番号に更新
+        sqlx::query("UPDATE orders SET order_number = ? WHERE id = ?")
+            .bind(&consolidation_info.new_order_number)
+            .bind(first_order_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| format!("Failed to update order number: {e}"))?;
+        log::info!(
+            "Consolidation: order id={} updated to new number {}",
+            first_order_id,
+            consolidation_info.new_order_number
+        );
+
+        // 先頭注文にメールを紐づけ
+        let existing_link: Option<(i64,)> = sqlx::query_as(
+            r#"SELECT order_id FROM order_emails WHERE order_id = ? AND email_id = ? LIMIT 1"#,
+        )
+        .bind(first_order_id)
+        .bind(email_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| format!("Failed to check order_email link: {e}"))?;
+        if existing_link.is_none() {
+            sqlx::query("INSERT INTO order_emails (order_id, email_id) VALUES (?, ?)")
+                .bind(first_order_id)
+                .bind(email_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| format!("Failed to link order to email: {e}"))?;
+        }
+
+        // 2件目以降の注文は商品を削除（注文・order_emails は保持して再パース防止）
+        for &order_id in &order_ids[1..] {
+            sqlx::query("DELETE FROM items WHERE order_id = ?")
+                .bind(order_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| format!("Failed to delete items for consolidated order {order_id}: {e}"))?;
+            sqlx::query("DELETE FROM deliveries WHERE order_id = ?")
+                .bind(order_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| format!("Failed to delete deliveries for consolidated order {order_id}: {e}"))?;
+            log::info!(
+                "Consolidation: cleared items/deliveries for superseded order id={}",
+                order_id
+            );
+        }
+
+        tx.commit()
+            .await
+            .map_err(|e| format!("Failed to commit transaction: {e}"))?;
+        Ok(first_order_id)
     }
 
     async fn apply_change_items(
