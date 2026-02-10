@@ -47,8 +47,8 @@ impl EmailParser for DmmSplitCompleteParser {
 
 /// 本文を「注文番号:」で区切り、各ブロックから OrderInfo を構築する
 fn parse_split_orders(body: &str) -> Result<Vec<OrderInfo>, String> {
-    let order_number_re = Regex::new(r"注文番号\s*[：:]\s*([A-Za-z]{2}-\d+)")
-        .map_err(|e| e.to_string())?;
+    let order_number_re =
+        Regex::new(r"注文番号\s*[：:]\s*([A-Za-z]{2}-\d+)").map_err(|e| e.to_string())?;
     // [10月発送予定] 商品名 1個 594円 または 商品名 1個 1,100円
     let item_re = Regex::new(r"^(?:\[\d+月発送予定\]\s*)?(.+?)\s+(\d+)個\s*([\d,]+)円\s*$")
         .map_err(|e| e.to_string())?;
@@ -63,7 +63,11 @@ fn parse_split_orders(body: &str) -> Result<Vec<OrderInfo>, String> {
 
     for block in blocks {
         let block = block.trim();
-        let lines: Vec<&str> = block.lines().map(str::trim).filter(|s| !s.is_empty()).collect();
+        let lines: Vec<&str> = block
+            .lines()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .collect();
         if lines.is_empty() {
             continue;
         }
@@ -100,8 +104,7 @@ fn parse_split_orders(body: &str) -> Result<Vec<OrderInfo>, String> {
                 continue;
             }
             if let Some(cap) = item_re.captures(line) {
-                if let (Some(name), Some(qty), Some(price)) = (cap.get(1), cap.get(2), cap.get(3))
-                {
+                if let (Some(name), Some(qty), Some(price)) = (cap.get(1), cap.get(2), cap.get(3)) {
                     let name = normalize_product_name(name.as_str());
                     if name.len() < 2 {
                         continue;

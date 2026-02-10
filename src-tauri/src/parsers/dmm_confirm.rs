@@ -134,8 +134,10 @@ fn extract_order_date_from_html(document: &Html) -> Option<String> {
     for el in document.select(&td_selector) {
         let text = el.text().collect::<String>();
         if let Some(captures) = patterns.iter().flatten().find_map(|re| re.captures(&text)) {
-            if let (Some(y), Some(m), Some(d)) = (captures.get(1), captures.get(2), captures.get(3)) {
-                if let (Ok(month), Ok(day)) = (m.as_str().parse::<u32>(), d.as_str().parse::<u32>()) {
+            if let (Some(y), Some(m), Some(d)) = (captures.get(1), captures.get(2), captures.get(3))
+            {
+                if let (Ok(month), Ok(day)) = (m.as_str().parse::<u32>(), d.as_str().parse::<u32>())
+                {
                     return Some(format!("{}-{:02}-{:02}", y.as_str(), month, day));
                 }
             }
@@ -144,7 +146,9 @@ fn extract_order_date_from_html(document: &Html) -> Option<String> {
     None
 }
 
-pub(crate) fn extract_delivery_address_from_html(document: &Html) -> Option<super::DeliveryAddress> {
+pub(crate) fn extract_delivery_address_from_html(
+    document: &Html,
+) -> Option<super::DeliveryAddress> {
     let td_selector = Selector::parse("td").unwrap_or_else(|_| Selector::parse("div").unwrap());
     let re = Regex::new(r"受取人のお名前\s*[：:]\s*(.+)").ok()?;
     let re2 = Regex::new(r"購入者のお名前\s*[：:]\s*(.+)").ok()?;
@@ -218,7 +222,7 @@ pub(crate) fn extract_items_from_html(document: &Html) -> Result<Vec<OrderItem>,
                 let name = img
                     .value()
                     .attr("alt")
-                    .map(|s| normalize_product_name(s))
+                    .map(normalize_product_name)
                     .unwrap_or_default();
                 let image_url = img
                     .value()
@@ -280,7 +284,9 @@ pub(crate) fn extract_items_from_html(document: &Html) -> Result<Vec<OrderItem>,
                         continue;
                     }
                     // 親テーブル内の価格を探す
-                    if let Some((unit_price, quantity)) = find_price_quantity_near_element(document, el) {
+                    if let Some((unit_price, quantity)) =
+                        find_price_quantity_near_element(document, el)
+                    {
                         if unit_price > 0 {
                             let image_url = el
                                 .value()
@@ -353,13 +359,19 @@ fn find_price_quantity_near_element(
     None
 }
 
-pub(crate) fn extract_amounts_from_html(document: &Html) -> (Option<i64>, Option<i64>, Option<i64>) {
+pub(crate) fn extract_amounts_from_html(
+    document: &Html,
+) -> (Option<i64>, Option<i64>, Option<i64>) {
     let text = document.root_element().text().collect::<String>();
 
-    let subtotal_re = Regex::new(r"商品小計\s*[：:]\s*([\d,]+)円").unwrap_or_else(|_| Regex::new("").unwrap());
-    let shipping_re = Regex::new(r"送料\s*[：:]\s*([\d,]+)円").unwrap_or_else(|_| Regex::new("").unwrap());
-    let total_re = Regex::new(r"お支払い金額\s*[：:]\s*[\s\S]*?([\d,]+)円\s*\(税込\)").unwrap_or_else(|_| Regex::new("").unwrap());
-    let total_re2 = Regex::new(r"支払い合計\s*[：:]\s*([\d,]+)円").unwrap_or_else(|_| Regex::new("").unwrap());
+    let subtotal_re =
+        Regex::new(r"商品小計\s*[：:]\s*([\d,]+)円").unwrap_or_else(|_| Regex::new("").unwrap());
+    let shipping_re =
+        Regex::new(r"送料\s*[：:]\s*([\d,]+)円").unwrap_or_else(|_| Regex::new("").unwrap());
+    let total_re = Regex::new(r"お支払い金額\s*[：:]\s*[\s\S]*?([\d,]+)円\s*\(税込\)")
+        .unwrap_or_else(|_| Regex::new("").unwrap());
+    let total_re2 =
+        Regex::new(r"支払い合計\s*[：:]\s*([\d,]+)円").unwrap_or_else(|_| Regex::new("").unwrap());
 
     let mut subtotal = None;
     let mut shipping_fee = None;
@@ -489,7 +501,11 @@ fn extract_delivery_address(lines: &[&str]) -> Option<super::DeliveryAddress> {
                 if let Some(m) = cap.get(1) {
                     let name = m.as_str().trim().trim_end_matches('様').trim().to_string();
                     if !name.is_empty() {
-                        return Some(super::DeliveryAddress { name, postal_code: None, address: None });
+                        return Some(super::DeliveryAddress {
+                            name,
+                            postal_code: None,
+                            address: None,
+                        });
                     }
                 }
             }
@@ -499,7 +515,9 @@ fn extract_delivery_address(lines: &[&str]) -> Option<super::DeliveryAddress> {
 }
 
 fn extract_order_items(lines: &[&str]) -> Result<Vec<OrderItem>, String> {
-    let pattern_a = Regex::new(r"発送日:\s*(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\s+(.+)\s+(\d+)個\s*([\d,]+)円");
+    let pattern_a = Regex::new(
+        r"発送日:\s*(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\s+(.+)\s+(\d+)個\s*([\d,]+)円",
+    );
     let pattern_b = Regex::new(r"発売日[：:]\s*(.+)\s+(\d+)個\s*([\d,]+)円");
     let pattern_c = Regex::new(r"\d{1,2}/\d{1,2}\s+発売予定\s+(.+)\s+(\d+)個\s*([\d,]+)円");
     // テキストのみ形式: 商品名 数量個 価格円（発売日等のプレフィックスなし）
@@ -512,7 +530,10 @@ fn extract_order_items(lines: &[&str]) -> Result<Vec<OrderItem>, String> {
         if let Ok(re) = &pattern_a {
             if let Some(cap) = re.captures(line) {
                 if let (Some(name), Some(qty), Some(price)) = (cap.get(2), cap.get(3), cap.get(4)) {
-                    if let (Ok(q), Ok(p)) = (qty.as_str().parse::<i64>(), price.as_str().replace(',', "").parse::<i64>()) {
+                    if let (Ok(q), Ok(p)) = (
+                        qty.as_str().parse::<i64>(),
+                        price.as_str().replace(',', "").parse::<i64>(),
+                    ) {
                         if p > 0 {
                             items.push(OrderItem {
                                 name: normalize_product_name(name.as_str()),
@@ -533,7 +554,10 @@ fn extract_order_items(lines: &[&str]) -> Result<Vec<OrderItem>, String> {
         if let Ok(re) = &pattern_b {
             if let Some(cap) = re.captures(line) {
                 if let (Some(name), Some(qty), Some(price)) = (cap.get(1), cap.get(2), cap.get(3)) {
-                    if let (Ok(q), Ok(p)) = (qty.as_str().parse::<i64>(), price.as_str().replace(',', "").parse::<i64>()) {
+                    if let (Ok(q), Ok(p)) = (
+                        qty.as_str().parse::<i64>(),
+                        price.as_str().replace(',', "").parse::<i64>(),
+                    ) {
                         if p > 0 {
                             items.push(OrderItem {
                                 name: normalize_product_name(name.as_str()),
@@ -554,7 +578,10 @@ fn extract_order_items(lines: &[&str]) -> Result<Vec<OrderItem>, String> {
         if let Ok(re) = &pattern_c {
             if let Some(cap) = re.captures(line) {
                 if let (Some(name), Some(qty), Some(price)) = (cap.get(1), cap.get(2), cap.get(3)) {
-                    if let (Ok(q), Ok(p)) = (qty.as_str().parse::<i64>(), price.as_str().replace(',', "").parse::<i64>()) {
+                    if let (Ok(q), Ok(p)) = (
+                        qty.as_str().parse::<i64>(),
+                        price.as_str().replace(',', "").parse::<i64>(),
+                    ) {
                         if p > 0 {
                             items.push(OrderItem {
                                 name: normalize_product_name(name.as_str()),
@@ -575,7 +602,10 @@ fn extract_order_items(lines: &[&str]) -> Result<Vec<OrderItem>, String> {
         if let Ok(re) = &pattern_d {
             if let Some(cap) = re.captures(line) {
                 if let (Some(name), Some(qty), Some(price)) = (cap.get(1), cap.get(2), cap.get(3)) {
-                    if let (Ok(q), Ok(p)) = (qty.as_str().parse::<i64>(), price.as_str().replace(',', "").parse::<i64>()) {
+                    if let (Ok(q), Ok(p)) = (
+                        qty.as_str().parse::<i64>(),
+                        price.as_str().replace(',', "").parse::<i64>(),
+                    ) {
                         if p > 0 {
                             let name_normalized = normalize_product_name(name.as_str());
                             if !name_normalized.is_empty() && name_normalized.len() > 2 {
@@ -604,10 +634,13 @@ fn extract_order_items(lines: &[&str]) -> Result<Vec<OrderItem>, String> {
 }
 
 fn extract_amounts(lines: &[&str]) -> (Option<i64>, Option<i64>, Option<i64>) {
-    let subtotal_re = Regex::new(r"商品小計\s*[：:]\s*([\d,]+)円").unwrap_or_else(|_| Regex::new("").unwrap());
-    let shipping_re = Regex::new(r"送料\s*[：:]\s*([\d,]+)円").unwrap_or_else(|_| Regex::new("").unwrap());
+    let subtotal_re =
+        Regex::new(r"商品小計\s*[：:]\s*([\d,]+)円").unwrap_or_else(|_| Regex::new("").unwrap());
+    let shipping_re =
+        Regex::new(r"送料\s*[：:]\s*([\d,]+)円").unwrap_or_else(|_| Regex::new("").unwrap());
     let total_patterns = [
-        Regex::new(r"お支払い金額\s*[：:]\s*([\d,]+)円").unwrap_or_else(|_| Regex::new("").unwrap()),
+        Regex::new(r"お支払い金額\s*[：:]\s*([\d,]+)円")
+            .unwrap_or_else(|_| Regex::new("").unwrap()),
         Regex::new(r"支払い合計\s*[：:]\s*([\d,]+)円").unwrap_or_else(|_| Regex::new("").unwrap()),
         Regex::new(r"合計\s*[：:]\s*([\d,]+)円").unwrap_or_else(|_| Regex::new("").unwrap()),
     ];

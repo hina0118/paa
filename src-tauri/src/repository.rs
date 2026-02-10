@@ -1474,12 +1474,16 @@ impl OrderRepository for SqliteOrderRepository {
                 .bind(order_id)
                 .execute(&mut *tx)
                 .await
-                .map_err(|e| format!("Failed to delete items for consolidated order {order_id}: {e}"))?;
+                .map_err(|e| {
+                    format!("Failed to delete items for consolidated order {order_id}: {e}")
+                })?;
             sqlx::query("DELETE FROM deliveries WHERE order_id = ?")
                 .bind(order_id)
                 .execute(&mut *tx)
                 .await
-                .map_err(|e| format!("Failed to delete deliveries for consolidated order {order_id}: {e}"))?;
+                .map_err(|e| {
+                    format!("Failed to delete deliveries for consolidated order {order_id}: {e}")
+                })?;
             log::info!(
                 "Consolidation: cleared items/deliveries for superseded order id={}",
                 order_id
@@ -3066,9 +3070,16 @@ mod tests {
 
         let emails = repo.get_unparsed_emails(10).await.unwrap();
         assert_eq!(emails.len(), 4, "HTML-only email should be included");
-        let html_email = emails.iter().find(|e| e.message_id == "email-html-only").unwrap();
+        let html_email = emails
+            .iter()
+            .find(|e| e.message_id == "email-html-only")
+            .unwrap();
         assert!(html_email.body_plain.is_none());
-        assert!(html_email.body_html.as_deref().unwrap().contains("注文番号:99999"));
+        assert!(html_email
+            .body_html
+            .as_deref()
+            .unwrap()
+            .contains("注文番号:99999"));
     }
 
     #[tokio::test]
@@ -3713,12 +3724,11 @@ mod tests {
         assert!(result.is_ok(), "apply_cancel failed: {:?}", result.err());
         assert_eq!(result.unwrap(), order_id.0);
 
-        let count: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM items WHERE order_id = ?")
-                .bind(order_id.0)
-                .fetch_one(&pool)
-                .await
-                .expect("count items");
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items WHERE order_id = ?")
+            .bind(order_id.0)
+            .fetch_one(&pool)
+            .await
+            .expect("count items");
         assert_eq!(count.0, 0, "all items should be removed");
     }
 
@@ -3767,15 +3777,18 @@ mod tests {
                 Some(vec!["mono.dmm.com".to_string()]), // DMM alternate domain
             )
             .await;
-        assert!(result.is_ok(), "apply_order_number_change failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "apply_order_number_change failed: {:?}",
+            result.err()
+        );
         assert_eq!(result.unwrap(), order_id.0);
 
-        let row: (String,) =
-            sqlx::query_as("SELECT order_number FROM orders WHERE id = ?")
-                .bind(order_id.0)
-                .fetch_one(&pool)
-                .await
-                .expect("get order");
+        let row: (String,) = sqlx::query_as("SELECT order_number FROM orders WHERE id = ?")
+            .bind(order_id.0)
+            .fetch_one(&pool)
+            .await
+            .expect("get order");
         assert_eq!(row.0, "BS-26888944");
     }
 

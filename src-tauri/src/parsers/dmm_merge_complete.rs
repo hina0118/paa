@@ -141,6 +141,10 @@ mod tests {
 3: KC-25285201
 まとめた後のご注文番号: KC-25285222"#;
         let nums = extract_old_order_numbers(body).unwrap();
-        assert_eq!(nums, vec!["KC-25278407", "KC-25285201"], "重複は除去され出現順を保つ");
+        assert_eq!(
+            nums,
+            vec!["KC-25278407", "KC-25285201"],
+            "重複は除去され出現順を保つ"
+        );
     }
 }

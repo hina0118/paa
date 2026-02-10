@@ -510,7 +510,9 @@ where
                                     results.push(Ok(EmailParseOutput {
                                         email_id: input.email_id,
                                         order_info: OrderInfo {
-                                            order_number: consolidation_info.new_order_number.clone(),
+                                            order_number: consolidation_info
+                                                .new_order_number
+                                                .clone(),
                                             order_date: None,
                                             delivery_address: None,
                                             delivery_info: None,
@@ -571,10 +573,7 @@ where
                             for (idx, mut order_info) in orders.into_iter().enumerate() {
                                 if order_info.order_date.is_none()
                                     && input.internal_date.is_some()
-                                    && matches!(
-                                        parser_type.as_str(),
-                                        "dmm_split_complete"
-                                    )
+                                    && matches!(parser_type.as_str(), "dmm_split_complete")
                                 {
                                     if let Some(ts_ms) = input.internal_date {
                                         if let Some(dt) = DateTime::from_timestamp_millis(ts_ms) {
@@ -583,30 +582,29 @@ where
                                         }
                                     }
                                 }
-                                let save_result = if idx == 0
-                                    && parser_type.as_str() == "dmm_split_complete"
-                                {
-                                    context
-                                        .order_repo
-                                        .apply_split_first_order(
-                                            &order_info,
-                                            Some(input.email_id),
-                                            shop_domain.clone(),
-                                            Some(shop_name.clone()),
-                                            alternate_domains.clone(),
-                                        )
-                                        .await
-                                } else {
-                                    context
-                                        .order_repo
-                                        .save_order(
-                                            &order_info,
-                                            Some(input.email_id),
-                                            shop_domain.clone(),
-                                            Some(shop_name.clone()),
-                                        )
-                                        .await
-                                };
+                                let save_result =
+                                    if idx == 0 && parser_type.as_str() == "dmm_split_complete" {
+                                        context
+                                            .order_repo
+                                            .apply_split_first_order(
+                                                &order_info,
+                                                Some(input.email_id),
+                                                shop_domain.clone(),
+                                                Some(shop_name.clone()),
+                                                alternate_domains.clone(),
+                                            )
+                                            .await
+                                    } else {
+                                        context
+                                            .order_repo
+                                            .save_order(
+                                                &order_info,
+                                                Some(input.email_id),
+                                                shop_domain.clone(),
+                                                Some(shop_name.clone()),
+                                            )
+                                            .await
+                                    };
                                 match save_result {
                                     Ok(order_id) => {
                                         log::debug!(
@@ -674,9 +672,12 @@ where
                             }
                             if parser_type.as_str() == "dmm_split_complete" {
                                 let from_address = input.from_address.as_deref().unwrap_or("");
-                                let shop_domain = extract_email_address(from_address)
-                                    .and_then(|email| extract_domain(&email).map(|s| s.to_string()));
-                                let alternate_domains = order_lookup_alternate_domains(&shop_domain);
+                                let shop_domain =
+                                    extract_email_address(from_address).and_then(|email| {
+                                        extract_domain(&email).map(|s| s.to_string())
+                                    });
+                                let alternate_domains =
+                                    order_lookup_alternate_domains(&shop_domain);
                                 match context
                                     .order_repo
                                     .apply_split_first_order(
@@ -689,8 +690,11 @@ where
                                     .await
                                 {
                                     Ok(_) => {
-                                        parse_result =
-                                            Some((order_info, shop_name.clone(), parser_type.clone()));
+                                        parse_result = Some((
+                                            order_info,
+                                            shop_name.clone(),
+                                            parser_type.clone(),
+                                        ));
                                     }
                                     Err(e) => {
                                         last_error = e;
@@ -715,48 +719,49 @@ where
                     }
                 } else if let Some(parser) = get_parser(parser_type) {
                     match parser.parse(&input.body_plain) {
-                    Ok(mut order_info) => {
-                        log::debug!("Successfully parsed with parser: {}", parser_type);
+                        Ok(mut order_info) => {
+                            log::debug!("Successfully parsed with parser: {}", parser_type);
 
-                        // confirm, confirm_yoyaku, change, dmm_confirm の場合はメール受信日を order_date に使用
-                        if order_info.order_date.is_none()
-                            && input.internal_date.is_some()
-                            && matches!(
-                                parser_type.as_str(),
-                                "hobbysearch_confirm"
-                                    | "hobbysearch_confirm_yoyaku"
-                                    | "hobbysearch_change"
-                                    | "hobbysearch_change_yoyaku"
-                                    | "dmm_confirm"
-                            )
-                        {
-                            if let Some(ts_ms) = input.internal_date {
-                                let dt = match DateTime::from_timestamp_millis(ts_ms) {
-                                    Some(d) => d,
-                                    None => {
-                                        log::warn!(
-                                            "Failed to parse internal_date {} for email {}",
-                                            ts_ms,
-                                            input.email_id
-                                        );
-                                        chrono::Utc::now()
-                                    }
-                                };
-                                order_info.order_date =
-                                    Some(dt.format("%Y-%m-%d %H:%M:%S").to_string());
+                            // confirm, confirm_yoyaku, change, dmm_confirm の場合はメール受信日を order_date に使用
+                            if order_info.order_date.is_none()
+                                && input.internal_date.is_some()
+                                && matches!(
+                                    parser_type.as_str(),
+                                    "hobbysearch_confirm"
+                                        | "hobbysearch_confirm_yoyaku"
+                                        | "hobbysearch_change"
+                                        | "hobbysearch_change_yoyaku"
+                                        | "dmm_confirm"
+                                )
+                            {
+                                if let Some(ts_ms) = input.internal_date {
+                                    let dt = match DateTime::from_timestamp_millis(ts_ms) {
+                                        Some(d) => d,
+                                        None => {
+                                            log::warn!(
+                                                "Failed to parse internal_date {} for email {}",
+                                                ts_ms,
+                                                input.email_id
+                                            );
+                                            chrono::Utc::now()
+                                        }
+                                    };
+                                    order_info.order_date =
+                                        Some(dt.format("%Y-%m-%d %H:%M:%S").to_string());
+                                }
                             }
-                        }
 
-                        parse_result = Some((order_info, shop_name.clone(), parser_type.clone()));
-                        break;
+                            parse_result =
+                                Some((order_info, shop_name.clone(), parser_type.clone()));
+                            break;
+                        }
+                        Err(e) => {
+                            log::debug!("Parser {} failed: {}", parser_type, e);
+                            last_error = e;
+                            continue;
+                        }
                     }
-                    Err(e) => {
-                        log::debug!("Parser {} failed: {}", parser_type, e);
-                        last_error = e;
-                        continue;
-                    }
-                }
-            } else {
+                } else {
                     log::warn!("Unknown parser type: {}", parser_type);
                     continue;
                 }
@@ -849,14 +854,15 @@ where
                                     let normalized =
                                         crate::gemini::normalize_product_name(&item.name);
                                     if !normalized.is_empty() {
-                                        if let Err(e) = crate::image_utils::save_image_from_url_for_item(
-                                            pool.as_ref(),
-                                            images_dir,
-                                            &normalized,
-                                            url,
-                                            true, // パース: 既存レコードがあればスキップ
-                                        )
-                                        .await
+                                        if let Err(e) =
+                                            crate::image_utils::save_image_from_url_for_item(
+                                                pool.as_ref(),
+                                                images_dir,
+                                                &normalized,
+                                                url,
+                                                true, // パース: 既存レコードがあればスキップ
+                                            )
+                                            .await
                                         {
                                             log::warn!(
                                                 "[parse] Failed to save image for item '{}': {}",

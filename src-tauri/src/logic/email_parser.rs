@@ -13,7 +13,7 @@ use crate::parsers::{EmailParser, OrderInfo};
 ///
 /// # Returns
 /// パーサーが存在する場合はtrue
- pub fn is_valid_parser_type(parser_type: &str) -> bool {
+pub fn is_valid_parser_type(parser_type: &str) -> bool {
     matches!(
         parser_type,
         "hobbysearch_confirm"

@@ -13,7 +13,10 @@ pub struct DmmOrderNumberChangeParser;
 
 impl DmmOrderNumberChangeParser {
     /// メール本文から注文番号変更情報を抽出する
-    pub fn parse_order_number_change(&self, email_body: &str) -> Result<OrderNumberChangeInfo, String> {
+    pub fn parse_order_number_change(
+        &self,
+        email_body: &str,
+    ) -> Result<OrderNumberChangeInfo, String> {
         let lines: Vec<&str> = email_body.lines().collect();
 
         let (old_num, new_num) = extract_order_numbers(&lines)?;

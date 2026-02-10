@@ -59,7 +59,9 @@ pub(crate) fn is_private_ip(ip: std::net::IpAddr) -> bool {
         }
         IpAddr::V6(ipv6) => {
             let segments = ipv6.segments();
-            (segments[0] == 0 && segments[1] == 0 && segments[2] == 0
+            (segments[0] == 0
+                && segments[1] == 0
+                && segments[2] == 0
                 && segments[3] == 0
                 && segments[4] == 0
                 && segments[5] == 0
