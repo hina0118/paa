@@ -16,7 +16,7 @@ pub struct DmmSendParser;
 
 impl EmailParser for DmmSendParser {
     fn parse(&self, email_body: &str) -> Result<OrderInfo, String> {
-        if email_body.contains("<html") {
+        if email_body.contains("<table") || email_body.contains("<html") {
             // HTML メールは dmm_confirm と同じロジックで商品＋金額をパースしつつ、
             // dmm_send 独自の配送情報も付与する。
             let document = Html::parse_document(email_body);
