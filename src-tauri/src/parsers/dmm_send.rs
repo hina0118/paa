@@ -16,34 +16,52 @@ pub struct DmmSendParser;
 
 impl EmailParser for DmmSendParser {
     fn parse(&self, email_body: &str) -> Result<OrderInfo, String> {
-        // HTML の場合はテキストを抽出してから行ごとに処理する
-        let text = if email_body.contains("<html") {
+        if email_body.contains("<html") {
+            // HTML メールは dmm_confirm と同じロジックで商品＋金額をパースしつつ、
+            // dmm_send 独自の配送情報も付与する。
             let document = Html::parse_document(email_body);
-            document.root_element().text().collect::<String>()
+
+            // 確定メールと同じロジックで注文番号・商品・金額を取得
+            let order_number = super::dmm_confirm::extract_order_number_from_html(&document)?;
+            let delivery_address = super::dmm_confirm::extract_delivery_address_from_html(&document);
+            let items = super::dmm_confirm::extract_items_from_html(&document)?;
+            let (subtotal, shipping_fee, total_amount) =
+                super::dmm_confirm::extract_amounts_from_html(&document);
+
+            // 発送メール特有の配送業者・お問い合わせ番号をテキストから抽出
+            let text = document.root_element().text().collect::<String>();
+            let lines: Vec<&str> = text.lines().collect();
+            let delivery_info = extract_delivery_info(&lines);
+
+            Ok(OrderInfo {
+                order_number,
+                order_date: None,
+                delivery_address,
+                delivery_info,
+                items,
+                subtotal,
+                shipping_fee,
+                total_amount,
+            })
         } else {
-            email_body.to_string()
-        };
-        let lines: Vec<&str> = text.lines().collect();
+            // プレーンテキストのみの場合は、配送情報だけを抽出（商品・金額は空）
+            let lines: Vec<&str> = email_body.lines().collect();
 
-        // ご注文番号（KC- / BS- 等の接頭辞付き）
-        let order_number = extract_order_number(&lines)?;
+            let order_number = extract_order_number(&lines)?;
+            let delivery_address = extract_delivery_address(&lines);
+            let delivery_info = extract_delivery_info(&lines);
 
-        // 受取人名（あれば）
-        let delivery_address = extract_delivery_address(&lines);
-
-        // 配送業者・お問い合わせ番号
-        let delivery_info = extract_delivery_info(&lines);
-
-        Ok(OrderInfo {
-            order_number,
-            order_date: None,
-            delivery_address,
-            delivery_info,
-            items: Vec::<OrderItem>::new(),
-            subtotal: None,
-            shipping_fee: None,
-            total_amount: None,
-        })
+            Ok(OrderInfo {
+                order_number,
+                order_date: None,
+                delivery_address,
+                delivery_info,
+                items: Vec::<OrderItem>::new(),
+                subtotal: None,
+                shipping_fee: None,
+                total_amount: None,
+            })
+        }
     }
 }
 
