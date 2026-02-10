@@ -1527,13 +1527,20 @@ impl OrderRepository for SqliteOrderRepository {
                 shop_domain,
                 alternate_domains
             );
-            // 2. 既存注文: 商品を発送メールの内容で丸ごと置き換え（items が空でも最終状態として採用）
-            Self::replace_items_for_order_in_tx(&mut tx, id, order_info).await?;
-            log::info!(
-                "[dmm_send] replaced items for existing order {} with {} items from send mail",
-                id,
-                order_info.items.len()
-            );
+            // 2. 既存注文: 商品を発送メールの内容で置き換え（items が空の場合は配送情報のみ更新）
+            if !order_info.items.is_empty() {
+                Self::replace_items_for_order_in_tx(&mut tx, id, order_info).await?;
+                log::info!(
+                    "[dmm_send] replaced items for existing order {} with {} items from send mail",
+                    id,
+                    order_info.items.len()
+                );
+            } else {
+                log::info!(
+                    "[dmm_send] skipping items replacement for order {} (items empty in send mail, keeping existing items)",
+                    id
+                );
+            }
             id
         } else {
             log::warn!(

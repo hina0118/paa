@@ -137,39 +137,41 @@ pub async fn save_image_from_url_for_item(
             .await
             .map_err(|e| format!("Failed to download image: {e}"))?;
         let status = response.status();
+
+        // Content-Length が取得できる場合は、ボディ読み込み前に上限チェックして中断
         let content_length = response
             .headers()
             .get("content-length")
             .and_then(|v| v.to_str().ok())
             .and_then(|s| s.parse::<usize>().ok());
+        if let Some(len) = content_length {
+            if len > MAX_IMAGE_SIZE_BYTES {
+                return Err(format!(
+                    "Image too large ({} bytes). Maximum size is {} MB",
+                    len,
+                    MAX_IMAGE_SIZE_BYTES / (1024 * 1024)
+                ));
+            }
+        }
+
         let body_bytes = response
             .into_body()
             .collect()
             .await
             .map_err(|e| format!("Failed to read image body: {e}"))?
             .to_bytes();
-        Ok::<_, String>((status, content_length, body_bytes))
+        Ok::<_, String>((status, body_bytes))
     })
     .await;
 
-    let (status, content_length, image_data) = match request_result {
-        Ok(Ok((s, cl, b))) => (s, cl, b),
+    let (status, image_data) = match request_result {
+        Ok(Ok((s, b))) => (s, b),
         Ok(Err(e)) => return Err(e),
         Err(_) => return Err("Image download timed out".to_string()),
     };
 
     if !status.is_success() {
         return Err(format!("Failed to download image: HTTP {}", status));
-    }
-
-    if let Some(len) = content_length {
-        if len > MAX_IMAGE_SIZE_BYTES {
-            return Err(format!(
-                "Image too large ({} bytes). Maximum size is {} MB",
-                len,
-                MAX_IMAGE_SIZE_BYTES / (1024 * 1024)
-            ));
-        }
     }
 
     if image_data.len() > MAX_IMAGE_SIZE_BYTES {

@@ -628,14 +628,19 @@ where
                                                             &item.name,
                                                         );
                                                     if !normalized.is_empty() {
-                                                        let _ = crate::image_utils::save_image_from_url_for_item(
+                                                        if let Err(e) = crate::image_utils::save_image_from_url_for_item(
                                                             pool.as_ref(),
                                                             images_dir,
                                                             &normalized,
                                                             url,
                                                             true,
                                                         )
-                                                        .await;
+                                                        .await {
+                                                            log::warn!(
+                                                                "Failed to save image for split order item '{}' (email_id={}): {}",
+                                                                normalized, input.email_id, e
+                                                            );
+                                                        }
                                                     }
                                                 }
                                             }
