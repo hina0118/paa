@@ -537,6 +537,18 @@ pub fn run() {
                 sql: include_str!("../migrations/008_add_dmm_merge_complete_shop_settings.sql"),
                 kind: MigrationKind::Up,
             },
+            Migration {
+                version: 9,
+                description: "add_dmm_send_shop_settings",
+                sql: include_str!("../migrations/009_add_dmm_send_shop_settings.sql"),
+                kind: MigrationKind::Up,
+            },
+            Migration {
+                version: 10,
+                description: "update_dmm_subject_filters",
+                sql: include_str!("../migrations/010_update_dmm_subject_filters.sql"),
+                kind: MigrationKind::Up,
+            },
         ]
     };
 

@@ -191,7 +191,7 @@ fn find_image_url_in_same_row(element: scraper::ElementRef) -> Option<String> {
     None
 }
 
-fn extract_items_from_html(document: &Html) -> Result<Vec<OrderItem>, String> {
+pub(crate) fn extract_items_from_html(document: &Html) -> Result<Vec<OrderItem>, String> {
     let mut items = Vec::new();
 
     // 商品リンク（dmmref=gMono_Mail_Purchase）から商品名を取得
@@ -353,7 +353,7 @@ fn find_price_quantity_near_element(
     None
 }
 
-fn extract_amounts_from_html(document: &Html) -> (Option<i64>, Option<i64>, Option<i64>) {
+pub(crate) fn extract_amounts_from_html(document: &Html) -> (Option<i64>, Option<i64>, Option<i64>) {
     let text = document.root_element().text().collect::<String>();
 
     let subtotal_re = Regex::new(r"商品小計\s*[：:]\s*([\d,]+)円").unwrap_or_else(|_| Regex::new("").unwrap());
