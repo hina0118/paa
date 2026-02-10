@@ -579,7 +579,7 @@ impl SqliteOrderRepository {
                     sqlx::query_as(
                         r#"
                         SELECT id FROM orders
-                        WHERE LOWER(order_number) = LOWER(?) AND shop_domain = ?
+                        WHERE order_number COLLATE NOCASE = ? AND shop_domain = ?
                         LIMIT 1
                         "#,
                     )
@@ -592,7 +592,7 @@ impl SqliteOrderRepository {
                     sqlx::query_as(
                         r#"
                         SELECT id FROM orders
-                        WHERE LOWER(order_number) = LOWER(?) AND (shop_domain IS NULL OR shop_domain = '')
+                        WHERE order_number COLLATE NOCASE = ? AND (shop_domain IS NULL OR shop_domain = '')
                         LIMIT 1
                         "#,
                     )
@@ -624,7 +624,7 @@ impl SqliteOrderRepository {
                 sqlx::query_scalar(
                     r#"
                     SELECT o.id FROM orders o
-                    WHERE LOWER(o.order_number) != LOWER(?)
+                    WHERE o.order_number COLLATE NOCASE != ?
                     AND o.shop_domain = ?
                     AND o.id NOT IN (
                         SELECT d.order_id FROM deliveries d
@@ -644,7 +644,7 @@ impl SqliteOrderRepository {
                 sqlx::query_scalar(
                     r#"
                     SELECT o.id FROM orders o
-                    WHERE LOWER(o.order_number) != LOWER(?)
+                    WHERE o.order_number COLLATE NOCASE != ?
                     AND (o.shop_domain IS NULL OR o.shop_domain = '')
                     AND o.id NOT IN (
                         SELECT d.order_id FROM deliveries d
@@ -664,7 +664,7 @@ impl SqliteOrderRepository {
             sqlx::query_scalar(
                 r#"
                 SELECT o.id FROM orders o
-                WHERE LOWER(o.order_number) != LOWER(?)
+                WHERE o.order_number COLLATE NOCASE != ?
                 AND (o.shop_domain IS NULL OR o.shop_domain = '')
                 AND o.id NOT IN (
                     SELECT d.order_id FROM deliveries d
@@ -846,7 +846,7 @@ impl SqliteOrderRepository {
         let existing_order: Option<(i64,)> = sqlx::query_as(
             r#"
             SELECT id FROM orders
-            WHERE LOWER(order_number) = LOWER(?) AND shop_domain = ?
+            WHERE order_number COLLATE NOCASE = ? AND shop_domain = ?
             LIMIT 1
             "#,
         )
