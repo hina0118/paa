@@ -131,9 +131,11 @@ export function Backup() {
         ['order_overrides', result.order_overrides_inserted],
         ['excluded_items', result.excluded_items_inserted],
         ['excluded_orders', result.excluded_orders_inserted],
-        ['画像ファイル', result.image_files_copied],
       ]);
-      toastSuccess(`復元しました（合計: ${total}件）`, details);
+      toastSuccess(
+        `復元しました（合計: ${total}件、画像ファイル: ${result.image_files_copied}件）`,
+        details
+      );
     } catch (error) {
       toastError(`インポートに失敗しました: ${formatError(error)}`);
     } finally {
