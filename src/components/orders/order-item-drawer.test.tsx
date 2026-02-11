@@ -1000,7 +1000,7 @@ describe('OrderItemDrawer', () => {
         expect(formCancelButton).toBeDisabled();
       });
 
-      resolveInvoke!(undefined);
+      resolveInvoke(undefined);
 
       await waitFor(() => {
         expect(
