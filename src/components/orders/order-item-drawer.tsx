@@ -131,13 +131,12 @@ export function OrderItemDrawer({
       const baseBrand = item.originalBrand ?? item.brand ?? '';
       const basePrice = item.originalPrice ?? item.price;
       const baseQuantity = item.originalQuantity ?? item.quantity;
-      const baseCategory = item.originalCategory ?? item.category ?? null;
 
-      const baseOrderNumber = item.originalOrderNumber ?? item.orderNumber;
-      const baseOrderDate = normalizeToDateInput(
-        item.originalOrderDate ?? item.orderDate
-      );
-      const baseShopName = item.originalShopName ?? item.shopName ?? null;
+      // 「元に戻す」判定のベースは必ず original を使う
+      // original が NULL の場合は空文字へ正規化して比較する
+      const baseOrderNumber = item.originalOrderNumber;
+      const baseOrderDate = normalizeToDateInput(item.originalOrderDate);
+      const baseShopName = item.originalShopName;
 
       // DBに保存する override 値（元値に戻した場合は NULL にしてクリア）
       const desiredItemName =
@@ -146,9 +145,9 @@ export function OrderItemDrawer({
       const desiredQuantity =
         nextQuantity === baseQuantity ? null : nextQuantity;
       const desiredBrand = form.brand === baseBrand ? null : form.brand;
-      // UIでは category を編集しないが、既存 override を消さないため現状値を保持する
-      const desiredCategory =
-        item.category === baseCategory ? null : (item.category ?? null);
+      // UIでは category を編集しないため、既存の override 値があればそれを維持する
+      // override が無い場合は NULL のまま（新規に category override を作らない）
+      const desiredCategory = item.itemOverrideCategory ?? null;
 
       const desiredNewOrderNumber =
         form.orderNumber === baseOrderNumber ? null : form.orderNumber;
