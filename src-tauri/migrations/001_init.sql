@@ -192,7 +192,16 @@ CREATE INDEX IF NOT EXISTS idx_shop_settings_sender_address ON shop_settings(sen
 CREATE INDEX IF NOT EXISTS idx_shop_settings_is_enabled ON shop_settings(is_enabled);
 
 INSERT OR IGNORE INTO shop_settings (shop_name, sender_address, parser_type, subject_filters, is_enabled) VALUES
-    ('DMM通販', 'info@mail.dmm.com', 'dmm_confirm', '["DMM通販：ご注文手続き完了のお知らせ"]', 1),
+    -- DMM通販
+    ('DMM通販', 'info@mail.dmm.com', 'dmm_confirm', '["DMM通販：ご注文手続き完了のお知らせ", "DMM通販:ご注文手続き完了のお知らせ", "ご注文手続き完了のお知らせ"]', 1),
+    ('DMM通販', 'info@mono.dmm.com', 'dmm_confirm', '["DMM通販：ご注文手続き完了のお知らせ", "DMM通販:ご注文手続き完了のお知らせ", "ご注文手続き完了のお知らせ"]', 1),
+    ('DMM通販', 'info@mail.dmm.com', 'dmm_cancel', '["DMM通販：ご注文キャンセルのお知らせ"]', 1),
+    ('DMM通販', 'info@mail.dmm.com', 'dmm_order_number_change', '["DMM通販：配送センター変更に伴うご注文番号変更のお知らせ"]', 1),
+    ('DMM通販', 'info@mail.dmm.com', 'dmm_split_complete', '["DMM通販：ご注文分割完了のお知らせ"]', 1),
+    ('DMM通販', 'info@mail.dmm.com', 'dmm_merge_complete', '["DMM通販：ご注文まとめ完了のお知らせ"]', 1),
+    ('DMM通販', 'info@mail.dmm.com', 'dmm_send', '["DMM通販：ご注文商品を発送いたしました", "ご注文商品を発送いたしました"]', 1),
+    ('DMM通販', 'info@mono.dmm.com', 'dmm_send', '["DMM通販：ご注文商品を発送いたしました", "ご注文商品を発送いたしました"]', 1),
+
     ('ホビーサーチ', 'hs-support@1999.co.jp', 'hobbysearch_cancel', '["【ホビーサーチ】ご注文のキャンセルが完了致しました"]', 1),
     ('ホビーサーチ', 'hs-support@1999.co.jp', 'hobbysearch_send', '["【ホビーサーチ】ご注文の発送が完了しました"]', 1),
     ('ホビーサーチ', 'hs-support@1999.co.jp', 'hobbysearch_change', '["【ホビーサーチ】ご注文が組み替えられました"]', 1),
@@ -224,3 +233,74 @@ CREATE INDEX IF NOT EXISTS idx_product_master_series ON product_master(series) W
 CREATE TRIGGER IF NOT EXISTS product_master_updated_at AFTER UPDATE ON product_master BEGIN
     UPDATE product_master SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
 END;
+
+-- -----------------------------------------------------------------------------
+-- orders: order_number のケース非依存検索用インデックス
+-- -----------------------------------------------------------------------------
+CREATE INDEX IF NOT EXISTS idx_orders_order_number_shop_domain_nocase
+ON orders(order_number COLLATE NOCASE, shop_domain);
+
+-- -----------------------------------------------------------------------------
+-- manual_overrides: 手動上書き・除外テーブル
+-- -----------------------------------------------------------------------------
+-- アイテム単位の手動修正
+-- ビジネスキー: (shop_domain, order_number, original_item_name, original_brand)
+CREATE TABLE IF NOT EXISTS item_overrides (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    shop_domain TEXT NOT NULL,
+    order_number TEXT NOT NULL COLLATE NOCASE,
+    original_item_name TEXT NOT NULL,
+    original_brand TEXT NOT NULL DEFAULT '',
+    -- 上書きフィールド (NULL = 上書きなし)
+    item_name TEXT,
+    price INTEGER,
+    quantity INTEGER,
+    brand TEXT,
+    category TEXT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (shop_domain, order_number, original_item_name, original_brand)
+);
+CREATE TRIGGER IF NOT EXISTS item_overrides_updated_at AFTER UPDATE ON item_overrides BEGIN
+    UPDATE item_overrides SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+END;
+
+-- 注文単位の手動修正
+-- ビジネスキー: (shop_domain, order_number)
+CREATE TABLE IF NOT EXISTS order_overrides (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    shop_domain TEXT NOT NULL,
+    order_number TEXT NOT NULL COLLATE NOCASE,
+    -- 上書きフィールド (NULL = 上書きなし)
+    new_order_number TEXT,
+    order_date TEXT,
+    shop_name TEXT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (shop_domain, order_number)
+);
+CREATE TRIGGER IF NOT EXISTS order_overrides_updated_at AFTER UPDATE ON order_overrides BEGIN
+    UPDATE order_overrides SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+END;
+
+-- アイテム除外リスト（論理削除: 表示クエリ側でフィルタ + 再パース時もブロック）
+CREATE TABLE IF NOT EXISTS excluded_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    shop_domain TEXT NOT NULL,
+    order_number TEXT NOT NULL COLLATE NOCASE,
+    item_name TEXT NOT NULL,
+    brand TEXT NOT NULL DEFAULT '',
+    reason TEXT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (shop_domain, order_number, item_name, brand)
+);
+
+-- 注文除外リスト（論理削除: 表示クエリ側でフィルタ + 再パース時もブロック）
+CREATE TABLE IF NOT EXISTS excluded_orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    shop_domain TEXT NOT NULL,
+    order_number TEXT NOT NULL COLLATE NOCASE,
+    reason TEXT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (shop_domain, order_number)
+);
