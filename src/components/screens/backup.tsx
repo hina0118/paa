@@ -128,7 +128,7 @@ export function Backup() {
         <CardHeader>
           <CardTitle>データのバックアップ</CardTitle>
           <CardDescription>
-            メタデータ（images、shop_settings、product_master、emails、item_overrides、order_overrides、excluded_items、excluded_orders）と画像ファイルをZIP形式でエクスポートします。保存先を選択してください。
+            メタデータと画像ファイルをZIP形式でエクスポートします。保存先を選択してください。
           </CardDescription>
         </CardHeader>
         <CardContent>
