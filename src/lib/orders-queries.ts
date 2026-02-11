@@ -43,44 +43,58 @@ export async function loadOrderItems(
       conditions.push(
         `(
             i.id IN (SELECT rowid FROM items_fts WHERE items_fts MATCH ?)
-            OR o.order_number LIKE ? ESCAPE '\\'
+            OR COALESCE(oo.new_order_number, o.order_number) LIKE ? ESCAPE '\\'
             OR o.shop_domain LIKE ? ESCAPE '\\'
-            OR o.shop_name LIKE ? ESCAPE '\\'
+            OR COALESCE(oo.shop_name, o.shop_name) LIKE ? ESCAPE '\\'
+            OR COALESCE(io.item_name, i.item_name) LIKE ? ESCAPE '\\'
+            OR COALESCE(CASE WHEN io.brand IS NOT NULL THEN io.brand ELSE i.brand END, '') LIKE ? ESCAPE '\\'
           )`
       );
-      args.push(ftsQuery, likePrefix, likePrefix, likePrefix);
+      args.push(
+        ftsQuery,
+        likePrefix,
+        likePrefix,
+        likePrefix,
+        likeContains,
+        likeContains
+      );
     } else {
       conditions.push(
         `(
-            o.order_number LIKE ? ESCAPE '\\'
+            COALESCE(oo.new_order_number, o.order_number) LIKE ? ESCAPE '\\'
             OR o.shop_domain LIKE ? ESCAPE '\\'
-            OR o.shop_name LIKE ? ESCAPE '\\'
-            OR i.item_name LIKE ? ESCAPE '\\'
-            OR i.brand LIKE ? ESCAPE '\\'
+            OR COALESCE(oo.shop_name, o.shop_name) LIKE ? ESCAPE '\\'
+            OR COALESCE(io.item_name, i.item_name) LIKE ? ESCAPE '\\'
+            OR COALESCE(CASE WHEN io.brand IS NOT NULL THEN io.brand ELSE i.brand END, '') LIKE ? ESCAPE '\\'
           )`
       );
       args.push(likePrefix, likePrefix, likePrefix, likeContains, likeContains);
     }
   }
   if (shopDomain) {
-    conditions.push('o.shop_domain = ?');
+    // UI のフィルタは「表示名（shop_name or shop_domain）」を選ぶため、表示値で一致させる
+    conditions.push('COALESCE(oo.shop_name, o.shop_name, o.shop_domain) = ?');
     args.push(shopDomain);
   }
   if (year) {
-    conditions.push("strftime('%Y', o.order_date) = ?");
+    conditions.push(
+      "strftime('%Y', COALESCE(oo.order_date, o.order_date)) = ?"
+    );
     args.push(String(year));
   }
   if (priceMin != null) {
-    conditions.push('i.price >= ?');
+    conditions.push('COALESCE(io.price, i.price) >= ?');
     args.push(priceMin);
   }
   if (priceMax != null) {
-    conditions.push('i.price <= ?');
+    conditions.push('COALESCE(io.price, i.price) <= ?');
     args.push(priceMax);
   }
 
   const orderCol =
-    sortBy === 'price' ? 'i.price' : 'COALESCE(o.order_date, o.created_at)';
+    sortBy === 'price'
+      ? 'COALESCE(io.price, i.price)'
+      : 'COALESCE(oo.order_date, o.order_date, o.created_at)';
   const orderDir =
     sortOrder === 'asc' || sortOrder === 'desc'
       ? sortOrder.toUpperCase()
@@ -99,6 +113,14 @@ export async function loadOrderItems(
     SELECT
       i.id,
       i.order_id AS orderId,
+      o.order_number AS originalOrderNumber,
+      o.order_date AS originalOrderDate,
+      o.shop_name AS originalShopName,
+      i.item_name AS originalItemName,
+      COALESCE(i.brand, '') AS originalBrand,
+      i.price AS originalPrice,
+      i.quantity AS originalQuantity,
+      i.category AS originalCategory,
       COALESCE(io.item_name, i.item_name) AS itemName,
       i.item_name_normalized AS itemNameNormalized,
       COALESCE(io.price, i.price) AS price,
@@ -117,7 +139,17 @@ export async function loadOrderItems(
       pm.product_name AS productName,
       pm.scale,
       pm.is_reissue AS isReissue,
-      CASE WHEN io.id IS NOT NULL OR oo.id IS NOT NULL THEN 1 ELSE 0 END AS hasOverride
+      CASE
+        WHEN io.item_name IS NOT NULL
+          OR io.price IS NOT NULL
+          OR io.quantity IS NOT NULL
+          OR io.brand IS NOT NULL
+          OR io.category IS NOT NULL
+          OR oo.new_order_number IS NOT NULL
+          OR oo.order_date IS NOT NULL
+          OR oo.shop_name IS NOT NULL
+        THEN 1 ELSE 0
+      END AS hasOverride
     FROM items i
     JOIN orders o ON i.order_id = o.id
     LEFT JOIN latest_delivery ld ON ld.order_id = o.id
@@ -153,10 +185,36 @@ export async function getOrderItemFilterOptions(db: {
 }): Promise<{ shopDomains: string[]; years: number[] }> {
   const [shops, years] = await Promise.all([
     db.select<{ shop_display: string }>(
-      'SELECT DISTINCT COALESCE(shop_name, shop_domain) AS shop_display FROM orders WHERE shop_domain IS NOT NULL OR shop_name IS NOT NULL ORDER BY shop_display'
+      `
+        SELECT DISTINCT
+          COALESCE(oo.shop_name, o.shop_name, o.shop_domain) AS shop_display
+        FROM orders o
+        LEFT JOIN order_overrides oo
+          ON oo.shop_domain = o.shop_domain
+         AND oo.order_number = o.order_number COLLATE NOCASE
+        LEFT JOIN excluded_orders eo
+          ON eo.shop_domain = o.shop_domain
+         AND eo.order_number = o.order_number COLLATE NOCASE
+        WHERE eo.id IS NULL
+          AND (o.shop_domain IS NOT NULL OR o.shop_name IS NOT NULL OR oo.shop_name IS NOT NULL)
+        ORDER BY shop_display
+      `
     ),
     db.select<{ yr: string }>(
-      "SELECT DISTINCT strftime('%Y', order_date) AS yr FROM orders WHERE order_date IS NOT NULL AND trim(strftime('%Y', order_date)) != '' ORDER BY yr DESC"
+      `
+        SELECT DISTINCT strftime('%Y', COALESCE(oo.order_date, o.order_date)) AS yr
+        FROM orders o
+        LEFT JOIN order_overrides oo
+          ON oo.shop_domain = o.shop_domain
+         AND oo.order_number = o.order_number COLLATE NOCASE
+        LEFT JOIN excluded_orders eo
+          ON eo.shop_domain = o.shop_domain
+         AND eo.order_number = o.order_number COLLATE NOCASE
+        WHERE eo.id IS NULL
+          AND COALESCE(oo.order_date, o.order_date) IS NOT NULL
+          AND trim(strftime('%Y', COALESCE(oo.order_date, o.order_date))) != ''
+        ORDER BY yr DESC
+      `
     ),
   ]);
   return {

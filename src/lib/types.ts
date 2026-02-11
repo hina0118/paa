@@ -103,6 +103,23 @@ export type OrderWithSources = Order & {
 export type OrderItemRow = {
   id: number;
   orderId: number;
+  /** orders.order_number（補正前の元キー） */
+  originalOrderNumber: string | null;
+  /** orders.order_date（補正前） */
+  originalOrderDate: string | null;
+  /** orders.shop_name（補正前） */
+  originalShopName: string | null;
+  /** items.item_name（補正前の元キー） */
+  originalItemName: string;
+  /** COALESCE(items.brand,'')（補正前の元キー、NULL は '' に正規化） */
+  originalBrand: string;
+  /** items.price（補正前） */
+  originalPrice: number;
+  /** items.quantity（補正前） */
+  originalQuantity: number;
+  /** items.category（補正前） */
+  originalCategory: string | null;
+
   itemName: string;
   itemNameNormalized: string | null;
   price: number;

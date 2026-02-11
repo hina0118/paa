@@ -14,6 +14,14 @@ vi.mock('@/hooks/useImageUrl', () => ({
 const mockItem: OrderItemRow = {
   id: 2,
   orderId: 11,
+  originalOrderNumber: 'ORD-002',
+  originalOrderDate: null,
+  originalShopName: 'ホビーサーチ',
+  originalItemName: 'リスト表示テスト',
+  originalBrand: '',
+  originalPrice: 1500,
+  originalQuantity: 2,
+  originalCategory: null,
   itemName: 'リスト表示テスト',
   itemNameNormalized: null,
   price: 1500,
@@ -27,6 +35,12 @@ const mockItem: OrderItemRow = {
   orderDate: null,
   fileName: null,
   deliveryStatus: 'shipped',
+  maker: null,
+  series: null,
+  productName: null,
+  scale: null,
+  isReissue: null,
+  hasOverride: 0,
 };
 
 describe('OrderItemRowView', () => {

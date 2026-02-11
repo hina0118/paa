@@ -13,6 +13,14 @@ vi.mock('@/hooks/useImageUrl', () => ({
 const mockItem: OrderItemRow = {
   id: 3,
   orderId: 12,
+  originalOrderNumber: 'ORD-003',
+  originalOrderDate: '2024-02-28',
+  originalShopName: 'ホビーサーチ',
+  originalItemName: 'ドロワー表示テスト',
+  originalBrand: '出版社X',
+  originalPrice: 5000,
+  originalQuantity: 1,
+  originalCategory: '書籍',
   itemName: 'ドロワー表示テスト',
   itemNameNormalized: null,
   price: 5000,
@@ -26,6 +34,12 @@ const mockItem: OrderItemRow = {
   orderDate: '2024-02-28',
   fileName: null,
   deliveryStatus: 'in_transit',
+  maker: null,
+  series: null,
+  productName: null,
+  scale: null,
+  isReissue: null,
+  hasOverride: 0,
 };
 
 describe('OrderItemDrawer', () => {
