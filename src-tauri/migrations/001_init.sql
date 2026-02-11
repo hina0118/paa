@@ -261,8 +261,6 @@ CREATE TABLE IF NOT EXISTS item_overrides (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (shop_domain, order_number, original_item_name, original_brand)
 );
-CREATE INDEX IF NOT EXISTS idx_item_overrides_key
-ON item_overrides(shop_domain, order_number, original_item_name, original_brand);
 CREATE TRIGGER IF NOT EXISTS item_overrides_updated_at AFTER UPDATE ON item_overrides BEGIN
     UPDATE item_overrides SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
 END;
@@ -281,8 +279,6 @@ CREATE TABLE IF NOT EXISTS order_overrides (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (shop_domain, order_number)
 );
-CREATE INDEX IF NOT EXISTS idx_order_overrides_key
-ON order_overrides(shop_domain, order_number);
 CREATE TRIGGER IF NOT EXISTS order_overrides_updated_at AFTER UPDATE ON order_overrides BEGIN
     UPDATE order_overrides SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
 END;
@@ -298,8 +294,6 @@ CREATE TABLE IF NOT EXISTS excluded_items (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (shop_domain, order_number, item_name, brand)
 );
-CREATE INDEX IF NOT EXISTS idx_excluded_items_key
-ON excluded_items(shop_domain, order_number, item_name, brand);
 
 -- 注文除外リスト（論理削除: 表示クエリ側でフィルタ + 再パース時もブロック）
 CREATE TABLE IF NOT EXISTS excluded_orders (
@@ -310,5 +304,3 @@ CREATE TABLE IF NOT EXISTS excluded_orders (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (shop_domain, order_number)
 );
-CREATE INDEX IF NOT EXISTS idx_excluded_orders_key
-ON excluded_orders(shop_domain, order_number);
