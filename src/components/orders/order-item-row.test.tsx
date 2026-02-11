@@ -22,6 +22,7 @@ const mockItem: OrderItemRow = {
   originalPrice: 1500,
   originalQuantity: 2,
   originalCategory: null,
+  itemOverrideCategory: null,
   itemName: 'リスト表示テスト',
   itemNameNormalized: null,
   price: 1500,
