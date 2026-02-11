@@ -13,8 +13,15 @@ describe('table-utils', () => {
       expect(VALID_TABLES).toContain('items');
       expect(VALID_TABLES).toContain('images');
       expect(VALID_TABLES).toContain('deliveries');
+      expect(VALID_TABLES).toContain('htmls');
+      expect(VALID_TABLES).toContain('order_emails');
+      expect(VALID_TABLES).toContain('order_htmls');
       expect(VALID_TABLES).toContain('shop_settings');
       expect(VALID_TABLES).toContain('product_master');
+      expect(VALID_TABLES).toContain('item_overrides');
+      expect(VALID_TABLES).toContain('order_overrides');
+      expect(VALID_TABLES).toContain('excluded_items');
+      expect(VALID_TABLES).toContain('excluded_orders');
     });
   });
 
