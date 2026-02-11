@@ -16,6 +16,34 @@ use serde::{Deserialize, Serialize};
 use sqlx::sqlite::{Sqlite, SqlitePool};
 use std::collections::{HashMap, HashSet};
 
+// NOTE: Clippy (type_complexity) 対応
+// `sqlx::query_as` で使用する巨大タプル型を type alias にして可読性を保つ。
+type ItemOverrideDbRow = (
+    i64,
+    String,
+    String,
+    String,
+    String,
+    Option<String>,
+    Option<i64>,
+    Option<i64>,
+    Option<String>,
+    Option<String>,
+    String,
+    String,
+);
+type OrderOverrideDbRow = (
+    i64,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    String,
+    String,
+);
+type ExcludedItemDbRow = (i64, String, String, String, String, Option<String>, String);
+
 /// メール統計情報
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmailStats {
@@ -2702,7 +2730,7 @@ impl SqliteOverrideRepository {
     }
 
     pub async fn get_all_item_overrides(&self) -> Result<Vec<ItemOverride>, String> {
-        let rows: Vec<(i64, String, String, String, String, Option<String>, Option<i64>, Option<i64>, Option<String>, Option<String>, String, String)> =
+        let rows: Vec<ItemOverrideDbRow> =
             sqlx::query_as(
                 r#"
                 SELECT id, shop_domain, order_number, original_item_name, original_brand,
@@ -2792,7 +2820,7 @@ impl SqliteOverrideRepository {
     }
 
     pub async fn get_all_order_overrides(&self) -> Result<Vec<OrderOverride>, String> {
-        let rows: Vec<(i64, String, String, Option<String>, Option<String>, Option<String>, String, String)> =
+        let rows: Vec<OrderOverrideDbRow> =
             sqlx::query_as(
                 r#"
                 SELECT id, shop_domain, order_number, new_order_number, order_date, shop_name,
@@ -2856,7 +2884,7 @@ impl SqliteOverrideRepository {
     }
 
     pub async fn get_all_excluded_items(&self) -> Result<Vec<ExcludedItem>, String> {
-        let rows: Vec<(i64, String, String, String, String, Option<String>, String)> =
+        let rows: Vec<ExcludedItemDbRow> =
             sqlx::query_as(
                 r#"
                 SELECT id, shop_domain, order_number, item_name, brand, reason, created_at
