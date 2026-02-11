@@ -119,8 +119,7 @@ export function Backup() {
           </h1>
         </div>
         <p className="text-muted-foreground">
-          images、shop_settings、product_master、emails、item_overrides、order_overrides、excluded_items、excluded_orders
-          のメタデータと画像ファイルをバックアップ・復元します。DBをリセットしてもAI解析済みの商品データや画像キャッシュ、取得済みメールを維持できます。
+          AI解析済みの商品データ、画像キャッシュ、店舗設定、取得済みメールなどのメタデータをバックアップ・復元します。DBをリセットしても重要なデータを維持できます。
         </p>
       </div>
 
