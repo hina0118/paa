@@ -44,6 +44,8 @@ interface ImportResult {
 
 /**
  * バックアップ結果から合計件数と詳細メッセージを生成する
+ * @param items - ラベルと件数のタプル配列
+ * @returns 合計件数と詳細文字列を含むオブジェクト
  */
 function formatBackupResult(items: Array<[string, number]>): {
   total: number;
