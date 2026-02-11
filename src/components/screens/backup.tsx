@@ -88,7 +88,7 @@ export function Backup() {
         ['excluded_orders', result.excluded_orders_count],
       ]);
       toastSuccess(
-        `バックアップを保存しました（${totalRecords}件のレコード、${result.image_files_count}個の画像ファイル）`
+        `バックアップを保存しました（合計: ${total}件、画像ファイル: ${result.image_files_count}件）`,
         details
       );
       if (result.images_skipped > 0) {
@@ -135,7 +135,7 @@ export function Backup() {
         ['excluded_orders', result.excluded_orders_inserted],
       ]);
       toastSuccess(
-        `復元しました（${total}件のレコード、${result.image_files_copied}個の画像ファイル）`,
+        `復元しました（合計: ${total}件、画像ファイル: ${result.image_files_copied}件）`,
         details
       );
     } catch (error) {
