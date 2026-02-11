@@ -414,7 +414,9 @@ describe('Settings', () => {
       renderWithProviders(<Settings />);
 
       await waitFor(() => {
-        expect(document.getElementById('parse-batch-size')).toBeInTheDocument();
+        const input = document.getElementById('parse-batch-size');
+        expect(input).toBeInTheDocument();
+        expect(input).toHaveValue(150);
       });
 
       await user.click(
@@ -494,7 +496,9 @@ describe('Settings', () => {
       renderWithProviders(<Settings />);
 
       await waitFor(() => {
-        expect(document.getElementById('parse-batch-size')).toBeInTheDocument();
+        const input = document.getElementById('parse-batch-size');
+        expect(input).toBeInTheDocument();
+        expect(input).toHaveValue(150);
       });
 
       await user.click(
