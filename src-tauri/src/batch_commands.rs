@@ -31,8 +31,8 @@ use crate::parsers::{
 };
 use crate::repository::{
     EmailRepository, ParseRepository, ShopSettingsRepository, SqliteEmailRepository,
-    SqliteOrderRepository, SqliteParseRepository,
-    SqliteProductMasterRepository, SqliteShopSettingsRepository,
+    SqliteOrderRepository, SqliteParseRepository, SqliteProductMasterRepository,
+    SqliteShopSettingsRepository,
 };
 
 /// config.parse.batch_size (i64) を usize へ安全に変換。

@@ -1576,10 +1576,7 @@ async fn save_order_override(
 }
 
 #[tauri::command]
-async fn delete_item_override(
-    pool: tauri::State<'_, SqlitePool>,
-    id: i64,
-) -> Result<(), String> {
+async fn delete_item_override(pool: tauri::State<'_, SqlitePool>, id: i64) -> Result<(), String> {
     let repo = repository::SqliteOverrideRepository::new(pool.inner().clone());
     repo.delete_item_override(id).await
 }
@@ -1603,10 +1600,7 @@ async fn delete_item_override_by_key(
 }
 
 #[tauri::command]
-async fn delete_order_override(
-    pool: tauri::State<'_, SqlitePool>,
-    id: i64,
-) -> Result<(), String> {
+async fn delete_order_override(pool: tauri::State<'_, SqlitePool>, id: i64) -> Result<(), String> {
     let repo = repository::SqliteOverrideRepository::new(pool.inner().clone());
     repo.delete_order_override(id).await
 }
@@ -1618,7 +1612,8 @@ async fn delete_order_override_by_key(
     order_number: String,
 ) -> Result<(), String> {
     let repo = repository::SqliteOverrideRepository::new(pool.inner().clone());
-    repo.delete_order_override_by_key(&shop_domain, &order_number).await
+    repo.delete_order_override_by_key(&shop_domain, &order_number)
+        .await
 }
 
 #[tauri::command]
@@ -1658,19 +1653,13 @@ async fn exclude_order(
 }
 
 #[tauri::command]
-async fn restore_excluded_item(
-    pool: tauri::State<'_, SqlitePool>,
-    id: i64,
-) -> Result<(), String> {
+async fn restore_excluded_item(pool: tauri::State<'_, SqlitePool>, id: i64) -> Result<(), String> {
     let repo = repository::SqliteOverrideRepository::new(pool.inner().clone());
     repo.restore_excluded_item(id).await
 }
 
 #[tauri::command]
-async fn restore_excluded_order(
-    pool: tauri::State<'_, SqlitePool>,
-    id: i64,
-) -> Result<(), String> {
+async fn restore_excluded_order(pool: tauri::State<'_, SqlitePool>, id: i64) -> Result<(), String> {
     let repo = repository::SqliteOverrideRepository::new(pool.inner().clone());
     repo.restore_excluded_order(id).await
 }
