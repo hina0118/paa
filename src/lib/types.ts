@@ -123,4 +123,44 @@ export type OrderItemRow = {
   productName: string | null;
   scale: string | null;
   isReissue: number | null;
+  /** 1 = 手動上書きあり */
+  hasOverride: number | null;
+};
+
+/** アイテム上書き保存パラメータ */
+export type SaveItemOverrideParams = {
+  shopDomain: string;
+  orderNumber: string;
+  originalItemName: string;
+  originalBrand: string;
+  itemName?: string | null;
+  price?: number | null;
+  quantity?: number | null;
+  brand?: string | null;
+  category?: string | null;
+};
+
+/** 注文上書き保存パラメータ */
+export type SaveOrderOverrideParams = {
+  shopDomain: string;
+  orderNumber: string;
+  newOrderNumber?: string | null;
+  orderDate?: string | null;
+  shopName?: string | null;
+};
+
+/** アイテム除外パラメータ */
+export type ExcludeItemParams = {
+  shopDomain: string;
+  orderNumber: string;
+  itemName: string;
+  brand: string;
+  reason?: string;
+};
+
+/** 注文除外パラメータ */
+export type ExcludeOrderParams = {
+  shopDomain: string;
+  orderNumber: string;
+  reason?: string;
 };

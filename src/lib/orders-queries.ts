@@ -99,24 +99,25 @@ export async function loadOrderItems(
     SELECT
       i.id,
       i.order_id AS orderId,
-      i.item_name AS itemName,
+      COALESCE(io.item_name, i.item_name) AS itemName,
       i.item_name_normalized AS itemNameNormalized,
-      i.price,
-      i.quantity,
-      i.category,
-      i.brand,
+      COALESCE(io.price, i.price) AS price,
+      COALESCE(io.quantity, i.quantity) AS quantity,
+      CASE WHEN io.category IS NOT NULL THEN io.category ELSE i.category END AS category,
+      CASE WHEN io.brand IS NOT NULL THEN io.brand ELSE i.brand END AS brand,
       i.created_at AS createdAt,
-      o.shop_name AS shopName,
+      COALESCE(oo.shop_name, o.shop_name) AS shopName,
       o.shop_domain AS shopDomain,
-      o.order_number AS orderNumber,
-      o.order_date AS orderDate,
+      COALESCE(oo.new_order_number, o.order_number) AS orderNumber,
+      COALESCE(oo.order_date, o.order_date) AS orderDate,
       img.file_name AS fileName,
       ld.delivery_status AS deliveryStatus,
       pm.maker,
       pm.series,
       pm.product_name AS productName,
       pm.scale,
-      pm.is_reissue AS isReissue
+      pm.is_reissue AS isReissue,
+      CASE WHEN io.id IS NOT NULL OR oo.id IS NOT NULL THEN 1 ELSE 0 END AS hasOverride
     FROM items i
     JOIN orders o ON i.order_id = o.id
     LEFT JOIN latest_delivery ld ON ld.order_id = o.id
@@ -124,7 +125,22 @@ export async function loadOrderItems(
     LEFT JOIN images img ON img.item_name_normalized = i.item_name_normalized
     -- product_master: 正規化できない商品名（NULL）の item は product_master データを表示しない（意図した動作）
     LEFT JOIN product_master pm ON i.item_name_normalized = pm.normalized_name
-    WHERE ${conditions.join(' AND ')}
+    -- 手動上書き: 上書きテーブルからビジネスキーで JOIN
+    LEFT JOIN item_overrides io ON io.shop_domain = o.shop_domain
+        AND io.order_number = o.order_number COLLATE NOCASE
+        AND io.original_item_name = i.item_name
+        AND io.original_brand = COALESCE(i.brand, '')
+    LEFT JOIN order_overrides oo ON oo.shop_domain = o.shop_domain
+        AND oo.order_number = o.order_number COLLATE NOCASE
+    -- 除外リスト: 論理削除（一致するレコードを非表示）
+    LEFT JOIN excluded_items ei ON ei.shop_domain = o.shop_domain
+        AND ei.order_number = o.order_number COLLATE NOCASE
+        AND ei.item_name = i.item_name
+        AND ei.brand = COALESCE(i.brand, '')
+    LEFT JOIN excluded_orders eo ON eo.shop_domain = o.shop_domain
+        AND eo.order_number = o.order_number COLLATE NOCASE
+    WHERE ei.id IS NULL AND eo.id IS NULL
+      AND ${conditions.join(' AND ')}
     ORDER BY ${orderCol} ${orderDir}
   `;
 
