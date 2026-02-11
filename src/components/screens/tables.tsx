@@ -43,3 +43,27 @@ export function ProductMasterTable() {
     <TableViewer tableName="product_master" title="Product Master テーブル" />
   );
 }
+
+export function ItemOverridesTable() {
+  return (
+    <TableViewer tableName="item_overrides" title="Item Overrides テーブル" />
+  );
+}
+
+export function OrderOverridesTable() {
+  return (
+    <TableViewer tableName="order_overrides" title="Order Overrides テーブル" />
+  );
+}
+
+export function ExcludedItemsTable() {
+  return (
+    <TableViewer tableName="excluded_items" title="Excluded Items テーブル" />
+  );
+}
+
+export function ExcludedOrdersTable() {
+  return (
+    <TableViewer tableName="excluded_orders" title="Excluded Orders テーブル" />
+  );
+}
