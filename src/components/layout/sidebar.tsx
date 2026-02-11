@@ -46,7 +46,11 @@ type TableItem = {
     | 'table-order-emails'
     | 'table-order-htmls'
     | 'table-shop-settings'
-    | 'table-product-master';
+    | 'table-product-master'
+    | 'table-item-overrides'
+    | 'table-order-overrides'
+    | 'table-excluded-items'
+    | 'table-excluded-orders';
 };
 
 const navigationItems: NavigationItem[] = [
@@ -71,6 +75,10 @@ const tableItems: TableItem[] = [
   { name: 'Order-HTMLs', id: 'table-order-htmls' },
   { name: 'Shop Settings', id: 'table-shop-settings' },
   { name: 'Product Master', id: 'table-product-master' },
+  { name: 'Item Overrides', id: 'table-item-overrides' },
+  { name: 'Order Overrides', id: 'table-order-overrides' },
+  { name: 'Excluded Items', id: 'table-excluded-items' },
+  { name: 'Excluded Orders', id: 'table-excluded-orders' },
 ];
 
 export function Sidebar() {

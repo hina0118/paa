@@ -51,6 +51,10 @@ test.describe('Tables画面', () => {
       'Order-HTMLs',
       'Shop Settings',
       'Product Master',
+      'Item Overrides',
+      'Order Overrides',
+      'Excluded Items',
+      'Excluded Orders',
     ] as const;
     for (const tableName of tables) {
       await tablesSection

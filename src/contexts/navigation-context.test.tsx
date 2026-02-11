@@ -56,6 +56,12 @@ describe('NavigationContext', () => {
       'table-htmls',
       'table-order-emails',
       'table-order-htmls',
+      'table-shop-settings',
+      'table-product-master',
+      'table-item-overrides',
+      'table-order-overrides',
+      'table-excluded-items',
+      'table-excluded-orders',
     ] as const;
 
     tableScreens.forEach((screen) => {
