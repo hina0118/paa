@@ -307,4 +307,926 @@ describe('OrderItemDrawer', () => {
       expect(onImageUpdated).toHaveBeenCalled();
     });
   });
+
+  describe('handleSave - Edit Mode', () => {
+    it('enters edit mode when pencil button is clicked', async () => {
+      const user = userEvent.setup();
+      render(
+        <OrderItemDrawer item={mockItem} open={true} onOpenChange={vi.fn()} />
+      );
+
+      const pencilButton = screen.getByTitle('編集');
+      await user.click(pencilButton);
+
+      // 編集モードでは入力フィールドが表示される
+      expect(screen.getByLabelText('商品名')).toBeInTheDocument();
+      expect(screen.getByLabelText('価格')).toBeInTheDocument();
+      expect(screen.getByLabelText('数量')).toBeInTheDocument();
+      expect(screen.getByLabelText('メーカー')).toBeInTheDocument();
+      expect(screen.getByLabelText('ショップ名')).toBeInTheDocument();
+      expect(screen.getByLabelText('注文番号')).toBeInTheDocument();
+      expect(screen.getByLabelText('注文日')).toBeInTheDocument();
+    });
+
+    it('exits edit mode when cancel button is clicked', async () => {
+      const user = userEvent.setup();
+      render(
+        <OrderItemDrawer item={mockItem} open={true} onOpenChange={vi.fn()} />
+      );
+
+      // 編集モードに入る
+      await user.click(screen.getByTitle('編集'));
+      expect(screen.getByLabelText('商品名')).toBeInTheDocument();
+
+      // キャンセルボタンをクリック（複数あるので最初のものを選択）
+      const cancelButtons = screen.getAllByRole('button', {
+        name: 'キャンセル',
+      });
+      await user.click(cancelButtons[0]);
+
+      // 編集モードが終了し、表示モードに戻る
+      expect(screen.queryByLabelText('商品名')).not.toBeInTheDocument();
+    });
+
+    it('initializes form with item data when entering edit mode', async () => {
+      const user = userEvent.setup();
+      render(
+        <OrderItemDrawer item={mockItem} open={true} onOpenChange={vi.fn()} />
+      );
+
+      await user.click(screen.getByTitle('編集'));
+
+      expect(screen.getByLabelText('商品名')).toHaveValue('ドロワー表示テスト');
+      expect(screen.getByLabelText('価格')).toHaveValue(5000);
+      expect(screen.getByLabelText('数量')).toHaveValue(1);
+      expect(screen.getByLabelText('メーカー')).toHaveValue('出版社X');
+      expect(screen.getByLabelText('ショップ名')).toHaveValue('ホビーサーチ');
+      expect(screen.getByLabelText('注文番号')).toHaveValue('ORD-003');
+      expect(screen.getByLabelText('注文日')).toHaveValue('2024-02-28');
+    });
+
+    it('exits edit mode when drawer is closed', async () => {
+      const user = userEvent.setup();
+      const onOpenChange = vi.fn();
+      const { rerender } = render(
+        <OrderItemDrawer
+          item={mockItem}
+          open={true}
+          onOpenChange={onOpenChange}
+        />
+      );
+
+      // 編集モードに入る
+      await user.click(screen.getByTitle('編集'));
+      expect(screen.getByLabelText('商品名')).toBeInTheDocument();
+
+      // ドロワーを閉じる
+      rerender(
+        <OrderItemDrawer
+          item={mockItem}
+          open={false}
+          onOpenChange={onOpenChange}
+        />
+      );
+
+      // ドロワーを再度開く
+      rerender(
+        <OrderItemDrawer
+          item={mockItem}
+          open={true}
+          onOpenChange={onOpenChange}
+        />
+      );
+
+      // 編集モードは終了している
+      expect(screen.queryByLabelText('商品名')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('handleSave - Item Field Updates', () => {
+    it('saves updated item name', async () => {
+      const user = userEvent.setup();
+      const onDataChanged = vi.fn();
+      mockInvoke.mockResolvedValueOnce(undefined);
+
+      render(
+        <OrderItemDrawer
+          item={mockItem}
+          open={true}
+          onOpenChange={vi.fn()}
+          onDataChanged={onDataChanged}
+        />
+      );
+
+      await user.click(screen.getByTitle('編集'));
+      const itemNameInput = screen.getByLabelText('商品名');
+      await user.clear(itemNameInput);
+      await user.type(itemNameInput, '新しい商品名');
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith('save_item_override', {
+          shopDomain: '1999.co.jp',
+          orderNumber: 'ORD-003',
+          originalItemName: 'ドロワー表示テスト',
+          originalBrand: '出版社X',
+          itemName: '新しい商品名',
+          price: null,
+          quantity: null,
+          brand: null,
+          category: null,
+        });
+        expect(onDataChanged).toHaveBeenCalled();
+      });
+    });
+
+    it('saves updated price', async () => {
+      const user = userEvent.setup();
+      const onDataChanged = vi.fn();
+      mockInvoke.mockResolvedValueOnce(undefined);
+
+      render(
+        <OrderItemDrawer
+          item={mockItem}
+          open={true}
+          onOpenChange={vi.fn()}
+          onDataChanged={onDataChanged}
+        />
+      );
+
+      await user.click(screen.getByTitle('編集'));
+      const priceInput = screen.getByLabelText('価格');
+      await user.clear(priceInput);
+      await user.type(priceInput, '8000');
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith('save_item_override', {
+          shopDomain: '1999.co.jp',
+          orderNumber: 'ORD-003',
+          originalItemName: 'ドロワー表示テスト',
+          originalBrand: '出版社X',
+          itemName: null,
+          price: 8000,
+          quantity: null,
+          brand: null,
+          category: null,
+        });
+      });
+    });
+
+    it('saves updated quantity', async () => {
+      const user = userEvent.setup();
+      const onDataChanged = vi.fn();
+      mockInvoke.mockResolvedValueOnce(undefined);
+
+      render(
+        <OrderItemDrawer
+          item={mockItem}
+          open={true}
+          onOpenChange={vi.fn()}
+          onDataChanged={onDataChanged}
+        />
+      );
+
+      await user.click(screen.getByTitle('編集'));
+      const quantityInput = screen.getByLabelText('数量');
+      await user.clear(quantityInput);
+      await user.type(quantityInput, '3');
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith('save_item_override', {
+          shopDomain: '1999.co.jp',
+          orderNumber: 'ORD-003',
+          originalItemName: 'ドロワー表示テスト',
+          originalBrand: '出版社X',
+          itemName: null,
+          price: null,
+          quantity: 3,
+          brand: null,
+          category: null,
+        });
+      });
+    });
+
+    it('saves updated brand', async () => {
+      const user = userEvent.setup();
+      const onDataChanged = vi.fn();
+      mockInvoke.mockResolvedValueOnce(undefined);
+
+      render(
+        <OrderItemDrawer
+          item={mockItem}
+          open={true}
+          onOpenChange={vi.fn()}
+          onDataChanged={onDataChanged}
+        />
+      );
+
+      await user.click(screen.getByTitle('編集'));
+      const brandInput = screen.getByLabelText('メーカー');
+      await user.clear(brandInput);
+      await user.type(brandInput, '新メーカー');
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith('save_item_override', {
+          shopDomain: '1999.co.jp',
+          orderNumber: 'ORD-003',
+          originalItemName: 'ドロワー表示テスト',
+          originalBrand: '出版社X',
+          itemName: null,
+          price: null,
+          quantity: null,
+          brand: '新メーカー',
+          category: null,
+        });
+      });
+    });
+
+    it('saves multiple item fields at once', async () => {
+      const user = userEvent.setup();
+      const onDataChanged = vi.fn();
+      mockInvoke.mockResolvedValueOnce(undefined);
+
+      render(
+        <OrderItemDrawer
+          item={mockItem}
+          open={true}
+          onOpenChange={vi.fn()}
+          onDataChanged={onDataChanged}
+        />
+      );
+
+      await user.click(screen.getByTitle('編集'));
+      await user.clear(screen.getByLabelText('商品名'));
+      await user.type(screen.getByLabelText('商品名'), '新商品');
+      await user.clear(screen.getByLabelText('価格'));
+      await user.type(screen.getByLabelText('価格'), '6000');
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith('save_item_override', {
+          shopDomain: '1999.co.jp',
+          orderNumber: 'ORD-003',
+          originalItemName: 'ドロワー表示テスト',
+          originalBrand: '出版社X',
+          itemName: '新商品',
+          price: 6000,
+          quantity: null,
+          brand: null,
+          category: null,
+        });
+      });
+    });
+  });
+
+  describe('handleSave - Order Field Updates', () => {
+    it('saves updated shop name', async () => {
+      const user = userEvent.setup();
+      const onDataChanged = vi.fn();
+      mockInvoke.mockResolvedValueOnce(undefined);
+
+      render(
+        <OrderItemDrawer
+          item={mockItem}
+          open={true}
+          onOpenChange={vi.fn()}
+          onDataChanged={onDataChanged}
+        />
+      );
+
+      await user.click(screen.getByTitle('編集'));
+      const shopNameInput = screen.getByLabelText('ショップ名');
+      await user.clear(shopNameInput);
+      await user.type(shopNameInput, '新ショップ');
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith('save_order_override', {
+          shopDomain: '1999.co.jp',
+          orderNumber: 'ORD-003',
+          newOrderNumber: null,
+          orderDate: null,
+          shopName: '新ショップ',
+        });
+      });
+    });
+
+    it('saves updated order number', async () => {
+      const user = userEvent.setup();
+      const onDataChanged = vi.fn();
+      mockInvoke.mockResolvedValueOnce(undefined);
+
+      render(
+        <OrderItemDrawer
+          item={mockItem}
+          open={true}
+          onOpenChange={vi.fn()}
+          onDataChanged={onDataChanged}
+        />
+      );
+
+      await user.click(screen.getByTitle('編集'));
+      const orderNumberInput = screen.getByLabelText('注文番号');
+      await user.clear(orderNumberInput);
+      await user.type(orderNumberInput, 'NEW-ORD-123');
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith('save_order_override', {
+          shopDomain: '1999.co.jp',
+          orderNumber: 'ORD-003',
+          newOrderNumber: 'NEW-ORD-123',
+          orderDate: null,
+          shopName: null,
+        });
+      });
+    });
+
+    it('saves updated order date', async () => {
+      const user = userEvent.setup();
+      const onDataChanged = vi.fn();
+      mockInvoke.mockResolvedValueOnce(undefined);
+
+      render(
+        <OrderItemDrawer
+          item={mockItem}
+          open={true}
+          onOpenChange={vi.fn()}
+          onDataChanged={onDataChanged}
+        />
+      );
+
+      await user.click(screen.getByTitle('編集'));
+      const orderDateInput = screen.getByLabelText('注文日');
+      await user.clear(orderDateInput);
+      await user.type(orderDateInput, '2024-03-15');
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith('save_order_override', {
+          shopDomain: '1999.co.jp',
+          orderNumber: 'ORD-003',
+          newOrderNumber: null,
+          orderDate: '2024-03-15',
+          shopName: null,
+        });
+      });
+    });
+
+    it('saves both item and order updates when both are changed', async () => {
+      const user = userEvent.setup();
+      const onDataChanged = vi.fn();
+      mockInvoke.mockResolvedValue(undefined);
+
+      render(
+        <OrderItemDrawer
+          item={mockItem}
+          open={true}
+          onOpenChange={vi.fn()}
+          onDataChanged={onDataChanged}
+        />
+      );
+
+      await user.click(screen.getByTitle('編集'));
+      await user.clear(screen.getByLabelText('商品名'));
+      await user.type(screen.getByLabelText('商品名'), '変更商品');
+      await user.clear(screen.getByLabelText('ショップ名'));
+      await user.type(screen.getByLabelText('ショップ名'), '変更ショップ');
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith(
+          'save_item_override',
+          expect.any(Object)
+        );
+        expect(mockInvoke).toHaveBeenCalledWith(
+          'save_order_override',
+          expect.any(Object)
+        );
+        expect(onDataChanged).toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe('handleSave - Reverting to Original Values', () => {
+    it('deletes item override when all item fields are reverted to original', async () => {
+      const user = userEvent.setup();
+      const itemWithOverride: OrderItemRow = {
+        ...mockItem,
+        itemName: '編集済み商品名',
+        hasOverride: 1,
+      };
+      mockInvoke.mockResolvedValueOnce(undefined);
+
+      render(
+        <OrderItemDrawer
+          item={itemWithOverride}
+          open={true}
+          onOpenChange={vi.fn()}
+          onDataChanged={vi.fn()}
+        />
+      );
+
+      await user.click(screen.getByTitle('編集'));
+      const itemNameInput = screen.getByLabelText('商品名');
+      await user.clear(itemNameInput);
+      await user.type(itemNameInput, 'ドロワー表示テスト'); // 元の値に戻す
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith('delete_item_override_by_key', {
+          shopDomain: '1999.co.jp',
+          orderNumber: 'ORD-003',
+          originalItemName: 'ドロワー表示テスト',
+          originalBrand: '出版社X',
+        });
+      });
+    });
+
+    it('deletes order override when all order fields are reverted to original', async () => {
+      const user = userEvent.setup();
+      const itemWithOverride: OrderItemRow = {
+        ...mockItem,
+        shopName: '変更済みショップ',
+        hasOverride: 1,
+      };
+      mockInvoke.mockResolvedValueOnce(undefined);
+
+      render(
+        <OrderItemDrawer
+          item={itemWithOverride}
+          open={true}
+          onOpenChange={vi.fn()}
+          onDataChanged={vi.fn()}
+        />
+      );
+
+      await user.click(screen.getByTitle('編集'));
+      const shopNameInput = screen.getByLabelText('ショップ名');
+      await user.clear(shopNameInput);
+      await user.type(shopNameInput, 'ホビーサーチ'); // 元の値に戻す
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith(
+          'delete_order_override_by_key',
+          {
+            shopDomain: '1999.co.jp',
+            orderNumber: 'ORD-003',
+          }
+        );
+      });
+    });
+
+    it('maintains category override even when other item fields are reverted', async () => {
+      const user = userEvent.setup();
+      const itemWithCategoryOverride: OrderItemRow = {
+        ...mockItem,
+        itemName: '編集済み商品名',
+        itemOverrideCategory: 'カスタムカテゴリ',
+        hasOverride: 1,
+      };
+      mockInvoke.mockResolvedValueOnce(undefined);
+
+      render(
+        <OrderItemDrawer
+          item={itemWithCategoryOverride}
+          open={true}
+          onOpenChange={vi.fn()}
+          onDataChanged={vi.fn()}
+        />
+      );
+
+      await user.click(screen.getByTitle('編集'));
+      const itemNameInput = screen.getByLabelText('商品名');
+      await user.clear(itemNameInput);
+      await user.type(itemNameInput, 'ドロワー表示テスト'); // 元の値に戻す
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        // category override があるので削除ではなく保存される
+        expect(mockInvoke).toHaveBeenCalledWith('save_item_override', {
+          shopDomain: '1999.co.jp',
+          orderNumber: 'ORD-003',
+          originalItemName: 'ドロワー表示テスト',
+          originalBrand: '出版社X',
+          itemName: null,
+          price: null,
+          quantity: null,
+          brand: null,
+          category: 'カスタムカテゴリ',
+        });
+      });
+    });
+  });
+
+  describe('handleSave - Validation', () => {
+    it('shows error when price is empty', async () => {
+      const user = userEvent.setup();
+      render(
+        <OrderItemDrawer item={mockItem} open={true} onOpenChange={vi.fn()} />
+      );
+
+      await user.click(screen.getByTitle('編集'));
+      const priceInput = screen.getByLabelText('価格');
+      await user.clear(priceInput);
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(screen.getByText('価格を入力してください')).toBeInTheDocument();
+      });
+    });
+
+    it('shows error when price is negative', async () => {
+      const user = userEvent.setup();
+      render(
+        <OrderItemDrawer item={mockItem} open={true} onOpenChange={vi.fn()} />
+      );
+
+      await user.click(screen.getByTitle('編集'));
+      const priceInput = screen.getByLabelText('価格');
+      await user.clear(priceInput);
+      await user.type(priceInput, '-100');
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('価格は 0 以上で入力してください')
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('shows error when price is not an integer', async () => {
+      const user = userEvent.setup();
+      render(
+        <OrderItemDrawer item={mockItem} open={true} onOpenChange={vi.fn()} />
+      );
+
+      await user.click(screen.getByTitle('編集'));
+      const priceInput = screen.getByLabelText('価格');
+      await user.clear(priceInput);
+      await user.type(priceInput, '12.5');
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('価格は整数で入力してください')
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('shows error when quantity is empty', async () => {
+      const user = userEvent.setup();
+      render(
+        <OrderItemDrawer item={mockItem} open={true} onOpenChange={vi.fn()} />
+      );
+
+      await user.click(screen.getByTitle('編集'));
+      const quantityInput = screen.getByLabelText('数量');
+      await user.clear(quantityInput);
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(screen.getByText('数量を入力してください')).toBeInTheDocument();
+      });
+    });
+
+    it('shows error when quantity is less than 1', async () => {
+      const user = userEvent.setup();
+      render(
+        <OrderItemDrawer item={mockItem} open={true} onOpenChange={vi.fn()} />
+      );
+
+      await user.click(screen.getByTitle('編集'));
+      const quantityInput = screen.getByLabelText('数量');
+      await user.clear(quantityInput);
+      await user.type(quantityInput, '0');
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('数量は 1 以上で入力してください')
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('shows error when originalItemName is missing', async () => {
+      const user = userEvent.setup();
+      const itemWithoutOriginalItemName: OrderItemRow = {
+        ...mockItem,
+        originalItemName: null as unknown as string,
+      };
+
+      render(
+        <OrderItemDrawer
+          item={itemWithoutOriginalItemName}
+          open={true}
+          onOpenChange={vi.fn()}
+        />
+      );
+
+      await user.click(screen.getByTitle('編集'));
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('商品情報が不足しているため保存できません')
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('clears validation error when entering edit mode again', async () => {
+      const user = userEvent.setup();
+      render(
+        <OrderItemDrawer item={mockItem} open={true} onOpenChange={vi.fn()} />
+      );
+
+      // エラーを発生させる
+      await user.click(screen.getByTitle('編集'));
+      await user.clear(screen.getByLabelText('価格'));
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(screen.getByText('価格を入力してください')).toBeInTheDocument();
+      });
+
+      // 編集モードをキャンセルして再度開く（複数あるので最初のものを選択）
+      const cancelButtons = screen.getAllByRole('button', {
+        name: 'キャンセル',
+      });
+      await user.click(cancelButtons[0]);
+      await user.click(screen.getByTitle('編集'));
+
+      // エラーがクリアされている
+      expect(
+        screen.queryByText('価格を入力してください')
+      ).not.toBeInTheDocument();
+    });
+
+    it('disables save button while saving', async () => {
+      const user = userEvent.setup();
+      let resolveInvoke: (value: unknown) => void;
+      const invokePromise = new Promise((resolve) => {
+        resolveInvoke = resolve;
+      });
+      mockInvoke.mockReturnValueOnce(invokePromise);
+
+      render(
+        <OrderItemDrawer item={mockItem} open={true} onOpenChange={vi.fn()} />
+      );
+
+      await user.click(screen.getByTitle('編集'));
+      await user.clear(screen.getByLabelText('商品名'));
+      await user.type(screen.getByLabelText('商品名'), '新商品');
+
+      const saveButton = screen.getByRole('button', { name: '保存' });
+      await user.click(saveButton);
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: '保存中...' })
+        ).toBeDisabled();
+        // Get the cancel button that's in the form (not the X button in header)
+        const cancelButtons = screen.getAllByRole('button', {
+          name: 'キャンセル',
+        });
+        // The form cancel button should be disabled (it's the second one, after the X icon button)
+        const formCancelButton = cancelButtons.find(
+          (btn) => btn.textContent === 'キャンセル'
+        );
+        expect(formCancelButton).toBeDisabled();
+      });
+
+      resolveInvoke!(undefined);
+
+      await waitFor(() => {
+        expect(
+          screen.queryByRole('button', { name: '保存中...' })
+        ).not.toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('handleSave - NULL Handling', () => {
+    it('handles null shopName correctly when reverting', async () => {
+      const user = userEvent.setup();
+      const itemWithNullShopName: OrderItemRow = {
+        ...mockItem,
+        originalShopName: null,
+        shopName: '変更済みショップ',
+      };
+      mockInvoke.mockResolvedValueOnce(undefined);
+
+      render(
+        <OrderItemDrawer
+          item={itemWithNullShopName}
+          open={true}
+          onOpenChange={vi.fn()}
+          onDataChanged={vi.fn()}
+        />
+      );
+
+      await user.click(screen.getByTitle('編集'));
+      const shopNameInput = screen.getByLabelText('ショップ名');
+      await user.clear(shopNameInput);
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith(
+          'delete_order_override_by_key',
+          {
+            shopDomain: '1999.co.jp',
+            orderNumber: 'ORD-003',
+          }
+        );
+      });
+    });
+
+    it('handles null brand correctly when reverting', async () => {
+      const user = userEvent.setup();
+      const itemWithNullBrand: OrderItemRow = {
+        ...mockItem,
+        originalBrand: null,
+        brand: '変更済みブランド',
+      };
+      mockInvoke.mockResolvedValueOnce(undefined);
+
+      render(
+        <OrderItemDrawer
+          item={itemWithNullBrand}
+          open={true}
+          onOpenChange={vi.fn()}
+          onDataChanged={vi.fn()}
+        />
+      );
+
+      await user.click(screen.getByTitle('編集'));
+      const brandInput = screen.getByLabelText('メーカー');
+      await user.clear(brandInput);
+      await user.click(screen.getByRole('button', { name: '保存' }));
+
+      await waitFor(() => {
+        // Empty string is compared to originalBrand (null becomes ''), so delete is called
+        expect(mockInvoke).toHaveBeenCalledWith('save_item_override', {
+          shopDomain: '1999.co.jp',
+          orderNumber: 'ORD-003',
+          originalItemName: 'ドロワー表示テスト',
+          originalBrand: null,
+          itemName: null,
+          price: null,
+          quantity: null,
+          brand: '',
+          category: null,
+        });
+      });
+    });
+  });
+
+  describe('handleExclude', () => {
+    it('opens exclude confirmation dialog when exclude button is clicked', async () => {
+      const user = userEvent.setup();
+      render(
+        <OrderItemDrawer item={mockItem} open={true} onOpenChange={vi.fn()} />
+      );
+
+      await user.click(screen.getByTitle('編集'));
+      await user.click(screen.getByRole('button', { name: 'この商品を除外' }));
+
+      expect(
+        screen.getByRole('heading', { name: '商品を除外' })
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          'この商品を除外しますか？再パース後も表示されなくなります。'
+        )
+      ).toBeInTheDocument();
+    });
+
+    it('closes exclude dialog when cancel is clicked', async () => {
+      const user = userEvent.setup();
+      render(
+        <OrderItemDrawer item={mockItem} open={true} onOpenChange={vi.fn()} />
+      );
+
+      await user.click(screen.getByTitle('編集'));
+      await user.click(screen.getByRole('button', { name: 'この商品を除外' }));
+
+      const dialog = screen.getByRole('dialog');
+      await user.click(
+        within(dialog).getByRole('button', { name: 'キャンセル' })
+      );
+
+      await waitFor(() => {
+        expect(
+          screen.queryByRole('heading', { name: '商品を除外' })
+        ).not.toBeInTheDocument();
+      });
+    });
+
+    it('excludes item when confirmed', async () => {
+      const user = userEvent.setup();
+      const onOpenChange = vi.fn();
+      const onDataChanged = vi.fn();
+      mockInvoke.mockResolvedValueOnce(undefined);
+
+      render(
+        <OrderItemDrawer
+          item={mockItem}
+          open={true}
+          onOpenChange={onOpenChange}
+          onDataChanged={onDataChanged}
+        />
+      );
+
+      await user.click(screen.getByTitle('編集'));
+      await user.click(screen.getByRole('button', { name: 'この商品を除外' }));
+
+      const dialog = screen.getByRole('dialog');
+      await user.click(
+        within(dialog).getByRole('button', { name: '除外する' })
+      );
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith('exclude_item', {
+          shopDomain: '1999.co.jp',
+          orderNumber: 'ORD-003',
+          itemName: 'ドロワー表示テスト',
+          brand: '出版社X',
+          reason: null,
+        });
+        expect(onOpenChange).toHaveBeenCalledWith(false);
+        expect(onDataChanged).toHaveBeenCalled();
+      });
+    });
+
+    it('handles exclusion error gracefully', async () => {
+      const user = userEvent.setup();
+      const consoleError = vi
+        .spyOn(console, 'error')
+        .mockImplementation(() => {});
+      mockInvoke.mockRejectedValueOnce(new Error('Exclusion failed'));
+
+      render(
+        <OrderItemDrawer item={mockItem} open={true} onOpenChange={vi.fn()} />
+      );
+
+      await user.click(screen.getByTitle('編集'));
+      await user.click(screen.getByRole('button', { name: 'この商品を除外' }));
+
+      const dialog = screen.getByRole('dialog');
+      await user.click(
+        within(dialog).getByRole('button', { name: '除外する' })
+      );
+
+      await waitFor(() => {
+        expect(consoleError).toHaveBeenCalledWith(
+          'Failed to exclude item:',
+          expect.any(Error)
+        );
+      });
+
+      consoleError.mockRestore();
+    });
+
+    it('uses original keys for exclusion', async () => {
+      const user = userEvent.setup();
+      const itemWithOverrides: OrderItemRow = {
+        ...mockItem,
+        orderNumber: 'MODIFIED-ORDER',
+        itemName: 'Modified Item',
+        brand: 'Modified Brand',
+      };
+      mockInvoke.mockResolvedValueOnce(undefined);
+
+      render(
+        <OrderItemDrawer
+          item={itemWithOverrides}
+          open={true}
+          onOpenChange={vi.fn()}
+          onDataChanged={vi.fn()}
+        />
+      );
+
+      await user.click(screen.getByTitle('編集'));
+      await user.click(screen.getByRole('button', { name: 'この商品を除外' }));
+
+      const dialog = screen.getByRole('dialog');
+      await user.click(
+        within(dialog).getByRole('button', { name: '除外する' })
+      );
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith('exclude_item', {
+          shopDomain: '1999.co.jp',
+          orderNumber: 'ORD-003', // original order number
+          itemName: 'ドロワー表示テスト', // original item name
+          brand: '出版社X', // original brand
+          reason: null,
+        });
+      });
+    });
+  });
 });
