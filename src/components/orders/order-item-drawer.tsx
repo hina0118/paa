@@ -243,6 +243,7 @@ export function OrderItemDrawer({
   const handleExclude = useCallback(async () => {
     if (!item || !item.shopDomain || !item.originalOrderNumber) return;
     try {
+      setValidationError(null);
       await invoke('exclude_item', {
         shopDomain: item.shopDomain,
         // 除外も元キーで一致させる（表示値だと JOIN に一致しない）
@@ -256,6 +257,9 @@ export function OrderItemDrawer({
       onDataChanged?.();
     } catch (e) {
       console.error('Failed to exclude item:', e);
+      setValidationError(
+        e instanceof Error ? e.message : '商品を除外できませんでした'
+      );
     }
   }, [item, onOpenChange, onDataChanged]);
 
@@ -537,6 +541,10 @@ export function OrderItemDrawer({
               除外する
             </Button>
           </DialogFooter>
+
+          {validationError && (
+            <p className="text-sm text-destructive">{validationError}</p>
+          )}
         </DialogContent>
       </Dialog>
     </>

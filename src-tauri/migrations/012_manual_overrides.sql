@@ -51,7 +51,7 @@ CREATE TRIGGER IF NOT EXISTS order_overrides_updated_at AFTER UPDATE ON order_ov
     UPDATE order_overrides SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
 END;
 
--- アイテム除外リスト（物理削除 + 再パース時もブロック）
+-- アイテム除外リスト（論理削除: 表示クエリ側でフィルタ + 再パース時もブロック）
 CREATE TABLE IF NOT EXISTS excluded_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     shop_domain TEXT NOT NULL,
@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS excluded_items (
 CREATE INDEX IF NOT EXISTS idx_excluded_items_key
 ON excluded_items(shop_domain, order_number, item_name, brand);
 
--- 注文除外リスト（物理削除 + 再パース時もブロック）
+-- 注文除外リスト（論理削除: 表示クエリ側でフィルタ + 再パース時もブロック）
 CREATE TABLE IF NOT EXISTS excluded_orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     shop_domain TEXT NOT NULL,
