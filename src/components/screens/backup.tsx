@@ -61,8 +61,30 @@ export function Backup() {
       const result = await invoke<ExportResult>('export_metadata', {
         savePath,
       });
+      const totalRecords =
+        result.images_count +
+        result.shop_settings_count +
+        result.product_master_count +
+        result.emails_count +
+        result.item_overrides_count +
+        result.order_overrides_count +
+        result.excluded_items_count +
+        result.excluded_orders_count +
+        result.image_files_count;
+      const details = [
+        `images: ${result.images_count}件`,
+        `shop_settings: ${result.shop_settings_count}件`,
+        `product_master: ${result.product_master_count}件`,
+        `emails: ${result.emails_count}件`,
+        `item_overrides: ${result.item_overrides_count}件`,
+        `order_overrides: ${result.order_overrides_count}件`,
+        `excluded_items: ${result.excluded_items_count}件`,
+        `excluded_orders: ${result.excluded_orders_count}件`,
+        `画像ファイル: ${result.image_files_count}件`,
+      ].join('、');
       toastSuccess(
-        `バックアップを保存しました（images: ${result.images_count}、shop_settings: ${result.shop_settings_count}、product_master: ${result.product_master_count}、emails: ${result.emails_count}、item_overrides: ${result.item_overrides_count}、order_overrides: ${result.order_overrides_count}、excluded_items: ${result.excluded_items_count}、excluded_orders: ${result.excluded_orders_count}、画像ファイル: ${result.image_files_count}）`
+        `バックアップを保存しました（合計: ${totalRecords}件）`,
+        details
       );
       if (result.images_skipped > 0) {
         toastWarning(
@@ -97,9 +119,28 @@ export function Backup() {
       const result = await invoke<ImportResult>('import_metadata', {
         zipPath,
       });
-      toastSuccess(
-        `復元しました（images: ${result.images_inserted}件、shop_settings: ${result.shop_settings_inserted}件、product_master: ${result.product_master_inserted}件、emails: ${result.emails_inserted}件、item_overrides: ${result.item_overrides_inserted}件、order_overrides: ${result.order_overrides_inserted}件、excluded_items: ${result.excluded_items_inserted}件、excluded_orders: ${result.excluded_orders_inserted}件、画像ファイル: ${result.image_files_copied}件）`
-      );
+      const totalRecords =
+        result.images_inserted +
+        result.shop_settings_inserted +
+        result.product_master_inserted +
+        result.emails_inserted +
+        result.item_overrides_inserted +
+        result.order_overrides_inserted +
+        result.excluded_items_inserted +
+        result.excluded_orders_inserted +
+        result.image_files_copied;
+      const details = [
+        `images: ${result.images_inserted}件`,
+        `shop_settings: ${result.shop_settings_inserted}件`,
+        `product_master: ${result.product_master_inserted}件`,
+        `emails: ${result.emails_inserted}件`,
+        `item_overrides: ${result.item_overrides_inserted}件`,
+        `order_overrides: ${result.order_overrides_inserted}件`,
+        `excluded_items: ${result.excluded_items_inserted}件`,
+        `excluded_orders: ${result.excluded_orders_inserted}件`,
+        `画像ファイル: ${result.image_files_copied}件`,
+      ].join('、');
+      toastSuccess(`復元しました（合計: ${totalRecords}件）`, details);
     } catch (error) {
       toastError(`インポートに失敗しました: ${formatError(error)}`);
     } finally {
