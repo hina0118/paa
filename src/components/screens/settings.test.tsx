@@ -260,9 +260,9 @@ describe('Settings', () => {
       );
 
       await waitFor(() => {
-        expect(
-          screen.getByText(/更新に失敗しました.*Network error/)
-        ).toBeInTheDocument();
+        // toast が title/description 等に分割されても壊れないように別々に検証する
+        expect(screen.getByText(/更新に失敗しました/)).toBeInTheDocument();
+        expect(screen.getByText(/Network error/)).toBeInTheDocument();
       });
     });
   });
@@ -381,9 +381,9 @@ describe('Settings', () => {
       );
 
       await waitFor(() => {
-        expect(
-          screen.getByText(/更新に失敗しました.*Server error/)
-        ).toBeInTheDocument();
+        // toast が title/description 等に分割されても壊れないように別々に検証する
+        expect(screen.getByText(/更新に失敗しました/)).toBeInTheDocument();
+        expect(screen.getByText(/Server error/)).toBeInTheDocument();
       });
     });
   });
@@ -502,9 +502,9 @@ describe('Settings', () => {
       );
 
       await waitFor(() => {
-        expect(
-          screen.getByText(/更新に失敗しました.*Parse error/)
-        ).toBeInTheDocument();
+        // toast が title/description 等に分割されても壊れないように別々に検証する
+        expect(screen.getByText(/更新に失敗しました/)).toBeInTheDocument();
+        expect(screen.getByText(/Parse error/)).toBeInTheDocument();
       });
     });
   });
