@@ -44,14 +44,16 @@ export async function loadOrderItems(
         `(
             i.id IN (SELECT rowid FROM items_fts WHERE items_fts MATCH ?)
             OR COALESCE(oo.new_order_number, o.order_number) LIKE ? ESCAPE '\\'
+            OR o.order_number LIKE ? ESCAPE '\\'
             OR o.shop_domain LIKE ? ESCAPE '\\'
             OR COALESCE(oo.shop_name, o.shop_name) LIKE ? ESCAPE '\\'
             OR COALESCE(io.item_name, i.item_name) LIKE ? ESCAPE '\\'
-            OR COALESCE(CASE WHEN io.brand IS NOT NULL THEN io.brand ELSE i.brand END, '') LIKE ? ESCAPE '\\'
+            OR COALESCE(io.brand, i.brand, '') LIKE ? ESCAPE '\\'
           )`
       );
       args.push(
         ftsQuery,
+        likePrefix,
         likePrefix,
         likePrefix,
         likePrefix,
@@ -62,13 +64,21 @@ export async function loadOrderItems(
       conditions.push(
         `(
             COALESCE(oo.new_order_number, o.order_number) LIKE ? ESCAPE '\\'
+            OR o.order_number LIKE ? ESCAPE '\\'
             OR o.shop_domain LIKE ? ESCAPE '\\'
             OR COALESCE(oo.shop_name, o.shop_name) LIKE ? ESCAPE '\\'
             OR COALESCE(io.item_name, i.item_name) LIKE ? ESCAPE '\\'
-            OR COALESCE(CASE WHEN io.brand IS NOT NULL THEN io.brand ELSE i.brand END, '') LIKE ? ESCAPE '\\'
+            OR COALESCE(io.brand, i.brand, '') LIKE ? ESCAPE '\\'
           )`
       );
-      args.push(likePrefix, likePrefix, likePrefix, likeContains, likeContains);
+      args.push(
+        likePrefix,
+        likePrefix,
+        likePrefix,
+        likePrefix,
+        likeContains,
+        likeContains
+      );
     }
   }
   if (shopDomain) {
@@ -126,8 +136,8 @@ export async function loadOrderItems(
       i.item_name_normalized AS itemNameNormalized,
       COALESCE(io.price, i.price) AS price,
       COALESCE(io.quantity, i.quantity) AS quantity,
-      CASE WHEN io.category IS NOT NULL THEN io.category ELSE i.category END AS category,
-      CASE WHEN io.brand IS NOT NULL THEN io.brand ELSE i.brand END AS brand,
+      COALESCE(io.category, i.category) AS category,
+      NULLIF(COALESCE(io.brand, i.brand, ''), '') AS brand,
       i.created_at AS createdAt,
       COALESCE(oo.shop_name, o.shop_name) AS shopName,
       o.shop_domain AS shopDomain,

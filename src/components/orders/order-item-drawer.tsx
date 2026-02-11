@@ -123,8 +123,15 @@ export function OrderItemDrawer({
 
       const { value: nextPrice } = parseRequiredInt(form.price, '価格');
       const { value: nextQuantity } = parseRequiredInt(form.quantity, '数量');
+      if (nextPrice < 0) {
+        throw new Error('価格は 0 以上で入力してください');
+      }
       if (nextQuantity < 1) {
         throw new Error('数量は 1 以上で入力してください');
+      }
+
+      if (!item.originalItemName) {
+        throw new Error('商品情報が不足しているため保存できません');
       }
 
       const baseItemName = item.originalItemName ?? item.itemName;
