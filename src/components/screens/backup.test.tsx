@@ -149,10 +149,7 @@ describe('Backup', () => {
         expect(mockSave).toHaveBeenCalled();
       });
 
-      expect(mockInvoke).not.toHaveBeenCalledWith(
-        'export_metadata',
-        expect.anything()
-      );
+      expect(mockInvoke).not.toHaveBeenCalled();
     });
 
     it('shows error toast when export fails', async () => {
