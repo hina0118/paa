@@ -86,9 +86,11 @@ export function Backup() {
         ['order_overrides', result.order_overrides_count],
         ['excluded_items', result.excluded_items_count],
         ['excluded_orders', result.excluded_orders_count],
-        ['画像ファイル', result.image_files_count],
       ]);
-      toastSuccess(`バックアップを保存しました（合計: ${total}件）`, details);
+      toastSuccess(
+        `バックアップを保存しました（合計: ${total}件、画像ファイル: ${result.image_files_count}件）`,
+        details
+      );
       if (result.images_skipped > 0) {
         toastWarning(
           `${result.images_skipped}件の画像をスキップしました（不正なファイル名、サイズ超過、またはファイルが存在しません）`
