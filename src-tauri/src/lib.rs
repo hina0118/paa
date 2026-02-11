@@ -976,7 +976,9 @@ pub fn run() {
             save_item_override,
             save_order_override,
             delete_item_override,
+            delete_item_override_by_key,
             delete_order_override,
+            delete_order_override_by_key,
             exclude_item,
             exclude_order,
             restore_excluded_item,
@@ -1583,12 +1585,40 @@ async fn delete_item_override(
 }
 
 #[tauri::command]
+async fn delete_item_override_by_key(
+    pool: tauri::State<'_, SqlitePool>,
+    shop_domain: String,
+    order_number: String,
+    original_item_name: String,
+    original_brand: String,
+) -> Result<(), String> {
+    let repo = repository::SqliteOverrideRepository::new(pool.inner().clone());
+    repo.delete_item_override_by_key(
+        &shop_domain,
+        &order_number,
+        &original_item_name,
+        &original_brand,
+    )
+    .await
+}
+
+#[tauri::command]
 async fn delete_order_override(
     pool: tauri::State<'_, SqlitePool>,
     id: i64,
 ) -> Result<(), String> {
     let repo = repository::SqliteOverrideRepository::new(pool.inner().clone());
     repo.delete_order_override(id).await
+}
+
+#[tauri::command]
+async fn delete_order_override_by_key(
+    pool: tauri::State<'_, SqlitePool>,
+    shop_domain: String,
+    order_number: String,
+) -> Result<(), String> {
+    let repo = repository::SqliteOverrideRepository::new(pool.inner().clone());
+    repo.delete_order_override_by_key(&shop_domain, &order_number).await
 }
 
 #[tauri::command]

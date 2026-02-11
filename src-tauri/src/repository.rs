@@ -2675,6 +2675,32 @@ impl SqliteOverrideRepository {
         Ok(())
     }
 
+    pub async fn delete_item_override_by_key(
+        &self,
+        shop_domain: &str,
+        order_number: &str,
+        original_item_name: &str,
+        original_brand: &str,
+    ) -> Result<(), String> {
+        sqlx::query(
+            r#"
+            DELETE FROM item_overrides
+            WHERE shop_domain = ?
+              AND order_number = ?
+              AND original_item_name = ?
+              AND original_brand = ?
+            "#,
+        )
+        .bind(shop_domain)
+        .bind(order_number)
+        .bind(original_item_name)
+        .bind(original_brand)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to delete item override by key: {e}"))?;
+        Ok(())
+    }
+
     pub async fn get_all_item_overrides(&self) -> Result<Vec<ItemOverride>, String> {
         let rows: Vec<(i64, String, String, String, String, Option<String>, Option<i64>, Option<i64>, Option<String>, Option<String>, String, String)> =
             sqlx::query_as(
@@ -2742,6 +2768,26 @@ impl SqliteOverrideRepository {
             .execute(&self.pool)
             .await
             .map_err(|e| format!("Failed to delete order override: {e}"))?;
+        Ok(())
+    }
+
+    pub async fn delete_order_override_by_key(
+        &self,
+        shop_domain: &str,
+        order_number: &str,
+    ) -> Result<(), String> {
+        sqlx::query(
+            r#"
+            DELETE FROM order_overrides
+            WHERE shop_domain = ?
+              AND order_number = ?
+            "#,
+        )
+        .bind(shop_domain)
+        .bind(order_number)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to delete order override by key: {e}"))?;
         Ok(())
     }
 
@@ -5446,6 +5492,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_override_repository_delete_item_override_by_key() {
+        let pool = setup_test_db().await;
+        let repo = SqliteOverrideRepository::new(pool.clone());
+
+        let _id = repo
+            .save_item_override(SaveItemOverride {
+                shop_domain: "1999.co.jp".to_string(),
+                order_number: "ORD-DEL".to_string(),
+                original_item_name: "商品DEL".to_string(),
+                original_brand: "".to_string(),
+                item_name: Some("商品DEL(修正)".to_string()),
+                price: None,
+                quantity: None,
+                brand: None,
+                category: None,
+            })
+            .await
+            .expect("save_item_override");
+
+        let before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM item_overrides")
+            .fetch_one(&pool)
+            .await
+            .expect("count item_overrides (before)");
+        assert_eq!(before, 1);
+
+        repo.delete_item_override_by_key("1999.co.jp", "ORD-DEL", "商品DEL", "")
+            .await
+            .expect("delete_item_override_by_key");
+
+        let after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM item_overrides")
+            .fetch_one(&pool)
+            .await
+            .expect("count item_overrides (after)");
+        assert_eq!(after, 0);
+    }
+
+    #[tokio::test]
     async fn test_override_repository_save_order_override_upsert() {
         let pool = setup_test_db().await;
         let repo = SqliteOverrideRepository::new(pool.clone());
@@ -5489,6 +5572,39 @@ mod tests {
         assert_eq!(row.0, "ORD-002B");
         assert_eq!(row.1, "2024-02-02");
         assert_eq!(row.2, "ショップ名(再修正)");
+    }
+
+    #[tokio::test]
+    async fn test_override_repository_delete_order_override_by_key() {
+        let pool = setup_test_db().await;
+        let repo = SqliteOverrideRepository::new(pool.clone());
+
+        let _id = repo
+            .save_order_override(SaveOrderOverride {
+                shop_domain: "1999.co.jp".to_string(),
+                order_number: "ORD-DEL-ORDER".to_string(),
+                new_order_number: Some("ORD-DEL-ORDER-2".to_string()),
+                order_date: None,
+                shop_name: None,
+            })
+            .await
+            .expect("save_order_override");
+
+        let before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM order_overrides")
+            .fetch_one(&pool)
+            .await
+            .expect("count order_overrides (before)");
+        assert_eq!(before, 1);
+
+        repo.delete_order_override_by_key("1999.co.jp", "ORD-DEL-ORDER")
+            .await
+            .expect("delete_order_override_by_key");
+
+        let after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM order_overrides")
+            .fetch_one(&pool)
+            .await
+            .expect("count order_overrides (after)");
+        assert_eq!(after, 0);
     }
 
     #[tokio::test]
