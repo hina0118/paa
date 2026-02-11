@@ -255,10 +255,7 @@ describe('Backup', () => {
         expect(mockOpen).toHaveBeenCalled();
       });
 
-      expect(mockInvoke).not.toHaveBeenCalledWith(
-        'import_metadata',
-        expect.anything()
-      );
+      expect(mockInvoke).not.toHaveBeenCalled();
     });
 
     it('shows error toast when import fails', async () => {
