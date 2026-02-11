@@ -42,6 +42,24 @@ type EditForm = {
   shopName: string;
 };
 
+function normalizeToDateInput(value: string | null | undefined): string {
+  if (!value) return '';
+  // `type="date"` は YYYY-MM-DD 形式のみ許容
+  return value.length >= 10 ? value.slice(0, 10) : value;
+}
+
+function parseRequiredInt(value: string, label: string): { value: number } {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error(`${label}を入力してください`);
+  }
+  const n = Number(trimmed);
+  if (!Number.isFinite(n) || !Number.isInteger(n)) {
+    throw new Error(`${label}は整数で入力してください`);
+  }
+  return { value: n };
+}
+
 export function OrderItemDrawer({
   item,
   open,
@@ -55,6 +73,7 @@ export function OrderItemDrawer({
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [excludeDialogOpen, setExcludeDialogOpen] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
   const [form, setForm] = useState<EditForm>({
     itemName: '',
     price: '',
@@ -76,9 +95,10 @@ export function OrderItemDrawer({
         quantity: String(item.quantity ?? 1),
         brand: item.brand ?? '',
         orderNumber: item.orderNumber ?? '',
-        orderDate: item.orderDate ?? '',
+        orderDate: normalizeToDateInput(item.orderDate),
         shopName: item.shopName ?? '',
       });
+      setValidationError(null);
     }
   }, [isEditing, item]);
 
@@ -86,6 +106,7 @@ export function OrderItemDrawer({
   useEffect(() => {
     if (!open) {
       setIsEditing(false);
+      setValidationError(null);
     }
   }, [open]);
 
@@ -95,53 +116,83 @@ export function OrderItemDrawer({
   }, [onImageUpdated]);
 
   const handleSave = useCallback(async () => {
-    if (!item || !item.shopDomain || !item.orderNumber) return;
+    if (!item || !item.shopDomain || !item.originalOrderNumber) return;
     setIsSaving(true);
     try {
+      setValidationError(null);
+
+      const { value: nextPrice } = parseRequiredInt(form.price, '価格');
+      const { value: nextQuantity } = parseRequiredInt(form.quantity, '数量');
+      if (nextQuantity < 1) {
+        throw new Error('数量は 1 以上で入力してください');
+      }
+
+      const baseItemName = item.originalItemName ?? item.itemName;
+      const baseBrand = item.originalBrand ?? item.brand ?? '';
+      const basePrice = item.originalPrice ?? item.price;
+      const baseQuantity = item.originalQuantity ?? item.quantity;
+      const baseCategory = item.originalCategory ?? item.category ?? null;
+
+      const baseOrderNumber = item.originalOrderNumber ?? item.orderNumber;
+      const baseOrderDate = normalizeToDateInput(
+        item.originalOrderDate ?? item.orderDate
+      );
+      const baseShopName = item.originalShopName ?? item.shopName ?? null;
+
+      // DBに保存する override 値（元値に戻した場合は NULL にしてクリア）
+      const desiredItemName =
+        form.itemName === baseItemName ? null : form.itemName;
+      const desiredPrice = nextPrice === basePrice ? null : nextPrice;
+      const desiredQuantity =
+        nextQuantity === baseQuantity ? null : nextQuantity;
+      const desiredBrand = form.brand === baseBrand ? null : form.brand;
+      // UIでは category を編集しないが、既存 override を消さないため現状値を保持する
+      const desiredCategory =
+        item.category === baseCategory ? null : (item.category ?? null);
+
+      const desiredNewOrderNumber =
+        form.orderNumber === baseOrderNumber ? null : form.orderNumber;
+      const desiredOrderDate =
+        form.orderDate === baseOrderDate ? null : form.orderDate;
+      const desiredShopName =
+        form.shopName === (baseShopName ?? '') ? null : form.shopName;
+
       // アイテムレベルの変更を検出
       const itemChanged =
         form.itemName !== (item.itemName ?? '') ||
-        form.price !== String(item.price ?? 0) ||
-        form.quantity !== String(item.quantity ?? 1) ||
+        nextPrice !== (item.price ?? 0) ||
+        nextQuantity !== (item.quantity ?? 1) ||
         form.brand !== (item.brand ?? '');
 
       if (itemChanged) {
         await invoke('save_item_override', {
           shopDomain: item.shopDomain,
-          orderNumber: item.orderNumber,
-          originalItemName: item.itemName,
-          originalBrand: item.brand ?? '',
-          itemName:
-            form.itemName !== (item.itemName ?? '') ? form.itemName : null,
-          price:
-            form.price !== String(item.price ?? 0) ? Number(form.price) : null,
-          quantity:
-            form.quantity !== String(item.quantity ?? 1)
-              ? Number(form.quantity)
-              : null,
-          brand: form.brand !== (item.brand ?? '') ? form.brand : null,
-          category: null,
+          orderNumber: item.originalOrderNumber,
+          // JOIN に使用する元キーを渡す（表示値で送ると再編集時に一致しない）
+          originalItemName: item.originalItemName,
+          originalBrand: item.originalBrand,
+          itemName: desiredItemName,
+          price: desiredPrice,
+          quantity: desiredQuantity,
+          brand: desiredBrand,
+          category: desiredCategory,
         });
       }
 
       // 注文レベルの変更を検出
       const orderChanged =
         form.orderNumber !== (item.orderNumber ?? '') ||
-        form.orderDate !== (item.orderDate ?? '') ||
+        form.orderDate !== normalizeToDateInput(item.orderDate) ||
         form.shopName !== (item.shopName ?? '');
 
       if (orderChanged) {
         await invoke('save_order_override', {
           shopDomain: item.shopDomain,
-          orderNumber: item.orderNumber,
-          newOrderNumber:
-            form.orderNumber !== (item.orderNumber ?? '')
-              ? form.orderNumber
-              : null,
-          orderDate:
-            form.orderDate !== (item.orderDate ?? '') ? form.orderDate : null,
-          shopName:
-            form.shopName !== (item.shopName ?? '') ? form.shopName : null,
+          // キーは補正前の order_number を使う（補正後表示値だと一致しない）
+          orderNumber: item.originalOrderNumber,
+          newOrderNumber: desiredNewOrderNumber,
+          orderDate: desiredOrderDate,
+          shopName: desiredShopName,
         });
       }
 
@@ -149,19 +200,21 @@ export function OrderItemDrawer({
       onDataChanged?.();
     } catch (e) {
       console.error('Failed to save override:', e);
+      setValidationError(e instanceof Error ? e.message : '保存に失敗しました');
     } finally {
       setIsSaving(false);
     }
   }, [item, form, onDataChanged]);
 
   const handleExclude = useCallback(async () => {
-    if (!item || !item.shopDomain || !item.orderNumber) return;
+    if (!item || !item.shopDomain || !item.originalOrderNumber) return;
     try {
       await invoke('exclude_item', {
         shopDomain: item.shopDomain,
-        orderNumber: item.orderNumber,
-        itemName: item.itemName,
-        brand: item.brand ?? '',
+        // 除外も元キーで一致させる（表示値だと JOIN に一致しない）
+        orderNumber: item.originalOrderNumber,
+        itemName: item.originalItemName,
+        brand: item.originalBrand,
         reason: null,
       });
       setExcludeDialogOpen(false);
@@ -350,6 +403,10 @@ export function OrderItemDrawer({
                     キャンセル
                   </Button>
                 </div>
+
+                {validationError && (
+                  <p className="text-sm text-destructive">{validationError}</p>
+                )}
 
                 <Button
                   variant="destructive"

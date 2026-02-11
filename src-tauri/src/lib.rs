@@ -1525,6 +1525,7 @@ async fn import_metadata(
 // ─── Manual Override / Exclusion Commands ───────────────────────────
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 async fn save_item_override(
     pool: tauri::State<'_, SqlitePool>,
     shop_domain: String,

@@ -3053,6 +3053,77 @@ mod tests {
         .await
         .expect("Failed to create product_master table");
 
+        // manual_overrides / exclusions テーブル (012 に対応)
+        // パースで再構築される orders/items/deliveries とは独立したテーブル群。
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS item_overrides (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                shop_domain TEXT NOT NULL,
+                order_number TEXT NOT NULL,
+                original_item_name TEXT NOT NULL,
+                original_brand TEXT NOT NULL DEFAULT '',
+                item_name TEXT,
+                price INTEGER,
+                quantity INTEGER,
+                brand TEXT,
+                category TEXT,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (shop_domain, order_number, original_item_name, original_brand)
+            );
+            CREATE INDEX IF NOT EXISTS idx_item_overrides_key
+            ON item_overrides(shop_domain, order_number, original_item_name, original_brand);
+            CREATE TRIGGER IF NOT EXISTS item_overrides_updated_at AFTER UPDATE ON item_overrides BEGIN
+                UPDATE item_overrides SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+            END;
+
+            CREATE TABLE IF NOT EXISTS order_overrides (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                shop_domain TEXT NOT NULL,
+                order_number TEXT NOT NULL,
+                new_order_number TEXT,
+                order_date TEXT,
+                shop_name TEXT,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (shop_domain, order_number)
+            );
+            CREATE INDEX IF NOT EXISTS idx_order_overrides_key
+            ON order_overrides(shop_domain, order_number);
+            CREATE TRIGGER IF NOT EXISTS order_overrides_updated_at AFTER UPDATE ON order_overrides BEGIN
+                UPDATE order_overrides SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+            END;
+
+            CREATE TABLE IF NOT EXISTS excluded_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                shop_domain TEXT NOT NULL,
+                order_number TEXT NOT NULL,
+                item_name TEXT NOT NULL,
+                brand TEXT NOT NULL DEFAULT '',
+                reason TEXT,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (shop_domain, order_number, item_name, brand)
+            );
+            CREATE INDEX IF NOT EXISTS idx_excluded_items_key
+            ON excluded_items(shop_domain, order_number, item_name, brand);
+
+            CREATE TABLE IF NOT EXISTS excluded_orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                shop_domain TEXT NOT NULL,
+                order_number TEXT NOT NULL,
+                reason TEXT,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (shop_domain, order_number)
+            );
+            CREATE INDEX IF NOT EXISTS idx_excluded_orders_key
+            ON excluded_orders(shop_domain, order_number);
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("Failed to create manual override/exclusion tables");
+
         // 外部キー制約を有効化（ロールバックテストで使用）
         sqlx::query("PRAGMA foreign_keys = ON")
             .execute(&pool)
@@ -5313,5 +5384,196 @@ mod tests {
                 .await
                 .expect("count deliveries");
         assert_eq!(deliveries.0, 1);
+    }
+
+    // ─── Manual Override / Exclusion: Integration Tests ────────────────
+
+    #[tokio::test]
+    async fn test_override_repository_save_item_override_upsert() {
+        let pool = setup_test_db().await;
+        let repo = SqliteOverrideRepository::new(pool.clone());
+
+        let id1 = repo
+            .save_item_override(SaveItemOverride {
+                shop_domain: "1999.co.jp".to_string(),
+                order_number: "ORD-001".to_string(),
+                original_item_name: "商品A".to_string(),
+                original_brand: "".to_string(),
+                item_name: Some("商品A(修正)".to_string()),
+                price: Some(2000),
+                quantity: Some(2),
+                brand: None,
+                category: None,
+            })
+            .await
+            .expect("save_item_override (insert)");
+
+        let id2 = repo
+            .save_item_override(SaveItemOverride {
+                shop_domain: "1999.co.jp".to_string(),
+                order_number: "ORD-001".to_string(),
+                original_item_name: "商品A".to_string(),
+                original_brand: "".to_string(),
+                item_name: Some("商品A(再修正)".to_string()),
+                price: Some(2100),
+                quantity: Some(3),
+                brand: Some("BrandX".to_string()),
+                category: Some("CatY".to_string()),
+            })
+            .await
+            .expect("save_item_override (update)");
+
+        // 同一キーなら行は増えない & id は維持される
+        assert_eq!(id1, id2);
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM item_overrides")
+            .fetch_one(&pool)
+            .await
+            .expect("count item_overrides");
+        assert_eq!(count, 1);
+
+        let row: (String, i64, i64, String, String) = sqlx::query_as(
+            "SELECT item_name, price, quantity, brand, category FROM item_overrides WHERE id = ?",
+        )
+        .bind(id1)
+        .fetch_one(&pool)
+        .await
+        .expect("fetch item_overrides row");
+        assert_eq!(row.0, "商品A(再修正)");
+        assert_eq!(row.1, 2100);
+        assert_eq!(row.2, 3);
+        assert_eq!(row.3, "BrandX");
+        assert_eq!(row.4, "CatY");
+    }
+
+    #[tokio::test]
+    async fn test_override_repository_save_order_override_upsert() {
+        let pool = setup_test_db().await;
+        let repo = SqliteOverrideRepository::new(pool.clone());
+
+        let id1 = repo
+            .save_order_override(SaveOrderOverride {
+                shop_domain: "1999.co.jp".to_string(),
+                order_number: "ORD-002".to_string(),
+                new_order_number: Some("ORD-002A".to_string()),
+                order_date: Some("2024-02-01".to_string()),
+                shop_name: Some("ショップ名(修正)".to_string()),
+            })
+            .await
+            .expect("save_order_override (insert)");
+
+        let id2 = repo
+            .save_order_override(SaveOrderOverride {
+                shop_domain: "1999.co.jp".to_string(),
+                order_number: "ORD-002".to_string(),
+                new_order_number: Some("ORD-002B".to_string()),
+                order_date: Some("2024-02-02".to_string()),
+                shop_name: Some("ショップ名(再修正)".to_string()),
+            })
+            .await
+            .expect("save_order_override (update)");
+
+        assert_eq!(id1, id2);
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM order_overrides")
+            .fetch_one(&pool)
+            .await
+            .expect("count order_overrides");
+        assert_eq!(count, 1);
+
+        let row: (String, String, String) = sqlx::query_as(
+            "SELECT new_order_number, order_date, shop_name FROM order_overrides WHERE id = ?",
+        )
+        .bind(id1)
+        .fetch_one(&pool)
+        .await
+        .expect("fetch order_overrides row");
+        assert_eq!(row.0, "ORD-002B");
+        assert_eq!(row.1, "2024-02-02");
+        assert_eq!(row.2, "ショップ名(再修正)");
+    }
+
+    #[tokio::test]
+    async fn test_override_repository_exclude_and_restore_item() {
+        let pool = setup_test_db().await;
+        let repo = SqliteOverrideRepository::new(pool.clone());
+
+        let id1 = repo
+            .exclude_item(ExcludeItemParams {
+                shop_domain: "1999.co.jp".to_string(),
+                order_number: "ORD-003".to_string(),
+                item_name: "商品Z".to_string(),
+                brand: "".to_string(),
+                reason: Some("不要".to_string()),
+            })
+            .await
+            .expect("exclude_item (insert)");
+
+        let id2 = repo
+            .exclude_item(ExcludeItemParams {
+                shop_domain: "1999.co.jp".to_string(),
+                order_number: "ORD-003".to_string(),
+                item_name: "商品Z".to_string(),
+                brand: "".to_string(),
+                reason: Some("やっぱり不要".to_string()),
+            })
+            .await
+            .expect("exclude_item (update)");
+
+        assert_eq!(id1, id2);
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM excluded_items")
+            .fetch_one(&pool)
+            .await
+            .expect("count excluded_items");
+        assert_eq!(count, 1);
+
+        repo.restore_excluded_item(id1)
+            .await
+            .expect("restore_excluded_item");
+
+        let count_after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM excluded_items")
+            .fetch_one(&pool)
+            .await
+            .expect("count excluded_items after restore");
+        assert_eq!(count_after, 0);
+    }
+
+    #[tokio::test]
+    async fn test_override_repository_exclude_and_restore_order() {
+        let pool = setup_test_db().await;
+        let repo = SqliteOverrideRepository::new(pool.clone());
+
+        let id1 = repo
+            .exclude_order(ExcludeOrderParams {
+                shop_domain: "1999.co.jp".to_string(),
+                order_number: "ORD-004".to_string(),
+                reason: Some("不要".to_string()),
+            })
+            .await
+            .expect("exclude_order (insert)");
+
+        let id2 = repo
+            .exclude_order(ExcludeOrderParams {
+                shop_domain: "1999.co.jp".to_string(),
+                order_number: "ORD-004".to_string(),
+                reason: Some("重複".to_string()),
+            })
+            .await
+            .expect("exclude_order (update)");
+
+        assert_eq!(id1, id2);
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM excluded_orders")
+            .fetch_one(&pool)
+            .await
+            .expect("count excluded_orders");
+        assert_eq!(count, 1);
+
+        repo.restore_excluded_order(id1)
+            .await
+            .expect("restore_excluded_order");
+
+        let count_after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM excluded_orders")
+            .fetch_one(&pool)
+            .await
+            .expect("count excluded_orders after restore");
+        assert_eq!(count_after, 0);
     }
 }
