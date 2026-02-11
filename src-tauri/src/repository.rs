@@ -2649,7 +2649,6 @@ pub struct ExcludedOrder {
     pub created_at: String,
 }
 
-
 /// 手動上書き・除外のDB操作
 pub struct SqliteOverrideRepository {
     pool: SqlitePool,
@@ -2730,19 +2729,18 @@ impl SqliteOverrideRepository {
     }
 
     pub async fn get_all_item_overrides(&self) -> Result<Vec<ItemOverride>, String> {
-        let rows: Vec<ItemOverrideDbRow> =
-            sqlx::query_as(
-                r#"
+        let rows: Vec<ItemOverrideDbRow> = sqlx::query_as(
+            r#"
                 SELECT id, shop_domain, order_number, original_item_name, original_brand,
                        item_name, price, quantity, brand, category,
                        created_at, updated_at
                 FROM item_overrides
                 ORDER BY updated_at DESC
                 "#,
-            )
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| format!("Failed to fetch item overrides: {e}"))?;
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to fetch item overrides: {e}"))?;
 
         Ok(rows
             .into_iter()
@@ -2820,18 +2818,17 @@ impl SqliteOverrideRepository {
     }
 
     pub async fn get_all_order_overrides(&self) -> Result<Vec<OrderOverride>, String> {
-        let rows: Vec<OrderOverrideDbRow> =
-            sqlx::query_as(
-                r#"
+        let rows: Vec<OrderOverrideDbRow> = sqlx::query_as(
+            r#"
                 SELECT id, shop_domain, order_number, new_order_number, order_date, shop_name,
                        created_at, updated_at
                 FROM order_overrides
                 ORDER BY updated_at DESC
                 "#,
-            )
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| format!("Failed to fetch order overrides: {e}"))?;
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to fetch order overrides: {e}"))?;
 
         Ok(rows
             .into_iter()
@@ -2884,17 +2881,16 @@ impl SqliteOverrideRepository {
     }
 
     pub async fn get_all_excluded_items(&self) -> Result<Vec<ExcludedItem>, String> {
-        let rows: Vec<ExcludedItemDbRow> =
-            sqlx::query_as(
-                r#"
+        let rows: Vec<ExcludedItemDbRow> = sqlx::query_as(
+            r#"
                 SELECT id, shop_domain, order_number, item_name, brand, reason, created_at
                 FROM excluded_items
                 ORDER BY created_at DESC
                 "#,
-            )
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| format!("Failed to fetch excluded items: {e}"))?;
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to fetch excluded items: {e}"))?;
 
         Ok(rows
             .into_iter()
@@ -2966,7 +2962,6 @@ impl SqliteOverrideRepository {
             })
             .collect())
     }
-
 }
 
 #[cfg(test)]
