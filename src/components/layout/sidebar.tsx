@@ -34,23 +34,28 @@ type NavigationItem = {
   id: NavigationScreen;
 };
 
+/** テーブル画面（Screen のサブセット） */
+type TableScreen = Extract<
+  Screen,
+  | 'table-emails'
+  | 'table-orders'
+  | 'table-items'
+  | 'table-images'
+  | 'table-deliveries'
+  | 'table-htmls'
+  | 'table-order-emails'
+  | 'table-order-htmls'
+  | 'table-shop-settings'
+  | 'table-product-master'
+  | 'table-item-overrides'
+  | 'table-order-overrides'
+  | 'table-excluded-items'
+  | 'table-excluded-orders'
+>;
+
 type TableItem = {
   name: string;
-  id:
-    | 'table-emails'
-    | 'table-orders'
-    | 'table-items'
-    | 'table-images'
-    | 'table-deliveries'
-    | 'table-htmls'
-    | 'table-order-emails'
-    | 'table-order-htmls'
-    | 'table-shop-settings'
-    | 'table-product-master'
-    | 'table-item-overrides'
-    | 'table-order-overrides'
-    | 'table-excluded-items'
-    | 'table-excluded-orders';
+  id: TableScreen;
 };
 
 const navigationItems: NavigationItem[] = [
