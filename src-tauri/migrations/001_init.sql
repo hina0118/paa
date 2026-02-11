@@ -193,8 +193,8 @@ CREATE INDEX IF NOT EXISTS idx_shop_settings_is_enabled ON shop_settings(is_enab
 
 INSERT OR IGNORE INTO shop_settings (shop_name, sender_address, parser_type, subject_filters, is_enabled) VALUES
     -- DMM通販
-    ('DMM通販', 'info@mail.dmm.com', 'dmm_confirm', '["DMM通販：ご注文手続き完了のお知らせ", "ご注文手続き完了のお知らせ"]', 1),
-    ('DMM通販', 'info@mono.dmm.com', 'dmm_confirm', '["DMM通販：ご注文手続き完了のお知らせ", "ご注文手続き完了のお知らせ"]', 1),
+    ('DMM通販', 'info@mail.dmm.com', 'dmm_confirm', '["DMM通販：ご注文手続き完了のお知らせ", "DMM通販:ご注文手続き完了のお知らせ", "ご注文手続き完了のお知らせ"]', 1),
+    ('DMM通販', 'info@mono.dmm.com', 'dmm_confirm', '["DMM通販：ご注文手続き完了のお知らせ", "DMM通販:ご注文手続き完了のお知らせ", "ご注文手続き完了のお知らせ"]', 1),
     ('DMM通販', 'info@mail.dmm.com', 'dmm_cancel', '["DMM通販：ご注文キャンセルのお知らせ"]', 1),
     ('DMM通販', 'info@mail.dmm.com', 'dmm_order_number_change', '["DMM通販：配送センター変更に伴うご注文番号変更のお知らせ"]', 1),
     ('DMM通販', 'info@mail.dmm.com', 'dmm_split_complete', '["DMM通販：ご注文分割完了のお知らせ"]', 1),
