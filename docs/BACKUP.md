@@ -6,12 +6,16 @@ PAA のメタデータ（AI解析済み商品データ、画像キャッシュ�
 
 以下のテーブルと画像ファイルがエクスポートされます。
 
-| テーブル       | 内容                                                             |
-| -------------- | ---------------------------------------------------------------- |
-| images         | 商品画像のメタデータ（item_name_normalized と file_name の対応） |
-| shop_settings  | 店舗設定（送信元アドレス、パーサータイプなど）                   |
-| product_master | AI（Gemini）解析済みの商品情報（メーカー、シリーズ、スケール等） |
-| emails         | 取得済みメール（message_id、本文、差出人、件名など）             |
+| テーブル        | 内容                                                             |
+| --------------- | ---------------------------------------------------------------- |
+| images          | 商品画像のメタデータ（item_name_normalized と file_name の対応） |
+| shop_settings   | 店舗設定（送信元アドレス、パーサータイプなど）                   |
+| product_master  | AI（Gemini）解析済みの商品情報（メーカー、シリーズ、スケール等） |
+| emails          | 取得済みメール（message_id、本文、差出人、件名など）             |
+| item_overrides  | 商品データの補正値（手動補正）                                   |
+| order_overrides | 注文データの補正値（手動補正）                                   |
+| excluded_items  | 商品の論理削除（非表示）                                         |
+| excluded_orders | 注文の論理削除（非表示）                                         |
 
 画像ファイルは `app_data_dir/images/` に保存されている実体が ZIP 内の `images/` フォルダに含まれます。
 
@@ -43,6 +47,10 @@ paa_export_YYYYMMDD_HHmmss.zip
 ├── shop_settings.json  # shop_settings テーブル
 ├── product_master.json # product_master テーブル
 ├── emails.ndjson       # emails テーブル（NDJSON形式、旧形式は emails.json も読み込み可）
+├── item_overrides.json  # item_overrides テーブル
+├── order_overrides.json # order_overrides テーブル
+├── excluded_items.json  # excluded_items テーブル
+├── excluded_orders.json # excluded_orders テーブル
 └── images/             # 画像ファイル
     ├── xxx.jpg
     └── yyy.png

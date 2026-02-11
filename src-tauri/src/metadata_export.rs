@@ -1,6 +1,7 @@
 //! メタデータのエクスポート/インポート（Issue #40）
 //!
-//! images, shop_settings, product_master テーブルと画像ファイルを
+//! images, shop_settings, product_master, emails と画像ファイルに加え、
+//! item_overrides, order_overrides, excluded_items, excluded_orders を
 //! ZIP 形式でバックアップ・復元する。
 
 use futures::StreamExt;
@@ -85,12 +86,62 @@ type EmailRow = (
     Option<String>,
 );
 
+/// item_overrides テーブル行
+/// (id, shop_domain, order_number, original_item_name, original_brand, item_name, price, quantity, brand, category, created_at, updated_at)
+type ItemOverrideRow = (
+    i64,
+    String,
+    String,
+    String,
+    String,
+    Option<String>,
+    Option<i64>,
+    Option<i64>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+/// order_overrides テーブル行
+/// (id, shop_domain, order_number, new_order_number, order_date, shop_name, created_at, updated_at)
+type OrderOverrideRow = (
+    i64,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+/// excluded_items テーブル行
+/// (id, shop_domain, order_number, item_name, brand, reason, created_at)
+type ExcludedItemRow = (
+    i64,
+    String,
+    String,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+);
+
+/// excluded_orders テーブル行
+/// (id, shop_domain, order_number, reason, created_at)
+type ExcludedOrderRow = (i64, String, String, Option<String>, Option<String>);
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ExportResult {
     pub images_count: usize,
     pub shop_settings_count: usize,
     pub product_master_count: usize,
     pub emails_count: usize,
+    pub item_overrides_count: usize,
+    pub order_overrides_count: usize,
+    pub excluded_items_count: usize,
+    pub excluded_orders_count: usize,
     pub image_files_count: usize,
     /// スキップした画像数（不正な file_name、サイズ超過、ファイル不存在）
     pub images_skipped: usize,
@@ -102,6 +153,10 @@ pub struct ImportResult {
     pub shop_settings_inserted: usize,
     pub product_master_inserted: usize,
     pub emails_inserted: usize,
+    pub item_overrides_inserted: usize,
+    pub order_overrides_inserted: usize,
+    pub excluded_items_inserted: usize,
+    pub excluded_orders_inserted: usize,
     pub image_files_copied: usize,
 }
 
@@ -162,6 +217,48 @@ where
     .await
     .map_err(|e| format!("Failed to fetch product_master: {e}"))?;
 
+    let item_overrides_rows: Vec<ItemOverrideRow> = sqlx::query_as(
+        r#"
+        SELECT id, shop_domain, order_number, original_item_name, original_brand,
+               item_name, price, quantity, brand, category, created_at, updated_at
+        FROM item_overrides
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("Failed to fetch item_overrides: {e}"))?;
+
+    let order_overrides_rows: Vec<OrderOverrideRow> = sqlx::query_as(
+        r#"
+        SELECT id, shop_domain, order_number, new_order_number, order_date, shop_name,
+               created_at, updated_at
+        FROM order_overrides
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("Failed to fetch order_overrides: {e}"))?;
+
+    let excluded_items_rows: Vec<ExcludedItemRow> = sqlx::query_as(
+        r#"
+        SELECT id, shop_domain, order_number, item_name, brand, reason, created_at
+        FROM excluded_items
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("Failed to fetch excluded_items: {e}"))?;
+
+    let excluded_orders_rows: Vec<ExcludedOrderRow> = sqlx::query_as(
+        r#"
+        SELECT id, shop_domain, order_number, reason, created_at
+        FROM excluded_orders
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("Failed to fetch excluded_orders: {e}"))?;
+
     // 2. JSON にシリアライズ（emails は後でストリーミング出力するため除外）
     let images_json = serde_json::to_string_pretty(&images_rows)
         .map_err(|e| format!("Failed to serialize images: {e}"))?;
@@ -169,6 +266,14 @@ where
         .map_err(|e| format!("Failed to serialize shop_settings: {e}"))?;
     let product_master_json = serde_json::to_string_pretty(&product_master_rows)
         .map_err(|e| format!("Failed to serialize product_master: {e}"))?;
+    let item_overrides_json = serde_json::to_string_pretty(&item_overrides_rows)
+        .map_err(|e| format!("Failed to serialize item_overrides: {e}"))?;
+    let order_overrides_json = serde_json::to_string_pretty(&order_overrides_rows)
+        .map_err(|e| format!("Failed to serialize order_overrides: {e}"))?;
+    let excluded_items_json = serde_json::to_string_pretty(&excluded_items_rows)
+        .map_err(|e| format!("Failed to serialize excluded_items: {e}"))?;
+    let excluded_orders_json = serde_json::to_string_pretty(&excluded_orders_rows)
+        .map_err(|e| format!("Failed to serialize excluded_orders: {e}"))?;
 
     let manifest = Manifest {
         version: MANIFEST_VERSION,
@@ -213,6 +318,34 @@ where
     zip_writer
         .write_all(product_master_json.as_bytes())
         .map_err(|e| format!("Failed to write product_master: {e}"))?;
+
+    zip_writer
+        .start_file("item_overrides.json", options)
+        .map_err(|e| format!("Failed to add item_overrides.json: {e}"))?;
+    zip_writer
+        .write_all(item_overrides_json.as_bytes())
+        .map_err(|e| format!("Failed to write item_overrides: {e}"))?;
+
+    zip_writer
+        .start_file("order_overrides.json", options)
+        .map_err(|e| format!("Failed to add order_overrides.json: {e}"))?;
+    zip_writer
+        .write_all(order_overrides_json.as_bytes())
+        .map_err(|e| format!("Failed to write order_overrides: {e}"))?;
+
+    zip_writer
+        .start_file("excluded_items.json", options)
+        .map_err(|e| format!("Failed to add excluded_items.json: {e}"))?;
+    zip_writer
+        .write_all(excluded_items_json.as_bytes())
+        .map_err(|e| format!("Failed to write excluded_items: {e}"))?;
+
+    zip_writer
+        .start_file("excluded_orders.json", options)
+        .map_err(|e| format!("Failed to add excluded_orders.json: {e}"))?;
+    zip_writer
+        .write_all(excluded_orders_json.as_bytes())
+        .map_err(|e| format!("Failed to write excluded_orders: {e}"))?;
 
     // emails: ストリーミングで NDJSON 出力（OOM 回避）
     zip_writer
@@ -290,6 +423,10 @@ where
         shop_settings_count: shop_settings_rows.len(),
         product_master_count: product_master_rows.len(),
         emails_count,
+        item_overrides_count: item_overrides_rows.len(),
+        order_overrides_count: order_overrides_rows.len(),
+        excluded_items_count: excluded_items_rows.len(),
+        excluded_orders_count: excluded_orders_rows.len(),
         image_files_count,
         images_skipped,
     })
@@ -349,6 +486,45 @@ where
     let product_master_json = read_zip_entry(&mut zip_archive, "product_master.json")?;
     let product_master_rows: Vec<JsonProductMasterRow> = serde_json::from_str(&product_master_json)
         .map_err(|e| format!("Failed to parse product_master.json: {e}"))?;
+
+    // item_overrides.json / order_overrides.json / excluded_items.json / excluded_orders.json
+    // 旧バックアップ互換: ファイルが無ければスキップする
+    let item_overrides_rows: Vec<JsonItemOverrideRow> =
+        if zip_archive.file_names().any(|n| n == "item_overrides.json") {
+            let json = read_zip_entry(&mut zip_archive, "item_overrides.json")?;
+            serde_json::from_str(&json)
+                .map_err(|e| format!("Failed to parse item_overrides.json: {e}"))?
+        } else {
+            Vec::new()
+        };
+    let order_overrides_rows: Vec<JsonOrderOverrideRow> = if zip_archive
+        .file_names()
+        .any(|n| n == "order_overrides.json")
+    {
+        let json = read_zip_entry(&mut zip_archive, "order_overrides.json")?;
+        serde_json::from_str(&json)
+            .map_err(|e| format!("Failed to parse order_overrides.json: {e}"))?
+    } else {
+        Vec::new()
+    };
+    let excluded_items_rows: Vec<JsonExcludedItemRow> =
+        if zip_archive.file_names().any(|n| n == "excluded_items.json") {
+            let json = read_zip_entry(&mut zip_archive, "excluded_items.json")?;
+            serde_json::from_str(&json)
+                .map_err(|e| format!("Failed to parse excluded_items.json: {e}"))?
+        } else {
+            Vec::new()
+        };
+    let excluded_orders_rows: Vec<JsonExcludedOrderRow> = if zip_archive
+        .file_names()
+        .any(|n| n == "excluded_orders.json")
+    {
+        let json = read_zip_entry(&mut zip_archive, "excluded_orders.json")?;
+        serde_json::from_str(&json)
+            .map_err(|e| format!("Failed to parse excluded_orders.json: {e}"))?
+    } else {
+        Vec::new()
+    };
 
     // images.json に登場する安全な file_name のみをコピー対象とする（DoS 対策）
     let allowed_image_files: HashSet<String> = images_rows
@@ -545,6 +721,97 @@ where
         }
     }
 
+    let mut item_overrides_inserted = 0usize;
+    for row in &item_overrides_rows {
+        let result = sqlx::query(
+            r#"
+            INSERT OR IGNORE INTO item_overrides (
+                shop_domain, order_number, original_item_name, original_brand,
+                item_name, price, quantity, brand, category
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(&row.1)
+        .bind(&row.2)
+        .bind(&row.3)
+        .bind(&row.4)
+        .bind(&row.5)
+        .bind(row.6)
+        .bind(row.7)
+        .bind(&row.8)
+        .bind(&row.9)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("Failed to insert item_override: {e}"))?;
+        if result.rows_affected() > 0 {
+            item_overrides_inserted += 1;
+        }
+    }
+
+    let mut order_overrides_inserted = 0usize;
+    for row in &order_overrides_rows {
+        let result = sqlx::query(
+            r#"
+            INSERT OR IGNORE INTO order_overrides (
+                shop_domain, order_number, new_order_number, order_date, shop_name
+            )
+            VALUES (?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(&row.1)
+        .bind(&row.2)
+        .bind(&row.3)
+        .bind(&row.4)
+        .bind(&row.5)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("Failed to insert order_override: {e}"))?;
+        if result.rows_affected() > 0 {
+            order_overrides_inserted += 1;
+        }
+    }
+
+    let mut excluded_items_inserted = 0usize;
+    for row in &excluded_items_rows {
+        let result = sqlx::query(
+            r#"
+            INSERT OR IGNORE INTO excluded_items (shop_domain, order_number, item_name, brand, reason)
+            VALUES (?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(&row.1)
+        .bind(&row.2)
+        .bind(&row.3)
+        .bind(&row.4)
+        .bind(&row.5)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("Failed to insert excluded_item: {e}"))?;
+        if result.rows_affected() > 0 {
+            excluded_items_inserted += 1;
+        }
+    }
+
+    let mut excluded_orders_inserted = 0usize;
+    for row in &excluded_orders_rows {
+        let result = sqlx::query(
+            r#"
+            INSERT OR IGNORE INTO excluded_orders (shop_domain, order_number, reason)
+            VALUES (?, ?, ?)
+            "#,
+        )
+        .bind(&row.1)
+        .bind(&row.2)
+        .bind(&row.3)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("Failed to insert excluded_order: {e}"))?;
+        if result.rows_affected() > 0 {
+            excluded_orders_inserted += 1;
+        }
+    }
+
     tx.commit()
         .await
         .map_err(|e| format!("Failed to commit transaction: {e}"))?;
@@ -602,6 +869,10 @@ where
         shop_settings_inserted,
         product_master_inserted,
         emails_inserted,
+        item_overrides_inserted,
+        order_overrides_inserted,
+        excluded_items_inserted,
+        excluded_orders_inserted,
         image_files_copied,
     })
 }
@@ -680,6 +951,58 @@ struct JsonEmailRow(
     Option<String>, // subject
 );
 
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+struct JsonItemOverrideRow(
+    i64,            // id (未使用)
+    String,         // shop_domain
+    String,         // order_number
+    String,         // original_item_name
+    String,         // original_brand
+    Option<String>, // item_name
+    Option<i64>,    // price
+    Option<i64>,    // quantity
+    Option<String>, // brand
+    Option<String>, // category
+    Option<String>, // created_at (未使用)
+    Option<String>, // updated_at (未使用)
+);
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+struct JsonOrderOverrideRow(
+    i64,            // id (未使用)
+    String,         // shop_domain
+    String,         // order_number
+    Option<String>, // new_order_number
+    Option<String>, // order_date
+    Option<String>, // shop_name
+    Option<String>, // created_at (未使用)
+    Option<String>, // updated_at (未使用)
+);
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+struct JsonExcludedItemRow(
+    i64,            // id (未使用)
+    String,         // shop_domain
+    String,         // order_number
+    String,         // item_name
+    String,         // brand
+    Option<String>, // reason
+    Option<String>, // created_at (未使用)
+);
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+struct JsonExcludedOrderRow(
+    i64,            // id (未使用)
+    String,         // shop_domain
+    String,         // order_number
+    Option<String>, // reason
+    Option<String>, // created_at (未使用)
+);
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -740,6 +1063,62 @@ mod tests {
         );
     ";
 
+    const SCHEMA_ITEM_OVERRIDES: &str = r"
+        CREATE TABLE IF NOT EXISTS item_overrides (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            shop_domain TEXT NOT NULL,
+            order_number TEXT NOT NULL,
+            original_item_name TEXT NOT NULL,
+            original_brand TEXT NOT NULL,
+            item_name TEXT,
+            price INTEGER,
+            quantity INTEGER,
+            brand TEXT,
+            category TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (shop_domain, order_number, original_item_name, original_brand)
+        );
+    ";
+
+    const SCHEMA_ORDER_OVERRIDES: &str = r"
+        CREATE TABLE IF NOT EXISTS order_overrides (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            shop_domain TEXT NOT NULL,
+            order_number TEXT NOT NULL,
+            new_order_number TEXT,
+            order_date TEXT,
+            shop_name TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (shop_domain, order_number)
+        );
+    ";
+
+    const SCHEMA_EXCLUDED_ITEMS: &str = r"
+        CREATE TABLE IF NOT EXISTS excluded_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            shop_domain TEXT NOT NULL,
+            order_number TEXT NOT NULL,
+            item_name TEXT NOT NULL,
+            brand TEXT NOT NULL,
+            reason TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (shop_domain, order_number, item_name, brand)
+        );
+    ";
+
+    const SCHEMA_EXCLUDED_ORDERS: &str = r"
+        CREATE TABLE IF NOT EXISTS excluded_orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            shop_domain TEXT NOT NULL,
+            order_number TEXT NOT NULL,
+            reason TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (shop_domain, order_number)
+        );
+    ";
+
     async fn create_test_pool() -> SqlitePool {
         let options = SqliteConnectOptions::from_str("sqlite::memory:")
             .unwrap()
@@ -758,6 +1137,22 @@ mod tests {
             .await
             .unwrap();
         sqlx::query(SCHEMA_EMAILS).execute(&pool).await.unwrap();
+        sqlx::query(SCHEMA_ITEM_OVERRIDES)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(SCHEMA_ORDER_OVERRIDES)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(SCHEMA_EXCLUDED_ITEMS)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(SCHEMA_EXCLUDED_ORDERS)
+            .execute(&pool)
+            .await
+            .unwrap();
         pool
     }
 
@@ -794,6 +1189,34 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
+        sqlx::query(
+            r"INSERT INTO item_overrides (shop_domain, order_number, original_item_name, original_brand, item_name, price, quantity, brand, category)
+              VALUES ('example.com', 'ORDER-1', 'orig-item', 'orig-brand', 'new-item', 1000, 2, 'new-brand', 'cat')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r"INSERT INTO order_overrides (shop_domain, order_number, new_order_number, order_date, shop_name)
+              VALUES ('example.com', 'ORDER-1', 'ORDER-NEW', '2024-01-01', 'ShopA')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r"INSERT INTO excluded_items (shop_domain, order_number, item_name, brand, reason)
+              VALUES ('example.com', 'ORDER-1', 'excluded-item', 'brand-x', 'test')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r"INSERT INTO excluded_orders (shop_domain, order_number, reason)
+              VALUES ('example.com', 'ORDER-2', 'spam')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
 
         let tmp = TempDir::new().unwrap();
         let images_dir = tmp.path().join("images");
@@ -808,6 +1231,10 @@ mod tests {
         assert_eq!(export_result.shop_settings_count, 1);
         assert_eq!(export_result.product_master_count, 1);
         assert_eq!(export_result.emails_count, 1);
+        assert_eq!(export_result.item_overrides_count, 1);
+        assert_eq!(export_result.order_overrides_count, 1);
+        assert_eq!(export_result.excluded_items_count, 1);
+        assert_eq!(export_result.excluded_orders_count, 1);
         assert_eq!(export_result.image_files_count, 0); // img1.png は存在しない
         assert_eq!(export_result.images_skipped, 1); // img1.png が存在しないためスキップ
 
@@ -826,6 +1253,10 @@ mod tests {
         assert_eq!(import_result.shop_settings_inserted, 1);
         assert_eq!(import_result.product_master_inserted, 1);
         assert_eq!(import_result.emails_inserted, 1);
+        assert_eq!(import_result.item_overrides_inserted, 1);
+        assert_eq!(import_result.order_overrides_inserted, 1);
+        assert_eq!(import_result.excluded_items_inserted, 1);
+        assert_eq!(import_result.excluded_orders_inserted, 1);
 
         // データが正しく復元されているか確認
         let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM images")
@@ -844,6 +1275,26 @@ mod tests {
             .unwrap();
         assert_eq!(count.0, 1);
         let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM emails")
+            .fetch_one(&pool2)
+            .await
+            .unwrap();
+        assert_eq!(count.0, 1);
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM item_overrides")
+            .fetch_one(&pool2)
+            .await
+            .unwrap();
+        assert_eq!(count.0, 1);
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM order_overrides")
+            .fetch_one(&pool2)
+            .await
+            .unwrap();
+        assert_eq!(count.0, 1);
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM excluded_items")
+            .fetch_one(&pool2)
+            .await
+            .unwrap();
+        assert_eq!(count.0, 1);
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM excluded_orders")
             .fetch_one(&pool2)
             .await
             .unwrap();
@@ -931,6 +1382,26 @@ mod tests {
         assert!(
             names.contains(&"emails.ndjson".to_string()),
             "emails.ndjson should exist, got: {:?}",
+            names
+        );
+        assert!(
+            names.contains(&"item_overrides.json".to_string()),
+            "item_overrides.json should exist, got: {:?}",
+            names
+        );
+        assert!(
+            names.contains(&"order_overrides.json".to_string()),
+            "order_overrides.json should exist, got: {:?}",
+            names
+        );
+        assert!(
+            names.contains(&"excluded_items.json".to_string()),
+            "excluded_items.json should exist, got: {:?}",
+            names
+        );
+        assert!(
+            names.contains(&"excluded_orders.json".to_string()),
+            "excluded_orders.json should exist, got: {:?}",
             names
         );
     }
@@ -1141,5 +1612,47 @@ mod tests {
         assert_eq!(row.0, "msg-legacy-001");
         assert_eq!(row.1, "pending");
         assert_eq!(row.2.as_deref(), Some("Legacy Subject"));
+    }
+
+    #[tokio::test]
+    async fn test_import_missing_override_and_exclusion_files_is_ok() {
+        use zip::write::FileOptions;
+
+        let pool = create_test_pool().await;
+        let tmp = TempDir::new().unwrap();
+        let images_dir = tmp.path().join("images");
+        std::fs::create_dir_all(&images_dir).unwrap();
+
+        // 旧バックアップ相当: overrides/excluded の JSON が無い ZIP を作成
+        let mut buf = Cursor::new(Vec::new());
+        {
+            let mut zip = zip::ZipWriter::new(&mut buf);
+            let options: zip::write::FileOptions<()> =
+                FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+            zip.start_file("manifest.json", options).unwrap();
+            zip.write_all(b"{\"version\": 1, \"exported_at\": \"2024-01-01 00:00:00\"}")
+                .unwrap();
+            zip.start_file("images.json", options).unwrap();
+            zip.write_all(b"[]").unwrap();
+            zip.start_file("shop_settings.json", options).unwrap();
+            zip.write_all(b"[]").unwrap();
+            zip.start_file("product_master.json", options).unwrap();
+            zip.write_all(b"[]").unwrap();
+            zip.start_file("emails.ndjson", options).unwrap();
+            zip.finish().unwrap();
+        }
+        buf.set_position(0);
+
+        let import_result = import_metadata_from_reader(&pool, &images_dir, buf).await;
+        assert!(
+            import_result.is_ok(),
+            "import failed: {:?}",
+            import_result.err()
+        );
+        let r = import_result.unwrap();
+        assert_eq!(r.item_overrides_inserted, 0);
+        assert_eq!(r.order_overrides_inserted, 0);
+        assert_eq!(r.excluded_items_inserted, 0);
+        assert_eq!(r.excluded_orders_inserted, 0);
     }
 }
