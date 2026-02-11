@@ -31,8 +31,8 @@ use crate::parsers::{
 };
 use crate::repository::{
     EmailRepository, ParseRepository, ShopSettingsRepository, SqliteEmailRepository,
-    SqliteOrderRepository, SqliteParseRepository, SqliteProductMasterRepository,
-    SqliteShopSettingsRepository,
+    SqliteOrderRepository, SqliteParseRepository,
+    SqliteProductMasterRepository, SqliteShopSettingsRepository,
 };
 
 /// config.parse.batch_size (i64) を usize へ安全に変換。
@@ -471,6 +471,9 @@ pub async fn run_batch_parse_task(
                 _batch_result.success_count,
                 _batch_result.failed_count
             );
+
+            // 補正(override)・除外(exclusion)は表示クエリ側の COALESCE / LEFT JOIN で対応。
+            // テーブルへの UPDATE は行わない。
         }
         Err(e) => {
             log::error!("BatchRunner failed: {}", e);

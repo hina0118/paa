@@ -311,6 +311,7 @@ export function Orders() {
         open={drawerOpen}
         onOpenChange={setDrawerOpen}
         onImageUpdated={handleImageUpdated}
+        onDataChanged={handleImageUpdated}
       />
     </div>
   );
