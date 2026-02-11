@@ -18,7 +18,11 @@ export type Screen =
   | 'table-order-emails'
   | 'table-order-htmls'
   | 'table-shop-settings'
-  | 'table-product-master';
+  | 'table-product-master'
+  | 'table-item-overrides'
+  | 'table-order-overrides'
+  | 'table-excluded-items'
+  | 'table-excluded-orders';
 
 export type NavigationContextType = {
   currentScreen: Screen;
