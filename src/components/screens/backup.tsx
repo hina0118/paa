@@ -135,7 +135,7 @@ export function Backup() {
         ['excluded_orders', result.excluded_orders_inserted],
       ]);
       toastSuccess(
-        `復元しました（${totalRecords}件のレコード、${result.image_files_copied}個の画像ファイル）`
+        `復元しました（${total}件のレコード、${result.image_files_copied}個の画像ファイル）`,
         details
       );
     } catch (error) {
