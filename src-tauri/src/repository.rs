@@ -3060,7 +3060,7 @@ mod tests {
             CREATE TABLE IF NOT EXISTS item_overrides (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 shop_domain TEXT NOT NULL,
-                order_number TEXT NOT NULL,
+                order_number TEXT NOT NULL COLLATE NOCASE,
                 original_item_name TEXT NOT NULL,
                 original_brand TEXT NOT NULL DEFAULT '',
                 item_name TEXT,
@@ -3081,7 +3081,7 @@ mod tests {
             CREATE TABLE IF NOT EXISTS order_overrides (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 shop_domain TEXT NOT NULL,
-                order_number TEXT NOT NULL,
+                order_number TEXT NOT NULL COLLATE NOCASE,
                 new_order_number TEXT,
                 order_date TEXT,
                 shop_name TEXT,
@@ -3098,7 +3098,7 @@ mod tests {
             CREATE TABLE IF NOT EXISTS excluded_items (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 shop_domain TEXT NOT NULL,
-                order_number TEXT NOT NULL,
+                order_number TEXT NOT NULL COLLATE NOCASE,
                 item_name TEXT NOT NULL,
                 brand TEXT NOT NULL DEFAULT '',
                 reason TEXT,
@@ -3111,7 +3111,7 @@ mod tests {
             CREATE TABLE IF NOT EXISTS excluded_orders (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 shop_domain TEXT NOT NULL,
-                order_number TEXT NOT NULL,
+                order_number TEXT NOT NULL COLLATE NOCASE,
                 reason TEXT,
                 created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE (shop_domain, order_number)

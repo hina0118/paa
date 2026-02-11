@@ -121,6 +121,7 @@ export async function loadOrderItems(
       i.price AS originalPrice,
       i.quantity AS originalQuantity,
       i.category AS originalCategory,
+      io.category AS itemOverrideCategory,
       COALESCE(io.item_name, i.item_name) AS itemName,
       i.item_name_normalized AS itemNameNormalized,
       COALESCE(io.price, i.price) AS price,
@@ -159,18 +160,18 @@ export async function loadOrderItems(
     LEFT JOIN product_master pm ON i.item_name_normalized = pm.normalized_name
     -- 手動上書き: 上書きテーブルからビジネスキーで JOIN
     LEFT JOIN item_overrides io ON io.shop_domain = o.shop_domain
-        AND io.order_number = o.order_number COLLATE NOCASE
+        AND io.order_number COLLATE NOCASE = o.order_number
         AND io.original_item_name = i.item_name
         AND io.original_brand = COALESCE(i.brand, '')
     LEFT JOIN order_overrides oo ON oo.shop_domain = o.shop_domain
-        AND oo.order_number = o.order_number COLLATE NOCASE
+        AND oo.order_number COLLATE NOCASE = o.order_number
     -- 除外リスト: 論理削除（一致するレコードを非表示）
     LEFT JOIN excluded_items ei ON ei.shop_domain = o.shop_domain
-        AND ei.order_number = o.order_number COLLATE NOCASE
+        AND ei.order_number COLLATE NOCASE = o.order_number
         AND ei.item_name = i.item_name
         AND ei.brand = COALESCE(i.brand, '')
     LEFT JOIN excluded_orders eo ON eo.shop_domain = o.shop_domain
-        AND eo.order_number = o.order_number COLLATE NOCASE
+        AND eo.order_number COLLATE NOCASE = o.order_number
     WHERE ei.id IS NULL AND eo.id IS NULL
       AND ${conditions.join(' AND ')}
     ORDER BY ${orderCol} ${orderDir}
@@ -191,10 +192,10 @@ export async function getOrderItemFilterOptions(db: {
         FROM orders o
         LEFT JOIN order_overrides oo
           ON oo.shop_domain = o.shop_domain
-         AND oo.order_number = o.order_number COLLATE NOCASE
+         AND oo.order_number COLLATE NOCASE = o.order_number
         LEFT JOIN excluded_orders eo
           ON eo.shop_domain = o.shop_domain
-         AND eo.order_number = o.order_number COLLATE NOCASE
+         AND eo.order_number COLLATE NOCASE = o.order_number
         WHERE eo.id IS NULL
           AND (o.shop_domain IS NOT NULL OR o.shop_name IS NOT NULL OR oo.shop_name IS NOT NULL)
         ORDER BY shop_display
@@ -206,10 +207,10 @@ export async function getOrderItemFilterOptions(db: {
         FROM orders o
         LEFT JOIN order_overrides oo
           ON oo.shop_domain = o.shop_domain
-         AND oo.order_number = o.order_number COLLATE NOCASE
+         AND oo.order_number COLLATE NOCASE = o.order_number
         LEFT JOIN excluded_orders eo
           ON eo.shop_domain = o.shop_domain
-         AND eo.order_number = o.order_number COLLATE NOCASE
+         AND eo.order_number COLLATE NOCASE = o.order_number
         WHERE eo.id IS NULL
           AND COALESCE(oo.order_date, o.order_date) IS NOT NULL
           AND trim(strftime('%Y', COALESCE(oo.order_date, o.order_date))) != ''

@@ -120,6 +120,9 @@ export type OrderItemRow = {
   /** items.category（補正前） */
   originalCategory: string | null;
 
+  /** item_overrides.category（補正値の生値、NULL = 補正なし） */
+  itemOverrideCategory: string | null;
+
   itemName: string;
   itemNameNormalized: string | null;
   price: number;
@@ -172,12 +175,12 @@ export type ExcludeItemParams = {
   orderNumber: string;
   itemName: string;
   brand: string;
-  reason?: string;
+  reason?: string | null;
 };
 
 /** 注文除外パラメータ */
 export type ExcludeOrderParams = {
   shopDomain: string;
   orderNumber: string;
-  reason?: string;
+  reason?: string | null;
 };

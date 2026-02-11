@@ -196,6 +196,15 @@ const MOCK_ORDER_ITEMS = [
   {
     id: 1,
     orderId: 1,
+    originalOrderNumber: 'ORD-E2E-001',
+    originalOrderDate: '2024-01-15',
+    originalShopName: 'Example Shop',
+    originalItemName: 'E2Eテスト商品',
+    originalBrand: '',
+    originalPrice: 1500,
+    originalQuantity: 1,
+    originalCategory: null,
+    itemOverrideCategory: null,
     itemName: 'E2Eテスト商品',
     itemNameNormalized: 'e2eテスト商品',
     price: 1500,
@@ -215,6 +224,7 @@ const MOCK_ORDER_ITEMS = [
     productName: 'E2Eテスト商品（解析済）',
     scale: '1/7',
     isReissue: 0,
+    hasOverride: 0,
   },
 ];
 
@@ -300,6 +310,14 @@ export function createE2EMockDb(): E2EMockDb {
       }
 
       if (normalized.includes('COALESCE(shop_name, shop_domain)')) {
+        return [{ shop_display: 'example.com' }] as unknown as T[];
+      }
+
+      if (
+        normalized.includes(
+          'COALESCE(oo.shop_name, o.shop_name, o.shop_domain)'
+        )
+      ) {
         return [{ shop_display: 'example.com' }] as unknown as T[];
       }
 
