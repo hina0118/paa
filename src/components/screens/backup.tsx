@@ -22,6 +22,10 @@ interface ExportResult {
   shop_settings_count: number;
   product_master_count: number;
   emails_count: number;
+  item_overrides_count: number;
+  order_overrides_count: number;
+  excluded_items_count: number;
+  excluded_orders_count: number;
   image_files_count: number;
   images_skipped: number;
 }
@@ -31,7 +35,27 @@ interface ImportResult {
   shop_settings_inserted: number;
   product_master_inserted: number;
   emails_inserted: number;
+  item_overrides_inserted: number;
+  order_overrides_inserted: number;
+  excluded_items_inserted: number;
+  excluded_orders_inserted: number;
   image_files_copied: number;
+}
+
+/**
+ * エクスポート/インポート結果から合計件数と詳細メッセージを生成する
+ * @param items - 結果のラベルと件数のタプル配列
+ * @returns 合計件数と詳細文字列を含むオブジェクト
+ */
+function formatBackupResult(items: Array<[string, number]>): {
+  total: number;
+  details: string;
+} {
+  const total = items.reduce((sum, [, count]) => sum + count, 0);
+  const details = items
+    .map(([label, count]) => `${label}: ${count}件`)
+    .join('、');
+  return { total, details };
 }
 
 export function Backup() {
@@ -53,8 +77,19 @@ export function Backup() {
       const result = await invoke<ExportResult>('export_metadata', {
         savePath,
       });
+      const { total, details } = formatBackupResult([
+        ['images', result.images_count],
+        ['shop_settings', result.shop_settings_count],
+        ['product_master', result.product_master_count],
+        ['emails', result.emails_count],
+        ['item_overrides', result.item_overrides_count],
+        ['order_overrides', result.order_overrides_count],
+        ['excluded_items', result.excluded_items_count],
+        ['excluded_orders', result.excluded_orders_count],
+      ]);
       toastSuccess(
-        `バックアップを保存しました（images: ${result.images_count}、shop_settings: ${result.shop_settings_count}、product_master: ${result.product_master_count}、emails: ${result.emails_count}、画像ファイル: ${result.image_files_count}）`
+        `バックアップを保存しました（合計: ${total}件、画像ファイル: ${result.image_files_count}件）`,
+        details
       );
       if (result.images_skipped > 0) {
         toastWarning(
@@ -89,8 +124,19 @@ export function Backup() {
       const result = await invoke<ImportResult>('import_metadata', {
         zipPath,
       });
+      const { total, details } = formatBackupResult([
+        ['images', result.images_inserted],
+        ['shop_settings', result.shop_settings_inserted],
+        ['product_master', result.product_master_inserted],
+        ['emails', result.emails_inserted],
+        ['item_overrides', result.item_overrides_inserted],
+        ['order_overrides', result.order_overrides_inserted],
+        ['excluded_items', result.excluded_items_inserted],
+        ['excluded_orders', result.excluded_orders_inserted],
+      ]);
       toastSuccess(
-        `復元しました（images: ${result.images_inserted}件、shop_settings: ${result.shop_settings_inserted}件、product_master: ${result.product_master_inserted}件、emails: ${result.emails_inserted}件、画像ファイル: ${result.image_files_copied}件）`
+        `復元しました（合計: ${total}件、画像ファイル: ${result.image_files_copied}件）`,
+        details
       );
     } catch (error) {
       toastError(`インポートに失敗しました: ${formatError(error)}`);
@@ -111,8 +157,7 @@ export function Backup() {
           </h1>
         </div>
         <p className="text-muted-foreground">
-          images、shop_settings、product_master、emails
-          のメタデータと画像ファイルをバックアップ・復元します。DBをリセットしてもAI解析済みの商品データや画像キャッシュ、取得済みメールを維持できます。
+          AI解析済みの商品データや店舗設定、取得済みメールなどのメタデータと画像ファイル（キャッシュ）をバックアップ・復元します。DBをリセットしても重要なデータを維持できます。
         </p>
       </div>
 
@@ -120,7 +165,7 @@ export function Backup() {
         <CardHeader>
           <CardTitle>データのバックアップ</CardTitle>
           <CardDescription>
-            メタデータ（images、shop_settings、product_master、emails）と画像ファイルをZIP形式でエクスポートします。保存先を選択してください。
+            メタデータと画像ファイルをZIP形式でエクスポートします。保存先を選択してください。
           </CardDescription>
         </CardHeader>
         <CardContent>
