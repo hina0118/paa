@@ -149,12 +149,24 @@ export function OrderItemDrawer({
       // override が無い場合は NULL のまま（新規に category override を作らない）
       const desiredCategory = item.itemOverrideCategory ?? null;
 
+      const shouldDeleteItemOverride =
+        desiredItemName == null &&
+        desiredPrice == null &&
+        desiredQuantity == null &&
+        desiredBrand == null &&
+        desiredCategory == null;
+
       const desiredNewOrderNumber =
         form.orderNumber === baseOrderNumber ? null : form.orderNumber;
       const desiredOrderDate =
         form.orderDate === baseOrderDate ? null : form.orderDate;
       const desiredShopName =
         form.shopName === (baseShopName ?? '') ? null : form.shopName;
+
+      const shouldDeleteOrderOverride =
+        desiredNewOrderNumber == null &&
+        desiredOrderDate == null &&
+        desiredShopName == null;
 
       // アイテムレベルの変更を検出
       const itemChanged =
@@ -164,18 +176,27 @@ export function OrderItemDrawer({
         form.brand !== (item.brand ?? '');
 
       if (itemChanged) {
-        await invoke('save_item_override', {
-          shopDomain: item.shopDomain,
-          orderNumber: item.originalOrderNumber,
-          // JOIN に使用する元キーを渡す（表示値で送ると再編集時に一致しない）
-          originalItemName: item.originalItemName,
-          originalBrand: item.originalBrand,
-          itemName: desiredItemName,
-          price: desiredPrice,
-          quantity: desiredQuantity,
-          brand: desiredBrand,
-          category: desiredCategory,
-        });
+        if (shouldDeleteItemOverride) {
+          await invoke('delete_item_override_by_key', {
+            shopDomain: item.shopDomain,
+            orderNumber: item.originalOrderNumber,
+            originalItemName: item.originalItemName,
+            originalBrand: item.originalBrand,
+          });
+        } else {
+          await invoke('save_item_override', {
+            shopDomain: item.shopDomain,
+            orderNumber: item.originalOrderNumber,
+            // JOIN に使用する元キーを渡す（表示値で送ると再編集時に一致しない）
+            originalItemName: item.originalItemName,
+            originalBrand: item.originalBrand,
+            itemName: desiredItemName,
+            price: desiredPrice,
+            quantity: desiredQuantity,
+            brand: desiredBrand,
+            category: desiredCategory,
+          });
+        }
       }
 
       // 注文レベルの変更を検出
@@ -185,14 +206,21 @@ export function OrderItemDrawer({
         form.shopName !== (item.shopName ?? '');
 
       if (orderChanged) {
-        await invoke('save_order_override', {
-          shopDomain: item.shopDomain,
-          // キーは補正前の order_number を使う（補正後表示値だと一致しない）
-          orderNumber: item.originalOrderNumber,
-          newOrderNumber: desiredNewOrderNumber,
-          orderDate: desiredOrderDate,
-          shopName: desiredShopName,
-        });
+        if (shouldDeleteOrderOverride) {
+          await invoke('delete_order_override_by_key', {
+            shopDomain: item.shopDomain,
+            orderNumber: item.originalOrderNumber,
+          });
+        } else {
+          await invoke('save_order_override', {
+            shopDomain: item.shopDomain,
+            // キーは補正前の order_number を使う（補正後表示値だと一致しない）
+            orderNumber: item.originalOrderNumber,
+            newOrderNumber: desiredNewOrderNumber,
+            orderDate: desiredOrderDate,
+            shopName: desiredShopName,
+          });
+        }
       }
 
       setIsEditing(false);
