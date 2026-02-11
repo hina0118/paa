@@ -20,6 +20,10 @@ import {
   OrderHtmlsTable,
   ShopSettingsTable,
   ProductMasterTable,
+  ItemOverridesTable,
+  OrderOverridesTable,
+  ExcludedItemsTable,
+  ExcludedOrdersTable,
 } from '@/components/screens/tables';
 import { NavigationProvider } from '@/contexts/navigation-provider';
 import { useNavigation } from '@/contexts/use-navigation';
@@ -71,6 +75,14 @@ function AppContent() {
         return <ShopSettingsTable />;
       case 'table-product-master':
         return <ProductMasterTable />;
+      case 'table-item-overrides':
+        return <ItemOverridesTable />;
+      case 'table-order-overrides':
+        return <OrderOverridesTable />;
+      case 'table-excluded-items':
+        return <ExcludedItemsTable />;
+      case 'table-excluded-orders':
+        return <ExcludedOrdersTable />;
       default:
         return <Orders />;
     }

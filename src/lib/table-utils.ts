@@ -16,6 +16,10 @@ export const VALID_TABLES = [
   'order_htmls',
   'shop_settings',
   'product_master',
+  'item_overrides',
+  'order_overrides',
+  'excluded_items',
+  'excluded_orders',
 ] as const;
 
 export type ValidTableName = (typeof VALID_TABLES)[number];
