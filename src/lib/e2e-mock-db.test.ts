@@ -155,11 +155,11 @@ describe('createE2EMockDb', () => {
     });
   });
 
-  describe('select - SELECT DISTINCT COALESCE(shop_name, shop_domain)', () => {
+  describe('select - SELECT DISTINCT COALESCE(oo.shop_name, o.shop_name, o.shop_domain)', () => {
     it('returns distinct shop display values for filter options', async () => {
       const db = createE2EMockDb();
       const result = await db.select<{ shop_display: string }>(
-        'SELECT DISTINCT COALESCE(shop_name, shop_domain) AS shop_display FROM orders WHERE shop_domain IS NOT NULL OR shop_name IS NOT NULL ORDER BY shop_display'
+        'SELECT DISTINCT COALESCE(oo.shop_name, o.shop_name, o.shop_domain) AS shop_display FROM orders o LEFT JOIN order_overrides oo ON oo.shop_domain = o.shop_domain AND oo.order_number COLLATE NOCASE = o.order_number LEFT JOIN excluded_orders eo ON eo.shop_domain = o.shop_domain AND eo.order_number COLLATE NOCASE = o.order_number WHERE eo.id IS NULL ORDER BY shop_display'
       );
       expect(result).toEqual([{ shop_display: 'example.com' }]);
     });

@@ -103,6 +103,26 @@ export type OrderWithSources = Order & {
 export type OrderItemRow = {
   id: number;
   orderId: number;
+  /** orders.order_number（補正前の元キー） */
+  originalOrderNumber: string | null;
+  /** orders.order_date（補正前） */
+  originalOrderDate: string | null;
+  /** orders.shop_name（補正前） */
+  originalShopName: string | null;
+  /** items.item_name（補正前の元キー） */
+  originalItemName: string;
+  /** COALESCE(items.brand,'')（補正前の元キー、NULL は '' に正規化） */
+  originalBrand: string;
+  /** items.price（補正前） */
+  originalPrice: number;
+  /** items.quantity（補正前） */
+  originalQuantity: number;
+  /** items.category（補正前） */
+  originalCategory: string | null;
+
+  /** item_overrides.category（補正値の生値、NULL = 補正なし） */
+  itemOverrideCategory: string | null;
+
   itemName: string;
   itemNameNormalized: string | null;
   price: number;
@@ -123,4 +143,44 @@ export type OrderItemRow = {
   productName: string | null;
   scale: string | null;
   isReissue: number | null;
+  /** 1 = 手動上書きあり */
+  hasOverride: number | null;
+};
+
+/** アイテム上書き保存パラメータ */
+export type SaveItemOverrideParams = {
+  shopDomain: string;
+  orderNumber: string;
+  originalItemName: string;
+  originalBrand: string;
+  itemName?: string | null;
+  price?: number | null;
+  quantity?: number | null;
+  brand?: string | null;
+  category?: string | null;
+};
+
+/** 注文上書き保存パラメータ */
+export type SaveOrderOverrideParams = {
+  shopDomain: string;
+  orderNumber: string;
+  newOrderNumber?: string | null;
+  orderDate?: string | null;
+  shopName?: string | null;
+};
+
+/** アイテム除外パラメータ */
+export type ExcludeItemParams = {
+  shopDomain: string;
+  orderNumber: string;
+  itemName: string;
+  brand: string;
+  reason?: string | null;
+};
+
+/** 注文除外パラメータ */
+export type ExcludeOrderParams = {
+  shopDomain: string;
+  orderNumber: string;
+  reason?: string | null;
 };
