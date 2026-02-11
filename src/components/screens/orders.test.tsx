@@ -78,7 +78,10 @@ const renderOrders = () => {
 
 const setMockWithItems = () => {
   vi.mocked(mockDb.select).mockImplementation((sql: string) => {
-    if (sql.includes('COALESCE(shop_name, shop_domain)')) {
+    if (
+      sql.includes('COALESCE(oo.shop_name, o.shop_name, o.shop_domain)') ||
+      sql.includes('COALESCE(shop_name, shop_domain)')
+    ) {
       return Promise.resolve([{ shop_display: 'shop.com' }]);
     }
     if (sql.includes("strftime('%Y'")) {
@@ -90,7 +93,10 @@ const setMockWithItems = () => {
 
 const setMockEmpty = () => {
   vi.mocked(mockDb.select).mockImplementation((sql: string) => {
-    if (sql.includes('COALESCE(shop_name, shop_domain)')) {
+    if (
+      sql.includes('COALESCE(oo.shop_name, o.shop_name, o.shop_domain)') ||
+      sql.includes('COALESCE(shop_name, shop_domain)')
+    ) {
       return Promise.resolve([]);
     }
     if (sql.includes("strftime('%Y'")) {
