@@ -505,76 +505,12 @@ fn get_logs(level_filter: Option<String>, limit: Option<usize>) -> Result<Vec<Lo
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let migrations = || {
-        vec![
-            Migration {
-                version: 1,
-                description: "init",
-                sql: include_str!("../migrations/001_init.sql"),
-                kind: MigrationKind::Up,
-            },
-            Migration {
-                version: 2,
-                description: "add_dmm_shop_settings",
-                sql: include_str!("../migrations/002_add_dmm_shop_settings.sql"),
-                kind: MigrationKind::Up,
-            },
-            Migration {
-                version: 3,
-                description: "add_dmm_cancel_shop_settings",
-                sql: include_str!("../migrations/003_add_dmm_cancel_shop_settings.sql"),
-                kind: MigrationKind::Up,
-            },
-            Migration {
-                version: 4,
-                description: "add_dmm_order_number_change_shop_settings",
-                sql: include_str!(
-                    "../migrations/004_add_dmm_order_number_change_shop_settings.sql"
-                ),
-                kind: MigrationKind::Up,
-            },
-            Migration {
-                version: 5,
-                description: "add_dmm_confirm_mono_sender",
-                sql: include_str!("../migrations/005_add_dmm_confirm_mono_sender.sql"),
-                kind: MigrationKind::Up,
-            },
-            Migration {
-                version: 7,
-                description: "add_dmm_split_complete_shop_settings",
-                sql: include_str!("../migrations/007_add_dmm_split_complete_shop_settings.sql"),
-                kind: MigrationKind::Up,
-            },
-            Migration {
-                version: 8,
-                description: "add_dmm_merge_complete_shop_settings",
-                sql: include_str!("../migrations/008_add_dmm_merge_complete_shop_settings.sql"),
-                kind: MigrationKind::Up,
-            },
-            Migration {
-                version: 9,
-                description: "add_dmm_send_shop_settings",
-                sql: include_str!("../migrations/009_add_dmm_send_shop_settings.sql"),
-                kind: MigrationKind::Up,
-            },
-            Migration {
-                version: 10,
-                description: "update_dmm_subject_filters",
-                sql: include_str!("../migrations/010_update_dmm_subject_filters.sql"),
-                kind: MigrationKind::Up,
-            },
-            Migration {
-                version: 11,
-                description: "orders_order_number_nocase_index",
-                sql: include_str!("../migrations/011_orders_order_number_nocase_index.sql"),
-                kind: MigrationKind::Up,
-            },
-            Migration {
-                version: 12,
-                description: "manual_overrides",
-                sql: include_str!("../migrations/012_manual_overrides.sql"),
-                kind: MigrationKind::Up,
-            },
-        ]
+        vec![Migration {
+            version: 1,
+            description: "init",
+            sql: include_str!("../migrations/001_init.sql"),
+            kind: MigrationKind::Up,
+        }]
     };
 
     tauri::Builder::default()
