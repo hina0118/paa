@@ -88,7 +88,7 @@ export function Backup() {
         ['excluded_orders', result.excluded_orders_count],
       ]);
       toastSuccess(
-        `バックアップを保存しました（合計: ${total}件、画像ファイル: ${result.image_files_count}件）`,
+        `バックアップを保存しました（${totalRecords}件のレコード、${result.image_files_count}個の画像ファイル）`
         details
       );
       if (result.images_skipped > 0) {
@@ -135,7 +135,7 @@ export function Backup() {
         ['excluded_orders', result.excluded_orders_inserted],
       ]);
       toastSuccess(
-        `復元しました（合計: ${total}件、画像ファイル: ${result.image_files_copied}件）`,
+        `復元しました（${totalRecords}件のレコード、${result.image_files_copied}個の画像ファイル）`
         details
       );
     } catch (error) {
@@ -157,8 +157,7 @@ export function Backup() {
           </h1>
         </div>
         <p className="text-muted-foreground">
-          images、shop_settings、product_master、emails、item_overrides、order_overrides、excluded_items、excluded_orders
-          のメタデータと画像ファイルをバックアップ・復元します。DBをリセットしてもAI解析済みの商品データや画像キャッシュ、取得済みメールを維持できます。
+          AI解析済みの商品データや店舗設定、取得済みメールなどのメタデータと画像ファイル（キャッシュ）をバックアップ・復元します。DBをリセットしても重要なデータを維持できます。
         </p>
       </div>
 
