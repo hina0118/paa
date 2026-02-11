@@ -233,10 +233,7 @@ describe('Backup', () => {
       });
 
       expect(mockOpen).not.toHaveBeenCalled();
-      expect(mockInvoke).not.toHaveBeenCalledWith(
-        'import_metadata',
-        expect.anything()
-      );
+      expect(mockInvoke).not.toHaveBeenCalled();
     });
 
     it('does not import when dialog is cancelled', async () => {
