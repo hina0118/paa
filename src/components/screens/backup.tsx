@@ -150,6 +150,7 @@ export function Backup() {
         filters: [{ name: 'ZIP', extensions: ['zip'] }],
       });
       if (!zipPath || typeof zipPath !== 'string') {
+        setIsImporting(false);
         isImportingRef.current = false;
         return;
       }
