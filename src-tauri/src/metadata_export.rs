@@ -10,12 +10,13 @@ use sqlx::sqlite::SqlitePool;
 use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Read, Seek, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 use zip::write::FileOptions;
 use zip::ZipArchive;
 
 const MANIFEST_VERSION: u32 = 1;
+const RESTORE_POINT_FILE_NAME: &str = "paa_restore_point.zip";
 
 /// 画像ファイル1件あたりの最大サイズ（バイト）。巨大エントリによるメモリ消費を防ぐ。
 const MAX_IMAGE_ENTRY_SIZE: u64 = 10 * 1024 * 1024; // 10MB
@@ -145,6 +146,12 @@ pub struct ExportResult {
     pub image_files_count: usize,
     /// スキップした画像数（不正な file_name、サイズ超過、ファイル不存在）
     pub images_skipped: usize,
+    /// app_data_dir 直下に復元ポイントZIPを保存できたか
+    pub restore_point_saved: bool,
+    /// 復元ポイントZIPのパス（保存先）
+    pub restore_point_path: Option<String>,
+    /// 復元ポイントZIP保存に失敗した場合のエラー
+    pub restore_point_error: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -158,12 +165,51 @@ pub struct ImportResult {
     pub excluded_items_inserted: usize,
     pub excluded_orders_inserted: usize,
     pub image_files_copied: usize,
+    /// app_data_dir 直下の復元ポイントZIPを更新できたか（インポート時）
+    pub restore_point_updated: bool,
+    /// 復元ポイントZIPのパス（保存先）
+    pub restore_point_path: Option<String>,
+    /// 復元ポイントZIP更新に失敗した場合のエラー
+    pub restore_point_error: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Manifest {
     version: u32,
     exported_at: String,
+}
+
+fn get_restore_point_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {e}"))?;
+    Ok(app_data_dir.join(RESTORE_POINT_FILE_NAME))
+}
+
+fn copy_restore_point_zip(src_zip_path: &Path, restore_point_path: &Path) -> (bool, Option<String>) {
+    if let Some(parent) = restore_point_path.parent() {
+        if let Err(e) = fs::create_dir_all(parent) {
+            return (
+                false,
+                Some(format!(
+                    "Failed to create restore point directory {}: {e}",
+                    parent.display()
+                )),
+            );
+        }
+    }
+
+    match fs::copy(src_zip_path, restore_point_path) {
+        Ok(_) => (true, None),
+        Err(e) => (
+            false,
+            Some(format!(
+                "Failed to save restore point zip to {}: {e}",
+                restore_point_path.display()
+            )),
+        ),
+    }
 }
 
 /// メタデータをZIPにエクスポート
@@ -178,7 +224,15 @@ pub async fn export_metadata(
         .map_err(|e| format!("Failed to get app data dir: {e}"))?;
     let images_dir = app_data_dir.join("images");
     let file = File::create(save_path).map_err(|e| format!("Failed to create file: {e}"))?;
-    export_metadata_to_writer(pool, &images_dir, file).await
+    let mut result = export_metadata_to_writer(pool, &images_dir, file).await?;
+
+    let restore_point_path = get_restore_point_path(app)?;
+    let (saved, err) = copy_restore_point_zip(save_path, &restore_point_path);
+    result.restore_point_saved = saved;
+    result.restore_point_path = Some(restore_point_path.display().to_string());
+    result.restore_point_error = err;
+
+    Ok(result)
 }
 
 /// エクスポート処理本体（テスト可能）。writer に ZIP を書き込む。
@@ -429,6 +483,9 @@ where
         excluded_orders_count: excluded_orders_rows.len(),
         image_files_count,
         images_skipped,
+        restore_point_saved: false,
+        restore_point_path: None,
+        restore_point_error: None,
     })
 }
 
@@ -445,7 +502,44 @@ pub async fn import_metadata(
     let images_dir = app_data_dir.join("images");
     fs::create_dir_all(&images_dir).map_err(|e| format!("Failed to create images dir: {e}"))?;
     let file = File::open(zip_path).map_err(|e| format!("Failed to open zip: {e}"))?;
-    import_metadata_from_reader(pool, &images_dir, file).await
+    let mut result = import_metadata_from_reader(pool, &images_dir, file).await?;
+
+    let restore_point_path = get_restore_point_path(app)?;
+    let (updated, err) = copy_restore_point_zip(zip_path, &restore_point_path);
+    result.restore_point_updated = updated;
+    result.restore_point_path = Some(restore_point_path.display().to_string());
+    result.restore_point_error = err;
+
+    Ok(result)
+}
+
+/// app_data_dir 直下に保存してある復元ポイントZIPから復元する
+pub async fn restore_metadata(app: &AppHandle, pool: &SqlitePool) -> Result<ImportResult, String> {
+    let restore_point_path = get_restore_point_path(app)?;
+    if !restore_point_path.exists() {
+        return Err(
+            "復元ポイントが存在しません。先に「データのバックアップ」または「データのインポート」を実行してください。"
+                .to_string(),
+        );
+    }
+
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {e}"))?;
+    let images_dir = app_data_dir.join("images");
+    fs::create_dir_all(&images_dir).map_err(|e| format!("Failed to create images dir: {e}"))?;
+
+    let file = File::open(&restore_point_path)
+        .map_err(|e| format!("Failed to open restore point zip: {e}"))?;
+    let mut result = import_metadata_from_reader(pool, &images_dir, file).await?;
+
+    // restore コマンドでは復元ポイント自体は更新しない（読み取り専用）
+    result.restore_point_updated = false;
+    result.restore_point_path = Some(restore_point_path.display().to_string());
+    result.restore_point_error = None;
+
+    Ok(result)
 }
 
 /// インポート処理本体（テスト可能）。reader から ZIP を読み込む。
@@ -874,6 +968,9 @@ where
         excluded_items_inserted,
         excluded_orders_inserted,
         image_files_copied,
+        restore_point_updated: false,
+        restore_point_path: None,
+        restore_point_error: None,
     })
 }
 
@@ -1654,5 +1751,39 @@ mod tests {
         assert_eq!(r.order_overrides_inserted, 0);
         assert_eq!(r.excluded_items_inserted, 0);
         assert_eq!(r.excluded_orders_inserted, 0);
+    }
+
+    #[test]
+    fn test_copy_restore_point_zip_success() {
+        let tmp = TempDir::new().unwrap();
+        let src = tmp.path().join("src.zip");
+        std::fs::write(&src, b"dummy zip bytes").unwrap();
+
+        let restore_dir = tmp.path().join("app_data");
+        let restore_path = restore_dir.join("paa_restore_point.zip");
+
+        let (saved, err) = super::copy_restore_point_zip(&src, &restore_path);
+        assert!(saved);
+        assert!(err.is_none());
+        assert!(restore_path.exists());
+        let copied = std::fs::read(&restore_path).unwrap();
+        assert_eq!(copied, b"dummy zip bytes");
+    }
+
+    #[test]
+    fn test_copy_restore_point_zip_fails_when_parent_is_file() {
+        let tmp = TempDir::new().unwrap();
+        let src = tmp.path().join("src.zip");
+        std::fs::write(&src, b"dummy zip bytes").unwrap();
+
+        // parent をファイルにして create_dir_all を失敗させる
+        let parent_as_file = tmp.path().join("not_a_dir");
+        std::fs::write(&parent_as_file, b"x").unwrap();
+        let restore_path = parent_as_file.join("paa_restore_point.zip");
+
+        let (saved, err) = super::copy_restore_point_zip(&src, &restore_path);
+        assert!(!saved);
+        assert!(err.is_some());
+        assert!(!restore_path.exists());
     }
 }
