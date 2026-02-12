@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { save, open, confirm } from '@tauri-apps/plugin-dialog';
 import { Archive } from 'lucide-react';
@@ -69,7 +69,19 @@ export function Backup() {
   const [isImporting, setIsImporting] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
 
+  const isAnyOperationInProgress = isExporting || isImporting || isRestoring;
+
+  // Re-entry guards to prevent double-click race conditions
+  const isExportingRef = useRef(false);
+  const isImportingRef = useRef(false);
+  const isRestoringRef = useRef(false);
+
   const handleExport = async () => {
+    // Re-entry guard: prevent concurrent execution
+    if (isExportingRef.current) {
+      return;
+    }
+    isExportingRef.current = true;
     setIsExporting(true);
     try {
       const now = new Date();
@@ -112,19 +124,25 @@ export function Backup() {
       toastError(`エクスポートに失敗しました: ${formatError(error)}`);
     } finally {
       setIsExporting(false);
+      isExportingRef.current = false;
     }
   };
 
   const handleImport = async () => {
-    const confirmed = await confirm(
-      'バックアップZIPからデータをインポートします。既存のデータと競合する場合は既存データが維持されます。続行しますか？',
-      { title: 'データのインポート', kind: 'warning' }
-    );
-    if (!confirmed) {
+    // Re-entry guard: prevent concurrent execution
+    if (isImportingRef.current) {
       return;
     }
+    isImportingRef.current = true;
     setIsImporting(true);
     try {
+      const confirmed = await confirm(
+        'バックアップZIPからデータをインポートします。既存のデータと競合する場合は既存データが維持されます。続行しますか？',
+        { title: 'データのインポート', kind: 'warning' }
+      );
+      if (!confirmed) {
+        return;
+      }
       const zipPath = await open({
         multiple: false,
         directory: false,
@@ -159,19 +177,25 @@ export function Backup() {
       toastError(`インポートに失敗しました: ${formatError(error)}`);
     } finally {
       setIsImporting(false);
+      isImportingRef.current = false;
     }
   };
 
   const handleRestore = async () => {
-    const confirmed = await confirm(
-      '復元ポイント（このPC内に保存されたZIP）からデータを復元します。既存のデータと競合する場合は既存データが維持されます。続行しますか？',
-      { title: '復元（復元ポイント）', kind: 'warning' }
-    );
-    if (!confirmed) {
+    // Re-entry guard: prevent concurrent execution
+    if (isRestoringRef.current) {
       return;
     }
+    isRestoringRef.current = true;
     setIsRestoring(true);
     try {
+      const confirmed = await confirm(
+        '復元ポイント（このPC内に保存されたZIP）からデータを復元します。既存のデータと競合する場合は既存データが維持されます。続行しますか？',
+        { title: '復元（復元ポイント）', kind: 'warning' }
+      );
+      if (!confirmed) {
+        return;
+      }
       const result = await invoke<ImportResult>('restore_metadata');
       const { total, details } = formatBackupResult([
         ['images', result.images_inserted],
@@ -191,6 +215,7 @@ export function Backup() {
       toastError(`復元に失敗しました: ${formatError(error)}`);
     } finally {
       setIsRestoring(false);
+      isRestoringRef.current = false;
     }
   };
 
@@ -220,7 +245,7 @@ export function Backup() {
         <CardContent>
           <Button
             onClick={handleExport}
-            disabled={isExporting}
+            disabled={isAnyOperationInProgress}
             aria-label="データのバックアップ"
           >
             {isExporting ? 'エクスポート中...' : 'データのバックアップ'}
@@ -240,7 +265,7 @@ export function Backup() {
         <CardContent>
           <Button
             onClick={handleImport}
-            disabled={isImporting}
+            disabled={isAnyOperationInProgress}
             variant="secondary"
             aria-label="データのインポート"
           >
@@ -259,7 +284,7 @@ export function Backup() {
         <CardContent>
           <Button
             onClick={handleRestore}
-            disabled={isRestoring}
+            disabled={isAnyOperationInProgress}
             variant="secondary"
             aria-label="復元（復元ポイント）"
           >
