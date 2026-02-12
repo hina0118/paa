@@ -134,16 +134,15 @@ export function Backup() {
       return;
     }
     isImportingRef.current = true;
-    const confirmed = await confirm(
-      'バックアップZIPからデータをインポートします。既存のデータと競合する場合は既存データが維持されます。続行しますか？',
-      { title: 'データのインポート', kind: 'warning' }
-    );
-    if (!confirmed) {
-      isImportingRef.current = false;
-      return;
-    }
-    setIsImporting(true);
     try {
+      const confirmed = await confirm(
+        'バックアップZIPからデータをインポートします。既存のデータと競合する場合は既存データが維持されます。続行しますか？',
+        { title: 'データのインポート', kind: 'warning' }
+      );
+      if (!confirmed) {
+        return;
+      }
+      setIsImporting(true);
       const zipPath = await open({
         multiple: false,
         directory: false,
@@ -188,16 +187,15 @@ export function Backup() {
       return;
     }
     isRestoringRef.current = true;
-    const confirmed = await confirm(
-      '復元ポイント（このPC内に保存されたZIP）からデータを復元します。既存のデータと競合する場合は既存データが維持されます。続行しますか？',
-      { title: '復元（復元ポイント）', kind: 'warning' }
-    );
-    if (!confirmed) {
-      isRestoringRef.current = false;
-      return;
-    }
-    setIsRestoring(true);
     try {
+      const confirmed = await confirm(
+        '復元ポイント（このPC内に保存されたZIP）からデータを復元します。既存のデータと競合する場合は既存データが維持されます。続行しますか？',
+        { title: '復元（復元ポイント）', kind: 'warning' }
+      );
+      if (!confirmed) {
+        return;
+      }
+      setIsRestoring(true);
       const result = await invoke<ImportResult>('restore_metadata');
       const { total, details } = formatBackupResult([
         ['images', result.images_inserted],

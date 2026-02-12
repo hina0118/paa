@@ -350,33 +350,19 @@ describe('Backup', () => {
   describe('button disabled states', () => {
     it('disables all buttons when export is in progress', async () => {
       const user = userEvent.setup();
-      mockSave.mockImplementation(
-        () =>
-          new Promise((resolve) => {
-            setTimeout(() => resolve('/path/to/export.zip'), 100);
-          })
-      );
-      mockInvoke.mockImplementation(
-        () =>
-          new Promise((resolve) => {
-            setTimeout(
-              () =>
-                resolve({
-                  images_count: 10,
-                  shop_settings_count: 2,
-                  product_master_count: 50,
-                  emails_count: 30,
-                  item_overrides_count: 5,
-                  order_overrides_count: 3,
-                  excluded_items_count: 1,
-                  excluded_orders_count: 2,
-                  image_files_count: 45,
-                  images_skipped: 0,
-                }),
-              100
-            );
-          })
-      );
+
+      // Use deferred promises for deterministic control
+      let resolveSave: (value: string) => void;
+      const savePromise = new Promise<string>((resolve) => {
+        resolveSave = resolve;
+      });
+      mockSave.mockReturnValue(savePromise);
+
+      let resolveInvoke: (value: unknown) => void;
+      const invokePromise = new Promise((resolve) => {
+        resolveInvoke = resolve;
+      });
+      mockInvoke.mockReturnValue(invokePromise);
 
       renderWithToaster(<Backup />);
 
@@ -398,10 +384,13 @@ describe('Backup', () => {
       // Start export
       await user.click(exportButton);
 
-      // Wait for export to start (after dialog, before invoke completes)
+      // Wait for save dialog to be called
       await waitFor(() => {
         expect(mockSave).toHaveBeenCalled();
       });
+
+      // Resolve save dialog
+      resolveSave!('/path/to/export.zip');
 
       // All buttons should be disabled while export is in progress
       await waitFor(() => {
@@ -410,15 +399,24 @@ describe('Backup', () => {
         expect(restoreButton).toBeDisabled();
       });
 
-      // Wait for export to complete
-      await waitFor(
-        () => {
-          expect(exportButton).not.toBeDisabled();
-        },
-        { timeout: 3000 }
-      );
+      // Complete the export
+      resolveInvoke!({
+        images_count: 10,
+        shop_settings_count: 2,
+        product_master_count: 50,
+        emails_count: 30,
+        item_overrides_count: 5,
+        order_overrides_count: 3,
+        excluded_items_count: 1,
+        excluded_orders_count: 2,
+        image_files_count: 45,
+        images_skipped: 0,
+      });
 
       // After export completes, all buttons should be enabled again
+      await waitFor(() => {
+        expect(exportButton).not.toBeDisabled();
+      });
       expect(importButton).not.toBeDisabled();
       expect(restoreButton).not.toBeDisabled();
     });
@@ -426,32 +424,19 @@ describe('Backup', () => {
     it('disables all buttons when import is in progress', async () => {
       const user = userEvent.setup();
       mockConfirm.mockResolvedValue(true);
-      mockOpen.mockImplementation(
-        () =>
-          new Promise((resolve) => {
-            setTimeout(() => resolve('/path/to/import.zip'), 100);
-          })
-      );
-      mockInvoke.mockImplementation(
-        () =>
-          new Promise((resolve) => {
-            setTimeout(
-              () =>
-                resolve({
-                  images_inserted: 8,
-                  shop_settings_inserted: 1,
-                  product_master_inserted: 40,
-                  emails_inserted: 25,
-                  item_overrides_inserted: 4,
-                  order_overrides_inserted: 2,
-                  excluded_items_inserted: 1,
-                  excluded_orders_inserted: 1,
-                  image_files_copied: 38,
-                }),
-              100
-            );
-          })
-      );
+
+      // Use deferred promises for deterministic control
+      let resolveOpen: (value: string) => void;
+      const openPromise = new Promise<string>((resolve) => {
+        resolveOpen = resolve;
+      });
+      mockOpen.mockReturnValue(openPromise);
+
+      let resolveInvoke: (value: unknown) => void;
+      const invokePromise = new Promise((resolve) => {
+        resolveInvoke = resolve;
+      });
+      mockInvoke.mockReturnValue(invokePromise);
 
       renderWithToaster(<Backup />);
 
@@ -468,14 +453,18 @@ describe('Backup', () => {
       // Start import
       await user.click(importButton);
 
-      // Wait for import to start
+      // Wait for confirm to be called
       await waitFor(() => {
         expect(mockConfirm).toHaveBeenCalled();
       });
 
+      // Wait for file picker to be called
       await waitFor(() => {
         expect(mockOpen).toHaveBeenCalled();
       });
+
+      // Resolve file picker
+      resolveOpen!('/path/to/import.zip');
 
       // All buttons should be disabled while import is in progress
       await waitFor(() => {
@@ -484,15 +473,23 @@ describe('Backup', () => {
         expect(restoreButton).toBeDisabled();
       });
 
-      // Wait for import to complete
-      await waitFor(
-        () => {
-          expect(importButton).not.toBeDisabled();
-        },
-        { timeout: 3000 }
-      );
+      // Complete the import
+      resolveInvoke!({
+        images_inserted: 8,
+        shop_settings_inserted: 1,
+        product_master_inserted: 40,
+        emails_inserted: 25,
+        item_overrides_inserted: 4,
+        order_overrides_inserted: 2,
+        excluded_items_inserted: 1,
+        excluded_orders_inserted: 1,
+        image_files_copied: 38,
+      });
 
       // After import completes, all buttons should be enabled again
+      await waitFor(() => {
+        expect(importButton).not.toBeDisabled();
+      });
       expect(exportButton).not.toBeDisabled();
       expect(restoreButton).not.toBeDisabled();
     });
@@ -500,26 +497,13 @@ describe('Backup', () => {
     it('disables all buttons when restore is in progress', async () => {
       const user = userEvent.setup();
       mockConfirm.mockResolvedValue(true);
-      mockInvoke.mockImplementation(
-        () =>
-          new Promise((resolve) => {
-            setTimeout(
-              () =>
-                resolve({
-                  images_inserted: 1,
-                  shop_settings_inserted: 1,
-                  product_master_inserted: 1,
-                  emails_inserted: 1,
-                  item_overrides_inserted: 0,
-                  order_overrides_inserted: 0,
-                  excluded_items_inserted: 0,
-                  excluded_orders_inserted: 0,
-                  image_files_copied: 1,
-                }),
-              100
-            );
-          })
-      );
+
+      // Use deferred promises for deterministic control
+      let resolveInvoke: (value: unknown) => void;
+      const invokePromise = new Promise((resolve) => {
+        resolveInvoke = resolve;
+      });
+      mockInvoke.mockReturnValue(invokePromise);
 
       renderWithToaster(<Backup />);
 
@@ -536,7 +520,7 @@ describe('Backup', () => {
       // Start restore
       await user.click(restoreButton);
 
-      // Wait for restore to start
+      // Wait for confirm to be called
       await waitFor(() => {
         expect(mockConfirm).toHaveBeenCalled();
       });
@@ -548,15 +532,23 @@ describe('Backup', () => {
         expect(restoreButton).toBeDisabled();
       });
 
-      // Wait for restore to complete
-      await waitFor(
-        () => {
-          expect(restoreButton).not.toBeDisabled();
-        },
-        { timeout: 3000 }
-      );
+      // Complete the restore
+      resolveInvoke!({
+        images_inserted: 1,
+        shop_settings_inserted: 1,
+        product_master_inserted: 1,
+        emails_inserted: 1,
+        item_overrides_inserted: 0,
+        order_overrides_inserted: 0,
+        excluded_items_inserted: 0,
+        excluded_orders_inserted: 0,
+        image_files_copied: 1,
+      });
 
       // After restore completes, all buttons should be enabled again
+      await waitFor(() => {
+        expect(restoreButton).not.toBeDisabled();
+      });
       expect(exportButton).not.toBeDisabled();
       expect(importButton).not.toBeDisabled();
     });
