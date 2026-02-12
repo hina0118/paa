@@ -188,6 +188,18 @@ fn get_restore_point_path(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 fn copy_restore_point_zip(src_zip_path: &Path, restore_point_path: &Path) -> (bool, Option<String>) {
+    // Check if source and destination are the same path
+    // Try to canonicalize both paths to handle symlinks and relative paths
+    let src_canonical = src_zip_path.canonicalize().ok();
+    let dest_canonical = restore_point_path.canonicalize().ok();
+    
+    // If both paths exist and can be canonicalized, check if they're identical
+    if let (Some(src), Some(dest)) = (&src_canonical, &dest_canonical) {
+        if src == dest {
+            return (true, None); // Same file, no copy needed, treat as success
+        }
+    }
+
     if let Some(parent) = restore_point_path.parent() {
         if let Err(e) = fs::create_dir_all(parent) {
             return (
@@ -1793,5 +1805,21 @@ mod tests {
         assert!(!saved);
         assert!(err.is_some());
         assert!(!restore_path.exists());
+    }
+
+    #[test]
+    fn test_copy_restore_point_zip_same_path_succeeds() {
+        let tmp = TempDir::new().unwrap();
+        let same_file = tmp.path().join("paa_restore_point.zip");
+        std::fs::write(&same_file, b"original content").unwrap();
+
+        // 同じパスを src と dest に指定した場合、コピーをスキップして成功を返す
+        let (saved, err) = super::copy_restore_point_zip(&same_file, &same_file);
+        assert!(saved);
+        assert!(err.is_none());
+        
+        // ファイル内容が変更されていないことを確認
+        let content = std::fs::read(&same_file).unwrap();
+        assert_eq!(content, b"original content");
     }
 }
