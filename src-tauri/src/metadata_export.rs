@@ -226,20 +226,12 @@ pub async fn export_metadata(
     let file = File::create(save_path).map_err(|e| format!("Failed to create file: {e}"))?;
     let mut result = export_metadata_to_writer(pool, &images_dir, file).await?;
 
-    match get_restore_point_path(app) {
-        Ok(restore_point_path) => {
-            let (saved, err) = copy_restore_point_zip(save_path, &restore_point_path);
-            result.restore_point_saved = saved;
-            result.restore_point_path = Some(restore_point_path.display().to_string());
-            result.restore_point_error = err;
-        }
-        Err(e) => {
-            // 復元ポイントの保存に失敗しても、エクスポート自体は成功として返す
-            result.restore_point_saved = false;
-            result.restore_point_path = None;
-            result.restore_point_error = Some(e);
-        }
-    }
+    // 復元ポイントの保存（app_data_dir は既に取得済みなので再利用）
+    let restore_point_path = app_data_dir.join(RESTORE_POINT_FILE_NAME);
+    let (saved, err) = copy_restore_point_zip(save_path, &restore_point_path);
+    result.restore_point_saved = saved;
+    result.restore_point_path = Some(restore_point_path.display().to_string());
+    result.restore_point_error = err;
 
     Ok(result)
 }
@@ -513,20 +505,12 @@ pub async fn import_metadata(
     let file = File::open(zip_path).map_err(|e| format!("Failed to open zip: {e}"))?;
     let mut result = import_metadata_from_reader(pool, &images_dir, file).await?;
 
-    match get_restore_point_path(app) {
-        Ok(restore_point_path) => {
-            let (updated, err) = copy_restore_point_zip(zip_path, &restore_point_path);
-            result.restore_point_updated = updated;
-            result.restore_point_path = Some(restore_point_path.display().to_string());
-            result.restore_point_error = err;
-        }
-        Err(e) => {
-            // 復元ポイントの更新に失敗しても、インポート自体は成功として返す
-            result.restore_point_updated = false;
-            result.restore_point_path = None;
-            result.restore_point_error = Some(e);
-        }
-    }
+    // 復元ポイントの更新（app_data_dir は既に取得済みなので再利用）
+    let restore_point_path = app_data_dir.join(RESTORE_POINT_FILE_NAME);
+    let (updated, err) = copy_restore_point_zip(zip_path, &restore_point_path);
+    result.restore_point_updated = updated;
+    result.restore_point_path = Some(restore_point_path.display().to_string());
+    result.restore_point_error = err;
 
     Ok(result)
 }
