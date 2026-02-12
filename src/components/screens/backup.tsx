@@ -69,6 +69,8 @@ export function Backup() {
   const [isImporting, setIsImporting] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
 
+  const isAnyOperationInProgress = isExporting || isImporting || isRestoring;
+
   const handleExport = async () => {
     setIsExporting(true);
     try {
@@ -220,7 +222,7 @@ export function Backup() {
         <CardContent>
           <Button
             onClick={handleExport}
-            disabled={isExporting || isImporting || isRestoring}
+            disabled={isAnyOperationInProgress}
             aria-label="データのバックアップ"
           >
             {isExporting ? 'エクスポート中...' : 'データのバックアップ'}
@@ -240,7 +242,7 @@ export function Backup() {
         <CardContent>
           <Button
             onClick={handleImport}
-            disabled={isExporting || isImporting || isRestoring}
+            disabled={isAnyOperationInProgress}
             variant="secondary"
             aria-label="データのインポート"
           >
@@ -259,7 +261,7 @@ export function Backup() {
         <CardContent>
           <Button
             onClick={handleRestore}
-            disabled={isExporting || isImporting || isRestoring}
+            disabled={isAnyOperationInProgress}
             variant="secondary"
             aria-label="復元（復元ポイント）"
           >
