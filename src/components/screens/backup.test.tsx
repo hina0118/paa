@@ -169,6 +169,16 @@ describe('Backup', () => {
         screen.getByRole('button', { name: 'データのバックアップ' })
       );
 
+      // Check success toast is shown (export itself succeeded)
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            /バックアップを保存しました（合計: 103件、画像ファイル: 45件）/
+          )
+        ).toBeInTheDocument();
+      });
+
+      // Check warning toast is shown (restore point save failed)
       await waitFor(() => {
         expect(
           screen.getByText(
@@ -327,6 +337,16 @@ describe('Backup', () => {
         screen.getByRole('button', { name: 'データのインポート' })
       );
 
+      // Check success toast is shown (import itself succeeded)
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            /インポートしました（合計: 82件、画像ファイル: 38件）/
+          )
+        ).toBeInTheDocument();
+      });
+
+      // Check warning toast is shown (restore point update failed)
       await waitFor(() => {
         expect(
           screen.getByText(
