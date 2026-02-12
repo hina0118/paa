@@ -189,14 +189,31 @@ fn get_restore_point_path(app: &AppHandle) -> Result<PathBuf, String> {
 
 fn copy_restore_point_zip(src_zip_path: &Path, restore_point_path: &Path) -> (bool, Option<String>) {
     // Check if source and destination are the same path
-    // Try to canonicalize both paths to handle symlinks and relative paths
-    let src_canonical = src_zip_path.canonicalize().ok();
-    let dest_canonical = restore_point_path.canonicalize().ok();
-    
-    // If both paths exist and can be canonicalized, check if they're identical
-    if let (Some(src), Some(dest)) = (&src_canonical, &dest_canonical) {
-        if src == dest {
-            return (true, None); // Same file, no copy needed, treat as success
+    // First, try comparing the paths directly (works even if destination doesn't exist yet)
+    match (src_zip_path.canonicalize(), restore_point_path.canonicalize()) {
+        (Ok(src_canonical), Ok(dest_canonical)) => {
+            // Both files exist, compare canonical paths to handle symlinks
+            if src_canonical == dest_canonical {
+                return (true, None); // Same file, no copy needed, treat as success
+            }
+        }
+        (Ok(src_canonical), Err(_)) => {
+            // Source exists, destination doesn't exist yet
+            // Compare source canonical with destination's parent + filename
+            if let Some(dest_parent) = restore_point_path.parent() {
+                if let Ok(dest_parent_canonical) = dest_parent.canonicalize() {
+                    if let Some(dest_filename) = restore_point_path.file_name() {
+                        let expected_dest = dest_parent_canonical.join(dest_filename);
+                        if src_canonical == expected_dest {
+                            return (true, None); // Same location, no copy needed
+                        }
+                    }
+                }
+            }
+        }
+        _ => {
+            // Source doesn't exist (should not happen in normal flow)
+            // Let it fall through to fs::copy which will return an error
         }
     }
 
