@@ -374,6 +374,49 @@ describe('Backup', () => {
         ).toBeInTheDocument();
       });
     });
+
+    it('shows warning toast when import succeeds but restore point update fails', async () => {
+      const user = userEvent.setup();
+      mockConfirm.mockResolvedValue(true);
+      mockOpen.mockResolvedValue('/path/to/import.zip');
+      mockInvoke.mockResolvedValue({
+        images_inserted: 8,
+        shop_settings_inserted: 1,
+        product_master_inserted: 40,
+        emails_inserted: 25,
+        item_overrides_inserted: 4,
+        order_overrides_inserted: 2,
+        excluded_items_inserted: 1,
+        excluded_orders_inserted: 1,
+        image_files_copied: 38,
+        restore_point_updated: false,
+        restore_point_error: 'ディスク容量不足',
+      });
+
+      renderWithToaster(<Backup />);
+
+      await user.click(
+        screen.getByRole('button', { name: 'データのインポート' })
+      );
+
+      // Check that import success toast is shown
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            /インポートしました（合計: 82件、画像ファイル: 38件）/
+          )
+        ).toBeInTheDocument();
+      });
+
+      // Check that warning toast for restore point failure is also shown
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            /復元ポイントZIPの更新に失敗しました（ディスク容量不足）/
+          )
+        ).toBeInTheDocument();
+      });
+    });
   });
 
   describe('handleRestore', () => {
