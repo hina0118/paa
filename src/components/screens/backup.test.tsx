@@ -50,10 +50,20 @@ describe('Backup', () => {
   it('renders import card', () => {
     renderWithToaster(<Backup />);
     expect(
-      screen.getByRole('heading', { name: /データの復元/ })
+      screen.getByRole('heading', { name: /データのインポート/ })
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: 'データの復元' })
+      screen.getByRole('button', { name: 'データのインポート' })
+    ).toBeInTheDocument();
+  });
+
+  it('renders restore card', () => {
+    renderWithToaster(<Backup />);
+    expect(
+      screen.getByRole('heading', { name: /復元（復元ポイント）/ })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: '復元（復元ポイント）' })
     ).toBeInTheDocument();
   });
 
@@ -190,7 +200,9 @@ describe('Backup', () => {
 
       renderWithToaster(<Backup />);
 
-      await user.click(screen.getByRole('button', { name: 'データの復元' }));
+      await user.click(
+        screen.getByRole('button', { name: 'データのインポート' })
+      );
 
       await waitFor(() => {
         expect(mockConfirm).toHaveBeenCalled();
@@ -209,7 +221,9 @@ describe('Backup', () => {
       // Check main message shows total (excluding image_files_copied) and image files separately
       await waitFor(() => {
         expect(
-          screen.getByText(/復元しました（合計: 82件、画像ファイル: 38件）/)
+          screen.getByText(
+            /インポートしました（合計: 82件、画像ファイル: 38件）/
+          )
         ).toBeInTheDocument();
       });
 
@@ -226,7 +240,9 @@ describe('Backup', () => {
 
       renderWithToaster(<Backup />);
 
-      await user.click(screen.getByRole('button', { name: 'データの復元' }));
+      await user.click(
+        screen.getByRole('button', { name: 'データのインポート' })
+      );
 
       await waitFor(() => {
         expect(mockConfirm).toHaveBeenCalled();
@@ -243,7 +259,9 @@ describe('Backup', () => {
 
       renderWithToaster(<Backup />);
 
-      await user.click(screen.getByRole('button', { name: 'データの復元' }));
+      await user.click(
+        screen.getByRole('button', { name: 'データのインポート' })
+      );
 
       await waitFor(() => {
         expect(mockOpen).toHaveBeenCalled();
@@ -260,13 +278,72 @@ describe('Backup', () => {
 
       renderWithToaster(<Backup />);
 
-      await user.click(screen.getByRole('button', { name: 'データの復元' }));
+      await user.click(
+        screen.getByRole('button', { name: 'データのインポート' })
+      );
 
       await waitFor(() => {
         expect(
           screen.getByText(/インポートに失敗しました/)
         ).toBeInTheDocument();
       });
+    });
+  });
+
+  describe('handleRestore', () => {
+    it('restores from restore point without file picker', async () => {
+      const user = userEvent.setup();
+      mockConfirm.mockResolvedValue(true);
+      mockInvoke.mockResolvedValue({
+        images_inserted: 1,
+        shop_settings_inserted: 1,
+        product_master_inserted: 1,
+        emails_inserted: 1,
+        item_overrides_inserted: 0,
+        order_overrides_inserted: 0,
+        excluded_items_inserted: 0,
+        excluded_orders_inserted: 0,
+        image_files_copied: 1,
+      });
+
+      renderWithToaster(<Backup />);
+
+      await user.click(
+        screen.getByRole('button', { name: '復元（復元ポイント）' })
+      );
+
+      await waitFor(() => {
+        expect(mockConfirm).toHaveBeenCalled();
+      });
+
+      expect(mockOpen).not.toHaveBeenCalled();
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith('restore_metadata');
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/復元しました（復元ポイント）/)
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('does not restore when confirmation is rejected', async () => {
+      const user = userEvent.setup();
+      mockConfirm.mockResolvedValue(false);
+
+      renderWithToaster(<Backup />);
+
+      await user.click(
+        screen.getByRole('button', { name: '復元（復元ポイント）' })
+      );
+
+      await waitFor(() => {
+        expect(mockConfirm).toHaveBeenCalled();
+      });
+
+      expect(mockInvoke).not.toHaveBeenCalled();
     });
   });
 });
