@@ -516,12 +516,18 @@ pub async fn import_metadata(
 /// app_data_dir 直下に保存してある復元ポイントZIPから復元する
 pub async fn restore_metadata(app: &AppHandle, pool: &SqlitePool) -> Result<ImportResult, String> {
     let restore_point_path = get_restore_point_path(app)?;
-    if !restore_point_path.exists() {
-        return Err(
-            "復元ポイントが存在しません。先に「データのバックアップ」または「データのインポート」を実行してください。"
-                .to_string(),
-        );
-    }
+    let _metadata = match fs::metadata(&restore_point_path) {
+        Ok(m) => m,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(
+                "復元ポイントが存在しません。先に「データのバックアップ」または「データのインポート」を実行してください。"
+                    .to_string(),
+            );
+        }
+        Err(e) => {
+            return Err(format!("復元ポイントにアクセスできません: {e}"));
+        }
+    };
 
     let app_data_dir = app
         .path()
