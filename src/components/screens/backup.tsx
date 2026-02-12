@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { save, open, confirm } from '@tauri-apps/plugin-dialog';
 import { Archive } from 'lucide-react';
@@ -71,7 +71,17 @@ export function Backup() {
 
   const isAnyOperationInProgress = isExporting || isImporting || isRestoring;
 
+  // Re-entry guards to prevent double-click race conditions
+  const isExportingRef = useRef(false);
+  const isImportingRef = useRef(false);
+  const isRestoringRef = useRef(false);
+
   const handleExport = async () => {
+    // Re-entry guard: prevent concurrent execution
+    if (isExportingRef.current) {
+      return;
+    }
+    isExportingRef.current = true;
     setIsExporting(true);
     try {
       const now = new Date();
@@ -114,15 +124,22 @@ export function Backup() {
       toastError(`エクスポートに失敗しました: ${formatError(error)}`);
     } finally {
       setIsExporting(false);
+      isExportingRef.current = false;
     }
   };
 
   const handleImport = async () => {
+    // Re-entry guard: prevent concurrent execution
+    if (isImportingRef.current) {
+      return;
+    }
+    isImportingRef.current = true;
     const confirmed = await confirm(
       'バックアップZIPからデータをインポートします。既存のデータと競合する場合は既存データが維持されます。続行しますか？',
       { title: 'データのインポート', kind: 'warning' }
     );
     if (!confirmed) {
+      isImportingRef.current = false;
       return;
     }
     setIsImporting(true);
@@ -133,6 +150,7 @@ export function Backup() {
         filters: [{ name: 'ZIP', extensions: ['zip'] }],
       });
       if (!zipPath || typeof zipPath !== 'string') {
+        isImportingRef.current = false;
         return;
       }
       const result = await invoke<ImportResult>('import_metadata', {
@@ -161,15 +179,22 @@ export function Backup() {
       toastError(`インポートに失敗しました: ${formatError(error)}`);
     } finally {
       setIsImporting(false);
+      isImportingRef.current = false;
     }
   };
 
   const handleRestore = async () => {
+    // Re-entry guard: prevent concurrent execution
+    if (isRestoringRef.current) {
+      return;
+    }
+    isRestoringRef.current = true;
     const confirmed = await confirm(
       '復元ポイント（このPC内に保存されたZIP）からデータを復元します。既存のデータと競合する場合は既存データが維持されます。続行しますか？',
       { title: '復元（復元ポイント）', kind: 'warning' }
     );
     if (!confirmed) {
+      isRestoringRef.current = false;
       return;
     }
     setIsRestoring(true);
@@ -193,6 +218,7 @@ export function Backup() {
       toastError(`復元に失敗しました: ${formatError(error)}`);
     } finally {
       setIsRestoring(false);
+      isRestoringRef.current = false;
     }
   };
 
