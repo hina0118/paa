@@ -220,7 +220,7 @@ export function Backup() {
         <CardContent>
           <Button
             onClick={handleExport}
-            disabled={isExporting}
+            disabled={isExporting || isImporting || isRestoring}
             aria-label="データのバックアップ"
           >
             {isExporting ? 'エクスポート中...' : 'データのバックアップ'}
@@ -240,7 +240,7 @@ export function Backup() {
         <CardContent>
           <Button
             onClick={handleImport}
-            disabled={isImporting}
+            disabled={isExporting || isImporting || isRestoring}
             variant="secondary"
             aria-label="データのインポート"
           >
@@ -259,7 +259,7 @@ export function Backup() {
         <CardContent>
           <Button
             onClick={handleRestore}
-            disabled={isRestoring}
+            disabled={isExporting || isImporting || isRestoring}
             variant="secondary"
             aria-label="復元（復元ポイント）"
           >
