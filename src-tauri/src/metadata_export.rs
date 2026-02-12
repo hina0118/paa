@@ -226,7 +226,8 @@ pub async fn export_metadata(
     let file = File::create(save_path).map_err(|e| format!("Failed to create file: {e}"))?;
     let mut result = export_metadata_to_writer(pool, &images_dir, file).await?;
 
-    let restore_point_path = get_restore_point_path(app)?;
+    // 復元ポイントの保存（app_data_dir は既に取得済みなので再利用）
+    let restore_point_path = app_data_dir.join(RESTORE_POINT_FILE_NAME);
     let (saved, err) = copy_restore_point_zip(save_path, &restore_point_path);
     result.restore_point_saved = saved;
     result.restore_point_path = Some(restore_point_path.display().to_string());
