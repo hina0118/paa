@@ -145,6 +145,49 @@ describe('Backup', () => {
       });
     });
 
+    it('shows warning toast when restore point save fails', async () => {
+      const user = userEvent.setup();
+      mockSave.mockResolvedValue('/path/to/export.zip');
+      mockInvoke.mockResolvedValue({
+        images_count: 10,
+        shop_settings_count: 2,
+        product_master_count: 50,
+        emails_count: 30,
+        item_overrides_count: 5,
+        order_overrides_count: 3,
+        excluded_items_count: 1,
+        excluded_orders_count: 2,
+        image_files_count: 45,
+        images_skipped: 0,
+        restore_point_saved: false,
+        restore_point_error: 'ディスク容量不足',
+      });
+
+      renderWithToaster(<Backup />);
+
+      await user.click(
+        screen.getByRole('button', { name: 'データのバックアップ' })
+      );
+
+      // Check success toast is shown (export itself succeeded)
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            /バックアップを保存しました（合計: 103件、画像ファイル: 45件）/
+          )
+        ).toBeInTheDocument();
+      });
+
+      // Check warning toast is shown (restore point save failed)
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            /復元ポイントZIPの保存に失敗しました（ディスク容量不足）/
+          )
+        ).toBeInTheDocument();
+      });
+    });
+
     it('does not export when dialog is cancelled', async () => {
       const user = userEvent.setup();
       mockSave.mockResolvedValue(null);
@@ -270,6 +313,49 @@ describe('Backup', () => {
       expect(mockInvoke).not.toHaveBeenCalled();
     });
 
+    it('shows warning toast when restore point update fails', async () => {
+      const user = userEvent.setup();
+      mockConfirm.mockResolvedValue(true);
+      mockOpen.mockResolvedValue('/path/to/import.zip');
+      mockInvoke.mockResolvedValue({
+        images_inserted: 8,
+        shop_settings_inserted: 1,
+        product_master_inserted: 40,
+        emails_inserted: 25,
+        item_overrides_inserted: 4,
+        order_overrides_inserted: 2,
+        excluded_items_inserted: 1,
+        excluded_orders_inserted: 1,
+        image_files_copied: 38,
+        restore_point_updated: false,
+        restore_point_error: 'ファイルシステムエラー',
+      });
+
+      renderWithToaster(<Backup />);
+
+      await user.click(
+        screen.getByRole('button', { name: 'データのインポート' })
+      );
+
+      // Check success toast is shown (import itself succeeded)
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            /インポートしました（合計: 82件、画像ファイル: 38件）/
+          )
+        ).toBeInTheDocument();
+      });
+
+      // Check warning toast is shown (restore point update failed)
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            /復元ポイントZIPの更新に失敗しました（ファイルシステムエラー）/
+          )
+        ).toBeInTheDocument();
+      });
+    });
+
     it('shows error toast when import fails', async () => {
       const user = userEvent.setup();
       mockConfirm.mockResolvedValue(true);
@@ -285,6 +371,49 @@ describe('Backup', () => {
       await waitFor(() => {
         expect(
           screen.getByText(/インポートに失敗しました/)
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('shows warning toast when import succeeds but restore point update fails', async () => {
+      const user = userEvent.setup();
+      mockConfirm.mockResolvedValue(true);
+      mockOpen.mockResolvedValue('/path/to/import.zip');
+      mockInvoke.mockResolvedValue({
+        images_inserted: 8,
+        shop_settings_inserted: 1,
+        product_master_inserted: 40,
+        emails_inserted: 25,
+        item_overrides_inserted: 4,
+        order_overrides_inserted: 2,
+        excluded_items_inserted: 1,
+        excluded_orders_inserted: 1,
+        image_files_copied: 38,
+        restore_point_updated: false,
+        restore_point_error: 'ディスク容量不足',
+      });
+
+      renderWithToaster(<Backup />);
+
+      await user.click(
+        screen.getByRole('button', { name: 'データのインポート' })
+      );
+
+      // Check that import success toast is shown
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            /インポートしました（合計: 82件、画像ファイル: 38件）/
+          )
+        ).toBeInTheDocument();
+      });
+
+      // Check that warning toast for restore point failure is also shown
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            /復元ポイントZIPの更新に失敗しました（ディスク容量不足）/
+          )
         ).toBeInTheDocument();
       });
     });
