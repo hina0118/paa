@@ -187,7 +187,10 @@ fn get_restore_point_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(app_data_dir.join(RESTORE_POINT_FILE_NAME))
 }
 
-fn copy_restore_point_zip(src_zip_path: &Path, restore_point_path: &Path) -> (bool, Option<String>) {
+fn copy_restore_point_zip(
+    src_zip_path: &Path,
+    restore_point_path: &Path,
+) -> (bool, Option<String>) {
     if let Some(parent) = restore_point_path.parent() {
         if let Err(e) = fs::create_dir_all(parent) {
             return (
