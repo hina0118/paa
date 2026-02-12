@@ -512,11 +512,19 @@ pub async fn import_metadata(
     let file = File::open(zip_path).map_err(|e| format!("Failed to open zip: {e}"))?;
     let mut result = import_metadata_from_reader(pool, &images_dir, file).await?;
 
-    let restore_point_path = get_restore_point_path(app)?;
-    let (updated, err) = copy_restore_point_zip(zip_path, &restore_point_path);
-    result.restore_point_updated = updated;
-    result.restore_point_path = Some(restore_point_path.display().to_string());
-    result.restore_point_error = err;
+    match get_restore_point_path(app) {
+        Ok(restore_point_path) => {
+            let (updated, err) = copy_restore_point_zip(zip_path, &restore_point_path);
+            result.restore_point_updated = updated;
+            result.restore_point_path = Some(restore_point_path.display().to_string());
+            result.restore_point_error = err;
+        }
+        Err(e) => {
+            result.restore_point_updated = false;
+            result.restore_point_path = None;
+            result.restore_point_error = Some(e);
+        }
+    }
 
     Ok(result)
 }
