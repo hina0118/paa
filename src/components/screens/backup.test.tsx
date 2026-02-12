@@ -475,4 +475,211 @@ describe('Backup', () => {
       expect(mockInvoke).not.toHaveBeenCalled();
     });
   });
+
+  describe('button disabled states', () => {
+    it('disables all buttons when export is in progress', async () => {
+      const user = userEvent.setup();
+
+      // Use deferred promises for deterministic control
+      let resolveSave: (value: string) => void;
+      const savePromise = new Promise<string>((resolve) => {
+        resolveSave = resolve;
+      });
+      mockSave.mockReturnValue(savePromise);
+
+      let resolveInvoke: (value: unknown) => void;
+      const invokePromise = new Promise((resolve) => {
+        resolveInvoke = resolve;
+      });
+      mockInvoke.mockReturnValue(invokePromise);
+
+      renderWithToaster(<Backup />);
+
+      const exportButton = screen.getByRole('button', {
+        name: 'データのバックアップ',
+      });
+      const importButton = screen.getByRole('button', {
+        name: 'データのインポート',
+      });
+      const restoreButton = screen.getByRole('button', {
+        name: '復元（復元ポイント）',
+      });
+
+      // Initially all buttons should be enabled
+      expect(exportButton).not.toBeDisabled();
+      expect(importButton).not.toBeDisabled();
+      expect(restoreButton).not.toBeDisabled();
+
+      // Start export
+      await user.click(exportButton);
+
+      // Wait for save dialog to be called
+      await waitFor(() => {
+        expect(mockSave).toHaveBeenCalled();
+      });
+
+      // Resolve save dialog
+      resolveSave!('/path/to/export.zip');
+
+      // All buttons should be disabled while export is in progress
+      await waitFor(() => {
+        expect(exportButton).toBeDisabled();
+        expect(importButton).toBeDisabled();
+        expect(restoreButton).toBeDisabled();
+      });
+
+      // Complete the export
+      resolveInvoke!({
+        images_count: 10,
+        shop_settings_count: 2,
+        product_master_count: 50,
+        emails_count: 30,
+        item_overrides_count: 5,
+        order_overrides_count: 3,
+        excluded_items_count: 1,
+        excluded_orders_count: 2,
+        image_files_count: 45,
+        images_skipped: 0,
+      });
+
+      // After export completes, all buttons should be enabled again
+      await waitFor(() => {
+        expect(exportButton).not.toBeDisabled();
+      });
+      expect(importButton).not.toBeDisabled();
+      expect(restoreButton).not.toBeDisabled();
+    });
+
+    it('disables all buttons when import is in progress', async () => {
+      const user = userEvent.setup();
+      mockConfirm.mockResolvedValue(true);
+
+      // Use deferred promises for deterministic control
+      let resolveOpen: (value: string) => void;
+      const openPromise = new Promise<string>((resolve) => {
+        resolveOpen = resolve;
+      });
+      mockOpen.mockReturnValue(openPromise);
+
+      let resolveInvoke: (value: unknown) => void;
+      const invokePromise = new Promise((resolve) => {
+        resolveInvoke = resolve;
+      });
+      mockInvoke.mockReturnValue(invokePromise);
+
+      renderWithToaster(<Backup />);
+
+      const exportButton = screen.getByRole('button', {
+        name: 'データのバックアップ',
+      });
+      const importButton = screen.getByRole('button', {
+        name: 'データのインポート',
+      });
+      const restoreButton = screen.getByRole('button', {
+        name: '復元（復元ポイント）',
+      });
+
+      // Start import
+      await user.click(importButton);
+
+      // Wait for confirm to be called
+      await waitFor(() => {
+        expect(mockConfirm).toHaveBeenCalled();
+      });
+
+      // Wait for file picker to be called
+      await waitFor(() => {
+        expect(mockOpen).toHaveBeenCalled();
+      });
+
+      // Resolve file picker
+      resolveOpen!('/path/to/import.zip');
+
+      // All buttons should be disabled while import is in progress
+      await waitFor(() => {
+        expect(exportButton).toBeDisabled();
+        expect(importButton).toBeDisabled();
+        expect(restoreButton).toBeDisabled();
+      });
+
+      // Complete the import
+      resolveInvoke!({
+        images_inserted: 8,
+        shop_settings_inserted: 1,
+        product_master_inserted: 40,
+        emails_inserted: 25,
+        item_overrides_inserted: 4,
+        order_overrides_inserted: 2,
+        excluded_items_inserted: 1,
+        excluded_orders_inserted: 1,
+        image_files_copied: 38,
+      });
+
+      // After import completes, all buttons should be enabled again
+      await waitFor(() => {
+        expect(importButton).not.toBeDisabled();
+      });
+      expect(exportButton).not.toBeDisabled();
+      expect(restoreButton).not.toBeDisabled();
+    });
+
+    it('disables all buttons when restore is in progress', async () => {
+      const user = userEvent.setup();
+      mockConfirm.mockResolvedValue(true);
+
+      // Use deferred promises for deterministic control
+      let resolveInvoke: (value: unknown) => void;
+      const invokePromise = new Promise((resolve) => {
+        resolveInvoke = resolve;
+      });
+      mockInvoke.mockReturnValue(invokePromise);
+
+      renderWithToaster(<Backup />);
+
+      const exportButton = screen.getByRole('button', {
+        name: 'データのバックアップ',
+      });
+      const importButton = screen.getByRole('button', {
+        name: 'データのインポート',
+      });
+      const restoreButton = screen.getByRole('button', {
+        name: '復元（復元ポイント）',
+      });
+
+      // Start restore
+      await user.click(restoreButton);
+
+      // Wait for confirm to be called
+      await waitFor(() => {
+        expect(mockConfirm).toHaveBeenCalled();
+      });
+
+      // All buttons should be disabled while restore is in progress
+      await waitFor(() => {
+        expect(exportButton).toBeDisabled();
+        expect(importButton).toBeDisabled();
+        expect(restoreButton).toBeDisabled();
+      });
+
+      // Complete the restore
+      resolveInvoke!({
+        images_inserted: 1,
+        shop_settings_inserted: 1,
+        product_master_inserted: 1,
+        emails_inserted: 1,
+        item_overrides_inserted: 0,
+        order_overrides_inserted: 0,
+        excluded_items_inserted: 0,
+        excluded_orders_inserted: 0,
+        image_files_copied: 1,
+      });
+
+      // After restore completes, all buttons should be enabled again
+      await waitFor(() => {
+        expect(restoreButton).not.toBeDisabled();
+      });
+      expect(exportButton).not.toBeDisabled();
+      expect(importButton).not.toBeDisabled();
+    });
+  });
 });
