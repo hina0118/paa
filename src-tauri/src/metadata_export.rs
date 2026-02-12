@@ -226,11 +226,19 @@ pub async fn export_metadata(
     let file = File::create(save_path).map_err(|e| format!("Failed to create file: {e}"))?;
     let mut result = export_metadata_to_writer(pool, &images_dir, file).await?;
 
-    let restore_point_path = get_restore_point_path(app)?;
-    let (saved, err) = copy_restore_point_zip(save_path, &restore_point_path);
-    result.restore_point_saved = saved;
-    result.restore_point_path = Some(restore_point_path.display().to_string());
-    result.restore_point_error = err;
+    match get_restore_point_path(app) {
+        Ok(restore_point_path) => {
+            let (saved, err) = copy_restore_point_zip(save_path, &restore_point_path);
+            result.restore_point_saved = saved;
+            result.restore_point_path = Some(restore_point_path.display().to_string());
+            result.restore_point_error = err;
+        }
+        Err(e) => {
+            result.restore_point_saved = false;
+            result.restore_point_path = None;
+            result.restore_point_error = Some(e);
+        }
+    }
 
     Ok(result)
 }
