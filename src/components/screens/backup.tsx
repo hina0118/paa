@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { save, open, confirm } from '@tauri-apps/plugin-dialog';
 import { Archive } from 'lucide-react';
@@ -28,6 +28,9 @@ interface ExportResult {
   excluded_orders_count: number;
   image_files_count: number;
   images_skipped: number;
+  restore_point_saved?: boolean;
+  restore_point_path?: string | null;
+  restore_point_error?: string | null;
 }
 
 interface ImportResult {
@@ -40,6 +43,9 @@ interface ImportResult {
   excluded_items_inserted: number;
   excluded_orders_inserted: number;
   image_files_copied: number;
+  restore_point_updated?: boolean | null;
+  restore_point_path?: string | null;
+  restore_point_error?: string | null;
 }
 
 /**
@@ -61,8 +67,21 @@ function formatBackupResult(items: Array<[string, number]>): {
 export function Backup() {
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
+
+  const isAnyOperationInProgress = isExporting || isImporting || isRestoring;
+
+  // Re-entry guards to prevent double-click race conditions
+  const isExportingRef = useRef(false);
+  const isImportingRef = useRef(false);
+  const isRestoringRef = useRef(false);
 
   const handleExport = async () => {
+    // Re-entry guard: prevent concurrent execution
+    if (isExportingRef.current) {
+      return;
+    }
+    isExportingRef.current = true;
     setIsExporting(true);
     try {
       const now = new Date();
@@ -96,23 +115,34 @@ export function Backup() {
           `${result.images_skipped}件の画像をスキップしました（不正なファイル名、サイズ超過、またはファイルが存在しません）`
         );
       }
+      if (result.restore_point_saved === false) {
+        toastWarning(
+          `復元ポイントZIPの保存に失敗しました（${result.restore_point_error ?? '不明なエラー'}）`
+        );
+      }
     } catch (error) {
       toastError(`エクスポートに失敗しました: ${formatError(error)}`);
     } finally {
       setIsExporting(false);
+      isExportingRef.current = false;
     }
   };
 
   const handleImport = async () => {
-    const confirmed = await confirm(
-      'データを復元します。既存のデータと競合する場合は既存データが維持されます。続行しますか？',
-      { title: 'データの復元', kind: 'warning' }
-    );
-    if (!confirmed) {
+    // Re-entry guard: prevent concurrent execution
+    if (isImportingRef.current) {
       return;
     }
+    isImportingRef.current = true;
     setIsImporting(true);
     try {
+      const confirmed = await confirm(
+        'バックアップZIPからデータをインポートします。既存のデータと競合する場合は既存データが維持されます。続行しますか？',
+        { title: 'データのインポート', kind: 'warning' }
+      );
+      if (!confirmed) {
+        return;
+      }
       const zipPath = await open({
         multiple: false,
         directory: false,
@@ -135,13 +165,57 @@ export function Backup() {
         ['excluded_orders', result.excluded_orders_inserted],
       ]);
       toastSuccess(
-        `復元しました（合計: ${total}件、画像ファイル: ${result.image_files_copied}件）`,
+        `インポートしました（合計: ${total}件、画像ファイル: ${result.image_files_copied}件）`,
         details
       );
+      if (result.restore_point_updated === false) {
+        toastWarning(
+          `復元ポイントZIPの更新に失敗しました（${result.restore_point_error ?? '不明なエラー'}）`
+        );
+      }
     } catch (error) {
       toastError(`インポートに失敗しました: ${formatError(error)}`);
     } finally {
       setIsImporting(false);
+      isImportingRef.current = false;
+    }
+  };
+
+  const handleRestore = async () => {
+    // Re-entry guard: prevent concurrent execution
+    if (isRestoringRef.current) {
+      return;
+    }
+    isRestoringRef.current = true;
+    setIsRestoring(true);
+    try {
+      const confirmed = await confirm(
+        '復元ポイント（このPC内に保存されたZIP）からデータを復元します。既存のデータと競合する場合は既存データが維持されます。続行しますか？',
+        { title: '復元（復元ポイント）', kind: 'warning' }
+      );
+      if (!confirmed) {
+        return;
+      }
+      const result = await invoke<ImportResult>('restore_metadata');
+      const { total, details } = formatBackupResult([
+        ['images', result.images_inserted],
+        ['shop_settings', result.shop_settings_inserted],
+        ['product_master', result.product_master_inserted],
+        ['emails', result.emails_inserted],
+        ['item_overrides', result.item_overrides_inserted],
+        ['order_overrides', result.order_overrides_inserted],
+        ['excluded_items', result.excluded_items_inserted],
+        ['excluded_orders', result.excluded_orders_inserted],
+      ]);
+      toastSuccess(
+        `復元しました（復元ポイント）（合計: ${total}件、画像ファイル: ${result.image_files_copied}件）`,
+        details
+      );
+    } catch (error) {
+      toastError(`復元に失敗しました: ${formatError(error)}`);
+    } finally {
+      setIsRestoring(false);
+      isRestoringRef.current = false;
     }
   };
 
@@ -171,7 +245,7 @@ export function Backup() {
         <CardContent>
           <Button
             onClick={handleExport}
-            disabled={isExporting}
+            disabled={isAnyOperationInProgress}
             aria-label="データのバックアップ"
           >
             {isExporting ? 'エクスポート中...' : 'データのバックアップ'}
@@ -181,20 +255,40 @@ export function Backup() {
 
       <Card>
         <CardHeader>
-          <CardTitle>データの復元</CardTitle>
+          <CardTitle>データのインポート</CardTitle>
           <CardDescription>
-            バックアップZIPからメタデータと画像をインポートします。既存データと競合する場合は既存データが維持されます（INSERT
-            OR IGNORE）。
+            バックアップZIPを選択して、メタデータと画像をインポートします。既存データと競合する場合は既存データが維持されます（INSERT
+            OR
+            IGNORE）。インポートしたZIPは復元ポイントとしてこのPC内にも保存されます。
           </CardDescription>
         </CardHeader>
         <CardContent>
           <Button
             onClick={handleImport}
-            disabled={isImporting}
+            disabled={isAnyOperationInProgress}
             variant="secondary"
-            aria-label="データの復元"
+            aria-label="データのインポート"
           >
-            {isImporting ? 'インポート中...' : 'データの復元'}
+            {isImporting ? 'インポート中...' : 'データのインポート'}
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>復元（復元ポイント）</CardTitle>
+          <CardDescription>
+            このPC内に保存されている復元ポイントZIPから復元します（ファイル選択は不要です）。復元ポイントが無い場合は、先にバックアップまたはインポートを実行してください。
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button
+            onClick={handleRestore}
+            disabled={isAnyOperationInProgress}
+            variant="secondary"
+            aria-label="復元（復元ポイント）"
+          >
+            {isRestoring ? '復元中...' : '復元（復元ポイント）'}
           </Button>
         </CardContent>
       </Card>

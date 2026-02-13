@@ -908,6 +908,7 @@ pub fn run() {
             save_image_from_url,
             export_metadata,
             import_metadata,
+            restore_metadata,
             // Manual override / exclusion commands
             save_item_override,
             save_order_override,
@@ -1458,6 +1459,15 @@ async fn import_metadata(
     zip_path: String,
 ) -> Result<metadata_export::ImportResult, String> {
     metadata_export::import_metadata(&app, pool.inner(), std::path::Path::new(&zip_path)).await
+}
+
+/// app_data_dir 直下の復元ポイントZIPから復元する
+#[tauri::command]
+async fn restore_metadata(
+    app: tauri::AppHandle,
+    pool: tauri::State<'_, SqlitePool>,
+) -> Result<metadata_export::ImportResult, String> {
+    metadata_export::restore_metadata(&app, pool.inner()).await
 }
 
 // ─── Manual Override / Exclusion Commands ───────────────────────────
