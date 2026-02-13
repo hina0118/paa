@@ -52,8 +52,9 @@ export function ImageSearchDialog({
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [apiSearchFailed, setApiSearchFailed] = useState(false);
   const [manualUrlInput, setManualUrlInput] = useState('');
+  const [detectedUrl, setDetectedUrl] = useState<string | null>(null);
 
-  // 初期URLが指定されている場合、手動入力欄を事前入力する（ユーザー入力は上書きしない）
+  // 初期URLが指定されている場合、検出URLとして保存（自動ロードしない）
   useEffect(() => {
     if (!open) return;
     const url = initialUrl?.trim();
@@ -62,8 +63,8 @@ export function ImageSearchDialog({
     setSavedSuccess(false);
     setApiSearchFailed(false);
     setSearchResults([]);
-    setManualUrlInput((current) => (current.trim() ? current : url));
-  }, [open]);
+    setDetectedUrl(url);
+  }, [open, initialUrl]);
 
   const handleSearch = useCallback(async () => {
     setIsSearching(true);
@@ -120,6 +121,10 @@ export function ImageSearchDialog({
   const urlToSave =
     selectedUrl || (manualUrlInput.trim() ? manualUrlInput.trim() : null);
 
+  // URL validation
+  const isHttpUrl = urlToSave?.startsWith('http://');
+  const isValidUrl = urlToSave && !isHttpUrl;
+
   const handleSaveImage = useCallback(async () => {
     if (!urlToSave) return;
 
@@ -149,6 +154,7 @@ export function ImageSearchDialog({
         setSavedSuccess(false);
         setApiSearchFailed(false);
         setManualUrlInput('');
+        setDetectedUrl(null);
       }
       onOpenChange(newOpen);
     },
@@ -177,6 +183,29 @@ export function ImageSearchDialog({
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto space-y-4">
+          {/* クリップボード検知URL通知 */}
+          {detectedUrl && !selectedUrl && !manualUrlInput.trim() && (
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-sm font-medium text-blue-900 mb-2">
+                クリップボードから画像URLを検知しました
+              </p>
+              <p className="text-xs text-blue-700 mb-3 truncate">
+                {detectedUrl}
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setManualUrlInput(detectedUrl);
+                  setDetectedUrl(null);
+                }}
+                className="w-full"
+              >
+                このURLを使用
+              </Button>
+            </div>
+          )}
+
           {/* 検索ボタン */}
           <div className="flex gap-2">
             <Button
@@ -243,30 +272,36 @@ export function ImageSearchDialog({
           )}
 
           {/* 選択された画像のプレビュー */}
-          {(selectedUrl || manualUrlInput.trim()) && (
+          {urlToSave && (
             <div className="p-3 bg-muted/50 rounded-lg">
               <p className="text-sm text-muted-foreground mb-2">
                 選択中の画像:
               </p>
-              <p className="text-xs text-muted-foreground truncate">
-                {selectedUrl || manualUrlInput.trim()}
+              <p className="text-xs text-muted-foreground truncate mb-2">
+                {urlToSave}
               </p>
-              <div className="mt-2 rounded-md overflow-hidden border bg-background">
-                <img
-                  src={selectedUrl || manualUrlInput.trim()}
-                  alt="selected preview"
-                  className="w-full max-h-48 object-cover"
-                  loading="lazy"
-                  onError={(e) => {
-                    const img = e.target as HTMLImageElement;
-                    img.style.display = 'none';
-                  }}
-                />
-              </div>
-              {(selectedUrl || manualUrlInput.trim()).startsWith('http://') && (
-                <p className="mt-2 text-xs text-destructive">
-                  HTTPのURLは保存できません（HTTPSのみ対応）
-                </p>
+              {isHttpUrl ? (
+                <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-md">
+                  <p className="text-sm text-destructive font-medium">
+                    HTTPのURLは使用できません
+                  </p>
+                  <p className="text-xs text-destructive/80 mt-1">
+                    セキュリティ上の理由により、HTTPSのURLのみ対応しています。
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-md overflow-hidden border bg-background">
+                  <img
+                    src={urlToSave}
+                    alt="selected preview"
+                    className="w-full max-h-48 object-cover"
+                    loading="lazy"
+                    onError={(e) => {
+                      const img = e.target as HTMLImageElement;
+                      img.style.display = 'none';
+                    }}
+                  />
+                </div>
               )}
             </div>
           )}
@@ -307,7 +342,7 @@ export function ImageSearchDialog({
           </Button>
           <Button
             onClick={handleSaveImage}
-            disabled={!urlToSave || isSaving || savedSuccess}
+            disabled={!isValidUrl || isSaving || savedSuccess}
           >
             {isSaving ? (
               <>
