@@ -91,9 +91,14 @@ pub fn run_clipboard_watcher(
                     consecutive_read_errors = 0;
                     t
                 }
-                Ok(_) => {
+                Ok(t) => {
                     // クリップボード内容が MAX_CLIPBOARD_SIZE より大きい場合はスキップ（メモリの過剰な使用を防ぐ）
-                    log::debug!("Skipping large clipboard content (> {} bytes)", MAX_CLIPBOARD_SIZE);
+                    // ハッシュ値を last_text に保存して、同じ大容量コンテンツでログが繰り返し出力されるのを防ぐ
+                    let hash = format!("__LARGE_CONTENT_HASH_{:x}__", calculate_simple_hash(&t));
+                    if last_text.as_deref() != Some(&hash) {
+                        log::debug!("Skipping large clipboard content (> {} bytes)", MAX_CLIPBOARD_SIZE);
+                        last_text = Some(hash);
+                    }
                     continue;
                 }
                 Err(_e) => {
@@ -179,6 +184,15 @@ fn is_image_url(url: &str) -> bool {
         || path.ends_with(".png")
         || path.ends_with(".webp")
         || path.ends_with(".gif")
+}
+
+/// 簡易的なハッシュ計算（大容量コンテンツの重複検知用）
+/// メモリ効率のため、テキスト全体を保存せずハッシュ値のみを使用
+fn calculate_simple_hash(text: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    text.hash(&mut hasher);
+    hasher.finish()
 }
 
 #[cfg(test)]
