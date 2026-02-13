@@ -122,9 +122,17 @@ export function ImageSearchDialog({
   const urlToSave =
     selectedUrl || (manualUrlInput.trim() ? manualUrlInput.trim() : null);
 
-  // URL validation
-  const isHttpUrl = urlToSave?.startsWith('http://');
-  const isValidUrl = urlToSave && !isHttpUrl;
+  // URL validation - parse URL and check protocol is https:
+  const isValidUrl = (() => {
+    if (!urlToSave) return false;
+    try {
+      const parsed = new URL(urlToSave);
+      return parsed.protocol === 'https:';
+    } catch {
+      return false;
+    }
+  })();
+  const isHttpUrl = urlToSave && !isValidUrl;
 
   // Show detected URL notification when no URL is selected/entered yet
   const shouldShowDetectedUrl =
