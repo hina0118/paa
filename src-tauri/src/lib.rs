@@ -13,6 +13,7 @@ fn is_sqlite_version_supported(version: &str) -> bool {
     major > 3 || (major == 3 && minor >= 43)
 }
 use std::io::Write;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::menu::{Menu, MenuItem, Submenu};
 use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
@@ -564,16 +565,17 @@ pub fn run() {
             {
                 let app_handle = app.handle().clone();
                 let config = clipboard_watcher::WatcherConfig::default();
-                // spawn_blocking の JoinHandle を保持し、アプリ終了時に確実に停止させる
-                let watcher_handle = tauri::async_runtime::spawn_blocking(move || {
-                    clipboard_watcher::run_clipboard_watcher(app_handle, config);
-                });
 
-                // アプリ終了時（tray の Quit などを含む）にクリップボード監視タスクを中断する
-                let exit_app_handle = app.handle().clone();
-                let _ = exit_app_handle.once("tauri://exit", move |_event| {
-                    // 監視スレッドを強制終了
-                    watcher_handle.abort();
+                // グレースフルシャットダウン用のシグナル
+                let shutdown_signal = Arc::new(AtomicBool::new(false));
+                let shutdown_signal_clone = shutdown_signal.clone();
+
+                // shutdown_signal を app state として管理し、quit ハンドラからアクセス可能にする
+                app.manage(shutdown_signal.clone());
+
+                // 監視スレッドをバックグラウンドで起動（終了は shutdown_signal で制御）
+                tauri::async_runtime::spawn_blocking(move || {
+                    clipboard_watcher::run_clipboard_watcher(app_handle, config, shutdown_signal_clone);
                 });
             }
 
@@ -841,7 +843,19 @@ pub fn run() {
                         }
                     }
                     "quit" => {
-                        app.exit(0);
+                        // クリップボード監視をグレースフルに停止
+                        if let Some(shutdown_signal) = app.try_state::<Arc<AtomicBool>>() {
+                            let shutdown_signal = shutdown_signal.inner().clone();
+                            // シャットダウン要求を通知
+                            shutdown_signal.store(true, Ordering::Relaxed);
+
+                            // 監視スレッドの終了完了を明示的に待つ仕組みは現状ないため、
+                            // シャットダウン要求を送ったら即座にアプリケーションを終了する。
+                            app.exit(0);
+                        } else {
+                            // 監視スレッドがいない場合は即座に終了
+                            app.exit(0);
+                        }
                     }
                     _ => {}
                 })

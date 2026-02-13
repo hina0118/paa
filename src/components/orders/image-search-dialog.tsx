@@ -133,7 +133,6 @@ export function ImageSearchDialog({
     }
   })();
   const isInvalidOrNonHttpsUrl = Boolean(urlToSave) && !isValidUrl;
-  const isHttpUrl = isInvalidOrNonHttpsUrl;
 
   // Show detected URL notification when no URL is selected/entered yet
   const shouldShowDetectedUrl =
@@ -298,7 +297,7 @@ export function ImageSearchDialog({
               <p className="text-xs text-muted-foreground truncate mb-2">
                 {urlToSave}
               </p>
-              {isHttpUrl ? (
+              {isInvalidOrNonHttpsUrl ? (
                 <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-md">
                   <p className="text-sm text-destructive font-medium">
                     HTTPのURLは使用できません
