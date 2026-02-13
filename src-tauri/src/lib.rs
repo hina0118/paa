@@ -847,25 +847,13 @@ pub fn run() {
                         if let Some(shutdown_signal) = app.try_state::<Arc<AtomicBool>>() {
                             let app_handle = app.clone();
                             let shutdown_signal = shutdown_signal.inner().clone();
-                            // メインスレッド（イベントループ）をブロックしないよう、別スレッドで終了待機する
+                            // メインスレッド（イベントループ）をブロックしないよう、別スレッドで終了処理を行う
                             std::thread::spawn(move || {
                                 // シャットダウン要求を通知
                                 shutdown_signal.store(true, Ordering::Relaxed);
 
-                                // 監視スレッドの終了完了を待つ。
-                                // 将来的には監視スレッド側で「終了完了」時に false をセットし直すことで、
-                                // ここで早期にループを抜けられるようにすることを想定。
-                                let max_wait = std::time::Duration::from_secs(5);
-                                let poll_interval = std::time::Duration::from_millis(100);
-                                let start = std::time::Instant::now();
-
-                                while start.elapsed() < max_wait {
-                                    // done フラグ (shutdown_signal == false) が立っていれば即座に終了
-                                    if !shutdown_signal.load(Ordering::Relaxed) {
-                                        break;
-                                    }
-                                    std::thread::sleep(poll_interval);
-                                }
+                                // 監視スレッドの終了完了を明示的に待つ仕組みは現状ないため、
+                                // シャットダウン要求を送ったら即座にアプリケーションを終了する。
                                 app_handle.exit(0);
                             });
                         } else {
