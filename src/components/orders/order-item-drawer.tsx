@@ -173,6 +173,7 @@ export function OrderItemDrawer({
       cancelled = true;
       unlisten?.();
     };
+    // setImageSearchInitialUrl と setImageSearchOpen は setState 関数で安定しているため、依存配列から省略
   }, [open, itemId]);
 
   const handleImageSaved = useCallback(() => {
