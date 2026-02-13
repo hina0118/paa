@@ -3,7 +3,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { OrderItemDrawer } from './order-item-drawer';
 import type { OrderItemRow } from '@/lib/types';
-import { mockInvoke } from '@/test/setup';
+import { mockInvoke, mockListen } from '@/test/setup';
 
 const mockGetImageUrl = vi.fn(() => null);
 vi.mock('@/hooks/useImageUrl', () => ({
@@ -1226,6 +1226,126 @@ describe('OrderItemDrawer', () => {
           brand: '出版社X', // original brand
           reason: null,
         });
+      });
+    });
+  });
+
+  describe('Clipboard Event Listener', () => {
+    it('sets up clipboard event listener when drawer opens', async () => {
+      render(
+        <OrderItemDrawer item={mockItem} open={true} onOpenChange={vi.fn()} />
+      );
+
+      await waitFor(() => {
+        expect(mockListen).toHaveBeenCalledWith(
+          'clipboard-url-detected',
+          expect.any(Function)
+        );
+      });
+    });
+
+    it('does not set up listener when drawer is closed', () => {
+      render(
+        <OrderItemDrawer item={mockItem} open={false} onOpenChange={vi.fn()} />
+      );
+
+      expect(mockListen).not.toHaveBeenCalled();
+    });
+
+    it('does not set up listener when item is null', () => {
+      render(
+        <OrderItemDrawer item={null} open={true} onOpenChange={vi.fn()} />
+      );
+
+      expect(mockListen).not.toHaveBeenCalled();
+    });
+
+    it('opens image search dialog with detected URL when clipboard event fires', async () => {
+      const mockUnlisten = vi.fn();
+      mockListen.mockImplementation((eventName, callback) => {
+        if (eventName === 'clipboard-url-detected') {
+          // イベントを即座に発火
+          setTimeout(() => {
+            callback({
+              payload: {
+                url: 'https://example.com/test-image.jpg',
+                kind: 'image_url',
+                source: 'clipboard',
+                detectedAt: '2024-03-01T00:00:00Z',
+              },
+            });
+          }, 0);
+        }
+        return Promise.resolve(mockUnlisten);
+      });
+
+      render(
+        <OrderItemDrawer item={mockItem} open={true} onOpenChange={vi.fn()} />
+      );
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('heading', { name: '画像を検索' })
+        ).toBeInTheDocument();
+      });
+
+      // 検知したURLが通知されているか確認
+      expect(
+        screen.getByText('クリップボードから画像URLを検知しました')
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText('https://example.com/test-image.jpg')
+      ).toBeInTheDocument();
+    });
+
+    it('ignores non-image_url clipboard events', async () => {
+      const mockUnlisten = vi.fn();
+      mockListen.mockImplementation((eventName, callback) => {
+        if (eventName === 'clipboard-url-detected') {
+          setTimeout(() => {
+            callback({
+              payload: {
+                url: 'https://example.com/page',
+                kind: 'url', // not image_url
+                source: 'clipboard',
+                detectedAt: '2024-03-01T00:00:00Z',
+              },
+            });
+          }, 0);
+        }
+        return Promise.resolve(mockUnlisten);
+      });
+
+      render(
+        <OrderItemDrawer item={mockItem} open={true} onOpenChange={vi.fn()} />
+      );
+
+      // 画像検索ダイアログが開かないことを確認（少し待つ）
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(
+        screen.queryByRole('heading', { name: '画像を検索' })
+      ).not.toBeInTheDocument();
+    });
+
+    it('cleans up listener when drawer closes', async () => {
+      const mockUnlisten = vi.fn();
+      mockListen.mockResolvedValue(mockUnlisten);
+
+      const { rerender } = render(
+        <OrderItemDrawer item={mockItem} open={true} onOpenChange={vi.fn()} />
+      );
+
+      await waitFor(() => {
+        expect(mockListen).toHaveBeenCalled();
+      });
+
+      // ドロワーを閉じる
+      rerender(
+        <OrderItemDrawer item={mockItem} open={false} onOpenChange={vi.fn()} />
+      );
+
+      await waitFor(() => {
+        expect(mockUnlisten).toHaveBeenCalled();
       });
     });
   });
