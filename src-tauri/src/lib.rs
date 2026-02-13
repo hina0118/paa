@@ -21,6 +21,7 @@ use tauri_plugin_sql::{Migration, MigrationKind};
 
 pub mod batch_commands;
 pub mod batch_runner;
+pub mod clipboard_watcher;
 pub mod config;
 pub mod e2e_mocks;
 pub mod e2e_seed;
@@ -30,7 +31,6 @@ pub mod gmail_client;
 pub mod google_search;
 pub mod image_utils;
 pub mod logic;
-pub mod clipboard_watcher;
 pub mod metadata_export;
 pub mod parsers;
 pub mod repository;

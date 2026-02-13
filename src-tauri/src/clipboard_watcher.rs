@@ -183,4 +183,3 @@ mod tests {
         assert!(!is_image_url("not a url"));
     }
 }
-
