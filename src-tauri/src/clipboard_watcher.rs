@@ -164,9 +164,13 @@ pub fn run_clipboard_watcher(
 
 static URL_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
     // フロントエンド（image-search-dialog）は HTTPS のみ受け付けるため、ここでも HTTPS の URL のみに限定する
-    regex::Regex::new(r"https://\S+").expect(
-        "Failed to compile URL regex pattern - this is a static pattern and should never fail",
-    )
+    // スキームは仕様上大小文字を区別しないため、`https://` / `HTTPS://` などを等価に扱う
+    regex::RegexBuilder::new(r"https://\S+")
+        .case_insensitive(true)
+        .build()
+        .expect(
+            "Failed to compile URL regex pattern - this is a static pattern and should never fail",
+        )
 });
 
 fn extract_first_url(text: &str) -> Option<String> {
