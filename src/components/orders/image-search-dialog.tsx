@@ -33,6 +33,7 @@ type ImageSearchDialogProps = {
   onOpenChange: (open: boolean) => void;
   itemId: number;
   itemName: string;
+  initialUrl?: string;
   onImageSaved?: () => void;
 };
 
@@ -41,6 +42,7 @@ export function ImageSearchDialog({
   onOpenChange,
   itemId,
   itemName,
+  initialUrl,
   onImageSaved,
 }: ImageSearchDialogProps) {
   const [isSearching, setIsSearching] = useState(false);
@@ -50,6 +52,18 @@ export function ImageSearchDialog({
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [apiSearchFailed, setApiSearchFailed] = useState(false);
   const [manualUrlInput, setManualUrlInput] = useState('');
+
+  // 初期URLが指定されている場合、手動入力欄を事前入力する（ユーザー入力は上書きしない）
+  useEffect(() => {
+    if (!open) return;
+    const url = initialUrl?.trim();
+    if (!url) return;
+    setSelectedUrl(null);
+    setSavedSuccess(false);
+    setApiSearchFailed(false);
+    setSearchResults([]);
+    setManualUrlInput((current) => (current.trim() ? current : url));
+  }, [open, initialUrl]);
 
   const handleSearch = useCallback(async () => {
     setIsSearching(true);
@@ -126,16 +140,6 @@ export function ImageSearchDialog({
     }
   }, [itemId, urlToSave, onImageSaved]);
 
-  // 成功後、少し待ってからダイアログを閉じる（クリーンアップでメモリリーク防止）
-  useEffect(() => {
-    if (savedSuccess) {
-      const timer = setTimeout(() => {
-        onOpenChange(false);
-      }, 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [savedSuccess, onOpenChange]);
-
   const handleOpenChange = useCallback(
     (newOpen: boolean) => {
       if (!newOpen) {
@@ -150,6 +154,17 @@ export function ImageSearchDialog({
     },
     [onOpenChange]
   );
+
+  // 成功後、少し待ってからダイアログを閉じる（クリーンアップでメモリリーク防止）
+  useEffect(() => {
+    if (savedSuccess) {
+      const timer = setTimeout(() => {
+        // close時のステートリセットを確実に通す
+        handleOpenChange(false);
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [savedSuccess, handleOpenChange]);
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -236,6 +251,23 @@ export function ImageSearchDialog({
               <p className="text-xs text-muted-foreground truncate">
                 {selectedUrl || manualUrlInput.trim()}
               </p>
+              <div className="mt-2 rounded-md overflow-hidden border bg-background">
+                <img
+                  src={selectedUrl || manualUrlInput.trim()}
+                  alt="selected preview"
+                  className="w-full max-h-48 object-cover"
+                  loading="lazy"
+                  onError={(e) => {
+                    const img = e.target as HTMLImageElement;
+                    img.style.display = 'none';
+                  }}
+                />
+              </div>
+              {(selectedUrl || manualUrlInput.trim()).startsWith('http://') && (
+                <p className="mt-2 text-xs text-destructive">
+                  HTTPのURLは保存できません（HTTPSのみ対応）
+                </p>
+              )}
             </div>
           )}
 

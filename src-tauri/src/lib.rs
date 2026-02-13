@@ -30,6 +30,7 @@ pub mod gmail_client;
 pub mod google_search;
 pub mod image_utils;
 pub mod logic;
+pub mod clipboard_watcher;
 pub mod metadata_export;
 pub mod parsers;
 pub mod repository;
@@ -557,6 +558,16 @@ pub fn run() {
                     )
                 })
                 .init();
+
+            // クリップボード監視（画像URL検知 → フロントへ通知）
+            // 例外があってもクラッシュしないように監視側で吸収する
+            {
+                let app_handle = app.handle().clone();
+                let config = clipboard_watcher::WatcherConfig::default();
+                tauri::async_runtime::spawn_blocking(move || {
+                    clipboard_watcher::run_clipboard_watcher(app_handle, config);
+                });
+            }
 
             // DBはapp_config_dirに配置（tauri-plugin-sqlのpreloadとパスを統一）
             // E2E モード時は paa_e2e.db を使用し、開発用 paa_data.db と分離する
