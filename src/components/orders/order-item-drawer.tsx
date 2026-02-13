@@ -98,6 +98,7 @@ export function OrderItemDrawer({
   });
 
   const imageSrc = item ? getImageUrl(item.fileName) : null;
+  const itemId = item?.id;
 
   // 編集モード開始時にフォームを初期化
   useEffect(() => {
@@ -136,7 +137,7 @@ export function OrderItemDrawer({
 
   // drawerが開いている間だけ、クリップボード検知イベントを購読する
   useEffect(() => {
-    if (!open || !item) return;
+    if (!open || !itemId) return;
 
     let unlisten: null | (() => void) = null;
     let cancelled = false;
@@ -172,7 +173,7 @@ export function OrderItemDrawer({
       cancelled = true;
       unlisten?.();
     };
-  }, [open, item?.id]);
+  }, [open, itemId]);
 
   const handleImageSaved = useCallback(() => {
     onImageUpdated?.();
