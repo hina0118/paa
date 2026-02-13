@@ -92,7 +92,8 @@ pub fn run_clipboard_watcher(
                     t
                 }
                 Ok(_) => {
-                    // クリップボード内容が MAX_CLIPBOARD_SIZE 超の場合はスキップ（メモリの過剰な使用を防ぐ）
+                    // クリップボード内容が MAX_CLIPBOARD_SIZE より大きい場合はスキップ（メモリの過剰な使用を防ぐ）
+                    log::debug!("Skipping large clipboard content (> {} bytes)", MAX_CLIPBOARD_SIZE);
                     continue;
                 }
                 Err(_e) => {
