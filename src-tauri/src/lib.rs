@@ -570,8 +570,8 @@ pub fn run() {
                 let shutdown_signal = Arc::new(AtomicBool::new(false));
                 let shutdown_signal_clone = shutdown_signal.clone();
 
-                // spawn_blocking の JoinHandle を保持し、アプリ終了時に確実に停止させる
-                let watcher_handle = tauri::async_runtime::spawn_blocking(move || {
+                // 監視スレッドをバックグラウンドで起動（終了は shutdown_signal で制御）
+                tauri::async_runtime::spawn_blocking(move || {
                     clipboard_watcher::run_clipboard_watcher(app_handle, config, shutdown_signal_clone);
                 });
 
