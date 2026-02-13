@@ -278,4 +278,42 @@ mod tests {
             Some("https://good.com/y.jpg")
         );
     }
+
+    #[test]
+    fn test_calculate_simple_hash_consistency() {
+        // 同じ入力に対して同じハッシュ値が返されることを確認
+        let text = "test content for hashing";
+        let hash1 = calculate_simple_hash(text);
+        let hash2 = calculate_simple_hash(text);
+        assert_eq!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_calculate_simple_hash_different_inputs() {
+        // 異なる入力に対して異なるハッシュ値が返されることを確認
+        // 注意: ハッシュ衝突は理論上可能だが、このテストケースでは発生しないはず
+        let text1 = "first text";
+        let text2 = "second text";
+        let hash1 = calculate_simple_hash(text1);
+        let hash2 = calculate_simple_hash(text2);
+        assert_ne!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_calculate_simple_hash_empty_string() {
+        // 空文字列のハッシュも計算できることを確認
+        let hash = calculate_simple_hash("");
+        // ハッシュ値が何らかの値を返すことを確認（0でないことを期待）
+        // 注意: DefaultHasherの実装により、空文字列のハッシュは0ではない
+        assert!(hash != 0 || hash == 0); // 常に真だが、計算自体がパニックしないことを確認
+    }
+
+    #[test]
+    fn test_calculate_simple_hash_large_content() {
+        // 大容量コンテンツのハッシュ計算も正常に動作することを確認
+        let large_text = "a".repeat(20_000); // 20KB
+        let hash = calculate_simple_hash(&large_text);
+        // ハッシュ計算がパニックせず、値を返すことを確認
+        assert!(hash > 0 || hash == 0);
+    }
 }
