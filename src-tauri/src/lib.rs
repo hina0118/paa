@@ -845,11 +845,19 @@ pub fn run() {
                     "quit" => {
                         // クリップボード監視をグレースフルに停止
                         if let Some(shutdown_signal) = app.try_state::<Arc<AtomicBool>>() {
-                            shutdown_signal.store(true, Ordering::Relaxed);
-                            // 監視スレッドが終了するのを待つ（ポーリング間隔800ms + 余裕）
-                            std::thread::sleep(std::time::Duration::from_millis(1000));
+                            let app_handle = app.clone();
+                            let shutdown_signal = shutdown_signal.inner().clone();
+                            // メインスレッド（イベントループ）をブロックしないよう、別スレッドで終了待機する
+                            std::thread::spawn(move || {
+                                shutdown_signal.store(true, Ordering::Relaxed);
+                                // 監視スレッドが終了するのを待つ（ポーリング間隔800ms + 余裕）
+                                std::thread::sleep(std::time::Duration::from_millis(1000));
+                                app_handle.exit(0);
+                            });
+                        } else {
+                            // 監視スレッドがいない場合は即座に終了
+                            app.exit(0);
                         }
-                        app.exit(0);
                     }
                     _ => {}
                 })
