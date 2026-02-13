@@ -217,6 +217,10 @@ fn copy_restore_point_zip(src_zip_path: &Path, restore_point_path: &Path) -> (bo
         }
     }
 
+fn copy_restore_point_zip(
+    src_zip_path: &Path,
+    restore_point_path: &Path,
+) -> (bool, Option<String>) {
     if let Some(parent) = restore_point_path.parent() {
         if let Err(e) = fs::create_dir_all(parent) {
             return (
