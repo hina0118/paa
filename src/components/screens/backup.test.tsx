@@ -476,6 +476,107 @@ describe('Backup', () => {
     });
   });
 
+  describe('re-entry guard', () => {
+    it('allows restore button to be clicked again after confirmation is cancelled', async () => {
+      const user = userEvent.setup();
+      mockConfirm.mockResolvedValue(false);
+
+      renderWithToaster(<Backup />);
+
+      const restoreButton = screen.getByRole('button', {
+        name: '復元（復元ポイント）',
+      });
+
+      await user.click(restoreButton);
+
+      await waitFor(() => {
+        expect(mockConfirm).toHaveBeenCalledTimes(1);
+      });
+      expect(mockInvoke).not.toHaveBeenCalled();
+
+      await user.click(restoreButton);
+
+      await waitFor(() => {
+        expect(mockConfirm).toHaveBeenCalledTimes(2);
+      });
+      expect(mockInvoke).not.toHaveBeenCalled();
+    });
+
+    it('allows export button to be clicked again after save dialog is cancelled', async () => {
+      const user = userEvent.setup();
+      mockSave.mockResolvedValue(null);
+
+      renderWithToaster(<Backup />);
+
+      const exportButton = screen.getByRole('button', {
+        name: 'データのバックアップ',
+      });
+
+      await user.click(exportButton);
+
+      await waitFor(() => {
+        expect(mockSave).toHaveBeenCalledTimes(1);
+      });
+      expect(mockInvoke).not.toHaveBeenCalled();
+
+      await user.click(exportButton);
+
+      await waitFor(() => {
+        expect(mockSave).toHaveBeenCalledTimes(2);
+      });
+      expect(mockInvoke).not.toHaveBeenCalled();
+    });
+
+    it('executes export only once when the button is double-clicked', async () => {
+      const user = userEvent.setup();
+
+      let resolveSave: (value: string) => void;
+      const savePromise = new Promise<string>((resolve) => {
+        resolveSave = resolve;
+      });
+      mockSave.mockReturnValue(savePromise);
+
+      let resolveInvoke: (value: unknown) => void;
+      const invokePromise = new Promise((resolve) => {
+        resolveInvoke = resolve;
+      });
+      mockInvoke.mockReturnValue(invokePromise);
+
+      renderWithToaster(<Backup />);
+
+      const exportButton = screen.getByRole('button', {
+        name: 'データのバックアップ',
+      });
+
+      await user.dblClick(exportButton);
+
+      await waitFor(() => {
+        expect(mockSave).toHaveBeenCalledTimes(1);
+      });
+
+      resolveSave!('/path/to/export.zip');
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledTimes(1);
+      });
+
+      resolveInvoke!({
+        images_count: 10,
+        shop_settings_count: 2,
+        product_master_count: 50,
+        emails_count: 30,
+        item_overrides_count: 5,
+        order_overrides_count: 3,
+        excluded_items_count: 1,
+        excluded_orders_count: 2,
+        image_files_count: 45,
+        images_skipped: 0,
+      });
+
+      expect(mockSave).toHaveBeenCalledTimes(1);
+      expect(mockInvoke).toHaveBeenCalledTimes(1);
+    });
+  });
   describe('button disabled states', () => {
     it('disables all buttons when export is in progress', async () => {
       const user = userEvent.setup();
