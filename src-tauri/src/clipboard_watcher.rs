@@ -302,18 +302,15 @@ mod tests {
     #[test]
     fn test_calculate_simple_hash_empty_string() {
         // 空文字列のハッシュも計算できることを確認
-        let hash = calculate_simple_hash("");
-        // ハッシュ値が何らかの値を返すことを確認（0でないことを期待）
-        // 注意: DefaultHasherの実装により、空文字列のハッシュは0ではない
-        assert!(hash != 0 || hash == 0); // 常に真だが、計算自体がパニックしないことを確認
+        // ハッシュ計算がパニックしないことを確認（値は何でも良い）
+        let _hash = calculate_simple_hash("");
     }
 
     #[test]
     fn test_calculate_simple_hash_large_content() {
         // 大容量コンテンツのハッシュ計算も正常に動作することを確認
         let large_text = "a".repeat(20_000); // 20KB
-        let hash = calculate_simple_hash(&large_text);
-        // ハッシュ計算がパニックせず、値を返すことを確認
-        assert!(hash > 0 || hash == 0);
+        // ハッシュ計算がパニックしないことを確認（値は何でも良い）
+        let _hash = calculate_simple_hash(&large_text);
     }
 }
