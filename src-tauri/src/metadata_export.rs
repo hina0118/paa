@@ -166,7 +166,8 @@ pub struct ImportResult {
     pub excluded_orders_inserted: usize,
     pub image_files_copied: usize,
     /// app_data_dir 直下の復元ポイントZIPを更新できたか（インポート時）
-    pub restore_point_updated: bool,
+    /// Some(true): 更新成功, Some(false): 更新失敗, None: 更新不要（restore_metadata）
+    pub restore_point_updated: Option<bool>,
     /// 復元ポイントZIPのパス（保存先）
     pub restore_point_path: Option<String>,
     /// 復元ポイントZIP更新に失敗した場合のエラー
@@ -541,7 +542,7 @@ pub async fn import_metadata(
     // 復元ポイントの更新（app_data_dir は既に取得済みなので再利用）
     let restore_point_path = app_data_dir.join(RESTORE_POINT_FILE_NAME);
     let (updated, err) = copy_restore_point_zip(zip_path, &restore_point_path);
-    result.restore_point_updated = updated;
+    result.restore_point_updated = Some(updated);
     result.restore_point_path = Some(restore_point_path.display().to_string());
     result.restore_point_error = err;
 
@@ -576,7 +577,7 @@ pub async fn restore_metadata(app: &AppHandle, pool: &SqlitePool) -> Result<Impo
     let mut result = import_metadata_from_reader(pool, &images_dir, file).await?;
 
     // restore コマンドでは復元ポイント自体は更新しない（読み取り専用）
-    result.restore_point_updated = false;
+    result.restore_point_updated = None;
     result.restore_point_path = Some(restore_point_path.display().to_string());
     result.restore_point_error = None;
 
@@ -1009,7 +1010,7 @@ where
         excluded_items_inserted,
         excluded_orders_inserted,
         image_files_copied,
-        restore_point_updated: false,
+        restore_point_updated: None,
         restore_point_path: None,
         restore_point_error: None,
     })

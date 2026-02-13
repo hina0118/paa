@@ -43,7 +43,7 @@ interface ImportResult {
   excluded_items_inserted: number;
   excluded_orders_inserted: number;
   image_files_copied: number;
-  restore_point_updated?: boolean;
+  restore_point_updated?: boolean | null;
   restore_point_path?: string | null;
   restore_point_error?: string | null;
 }
@@ -141,8 +141,6 @@ export function Backup() {
         { title: 'データのインポート', kind: 'warning' }
       );
       if (!confirmed) {
-        setIsImporting(false);
-        isImportingRef.current = false;
         return;
       }
       const zipPath = await open({
@@ -151,8 +149,6 @@ export function Backup() {
         filters: [{ name: 'ZIP', extensions: ['zip'] }],
       });
       if (!zipPath || typeof zipPath !== 'string') {
-        setIsImporting(false);
-        isImportingRef.current = false;
         return;
       }
       const result = await invoke<ImportResult>('import_metadata', {
@@ -198,8 +194,6 @@ export function Backup() {
         { title: '復元（復元ポイント）', kind: 'warning' }
       );
       if (!confirmed) {
-        setIsRestoring(false);
-        isRestoringRef.current = false;
         return;
       }
       const result = await invoke<ImportResult>('restore_metadata');
