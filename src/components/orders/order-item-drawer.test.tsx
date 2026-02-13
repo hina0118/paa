@@ -1326,11 +1326,12 @@ describe('OrderItemDrawer', () => {
         <OrderItemDrawer item={mockItem} open={true} onOpenChange={vi.fn()} />
       );
 
-      // 画像検索ダイアログが開かないことを確認（少し待つ）
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      expect(
-        screen.queryByRole('heading', { name: '画像を検索' })
-      ).not.toBeInTheDocument();
+      // 画像検索ダイアログが開かないことを確認（非同期待機）
+      await waitFor(() => {
+        expect(
+          screen.queryByRole('heading', { name: '画像を検索' })
+        ).not.toBeInTheDocument();
+      });
     });
 
     it('cleans up listener when drawer closes', async () => {
