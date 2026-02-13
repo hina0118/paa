@@ -849,9 +849,23 @@ pub fn run() {
                             let shutdown_signal = shutdown_signal.inner().clone();
                             // メインスレッド（イベントループ）をブロックしないよう、別スレッドで終了待機する
                             std::thread::spawn(move || {
+                                // シャットダウン要求を通知
                                 shutdown_signal.store(true, Ordering::Relaxed);
-                                // 監視スレッドが終了するのを待つ（ポーリング間隔800ms + 余裕）
-                                std::thread::sleep(std::time::Duration::from_millis(1000));
+
+                                // 監視スレッドの終了完了を待つ。
+                                // 将来的には監視スレッド側で「終了完了」時に false をセットし直すことで、
+                                // ここで早期にループを抜けられるようにすることを想定。
+                                let max_wait = std::time::Duration::from_secs(5);
+                                let poll_interval = std::time::Duration::from_millis(100);
+                                let start = std::time::Instant::now();
+
+                                while start.elapsed() < max_wait {
+                                    // done フラグ (shutdown_signal == false) が立っていれば即座に終了
+                                    if !shutdown_signal.load(Ordering::Relaxed) {
+                                        break;
+                                    }
+                                    std::thread::sleep(poll_interval);
+                                }
                                 app_handle.exit(0);
                             });
                         } else {
