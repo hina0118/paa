@@ -122,8 +122,9 @@ pub fn run_clipboard_watcher(app: tauri::AppHandle, config: WatcherConfig) {
 }
 
 static URL_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
-    regex::Regex::new(r"https?://\S+")
-        .expect("Failed to compile URL regex pattern - this is a static pattern and should never fail")
+    regex::Regex::new(r"https?://\S+").expect(
+        "Failed to compile URL regex pattern - this is a static pattern and should never fail",
+    )
 });
 
 fn extract_first_url(text: &str) -> Option<String> {
