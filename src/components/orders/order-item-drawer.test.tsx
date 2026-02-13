@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { OrderItemDrawer } from './order-item-drawer';
 import type { OrderItemRow } from '@/lib/types';
 import { mockInvoke, mockListen } from '@/test/setup';
+import { CLIPBOARD_URL_DETECTED_EVENT } from '@/lib/tauri-events';
 
 const mockGetImageUrl = vi.fn(() => null);
 vi.mock('@/hooks/useImageUrl', () => ({
@@ -1244,7 +1245,7 @@ describe('OrderItemDrawer', () => {
 
       await waitFor(() => {
         expect(mockListen).toHaveBeenCalledWith(
-          'clipboard-url-detected',
+          CLIPBOARD_URL_DETECTED_EVENT,
           expect.any(Function)
         );
       });
@@ -1269,7 +1270,7 @@ describe('OrderItemDrawer', () => {
     it('opens image search dialog with detected URL when clipboard event fires', async () => {
       const mockUnlisten = vi.fn();
       mockListen.mockImplementation((eventName, callback) => {
-        if (eventName === 'clipboard-url-detected') {
+        if (eventName === CLIPBOARD_URL_DETECTED_EVENT) {
           // イベントを即座に発火
           setTimeout(() => {
             callback({
@@ -1308,7 +1309,7 @@ describe('OrderItemDrawer', () => {
       const mockUnlisten = vi.fn();
       let callbackInvoked = false;
       mockListen.mockImplementation((eventName, callback) => {
-        if (eventName === 'clipboard-url-detected') {
+        if (eventName === CLIPBOARD_URL_DETECTED_EVENT) {
           setTimeout(() => {
             callbackInvoked = true;
             callback({
