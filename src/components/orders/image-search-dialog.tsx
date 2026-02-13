@@ -63,6 +63,7 @@ export function ImageSearchDialog({
     setSavedSuccess(false);
     setApiSearchFailed(false);
     setSearchResults([]);
+    setManualUrlInput('');
     setDetectedUrl(url);
   }, [open, initialUrl]);
 
