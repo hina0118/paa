@@ -570,8 +570,8 @@ pub fn run() {
                 });
 
                 // アプリ終了時（tray の Quit などを含む）にクリップボード監視タスクを中断する
-                let exit_app_handle = app.handle();
-                exit_app_handle.once_global("tauri://exit", move |_event| {
+                let exit_app_handle = app.handle().clone();
+                let _ = exit_app_handle.once("tauri://exit", move |_event| {
                     // 監視スレッドを強制終了
                     watcher_handle.abort();
                 });
