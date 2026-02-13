@@ -194,6 +194,8 @@ export function Backup() {
         { title: '復元（復元ポイント）', kind: 'warning' }
       );
       if (!confirmed) {
+        setIsRestoring(false);
+        isRestoringRef.current = false;
         return;
       }
       const result = await invoke<ImportResult>('restore_metadata');
