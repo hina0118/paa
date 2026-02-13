@@ -845,17 +845,13 @@ pub fn run() {
                     "quit" => {
                         // クリップボード監視をグレースフルに停止
                         if let Some(shutdown_signal) = app.try_state::<Arc<AtomicBool>>() {
-                            let app_handle = app.clone();
                             let shutdown_signal = shutdown_signal.inner().clone();
-                            // メインスレッド（イベントループ）をブロックしないよう、別スレッドで終了処理を行う
-                            std::thread::spawn(move || {
-                                // シャットダウン要求を通知
-                                shutdown_signal.store(true, Ordering::Relaxed);
+                            // シャットダウン要求を通知
+                            shutdown_signal.store(true, Ordering::Relaxed);
 
-                                // 監視スレッドの終了完了を明示的に待つ仕組みは現状ないため、
-                                // シャットダウン要求を送ったら即座にアプリケーションを終了する。
-                                app_handle.exit(0);
-                            });
+                            // 監視スレッドの終了完了を明示的に待つ仕組みは現状ないため、
+                            // シャットダウン要求を送ったら即座にアプリケーションを終了する。
+                            app.exit(0);
                         } else {
                             // 監視スレッドがいない場合は即座に終了
                             app.exit(0);
