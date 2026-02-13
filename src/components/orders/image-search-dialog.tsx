@@ -201,7 +201,11 @@ export function ImageSearchDialog({
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  setManualUrlInput(detectedUrl);
+                  const url = detectedUrl;
+                  if (!url) {
+                    return;
+                  }
+                  setManualUrlInput(url);
                   setDetectedUrl(null);
                 }}
                 className="w-full"
