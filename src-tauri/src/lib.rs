@@ -570,28 +570,12 @@ pub fn run() {
                 let shutdown_signal = Arc::new(AtomicBool::new(false));
                 let shutdown_signal_clone = shutdown_signal.clone();
 
+                // shutdown_signal を app state として管理し、quit ハンドラからアクセス可能にする
+                app.manage(shutdown_signal.clone());
+
                 // 監視スレッドをバックグラウンドで起動（終了は shutdown_signal で制御）
                 tauri::async_runtime::spawn_blocking(move || {
                     clipboard_watcher::run_clipboard_watcher(app_handle, config, shutdown_signal_clone);
-                });
-
-                // アプリ終了イベントを検出してシャットダウンシグナルを送る
-                // AppHandle::run を使ってアプリケーションライフサイクルを監視
-                let exit_app_handle = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    // Tauri のウィンドウが全て閉じられるのを待つ
-                    // (主ウィンドウまたはtray経由のQuitでアプリが終了する)
-                    loop {
-                        // シャットダウン応答性のため短い間隔でポーリング
-                        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
-                        if exit_app_handle.windows().is_empty() {
-                            // ウィンドウが全て閉じられた -> シャットダウンシグナル送信
-                            shutdown_signal.store(true, Ordering::Relaxed);
-                            // 監視スレッドが終了するまで待つ（ポーリング間隔800ms + 余裕）
-                            tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-                            break;
-                        }
-                    }
                 });
             }
 
@@ -859,6 +843,12 @@ pub fn run() {
                         }
                     }
                     "quit" => {
+                        // クリップボード監視をグレースフルに停止
+                        if let Some(shutdown_signal) = app.try_state::<Arc<AtomicBool>>() {
+                            shutdown_signal.store(true, Ordering::Relaxed);
+                            // 監視スレッドが終了するのを待つ（ポーリング間隔800ms + 余裕）
+                            std::thread::sleep(std::time::Duration::from_millis(1000));
+                        }
                         app.exit(0);
                     }
                     _ => {}
