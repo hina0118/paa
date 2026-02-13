@@ -63,7 +63,7 @@ export function ImageSearchDialog({
     setApiSearchFailed(false);
     setSearchResults([]);
     setManualUrlInput((current) => (current.trim() ? current : url));
-  }, [open, initialUrl]);
+  }, [open]);
 
   const handleSearch = useCallback(async () => {
     setIsSearching(true);
