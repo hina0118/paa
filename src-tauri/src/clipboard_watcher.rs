@@ -193,6 +193,7 @@ fn is_image_url(url: &str) -> bool {
 /// 注意: ハッシュ衝突の可能性はあるが、このユースケース（ログの重複防止）では
 /// 衝突が起きても重大な問題にはならない。最悪の場合、異なる大容量コンテンツでも
 /// 一度だけログが出力されることになるが、機能的には許容範囲。
+/// DefaultHasher を使用しているのは、暗号学的強度が不要で高速性を優先するため。
 fn calculate_simple_hash(text: &str) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
