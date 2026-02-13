@@ -35,8 +35,9 @@ impl Default for WatcherConfig {
     fn default() -> Self {
         Self {
             // 800ms: CPU使用率とレスポンス性のバランスを考慮した間隔
-            // より短い間隔（例: 500ms）はCPU使用率が高くなり、
-            // より長い間隔（例: 1000ms以上）はユーザー体験が悪化する
+            // 経験的に、500ms以下ではCPU使用率が顕著に上がり、
+            // 1000ms以上ではクリップボードコピー後の検知遅延が体感的に遅く感じられる。
+            // 800msは両者のバランスが取れた妥当なデフォルト値。
             poll_interval_ms: 800,
             emit_non_image_url: false,
         }

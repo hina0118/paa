@@ -582,12 +582,13 @@ pub fn run() {
                     // Tauri のウィンドウが全て閉じられるのを待つ
                     // (主ウィンドウまたはtray経由のQuitでアプリが終了する)
                     loop {
-                        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+                        // シャットダウン応答性のため短い間隔でポーリング
+                        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
                         if exit_app_handle.windows().is_empty() {
                             // ウィンドウが全て閉じられた -> シャットダウンシグナル送信
                             shutdown_signal.store(true, Ordering::Relaxed);
-                            // 監視スレッドが終了するまで少し待つ
-                            tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
+                            // 監視スレッドが終了するまで待つ（ポーリング間隔800ms + 余裕）
+                            tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
                             break;
                         }
                     }
