@@ -9,6 +9,10 @@ use tauri::Emitter;
 
 pub const CLIPBOARD_URL_DETECTED_EVENT: &str = "clipboard-url-detected";
 
+/// クリップボードテキストの最大サイズ（バイト）
+/// 10KB を超える内容は処理をスキップして、メモリの過剰使用を防ぐ
+const MAX_CLIPBOARD_SIZE: usize = 10_240;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClipboardUrlDetectedPayload {
@@ -83,12 +87,12 @@ pub fn run_clipboard_watcher(
             std::thread::sleep(std::time::Duration::from_millis(config.poll_interval_ms));
 
             let text = match clipboard.get_text() {
-                Ok(t) if t.len() <= 10_240 => {
+                Ok(t) if t.len() <= MAX_CLIPBOARD_SIZE => {
                     consecutive_read_errors = 0;
                     t
                 }
                 Ok(_) => {
-                    // クリップボード内容が10KB超の場合はスキップ（メモリ過多使用を防ぐ）
+                    // クリップボード内容がMAX_CLIPBOARD_SIZE超の場合はスキップ（メモリの過剰な使用を防ぐ）
                     continue;
                 }
                 Err(_e) => {
