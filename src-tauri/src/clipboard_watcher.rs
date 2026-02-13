@@ -209,4 +209,29 @@ mod tests {
         assert!(!is_image_url("https://example.com/a.svg"));
         assert!(!is_image_url("not a url"));
     }
+
+    #[test]
+    fn test_extract_first_url_rejects_http() {
+        // HTTPのURLは検出しない（HTTPSのみ受け付ける）
+        assert_eq!(extract_first_url("http://example.com/a.jpg"), None);
+        assert_eq!(extract_first_url("foo http://example.com/a.png bar"), None);
+        assert_eq!(
+            extract_first_url("Check out http://example.com/image.jpg!"),
+            None
+        );
+    }
+
+    #[test]
+    fn test_extract_first_url_accepts_https_only() {
+        // HTTPSのURLは正しく検出される
+        assert_eq!(
+            extract_first_url("https://example.com/a.jpg").as_deref(),
+            Some("https://example.com/a.jpg")
+        );
+        // HTTP と HTTPS が混在している場合は HTTPS のみ
+        assert_eq!(
+            extract_first_url("http://bad.com/x.jpg https://good.com/y.jpg").as_deref(),
+            Some("https://good.com/y.jpg")
+        );
+    }
 }

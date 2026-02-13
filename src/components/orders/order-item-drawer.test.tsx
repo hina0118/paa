@@ -1231,6 +1231,12 @@ describe('OrderItemDrawer', () => {
   });
 
   describe('Clipboard Event Listener', () => {
+    beforeEach(() => {
+      // モック実装をリセットして、他のテストの影響を受けないようにする
+      mockListen.mockReset();
+      mockListen.mockResolvedValue(vi.fn());
+    });
+
     it('sets up clipboard event listener when drawer opens', async () => {
       render(
         <OrderItemDrawer item={mockItem} open={true} onOpenChange={vi.fn()} />
