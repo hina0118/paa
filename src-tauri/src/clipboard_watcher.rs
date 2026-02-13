@@ -10,7 +10,7 @@ use tauri::Emitter;
 pub const CLIPBOARD_URL_DETECTED_EVENT: &str = "clipboard-url-detected";
 
 /// クリップボードテキストの最大サイズ（バイト）
-/// 10KB を超える内容は処理をスキップして、メモリの過剰使用を防ぐ
+/// 10KB を超える内容は処理をスキップして、メモリの過剰使用を防ぐため
 const MAX_CLIPBOARD_SIZE: usize = 10_240;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
