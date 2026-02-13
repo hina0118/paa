@@ -125,6 +125,10 @@ export function ImageSearchDialog({
   const isHttpUrl = urlToSave?.startsWith('http://');
   const isValidUrl = urlToSave && !isHttpUrl;
 
+  // Show detected URL notification when no URL is selected/entered yet
+  const shouldShowDetectedUrl =
+    detectedUrl && !selectedUrl && !manualUrlInput.trim();
+
   const handleSaveImage = useCallback(async () => {
     if (!urlToSave) return;
 
@@ -184,7 +188,7 @@ export function ImageSearchDialog({
 
         <div className="flex-1 overflow-y-auto space-y-4">
           {/* クリップボード検知URL通知 */}
-          {detectedUrl && !selectedUrl && !manualUrlInput.trim() && (
+          {shouldShowDetectedUrl && (
             <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
               <p className="text-sm font-medium text-blue-900 mb-2">
                 クリップボードから画像URLを検知しました
