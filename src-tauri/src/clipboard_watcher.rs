@@ -34,6 +34,9 @@ pub struct WatcherConfig {
 impl Default for WatcherConfig {
     fn default() -> Self {
         Self {
+            // 800ms: CPU使用率とレスポンス性のバランスを考慮した間隔
+            // より短い間隔（例: 500ms）はCPU使用率が高くなり、
+            // より長い間隔（例: 1000ms以上）はユーザー体験が悪化する
             poll_interval_ms: 800,
             emit_non_image_url: false,
         }
@@ -122,7 +125,8 @@ pub fn run_clipboard_watcher(app: tauri::AppHandle, config: WatcherConfig) {
 }
 
 static URL_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
-    regex::Regex::new(r"https?://\S+").expect(
+    // フロントエンド（image-search-dialog）は HTTPS のみ受け付けるため、ここでも HTTPS の URL のみに限定する
+    regex::Regex::new(r"https://\S+").expect(
         "Failed to compile URL regex pattern - this is a static pattern and should never fail",
     )
 });
