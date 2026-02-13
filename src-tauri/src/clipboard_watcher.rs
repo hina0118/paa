@@ -94,6 +94,7 @@ pub fn run_clipboard_watcher(
                 Ok(t) => {
                     // クリップボード内容が MAX_CLIPBOARD_SIZE より大きい場合はスキップ（メモリの過剰な使用を防ぐ）
                     // ハッシュ値を last_text に保存して、同じ大容量コンテンツでログが繰り返し出力されるのを防ぐ
+                    // 注意: ハッシュ計算は毎回行われるが、実際のテキスト保存と比べて遥かに軽量
                     let hash = format!("__LARGE_CONTENT_HASH_{:x}__", calculate_simple_hash(&t));
                     if last_text.as_deref() != Some(&hash) {
                         log::debug!("Skipping large clipboard content (> {} bytes)", MAX_CLIPBOARD_SIZE);
@@ -188,6 +189,10 @@ fn is_image_url(url: &str) -> bool {
 
 /// 簡易的なハッシュ計算（大容量コンテンツの重複検知用）
 /// メモリ効率のため、テキスト全体を保存せずハッシュ値のみを使用
+/// 
+/// 注意: ハッシュ衝突の可能性はあるが、このユースケース（ログの重複防止）では
+/// 衝突が起きても重大な問題にはならない。最悪の場合、異なる大容量コンテンツでも
+/// 一度だけログが出力されることになるが、機能的には許容範囲。
 fn calculate_simple_hash(text: &str) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
