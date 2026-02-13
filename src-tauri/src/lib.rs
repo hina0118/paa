@@ -564,8 +564,16 @@ pub fn run() {
             {
                 let app_handle = app.handle().clone();
                 let config = clipboard_watcher::WatcherConfig::default();
-                tauri::async_runtime::spawn_blocking(move || {
+                // spawn_blocking の JoinHandle を保持し、アプリ終了時に確実に停止させる
+                let watcher_handle = tauri::async_runtime::spawn_blocking(move || {
                     clipboard_watcher::run_clipboard_watcher(app_handle, config);
+                });
+
+                // アプリ終了時（tray の Quit などを含む）にクリップボード監視タスクを中断する
+                let exit_app_handle = app.handle();
+                exit_app_handle.once_global("tauri://exit", move |_event| {
+                    // 監視スレッドを強制終了
+                    watcher_handle.abort();
                 });
             }
 
