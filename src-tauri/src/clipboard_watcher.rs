@@ -1,0 +1,186 @@
+//! クリップボード監視（ポーリング）
+//!
+//! - OSイベントフックは使わず、一定間隔でクリップボード（テキスト）を取得して変化を検知する。
+//! - URL（特に画像URL）を検知したらフロントへイベントで通知する。
+
+use serde::{Deserialize, Serialize};
+use tauri::Emitter;
+
+pub const CLIPBOARD_URL_DETECTED_EVENT: &str = "clipboard-url-detected";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipboardUrlDetectedPayload {
+    pub url: String,
+    pub kind: ClipboardDetectedKind,
+    pub source: String,
+    pub detected_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClipboardDetectedKind {
+    ImageUrl,
+    Url,
+}
+
+#[derive(Debug, Clone)]
+pub struct WatcherConfig {
+    pub poll_interval_ms: u64,
+    pub emit_non_image_url: bool,
+}
+
+impl Default for WatcherConfig {
+    fn default() -> Self {
+        Self {
+            poll_interval_ms: 800,
+            emit_non_image_url: false,
+        }
+    }
+}
+
+/// クリップボード監視を開始する（ブロッキング）。
+///
+/// - `AppHandle` を受け取り、検知時にイベントでフロントへ通知する。
+/// - 例外が発生してもクラッシュせず継続する。
+pub fn run_clipboard_watcher(app: tauri::AppHandle, config: WatcherConfig) {
+    let mut last_text: Option<String> = None;
+    let mut consecutive_read_errors: u32 = 0;
+
+    loop {
+        // Clipboard の初期化が失敗することがあるため、リトライ前提で外側ループにする
+        let mut clipboard = match arboard::Clipboard::new() {
+            Ok(c) => c,
+            Err(e) => {
+                log::warn!("Failed to initialize clipboard: {}", e);
+                std::thread::sleep(std::time::Duration::from_millis(config.poll_interval_ms));
+                continue;
+            }
+        };
+
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(config.poll_interval_ms));
+
+            let text = match clipboard.get_text() {
+                Ok(t) => {
+                    consecutive_read_errors = 0;
+                    t
+                }
+                Err(_e) => {
+                    // クリップボードがロックされている等で失敗することがあるため、ログはdebugに留める
+                    //（頻繁に起きるとノイズになる）
+                    consecutive_read_errors = consecutive_read_errors.saturating_add(1);
+                    log::debug!("Failed to read clipboard text");
+                    if consecutive_read_errors >= 10 {
+                        // 連続失敗が続く場合は Clipboard を作り直す
+                        consecutive_read_errors = 0;
+                        break;
+                    }
+                    continue;
+                }
+            };
+
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+
+            // 変化がない場合は無視
+            if last_text.as_deref() == Some(trimmed) {
+                continue;
+            }
+            last_text = Some(trimmed.to_string());
+
+            // URL抽出（最初のURLのみ）
+            let Some(url) = extract_first_url(trimmed) else {
+                continue;
+            };
+
+            let kind = if is_image_url(&url) {
+                ClipboardDetectedKind::ImageUrl
+            } else {
+                ClipboardDetectedKind::Url
+            };
+
+            if matches!(kind, ClipboardDetectedKind::Url) && !config.emit_non_image_url {
+                continue;
+            }
+
+            let payload = ClipboardUrlDetectedPayload {
+                url,
+                kind,
+                source: "clipboard".to_string(),
+                detected_at: chrono::Utc::now().to_rfc3339(),
+            };
+
+            if let Err(e) = app.emit(CLIPBOARD_URL_DETECTED_EVENT, payload) {
+                log::debug!("Failed to emit clipboard event: {}", e);
+            }
+        }
+    }
+}
+
+fn extract_first_url(text: &str) -> Option<String> {
+    // URLは最小限で: 空白/改行で区切られている想定
+    // （コピー元によっては末尾に ')' ',' などが付くことがあるので軽く剥がす）
+    let re = regex::Regex::new(r"https?://\S+").ok()?;
+    let m = re.find(text)?;
+    let mut s = m.as_str().to_string();
+    while s.ends_with([')', ']', '}', '>', ',', '.', ';', '"', '\'']) {
+        s.pop();
+    }
+    Some(s)
+}
+
+fn is_image_url(url: &str) -> bool {
+    // まずはパースできるURLのみ対象
+    let Ok(parsed) = url::Url::parse(url) else {
+        return false;
+    };
+    let path = parsed.path().to_ascii_lowercase();
+    path.ends_with(".jpg")
+        || path.ends_with(".jpeg")
+        || path.ends_with(".png")
+        || path.ends_with(".webp")
+        || path.ends_with(".gif")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_first_url_basic() {
+        assert_eq!(
+            extract_first_url("https://example.com/a.jpg").as_deref(),
+            Some("https://example.com/a.jpg")
+        );
+        assert_eq!(
+            extract_first_url("foo https://example.com/a.png bar").as_deref(),
+            Some("https://example.com/a.png")
+        );
+        assert_eq!(extract_first_url("no url here"), None);
+    }
+
+    #[test]
+    fn test_extract_first_url_strips_trailing_punct() {
+        assert_eq!(
+            extract_first_url("(https://example.com/a.jpg)").as_deref(),
+            Some("https://example.com/a.jpg")
+        );
+        assert_eq!(
+            extract_first_url("https://example.com/a.jpg,").as_deref(),
+            Some("https://example.com/a.jpg")
+        );
+    }
+
+    #[test]
+    fn test_is_image_url() {
+        assert!(is_image_url("https://example.com/a.JPG"));
+        assert!(is_image_url("https://example.com/a.jpeg"));
+        assert!(is_image_url("https://example.com/a.png?x=1"));
+        assert!(!is_image_url("https://example.com/a.svg"));
+        assert!(!is_image_url("not a url"));
+    }
+}
+
