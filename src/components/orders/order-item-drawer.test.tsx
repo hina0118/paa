@@ -1306,9 +1306,11 @@ describe('OrderItemDrawer', () => {
 
     it('ignores non-image_url clipboard events', async () => {
       const mockUnlisten = vi.fn();
+      let callbackInvoked = false;
       mockListen.mockImplementation((eventName, callback) => {
         if (eventName === 'clipboard-url-detected') {
           setTimeout(() => {
+            callbackInvoked = true;
             callback({
               payload: {
                 url: 'https://example.com/page',
@@ -1326,12 +1328,15 @@ describe('OrderItemDrawer', () => {
         <OrderItemDrawer item={mockItem} open={true} onOpenChange={vi.fn()} />
       );
 
-      // 画像検索ダイアログが開かないことを確認（非同期待機）
+      // コールバックが呼ばれるまで待つ
       await waitFor(() => {
-        expect(
-          screen.queryByRole('heading', { name: '画像を検索' })
-        ).not.toBeInTheDocument();
+        expect(callbackInvoked).toBe(true);
       });
+
+      // コールバック実行後も画像検索ダイアログが開かないことを確認
+      expect(
+        screen.queryByRole('heading', { name: '画像を検索' })
+      ).not.toBeInTheDocument();
     });
 
     it('cleans up listener when drawer closes', async () => {
