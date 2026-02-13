@@ -47,11 +47,22 @@ impl Default for WatcherConfig {
 ///
 /// - `AppHandle` を受け取り、検知時にイベントでフロントへ通知する。
 /// - 例外が発生してもクラッシュせず継続する。
-pub fn run_clipboard_watcher(app: tauri::AppHandle, config: WatcherConfig) {
+/// - `shutdown_signal` が true になると監視ループを終了する。
+pub fn run_clipboard_watcher(
+    app: tauri::AppHandle,
+    config: WatcherConfig,
+    shutdown_signal: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) {
     let mut last_text: Option<String> = None;
     let mut consecutive_read_errors: u32 = 0;
 
     loop {
+        // シャットダウンシグナルをチェック
+        if shutdown_signal.load(std::sync::atomic::Ordering::Relaxed) {
+            log::info!("Clipboard watcher received shutdown signal, exiting");
+            break;
+        }
+
         // Clipboard の初期化が失敗することがあるため、リトライ前提で外側ループにする
         let mut clipboard = match arboard::Clipboard::new() {
             Ok(c) => c,
@@ -63,6 +74,11 @@ pub fn run_clipboard_watcher(app: tauri::AppHandle, config: WatcherConfig) {
         };
 
         loop {
+            // 内側ループでもシャットダウンチェック
+            if shutdown_signal.load(std::sync::atomic::Ordering::Relaxed) {
+                return;
+            }
+
             std::thread::sleep(std::time::Duration::from_millis(config.poll_interval_ms));
 
             let text = match clipboard.get_text() {

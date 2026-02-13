@@ -13,6 +13,7 @@ fn is_sqlite_version_supported(version: &str) -> bool {
     major > 3 || (major == 3 && minor >= 43)
 }
 use std::io::Write;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::menu::{Menu, MenuItem, Submenu};
 use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
@@ -564,16 +565,32 @@ pub fn run() {
             {
                 let app_handle = app.handle().clone();
                 let config = clipboard_watcher::WatcherConfig::default();
+
+                // グレースフルシャットダウン用のシグナル
+                let shutdown_signal = Arc::new(AtomicBool::new(false));
+                let shutdown_signal_clone = shutdown_signal.clone();
+
                 // spawn_blocking の JoinHandle を保持し、アプリ終了時に確実に停止させる
                 let watcher_handle = tauri::async_runtime::spawn_blocking(move || {
-                    clipboard_watcher::run_clipboard_watcher(app_handle, config);
+                    clipboard_watcher::run_clipboard_watcher(app_handle, config, shutdown_signal_clone);
                 });
 
-                // アプリ終了時（tray の Quit などを含む）にクリップボード監視タスクを中断する
+                // アプリ終了イベントを検出してシャットダウンシグナルを送る
+                // AppHandle::run を使ってアプリケーションライフサイクルを監視
                 let exit_app_handle = app.handle().clone();
-                let _ = exit_app_handle.once("tauri://exit", move |_event| {
-                    // 監視スレッドを強制終了
-                    watcher_handle.abort();
+                tauri::async_runtime::spawn(async move {
+                    // Tauri のウィンドウが全て閉じられるのを待つ
+                    // (主ウィンドウまたはtray経由のQuitでアプリが終了する)
+                    loop {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+                        if exit_app_handle.windows().is_empty() {
+                            // ウィンドウが全て閉じられた -> シャットダウンシグナル送信
+                            shutdown_signal.store(true, Ordering::Relaxed);
+                            // 監視スレッドが終了するまで少し待つ
+                            tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
+                            break;
+                        }
+                    }
                 });
             }
 
