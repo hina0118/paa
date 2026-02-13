@@ -97,7 +97,11 @@ pub fn run_clipboard_watcher(
                     // 注意: ハッシュ計算は毎回行われるが、実際のテキスト保存と比べて遥かに軽量
                     let hash = format!("__LARGE_CONTENT_HASH_{:x}__", calculate_simple_hash(&t));
                     if last_text.as_deref() != Some(&hash) {
-                        log::debug!("Skipping large clipboard content (> {} bytes)", MAX_CLIPBOARD_SIZE);
+                        log::debug!(
+                            "Skipping large clipboard content ({} bytes > {} bytes limit)",
+                            t.len(),
+                            MAX_CLIPBOARD_SIZE
+                        );
                         last_text = Some(hash);
                     }
                     continue;
