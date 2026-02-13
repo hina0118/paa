@@ -187,10 +187,16 @@ fn get_restore_point_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(app_data_dir.join(RESTORE_POINT_FILE_NAME))
 }
 
-fn copy_restore_point_zip(src_zip_path: &Path, restore_point_path: &Path) -> (bool, Option<String>) {
+fn copy_restore_point_zip(
+    src_zip_path: &Path,
+    restore_point_path: &Path,
+) -> (bool, Option<String>) {
     // source と destination が同一ならコピー不要（成功扱い）
     // - destination が未作成でも判定できるよう、canonicalize 失敗も考慮する
-    match (src_zip_path.canonicalize(), restore_point_path.canonicalize()) {
+    match (
+        src_zip_path.canonicalize(),
+        restore_point_path.canonicalize(),
+    ) {
         (Ok(src_canonical), Ok(dest_canonical)) => {
             // 両方存在 → シンボリックリンクも考慮して比較
             if src_canonical == dest_canonical {
@@ -1832,7 +1838,7 @@ mod tests {
         let (saved, err) = super::copy_restore_point_zip(&same_file, &same_file);
         assert!(saved);
         assert!(err.is_none());
-        
+
         // ファイル内容が変更されていないことを確認
         let content = std::fs::read(&same_file).unwrap();
         assert_eq!(content, b"original content");
