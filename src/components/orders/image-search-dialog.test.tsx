@@ -348,4 +348,129 @@ describe('ImageSearchDialog', () => {
       });
     });
   });
+
+  it('shows notification and allows using detected URL from initialUrl', async () => {
+    const user = userEvent.setup();
+    const detectedUrl = 'https://example.com/detected-image.jpg';
+
+    render(<ImageSearchDialog {...defaultProps} initialUrl={detectedUrl} />);
+
+    // Should show notification with detected URL
+    await waitFor(() => {
+      expect(
+        screen.getByText('クリップボードから画像URLを検知しました')
+      ).toBeInTheDocument();
+      expect(screen.getByText(detectedUrl)).toBeInTheDocument();
+    });
+
+    // Should have "このURLを使用" button
+    const useUrlButton = screen.getByRole('button', { name: 'このURLを使用' });
+    expect(useUrlButton).toBeInTheDocument();
+
+    // Click to use the detected URL
+    await user.click(useUrlButton);
+
+    // Notification should disappear and URL should be in input
+    await waitFor(() => {
+      expect(
+        screen.queryByText('クリップボードから画像URLを検知しました')
+      ).not.toBeInTheDocument();
+    });
+
+    // URL should be available for saving
+    const urlInput = screen.getByPlaceholderText('画像のURLをここに貼り付け');
+    expect(urlInput).toHaveValue(detectedUrl);
+  });
+
+  it('disables save button and shows error for HTTP URLs', async () => {
+    const user = userEvent.setup();
+
+    renderWithToaster(<ImageSearchDialog {...defaultProps} />);
+
+    const urlInput = screen.getByPlaceholderText('画像のURLをここに貼り付け');
+    await user.type(urlInput, 'http://example.com/insecure-image.jpg');
+
+    // Save button should be disabled
+    const saveButton = screen.getByRole('button', {
+      name: '選択した画像を保存',
+    });
+    expect(saveButton).toBeDisabled();
+
+    // Should show error message
+    await waitFor(() => {
+      expect(screen.getByText('HTTPのURLは使用できません')).toBeInTheDocument();
+      expect(
+        screen.getByText(/セキュリティ上の理由により、HTTPSのURLのみ対応/)
+      ).toBeInTheDocument();
+    });
+  });
+
+  it('disables save button for invalid URLs (uppercase HTTP, ftp, etc)', async () => {
+    const user = userEvent.setup();
+
+    renderWithToaster(<ImageSearchDialog {...defaultProps} />);
+
+    const urlInput = screen.getByPlaceholderText('画像のURLをここに貼り付け');
+
+    // Test uppercase HTTP
+    await user.clear(urlInput);
+    await user.type(urlInput, 'HTTP://example.com/image.jpg');
+
+    let saveButton = screen.getByRole('button', {
+      name: '選択した画像を保存',
+    });
+    expect(saveButton).toBeDisabled();
+
+    // Test ftp protocol
+    await user.clear(urlInput);
+    await user.type(urlInput, 'ftp://example.com/image.jpg');
+
+    saveButton = screen.getByRole('button', {
+      name: '選択した画像を保存',
+    });
+    expect(saveButton).toBeDisabled();
+
+    // Test file protocol
+    await user.clear(urlInput);
+    await user.type(urlInput, 'file:///path/to/image.jpg');
+
+    saveButton = screen.getByRole('button', {
+      name: '選択した画像を保存',
+    });
+    expect(saveButton).toBeDisabled();
+  });
+
+  it('clears manual input when new initialUrl is detected', async () => {
+    const { rerender } = render(
+      <ImageSearchDialog {...defaultProps} open={true} />
+    );
+
+    const user = userEvent.setup();
+    const urlInput = screen.getByPlaceholderText('画像のURLをここに貼り付け');
+
+    // User manually enters a URL
+    await user.type(urlInput, 'https://example.com/manual-input.jpg');
+    expect(urlInput).toHaveValue('https://example.com/manual-input.jpg');
+
+    // New URL is detected from clipboard
+    const newDetectedUrl = 'https://example.com/newly-detected.jpg';
+    rerender(
+      <ImageSearchDialog
+        {...defaultProps}
+        open={true}
+        initialUrl={newDetectedUrl}
+      />
+    );
+
+    // Manual input should be cleared
+    await waitFor(() => {
+      expect(urlInput).toHaveValue('');
+    });
+
+    // Notification should show the new detected URL
+    expect(
+      screen.getByText('クリップボードから画像URLを検知しました')
+    ).toBeInTheDocument();
+    expect(screen.getByText(newDetectedUrl)).toBeInTheDocument();
+  });
 });

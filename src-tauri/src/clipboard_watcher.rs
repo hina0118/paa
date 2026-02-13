@@ -3,6 +3,7 @@
 //! - OSイベントフックは使わず、一定間隔でクリップボード（テキスト）を取得して変化を検知する。
 //! - URL（特に画像URL）を検知したらフロントへイベントで通知する。
 
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use tauri::Emitter;
 
@@ -120,11 +121,15 @@ pub fn run_clipboard_watcher(app: tauri::AppHandle, config: WatcherConfig) {
     }
 }
 
+static URL_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
+    regex::Regex::new(r"https?://\S+")
+        .expect("Failed to compile URL regex pattern - this is a static pattern and should never fail")
+});
+
 fn extract_first_url(text: &str) -> Option<String> {
     // URLは最小限で: 空白/改行で区切られている想定
     // （コピー元によっては末尾に ')' ',' などが付くことがあるので軽く剥がす）
-    let re = regex::Regex::new(r"https?://\S+").ok()?;
-    let m = re.find(text)?;
+    let m = URL_REGEX.find(text)?;
     let mut s = m.as_str().to_string();
     while s.ends_with([')', ']', '}', '>', ',', '.', ';', '"', '\'']) {
         s.pop();
