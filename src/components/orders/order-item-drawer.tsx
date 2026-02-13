@@ -22,6 +22,7 @@ import { StatusBadge } from './status-badge';
 import { ImageSearchDialog } from './image-search-dialog';
 import { useImageUrl } from '@/hooks/useImageUrl';
 import type { OrderItemRow } from '@/lib/types';
+import { CLIPBOARD_URL_DETECTED_EVENT } from '@/lib/tauri-events';
 import { formatDate, formatPrice } from '@/lib/utils';
 import { toastWarning, formatError } from '@/lib/toast';
 import { Search, Pencil, Trash2, X } from 'lucide-react';
@@ -143,7 +144,7 @@ export function OrderItemDrawer({
     void (async () => {
       try {
         const stop = await listen<ClipboardUrlDetectedPayload>(
-          'clipboard-url-detected',
+          CLIPBOARD_URL_DETECTED_EVENT,
           (event) => {
             const payload = event.payload;
             if (!payload || payload.kind !== 'image_url') return;
