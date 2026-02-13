@@ -10,7 +10,7 @@ use tauri::Emitter;
 pub const CLIPBOARD_URL_DETECTED_EVENT: &str = "clipboard-url-detected";
 
 /// クリップボードテキストの最大サイズ（バイト）
-/// 10KB を超える内容は処理をスキップして、メモリの過剰使用を防ぐため
+/// 10KB を超える内容は処理をスキップして、メモリの過剰使用を防ぐ
 const MAX_CLIPBOARD_SIZE: usize = 10_240;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,7 +92,7 @@ pub fn run_clipboard_watcher(
                     t
                 }
                 Ok(_) => {
-                    // クリップボード内容がMAX_CLIPBOARD_SIZE超の場合はスキップ（メモリの過剰な使用を防ぐ）
+                    // クリップボード内容が MAX_CLIPBOARD_SIZE 超の場合はスキップ（メモリの過剰な使用を防ぐ）
                     continue;
                 }
                 Err(_e) => {
