@@ -150,7 +150,7 @@ static URL_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
 
 fn extract_first_url(text: &str) -> Option<String> {
     // URLは最小限で: 空白/改行で区切られている想定
-    // （コピー元によっては末尾に ')' ',' '!' などが付くことがあるので軽く剥がす）
+    // （コピー元によっては末尾に ')' ',' '!' '?' などが付くことがあるので軽く剥がす）
     let m = URL_REGEX.find(text)?;
     let mut s = m.as_str().to_string();
     while s.ends_with([')', ']', '}', '>', ',', '.', ';', '"', '\'', '!', '?']) {
