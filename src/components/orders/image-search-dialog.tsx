@@ -132,7 +132,8 @@ export function ImageSearchDialog({
       return false;
     }
   })();
-  const isHttpUrl = urlToSave && !isValidUrl;
+  const isInvalidOrNonHttpsUrl = Boolean(urlToSave) && !isValidUrl;
+  const isHttpUrl = isInvalidOrNonHttpsUrl;
 
   // Show detected URL notification when no URL is selected/entered yet
   const shouldShowDetectedUrl =
