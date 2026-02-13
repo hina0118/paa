@@ -61,7 +61,7 @@ pub fn run_clipboard_watcher(
         // シャットダウンシグナルをチェック
         if shutdown_signal.load(std::sync::atomic::Ordering::Relaxed) {
             log::info!("Clipboard watcher received shutdown signal, exiting");
-            break;
+            return;
         }
 
         // Clipboard の初期化が失敗することがあるため、リトライ前提で外側ループにする
@@ -83,9 +83,13 @@ pub fn run_clipboard_watcher(
             std::thread::sleep(std::time::Duration::from_millis(config.poll_interval_ms));
 
             let text = match clipboard.get_text() {
-                Ok(t) => {
+                Ok(t) if t.len() <= 10_240 => {
                     consecutive_read_errors = 0;
                     t
+                }
+                Ok(_) => {
+                    // クリップボード内容が10KB超の場合はスキップ（メモリ過多使用を防ぐ）
+                    continue;
                 }
                 Err(_e) => {
                     // クリップボードがロックされている等で失敗することがあるため、ログはdebugに留める
