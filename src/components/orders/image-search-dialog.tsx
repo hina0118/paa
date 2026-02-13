@@ -52,9 +52,8 @@ export function ImageSearchDialog({
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [apiSearchFailed, setApiSearchFailed] = useState(false);
   const [manualUrlInput, setManualUrlInput] = useState('');
-  const [detectedUrl, setDetectedUrl] = useState<string | null>(null);
 
-  // 初期URLが指定されている場合、検出URLとして保存（自動ロードしない）
+  // 初期URLが指定されている場合、入力欄に自動反映（手動入力が空の場合のみ）
   useEffect(() => {
     if (!open) return;
     const url = initialUrl?.trim();
@@ -63,8 +62,7 @@ export function ImageSearchDialog({
     setSavedSuccess(false);
     setApiSearchFailed(false);
     setSearchResults([]);
-    setManualUrlInput('');
-    setDetectedUrl(url);
+    setManualUrlInput(url);
   }, [open, initialUrl]);
 
   const handleSearch = useCallback(async () => {
@@ -134,10 +132,6 @@ export function ImageSearchDialog({
   })();
   const isInvalidOrNonHttpsUrl = Boolean(urlToSave) && !isValidUrl;
 
-  // Show detected URL notification when no URL is selected/entered yet
-  const shouldShowDetectedUrl =
-    detectedUrl && !selectedUrl && !manualUrlInput.trim();
-
   const handleSaveImage = useCallback(async () => {
     if (!urlToSave) return;
 
@@ -167,7 +161,6 @@ export function ImageSearchDialog({
         setSavedSuccess(false);
         setApiSearchFailed(false);
         setManualUrlInput('');
-        setDetectedUrl(null);
       }
       onOpenChange(newOpen);
     },
@@ -196,33 +189,6 @@ export function ImageSearchDialog({
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto space-y-4">
-          {/* クリップボード検知URL通知 */}
-          {shouldShowDetectedUrl && (
-            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-              <p className="text-sm font-medium text-blue-900 mb-2">
-                クリップボードから画像URLを検知しました
-              </p>
-              <p className="text-xs text-blue-700 mb-3 truncate">
-                {detectedUrl}
-              </p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  const url = detectedUrl;
-                  if (!url) {
-                    return;
-                  }
-                  setManualUrlInput(url);
-                  setDetectedUrl(null);
-                }}
-                className="w-full"
-              >
-                このURLを使用
-              </Button>
-            </div>
-          )}
-
           {/* 検索ボタン */}
           <div className="flex gap-2">
             <Button
