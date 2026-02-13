@@ -300,10 +300,10 @@ export function ImageSearchDialog({
               {isInvalidOrNonHttpsUrl ? (
                 <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-md">
                   <p className="text-sm text-destructive font-medium">
-                    HTTPのURLは使用できません
+                    このURLは使用できません
                   </p>
                   <p className="text-xs text-destructive/80 mt-1">
-                    セキュリティ上の理由により、HTTPSのURLのみ対応しています。
+                    セキュリティ上の理由により、有効なHTTPSのURLのみ対応しています。
                   </p>
                 </div>
               ) : (
