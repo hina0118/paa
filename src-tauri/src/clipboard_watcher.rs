@@ -9,6 +9,10 @@ use tauri::Emitter;
 
 pub const CLIPBOARD_URL_DETECTED_EVENT: &str = "clipboard-url-detected";
 
+/// クリップボードテキストの最大サイズ（バイト）
+/// 10KB を超える内容は処理をスキップして、メモリの過剰使用を防ぐ
+const MAX_CLIPBOARD_SIZE: usize = 10_240;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClipboardUrlDetectedPayload {
@@ -61,7 +65,7 @@ pub fn run_clipboard_watcher(
         // シャットダウンシグナルをチェック
         if shutdown_signal.load(std::sync::atomic::Ordering::Relaxed) {
             log::info!("Clipboard watcher received shutdown signal, exiting");
-            break;
+            return;
         }
 
         // Clipboard の初期化が失敗することがあるため、リトライ前提で外側ループにする
@@ -83,9 +87,26 @@ pub fn run_clipboard_watcher(
             std::thread::sleep(std::time::Duration::from_millis(config.poll_interval_ms));
 
             let text = match clipboard.get_text() {
-                Ok(t) => {
+                Ok(t) if t.len() <= MAX_CLIPBOARD_SIZE => {
                     consecutive_read_errors = 0;
                     t
+                }
+                Ok(t) => {
+                    // クリップボードの読み取りは成功しているため、エラーカウンタをリセット
+                    consecutive_read_errors = 0;
+                    // クリップボード内容が MAX_CLIPBOARD_SIZE より大きい場合はスキップ（メモリの過剰な使用を防ぐ）
+                    // ハッシュ値を last_text に保存して、同じ大容量コンテンツでログが繰り返し出力されるのを防ぐ
+                    // 注意: ハッシュ計算は毎回行われるが、実際のテキスト保存と比べて遥かに軽量
+                    let hash = format!("__LARGE_CONTENT_HASH_{:x}__", calculate_simple_hash(&t));
+                    if last_text.as_deref() != Some(&hash) {
+                        log::debug!(
+                            "Skipping large clipboard content ({} bytes > {} bytes limit)",
+                            t.len(),
+                            MAX_CLIPBOARD_SIZE
+                        );
+                        last_text = Some(hash);
+                    }
+                    continue;
                 }
                 Err(_e) => {
                     // クリップボードがロックされている等で失敗することがあるため、ログはdebugに留める
@@ -172,6 +193,20 @@ fn is_image_url(url: &str) -> bool {
         || path.ends_with(".gif")
 }
 
+/// 簡易的なハッシュ計算（大容量コンテンツの重複検知用）
+/// メモリ効率のため、テキスト全体を保存せずハッシュ値のみを使用
+/// 
+/// 注意: ハッシュ衝突の可能性はあるが、このユースケース（ログの重複防止）では
+/// 衝突が起きても重大な問題にはならない。最悪の場合、異なる大容量コンテンツでも
+/// 一度だけログが出力されることになるが、機能的には許容範囲。
+/// DefaultHasher を使用しているのは、暗号学的強度が不要で高速性を優先するため。
+fn calculate_simple_hash(text: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    text.hash(&mut hasher);
+    hasher.finish()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -242,5 +277,40 @@ mod tests {
             extract_first_url("http://bad.com/x.jpg https://good.com/y.jpg").as_deref(),
             Some("https://good.com/y.jpg")
         );
+    }
+
+    #[test]
+    fn test_calculate_simple_hash_consistency() {
+        // 同じ入力に対して同じハッシュ値が返されることを確認
+        let text = "test content for hashing";
+        let hash1 = calculate_simple_hash(text);
+        let hash2 = calculate_simple_hash(text);
+        assert_eq!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_calculate_simple_hash_different_inputs() {
+        // 異なる入力に対して異なるハッシュ値が返されることを確認
+        // 注意: ハッシュ衝突は理論上可能だが、このテストケースでは発生しないはず
+        let text1 = "first text";
+        let text2 = "second text";
+        let hash1 = calculate_simple_hash(text1);
+        let hash2 = calculate_simple_hash(text2);
+        assert_ne!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_calculate_simple_hash_empty_string() {
+        // 空文字列のハッシュも計算できることを確認
+        // ハッシュ計算がパニックしないことを確認（値は何でも良い）
+        let _hash = calculate_simple_hash("");
+    }
+
+    #[test]
+    fn test_calculate_simple_hash_large_content() {
+        // 大容量コンテンツのハッシュ計算も正常に動作することを確認
+        let large_text = "a".repeat(20_000); // 20KB
+        // ハッシュ計算がパニックしないことを確認（値は何でも良い）
+        let _hash = calculate_simple_hash(&large_text);
     }
 }
