@@ -40,6 +40,7 @@ use crate::repository::{
 trait BatchCommandsApp: BatchEventEmitter {
     fn notify(&self, title: &str, body: &str);
     fn app_config_dir(&self) -> Result<std::path::PathBuf, String>;
+    fn app_data_dir(&self) -> Option<std::path::PathBuf>;
     async fn create_gmail_client(&self) -> Result<GmailClientForE2E, String>;
 }
 
@@ -70,6 +71,10 @@ impl BatchCommandsApp for TauriBatchCommandsApp {
             .path()
             .app_config_dir()
             .map_err(|e| format!("Failed to get app config dir: {e}"))
+    }
+
+    fn app_data_dir(&self) -> Option<std::path::PathBuf> {
+        self.app.path().app_data_dir().ok()
     }
 
     async fn create_gmail_client(&self) -> Result<GmailClientForE2E, String> {
@@ -299,6 +304,16 @@ pub async fn run_batch_parse_task(
     parse_state: crate::parsers::ParseState,
     batch_size: usize,
 ) {
+    let app = TauriBatchCommandsApp { app };
+    run_batch_parse_task_with(&app, pool, parse_state, batch_size).await
+}
+
+async fn run_batch_parse_task_with<A: BatchCommandsApp>(
+    app: &A,
+    pool: SqlitePool,
+    parse_state: crate::parsers::ParseState,
+    batch_size: usize,
+) {
     log::info!("Starting batch parse with BatchRunner<EmailParseTask>...");
 
     let batch_size = batch_size.max(1);
@@ -315,7 +330,7 @@ pub async fn run_batch_parse_task(
                 0,
                 format!("Parse already running: {}", msg),
             );
-            let _ = app.emit(EMAIL_PARSE_EVENT_NAME, error_event);
+            app.emit_event(EMAIL_PARSE_EVENT_NAME, error_event);
         } else {
             log::error!("Failed to start parse: {}", msg);
             parse_state.set_error(&e);
@@ -327,7 +342,7 @@ pub async fn run_batch_parse_task(
                 0,
                 format!("Parse error: {}", msg),
             );
-            let _ = app.emit(EMAIL_PARSE_EVENT_NAME, error_event);
+            app.emit_event(EMAIL_PARSE_EVENT_NAME, error_event);
         }
         return;
     }
@@ -349,7 +364,7 @@ pub async fn run_batch_parse_task(
             0,
             format!("Failed to clear order tables: {}", e),
         );
-        let _ = app.emit(EMAIL_PARSE_EVENT_NAME, error_event);
+        app.emit_event(EMAIL_PARSE_EVENT_NAME, error_event);
         return;
     }
 
@@ -367,7 +382,7 @@ pub async fn run_batch_parse_task(
                 0,
                 format!("Failed to fetch shop settings: {}", e),
             );
-            let _ = app.emit(EMAIL_PARSE_EVENT_NAME, error_event);
+            app.emit_event(EMAIL_PARSE_EVENT_NAME, error_event);
             return;
         }
     };
@@ -390,7 +405,7 @@ pub async fn run_batch_parse_task(
             0,
             "No enabled shop settings found".to_string(),
         );
-        let _ = app.emit(EMAIL_PARSE_EVENT_NAME, error_event);
+        app.emit_event(EMAIL_PARSE_EVENT_NAME, error_event);
         return;
     }
 
@@ -408,7 +423,7 @@ pub async fn run_batch_parse_task(
                 0,
                 format!("Failed to count emails: {}", e),
             );
-            let _ = app.emit(EMAIL_PARSE_EVENT_NAME, error_event);
+            app.emit_event(EMAIL_PARSE_EVENT_NAME, error_event);
             return;
         }
     };
@@ -425,7 +440,7 @@ pub async fn run_batch_parse_task(
             0,
             "パース対象のメールがありません".to_string(),
         );
-        let _ = app.emit(EMAIL_PARSE_EVENT_NAME, complete_event);
+        app.emit_event(EMAIL_PARSE_EVENT_NAME, complete_event);
         return;
     }
 
@@ -443,7 +458,7 @@ pub async fn run_batch_parse_task(
                 0,
                 format!("Failed to fetch unparsed emails: {}", e),
             );
-            let _ = app.emit(EMAIL_PARSE_EVENT_NAME, error_event);
+            app.emit_event(EMAIL_PARSE_EVENT_NAME, error_event);
             return;
         }
     };
@@ -480,9 +495,7 @@ pub async fn run_batch_parse_task(
     > = EmailParseTask::new();
 
     let image_save_ctx = app
-        .path()
         .app_data_dir()
-        .ok()
         .map(|dir| (std::sync::Arc::new(pool.clone()), dir.join("images")));
 
     let context = EmailParseContext {
@@ -775,6 +788,10 @@ mod tests {
             Ok(self.config_dir.clone())
         }
 
+        fn app_data_dir(&self) -> Option<std::path::PathBuf> {
+            Some(self.config_dir.clone())
+        }
+
         async fn create_gmail_client(&self) -> Result<GmailClientForE2E, String> {
             if self.fail_create_gmail_client {
                 return Err("boom".to_string());
@@ -891,5 +908,51 @@ mod tests {
         assert_eq!(emitted.len(), 1);
         assert_eq!(emitted[0], GMAIL_SYNC_EVENT_NAME);
         assert_eq!(app.notify_count.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn run_batch_parse_task_emits_error_when_already_running() {
+        let pool = create_pool().await;
+        let tmp = TempDir::new().unwrap();
+        let app = FakeApp {
+            config_dir: tmp.path().to_path_buf(),
+            emitted_events: StdMutex::new(Vec::new()),
+            notify_count: AtomicUsize::new(0),
+            fail_create_gmail_client: false,
+        };
+        let parse_state = crate::parsers::ParseState::new();
+        parse_state.start().unwrap();
+
+        run_batch_parse_task_with(&app, pool, parse_state, 10).await;
+
+        let emitted = app.emitted_events.lock().unwrap();
+        assert!(!emitted.is_empty());
+        assert_eq!(emitted[0], EMAIL_PARSE_EVENT_NAME);
+    }
+
+    #[tokio::test]
+    async fn run_batch_parse_task_finishes_and_emits_error_when_clear_tables_fails() {
+        let pool = create_pool().await;
+        // order tables を作らない → clear_order_tables が失敗する
+        create_shop_settings_table(&pool).await;
+        insert_enabled_shop(&pool).await;
+
+        let tmp = TempDir::new().unwrap();
+        let app = FakeApp {
+            config_dir: tmp.path().to_path_buf(),
+            emitted_events: StdMutex::new(Vec::new()),
+            notify_count: AtomicUsize::new(0),
+            fail_create_gmail_client: false,
+        };
+        let parse_state = crate::parsers::ParseState::new();
+
+        run_batch_parse_task_with(&app, pool, parse_state.clone(), 10).await;
+
+        // finish されて idle に戻る
+        assert!(!*parse_state.is_running.lock().unwrap());
+
+        let emitted = app.emitted_events.lock().unwrap();
+        assert!(!emitted.is_empty());
+        assert_eq!(emitted[0], EMAIL_PARSE_EVENT_NAME);
     }
 }
