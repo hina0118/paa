@@ -348,4 +348,128 @@ describe('ImageSearchDialog', () => {
       });
     });
   });
+
+  it('auto-fills detected URL from initialUrl into input field', async () => {
+    const detectedUrl = 'https://example.com/detected-image.jpg';
+
+    render(<ImageSearchDialog {...defaultProps} initialUrl={detectedUrl} />);
+
+    // URL should be automatically filled in the input field
+    const urlInput = screen.getByPlaceholderText('画像のURLをここに貼り付け');
+    await waitFor(() => {
+      expect(urlInput).toHaveValue(detectedUrl);
+    });
+
+    // Save button should be enabled for valid HTTPS URL
+    const saveButton = screen.getByRole('button', {
+      name: '選択した画像を保存',
+    });
+    expect(saveButton).toBeEnabled();
+  });
+
+  it('disables save button and shows error for HTTP URLs', async () => {
+    const user = userEvent.setup();
+
+    renderWithToaster(<ImageSearchDialog {...defaultProps} />);
+
+    const urlInput = screen.getByPlaceholderText('画像のURLをここに貼り付け');
+    await user.type(urlInput, 'http://example.com/insecure-image.jpg');
+
+    // Save button should be disabled
+    const saveButton = screen.getByRole('button', {
+      name: '選択した画像を保存',
+    });
+    expect(saveButton).toBeDisabled();
+
+    // Should show error message
+    await waitFor(() => {
+      expect(screen.getByText('HTTPのURLは使用できません')).toBeInTheDocument();
+      expect(
+        screen.getByText(/セキュリティ上の理由により、HTTPSのURLのみ対応/)
+      ).toBeInTheDocument();
+    });
+  });
+
+  it('disables save button for invalid URLs (uppercase HTTP, ftp, etc)', async () => {
+    const user = userEvent.setup();
+
+    renderWithToaster(<ImageSearchDialog {...defaultProps} />);
+
+    const urlInput = screen.getByPlaceholderText('画像のURLをここに貼り付け');
+
+    // Test uppercase HTTP
+    await user.clear(urlInput);
+    await user.type(urlInput, 'HTTP://example.com/image.jpg');
+
+    let saveButton = screen.getByRole('button', {
+      name: '選択した画像を保存',
+    });
+    expect(saveButton).toBeDisabled();
+    // Verify specific error message for HTTP URLs (case-insensitive)
+    await waitFor(() => {
+      expect(screen.getByText('HTTPのURLは使用できません')).toBeInTheDocument();
+    });
+
+    // Test ftp protocol - should show generic error message
+    await user.clear(urlInput);
+    await user.type(urlInput, 'ftp://example.com/image.jpg');
+
+    saveButton = screen.getByRole('button', {
+      name: '選択した画像を保存',
+    });
+    expect(saveButton).toBeDisabled();
+
+    // Verify generic error message for non-HTTP invalid URLs
+    await waitFor(() => {
+      expect(screen.getByText('このURLは使用できません')).toBeInTheDocument();
+      expect(
+        screen.getByText(/セキュリティ上の理由により、HTTPSのURLのみ対応/)
+      ).toBeInTheDocument();
+    });
+
+    // Test file protocol - should show same generic error message
+    await user.clear(urlInput);
+    await user.type(urlInput, 'file:///path/to/image.jpg');
+
+    saveButton = screen.getByRole('button', {
+      name: '選択した画像を保存',
+    });
+    expect(saveButton).toBeDisabled();
+
+    // Verify generic error message for file protocol too
+    await waitFor(() => {
+      expect(screen.getByText('このURLは使用できません')).toBeInTheDocument();
+      expect(
+        screen.getByText(/セキュリティ上の理由により、HTTPSのURLのみ対応/)
+      ).toBeInTheDocument();
+    });
+  });
+
+  it('replaces manual input when new initialUrl is detected', async () => {
+    const { rerender } = render(
+      <ImageSearchDialog {...defaultProps} open={true} />
+    );
+
+    const user = userEvent.setup();
+    const urlInput = screen.getByPlaceholderText('画像のURLをここに貼り付け');
+
+    // User manually enters a URL
+    await user.type(urlInput, 'https://example.com/manual-input.jpg');
+    expect(urlInput).toHaveValue('https://example.com/manual-input.jpg');
+
+    // New URL is detected from clipboard
+    const newDetectedUrl = 'https://example.com/newly-detected.jpg';
+    rerender(
+      <ImageSearchDialog
+        {...defaultProps}
+        open={true}
+        initialUrl={newDetectedUrl}
+      />
+    );
+
+    // Manual input should be replaced with the detected URL
+    await waitFor(() => {
+      expect(urlInput).toHaveValue(newDetectedUrl);
+    });
+  });
 });
