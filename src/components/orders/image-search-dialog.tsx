@@ -33,6 +33,7 @@ type ImageSearchDialogProps = {
   onOpenChange: (open: boolean) => void;
   itemId: number;
   itemName: string;
+  initialUrl?: string;
   onImageSaved?: () => void;
 };
 
@@ -41,6 +42,7 @@ export function ImageSearchDialog({
   onOpenChange,
   itemId,
   itemName,
+  initialUrl,
   onImageSaved,
 }: ImageSearchDialogProps) {
   const [isSearching, setIsSearching] = useState(false);
@@ -50,6 +52,18 @@ export function ImageSearchDialog({
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [apiSearchFailed, setApiSearchFailed] = useState(false);
   const [manualUrlInput, setManualUrlInput] = useState('');
+
+  // 初期URLが指定されている場合、入力欄に自動反映
+  useEffect(() => {
+    if (!open) return;
+    const url = initialUrl?.trim();
+    if (!url) return;
+    setSelectedUrl(null);
+    setSavedSuccess(false);
+    setApiSearchFailed(false);
+    setSearchResults([]);
+    setManualUrlInput(url);
+  }, [open, initialUrl]);
 
   const handleSearch = useCallback(async () => {
     setIsSearching(true);
@@ -106,6 +120,20 @@ export function ImageSearchDialog({
   const urlToSave =
     selectedUrl || (manualUrlInput.trim() ? manualUrlInput.trim() : null);
 
+  // URL validation - parse URL and check protocol is https:
+  const urlValidation = (() => {
+    if (!urlToSave) return { isValid: false, isHttp: false, parsed: null };
+    try {
+      const parsed = new URL(urlToSave);
+      const isValid = parsed.protocol === 'https:';
+      const isHttp = parsed.protocol === 'http:';
+      return { isValid, isHttp, parsed };
+    } catch {
+      return { isValid: false, isHttp: false, parsed: null };
+    }
+  })();
+  const isInvalidOrNonHttpsUrl = Boolean(urlToSave) && !urlValidation.isValid;
+
   const handleSaveImage = useCallback(async () => {
     if (!urlToSave) return;
 
@@ -126,16 +154,6 @@ export function ImageSearchDialog({
     }
   }, [itemId, urlToSave, onImageSaved]);
 
-  // 成功後、少し待ってからダイアログを閉じる（クリーンアップでメモリリーク防止）
-  useEffect(() => {
-    if (savedSuccess) {
-      const timer = setTimeout(() => {
-        onOpenChange(false);
-      }, 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [savedSuccess, onOpenChange]);
-
   const handleOpenChange = useCallback(
     (newOpen: boolean) => {
       if (!newOpen) {
@@ -150,6 +168,17 @@ export function ImageSearchDialog({
     },
     [onOpenChange]
   );
+
+  // 成功後、少し待ってからダイアログを閉じる（クリーンアップでメモリリーク防止）
+  useEffect(() => {
+    if (savedSuccess) {
+      const timer = setTimeout(() => {
+        // close時のステートリセットを確実に通す
+        handleOpenChange(false);
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [savedSuccess, handleOpenChange]);
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -228,14 +257,39 @@ export function ImageSearchDialog({
           )}
 
           {/* 選択された画像のプレビュー */}
-          {(selectedUrl || manualUrlInput.trim()) && (
+          {urlToSave && (
             <div className="p-3 bg-muted/50 rounded-lg">
               <p className="text-sm text-muted-foreground mb-2">
                 選択中の画像:
               </p>
-              <p className="text-xs text-muted-foreground truncate">
-                {selectedUrl || manualUrlInput.trim()}
+              <p className="text-xs text-muted-foreground truncate mb-2">
+                {urlToSave}
               </p>
+              {isInvalidOrNonHttpsUrl ? (
+                <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-md">
+                  <p className="text-sm text-destructive font-medium">
+                    {urlValidation.isHttp
+                      ? 'HTTPのURLは使用できません'
+                      : 'このURLは使用できません'}
+                  </p>
+                  <p className="text-xs text-destructive/80 mt-1">
+                    セキュリティ上の理由により、HTTPSのURLのみ対応しています。
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-md overflow-hidden border bg-background">
+                  <img
+                    src={urlToSave}
+                    alt="selected preview"
+                    className="w-full max-h-48 object-cover"
+                    loading="lazy"
+                    onError={(e) => {
+                      const img = e.target as HTMLImageElement;
+                      img.style.display = 'none';
+                    }}
+                  />
+                </div>
+              )}
             </div>
           )}
 
@@ -275,7 +329,7 @@ export function ImageSearchDialog({
           </Button>
           <Button
             onClick={handleSaveImage}
-            disabled={!urlToSave || isSaving || savedSuccess}
+            disabled={!urlValidation.isValid || isSaving || savedSuccess}
           >
             {isSaving ? (
               <>

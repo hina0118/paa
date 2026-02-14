@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import {
   Sheet,
   SheetContent,
@@ -21,7 +22,9 @@ import { StatusBadge } from './status-badge';
 import { ImageSearchDialog } from './image-search-dialog';
 import { useImageUrl } from '@/hooks/useImageUrl';
 import type { OrderItemRow } from '@/lib/types';
+import { CLIPBOARD_URL_DETECTED_EVENT } from '@/lib/tauri-events';
 import { formatDate, formatPrice } from '@/lib/utils';
+import { toastWarning, formatError } from '@/lib/toast';
 import { Search, Pencil, Trash2, X } from 'lucide-react';
 
 type OrderItemDrawerProps = {
@@ -60,6 +63,13 @@ function parseRequiredInt(value: string, label: string): { value: number } {
   return { value: n };
 }
 
+type ClipboardUrlDetectedPayload = {
+  url: string;
+  kind: 'image_url' | 'url';
+  source: 'clipboard';
+  detectedAt: string;
+};
+
 export function OrderItemDrawer({
   item,
   open,
@@ -69,6 +79,9 @@ export function OrderItemDrawer({
 }: OrderItemDrawerProps) {
   const getImageUrl = useImageUrl();
   const [imageSearchOpen, setImageSearchOpen] = useState(false);
+  const [imageSearchInitialUrl, setImageSearchInitialUrl] = useState<
+    string | undefined
+  >(undefined);
   const [imageKey, setImageKey] = useState(0);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -85,6 +98,7 @@ export function OrderItemDrawer({
   });
 
   const imageSrc = item ? getImageUrl(item.fileName) : null;
+  const itemId = item?.id;
 
   // 編集モード開始時にフォームを初期化
   useEffect(() => {
@@ -107,8 +121,54 @@ export function OrderItemDrawer({
     if (!open) {
       setIsEditing(false);
       setValidationError(null);
+      setImageSearchInitialUrl(undefined);
     }
   }, [open]);
+
+  const openImageSearchDialog = useCallback(() => {
+    setImageSearchOpen(true);
+  }, []);
+
+  // drawerが開いている間だけ、クリップボード検知イベントを購読する
+  useEffect(() => {
+    if (!open || !itemId) return;
+
+    let unlisten: null | (() => void) = null;
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const stop = await listen<ClipboardUrlDetectedPayload>(
+          CLIPBOARD_URL_DETECTED_EVENT,
+          (event) => {
+            const payload = event.payload;
+            if (!payload || payload.kind !== 'image_url') return;
+            const url = payload.url.trim();
+
+            // ダイアログに集約: 検知したら初期URLをセットして自動で開く
+            setImageSearchInitialUrl(url);
+            setImageSearchOpen(true);
+          }
+        );
+
+        if (cancelled) {
+          stop();
+          return;
+        }
+        unlisten = stop;
+      } catch (e) {
+        toastWarning(
+          `クリップボード監視イベントの購読に失敗しました: ${formatError(e)}`
+        );
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+    // setImageSearchInitialUrl と setImageSearchOpen は setState 関数で安定しているため、依存配列から省略
+  }, [open, itemId]);
 
   const handleImageSaved = useCallback(() => {
     onImageUpdated?.();
@@ -309,13 +369,13 @@ export function OrderItemDrawer({
               <div
                 key={imageKey}
                 className="aspect-square max-h-64 bg-muted/50 rounded-lg overflow-hidden flex items-center justify-center cursor-pointer hover:opacity-80 transition-opacity"
-                onClick={() => setImageSearchOpen(true)}
+                onClick={() => openImageSearchDialog()}
                 role="button"
                 tabIndex={0}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
-                    setImageSearchOpen(true);
+                    openImageSearchDialog();
                   }
                 }}
                 aria-label="画像を検索"
@@ -337,7 +397,7 @@ export function OrderItemDrawer({
                 variant="outline"
                 size="sm"
                 className="w-full"
-                onClick={() => setImageSearchOpen(true)}
+                onClick={() => openImageSearchDialog()}
               >
                 <Search className="mr-2 h-4 w-4" />
                 画像を検索
@@ -515,9 +575,13 @@ export function OrderItemDrawer({
 
       <ImageSearchDialog
         open={imageSearchOpen}
-        onOpenChange={setImageSearchOpen}
+        onOpenChange={(next) => {
+          setImageSearchOpen(next);
+          if (!next) setImageSearchInitialUrl(undefined);
+        }}
         itemId={item.id}
         itemName={item.itemName}
+        initialUrl={imageSearchInitialUrl}
         onImageSaved={handleImageSaved}
       />
 
