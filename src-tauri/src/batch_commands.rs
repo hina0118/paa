@@ -10,8 +10,8 @@ use tauri::{Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
 use tokio::sync::Mutex;
 
-use crate::batch_runner::{BatchProgressEvent, BatchRunner};
 use crate::batch_runner::BatchEventEmitter;
+use crate::batch_runner::{BatchProgressEvent, BatchRunner};
 use crate::config;
 use crate::e2e_mocks::{
     is_e2e_mock_mode, E2EMockGmailClient, GeminiClientForE2E, GmailClientForE2E,
@@ -154,8 +154,7 @@ async fn run_sync_task_with<A: BatchCommandsApp>(app: &A, pool: SqlitePool, sync
         Err(message) => {
             log::error!("{}", message);
             sync_state.set_error(&message);
-            let error_event =
-                BatchProgressEvent::error(GMAIL_SYNC_TASK_NAME, 0, 0, 0, 0, message);
+            let error_event = BatchProgressEvent::error(GMAIL_SYNC_TASK_NAME, 0, 0, 0, 0, message);
             app.emit_event(GMAIL_SYNC_EVENT_NAME, error_event);
             return;
         }
@@ -562,14 +561,8 @@ async fn run_product_name_parse_task_with<A: BatchCommandsApp>(
         None => {
             let msg = "Failed to get app data dir".to_string();
             log::error!("{}", msg);
-            let error_event = BatchProgressEvent::error(
-                PRODUCT_NAME_PARSE_TASK_NAME,
-                0,
-                0,
-                0,
-                0,
-                msg,
-            );
+            let error_event =
+                BatchProgressEvent::error(PRODUCT_NAME_PARSE_TASK_NAME, 0, 0, 0, 0, msg);
             app.emit_event(PRODUCT_NAME_PARSE_EVENT_NAME, error_event);
             if caller_did_try_start {
                 parse_state.finish();
@@ -782,10 +775,7 @@ mod tests {
 
     impl BatchEventEmitter for FakeApp {
         fn emit_event<S: serde::Serialize + Clone>(&self, event: &str, _payload: S) {
-            self.emitted_events
-                .lock()
-                .unwrap()
-                .push(event.to_string());
+            self.emitted_events.lock().unwrap().push(event.to_string());
         }
     }
 
