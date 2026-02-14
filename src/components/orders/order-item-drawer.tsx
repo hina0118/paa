@@ -125,15 +125,9 @@ export function OrderItemDrawer({
     }
   }, [open]);
 
-  const openImageSearchDialog = useCallback(
-    (initialUrl?: string) => {
-      const resolved =
-        initialUrl?.trim() || imageSearchInitialUrl?.trim() || undefined;
-      setImageSearchInitialUrl(resolved || undefined);
-      setImageSearchOpen(true);
-    },
-    [imageSearchInitialUrl]
-  );
+  const openImageSearchDialog = useCallback(() => {
+    setImageSearchOpen(true);
+  }, []);
 
   // drawerが開いている間だけ、クリップボード検知イベントを購読する
   useEffect(() => {
