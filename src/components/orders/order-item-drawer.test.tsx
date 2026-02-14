@@ -1296,13 +1296,11 @@ describe('OrderItemDrawer', () => {
         ).toBeInTheDocument();
       });
 
-      // 検知したURLが通知されているか確認
-      expect(
-        screen.getByText('クリップボードから画像URLを検知しました')
-      ).toBeInTheDocument();
-      expect(
-        screen.getByText('https://example.com/test-image.jpg')
-      ).toBeInTheDocument();
+      // 検知したURLが入力欄に自動入力されているか確認
+      const urlInput = screen.getByPlaceholderText('画像のURLをここに貼り付け');
+      await waitFor(() => {
+        expect(urlInput).toHaveValue('https://example.com/test-image.jpg');
+      });
     });
 
     it('ignores non-image_url clipboard events', async () => {
