@@ -407,9 +407,7 @@ describe('ImageSearchDialog', () => {
     expect(saveButton).toBeDisabled();
     // Verify specific error message for HTTP URLs (case-insensitive)
     await waitFor(() => {
-      expect(
-        screen.getByText('HTTPのURLは使用できません')
-      ).toBeInTheDocument();
+      expect(screen.getByText('HTTPのURLは使用できません')).toBeInTheDocument();
     });
 
     // Test ftp protocol - should show generic error message
