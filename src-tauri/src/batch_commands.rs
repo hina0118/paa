@@ -545,21 +545,32 @@ pub async fn run_product_name_parse_task(
     parse_state: crate::ProductNameParseState,
     caller_did_try_start: bool,
 ) {
+    let app = TauriBatchCommandsApp { app };
+    run_product_name_parse_task_with(&app, pool, parse_state, caller_did_try_start).await
+}
+
+async fn run_product_name_parse_task_with<A: BatchCommandsApp>(
+    app: &A,
+    pool: SqlitePool,
+    parse_state: crate::ProductNameParseState,
+    caller_did_try_start: bool,
+) {
     log::info!("Starting product name parse with BatchRunner<ProductNameParseTask>...");
 
-    let app_data_dir = match app.path().app_data_dir() {
-        Ok(p) => p,
-        Err(e) => {
-            log::error!("Failed to get app data dir: {}", e);
+    let app_data_dir = match app.app_data_dir() {
+        Some(p) => p,
+        None => {
+            let msg = "Failed to get app data dir".to_string();
+            log::error!("{}", msg);
             let error_event = BatchProgressEvent::error(
                 PRODUCT_NAME_PARSE_TASK_NAME,
                 0,
                 0,
                 0,
                 0,
-                format!("Failed to get app data dir: {}", e),
+                msg,
             );
-            let _ = app.emit(PRODUCT_NAME_PARSE_EVENT_NAME, error_event);
+            app.emit_event(PRODUCT_NAME_PARSE_EVENT_NAME, error_event);
             if caller_did_try_start {
                 parse_state.finish();
             }
@@ -581,7 +592,7 @@ pub async fn run_product_name_parse_task(
                 "Gemini APIキーが設定されていません。設定画面でAPIキーを設定してください。"
                     .to_string(),
             );
-            let _ = app.emit(PRODUCT_NAME_PARSE_EVENT_NAME, error_event);
+            app.emit_event(PRODUCT_NAME_PARSE_EVENT_NAME, error_event);
             if caller_did_try_start {
                 parse_state.finish();
             }
@@ -600,7 +611,7 @@ pub async fn run_product_name_parse_task(
                         0,
                         format!("Failed to create Gemini client: {}", e),
                     );
-                    let _ = app.emit(PRODUCT_NAME_PARSE_EVENT_NAME, error_event);
+                    app.emit_event(PRODUCT_NAME_PARSE_EVENT_NAME, error_event);
                     if caller_did_try_start {
                         parse_state.finish();
                     }
@@ -617,7 +628,7 @@ pub async fn run_product_name_parse_task(
                     0,
                     format!("Failed to load API key: {}", e),
                 );
-                let _ = app.emit(PRODUCT_NAME_PARSE_EVENT_NAME, error_event);
+                app.emit_event(PRODUCT_NAME_PARSE_EVENT_NAME, error_event);
                 if caller_did_try_start {
                     parse_state.finish();
                 }
@@ -631,7 +642,7 @@ pub async fn run_product_name_parse_task(
             log::error!("Product name parse already running: {}", e);
             let error_event =
                 BatchProgressEvent::error(PRODUCT_NAME_PARSE_TASK_NAME, 0, 0, 0, 0, e);
-            let _ = app.emit(PRODUCT_NAME_PARSE_EVENT_NAME, error_event);
+            app.emit_event(PRODUCT_NAME_PARSE_EVENT_NAME, error_event);
             return;
         }
     }
@@ -667,7 +678,7 @@ pub async fn run_product_name_parse_task(
                 0,
                 format!("商品情報の取得に失敗: {}", e),
             );
-            let _ = app.emit(PRODUCT_NAME_PARSE_EVENT_NAME, error_event);
+            app.emit_event(PRODUCT_NAME_PARSE_EVENT_NAME, error_event);
             parse_state.finish();
             return;
         }
@@ -687,7 +698,7 @@ pub async fn run_product_name_parse_task(
             0,
             "未解析の商品はありません（すべてproduct_masterに登録済み）".to_string(),
         );
-        let _ = app.emit(PRODUCT_NAME_PARSE_EVENT_NAME, complete_event);
+        app.emit_event(PRODUCT_NAME_PARSE_EVENT_NAME, complete_event);
         parse_state.finish();
         return;
     }
@@ -698,7 +709,6 @@ pub async fn run_product_name_parse_task(
         .collect();
 
     let config = app
-        .path()
         .app_config_dir()
         .ok()
         .and_then(|dir| config::load(&dir).ok())
@@ -737,7 +747,7 @@ pub async fn run_product_name_parse_task(
                 total_items,
                 format!("バッチ処理エラー: {}", e),
             );
-            let _ = app.emit(PRODUCT_NAME_PARSE_EVENT_NAME, error_event);
+            app.emit_event(PRODUCT_NAME_PARSE_EVENT_NAME, error_event);
         }
     }
 
@@ -764,6 +774,7 @@ mod tests {
 
     struct FakeApp {
         config_dir: std::path::PathBuf,
+        data_dir: Option<std::path::PathBuf>,
         emitted_events: StdMutex<Vec<String>>,
         notify_count: AtomicUsize,
         fail_create_gmail_client: bool,
@@ -789,7 +800,7 @@ mod tests {
         }
 
         fn app_data_dir(&self) -> Option<std::path::PathBuf> {
-            Some(self.config_dir.clone())
+            self.data_dir.clone()
         }
 
         async fn create_gmail_client(&self) -> Result<GmailClientForE2E, String> {
@@ -847,6 +858,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let app = FakeApp {
             config_dir: tmp.path().to_path_buf(),
+            data_dir: Some(tmp.path().to_path_buf()),
             emitted_events: StdMutex::new(Vec::new()),
             notify_count: AtomicUsize::new(0),
             fail_create_gmail_client: false,
@@ -871,6 +883,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let app = FakeApp {
             config_dir: tmp.path().to_path_buf(),
+            data_dir: Some(tmp.path().to_path_buf()),
             emitted_events: StdMutex::new(Vec::new()),
             notify_count: AtomicUsize::new(0),
             fail_create_gmail_client: false,
@@ -896,6 +909,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let app = FakeApp {
             config_dir: tmp.path().to_path_buf(),
+            data_dir: Some(tmp.path().to_path_buf()),
             emitted_events: StdMutex::new(Vec::new()),
             notify_count: AtomicUsize::new(0),
             fail_create_gmail_client: true,
@@ -916,6 +930,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let app = FakeApp {
             config_dir: tmp.path().to_path_buf(),
+            data_dir: Some(tmp.path().to_path_buf()),
             emitted_events: StdMutex::new(Vec::new()),
             notify_count: AtomicUsize::new(0),
             fail_create_gmail_client: false,
@@ -940,6 +955,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let app = FakeApp {
             config_dir: tmp.path().to_path_buf(),
+            data_dir: Some(tmp.path().to_path_buf()),
             emitted_events: StdMutex::new(Vec::new()),
             notify_count: AtomicUsize::new(0),
             fail_create_gmail_client: false,
@@ -954,5 +970,29 @@ mod tests {
         let emitted = app.emitted_events.lock().unwrap();
         assert!(!emitted.is_empty());
         assert_eq!(emitted[0], EMAIL_PARSE_EVENT_NAME);
+    }
+
+    #[tokio::test]
+    async fn run_product_name_parse_task_emits_error_when_app_data_dir_missing_and_finishes() {
+        let pool = create_pool().await;
+        let tmp = TempDir::new().unwrap();
+        let app = FakeApp {
+            config_dir: tmp.path().to_path_buf(),
+            data_dir: None,
+            emitted_events: StdMutex::new(Vec::new()),
+            notify_count: AtomicUsize::new(0),
+            fail_create_gmail_client: false,
+        };
+        let parse_state = crate::ProductNameParseState::new();
+        parse_state.try_start().unwrap();
+
+        run_product_name_parse_task_with(&app, pool, parse_state.clone(), true).await;
+
+        // caller_did_try_start=true のため finish されている → 再度 try_start できる
+        assert!(parse_state.try_start().is_ok());
+
+        let emitted = app.emitted_events.lock().unwrap();
+        assert!(!emitted.is_empty());
+        assert_eq!(emitted[0], PRODUCT_NAME_PARSE_EVENT_NAME);
     }
 }
