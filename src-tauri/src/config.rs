@@ -209,4 +209,56 @@ mod tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Invalid config"));
     }
+
+    #[test]
+    fn test_load_applies_field_defaults_when_missing_in_json() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join(CONFIG_FILENAME);
+
+        // sync.max_results_per_page / sync.timeout_minutes を省略 → #[serde(default = ...)] が呼ばれる
+        // gemini を空オブジェクトで渡し、gemini.* の default 関数も呼ばれる
+        let json = r#"
+        {
+          "sync": { "batch_size": 12, "max_iterations": 34 },
+          "parse": { "batch_size": 56 },
+          "gemini": {}
+        }
+        "#;
+        fs::write(&path, json).unwrap();
+
+        let loaded = load(dir.path()).unwrap();
+        assert_eq!(loaded.sync.batch_size, 12);
+        assert_eq!(loaded.sync.max_iterations, 34);
+        assert_eq!(loaded.sync.max_results_per_page, 100);
+        assert_eq!(loaded.sync.timeout_minutes, 30);
+        assert_eq!(loaded.parse.batch_size, 56);
+        assert_eq!(loaded.gemini.batch_size, 10);
+        assert_eq!(loaded.gemini.delay_seconds, 10);
+
+        // window は JSON から省略 → AppConfig の #[serde(default)] で WindowConfig::default
+        assert_eq!(loaded.window.width, 800);
+        assert_eq!(loaded.window.height, 600);
+        assert!(!loaded.window.maximized);
+    }
+
+    #[test]
+    fn test_load_applies_subject_defaults_when_window_and_gemini_missing() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join(CONFIG_FILENAME);
+
+        // window / gemini を省略しても読み込める（AppConfig の #[serde(default)]）
+        let json = r#"
+        {
+          "sync": { "batch_size": 1, "max_iterations": 2, "max_results_per_page": 3, "timeout_minutes": 4 },
+          "parse": { "batch_size": 5 }
+        }
+        "#;
+        fs::write(&path, json).unwrap();
+
+        let loaded = load(dir.path()).unwrap();
+        assert_eq!(loaded.sync.max_results_per_page, 3);
+        assert_eq!(loaded.sync.timeout_minutes, 4);
+        assert_eq!(loaded.window.width, 800);
+        assert_eq!(loaded.gemini.batch_size, 10);
+    }
 }
