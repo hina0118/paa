@@ -406,7 +406,7 @@ describe('ImageSearchDialog', () => {
     });
     expect(saveButton).toBeDisabled();
 
-    // Test ftp protocol
+    // Test ftp protocol - should show generic error message
     await user.clear(urlInput);
     await user.type(urlInput, 'ftp://example.com/image.jpg');
 
@@ -414,6 +414,14 @@ describe('ImageSearchDialog', () => {
       name: '選択した画像を保存',
     });
     expect(saveButton).toBeDisabled();
+
+    // Verify generic error message for non-HTTP invalid URLs
+    await waitFor(() => {
+      expect(screen.getByText('このURLは使用できません')).toBeInTheDocument();
+      expect(
+        screen.getByText(/セキュリティ上の理由により、HTTPSのURLのみ対応/)
+      ).toBeInTheDocument();
+    });
 
     // Test file protocol
     await user.clear(urlInput);
