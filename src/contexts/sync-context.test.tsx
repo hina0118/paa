@@ -5,6 +5,25 @@ import { useSync } from './use-sync';
 import { mockInvoke, mockListen } from '@/test/setup';
 import { ReactNode } from 'react';
 
+const toastSuccessMock = vi.fn();
+const toastErrorMock = vi.fn();
+const notifyMock = vi.fn().mockResolvedValue(undefined);
+const isAppWindowVisibleMock = vi.fn().mockResolvedValue(true);
+
+vi.mock('@/lib/toast', () => ({
+  toastSuccess: (...args: unknown[]) => toastSuccessMock(...args),
+  toastError: (...args: unknown[]) => toastErrorMock(...args),
+}));
+
+vi.mock('@/lib/utils', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/utils')>();
+  return {
+    ...actual,
+    notify: (title: string, body: string) => notifyMock(title, body),
+    isAppWindowVisible: () => isAppWindowVisibleMock(),
+  };
+});
+
 const mockSyncMetadata = {
   sync_status: 'idle' as const,
   total_synced_count: 0,
@@ -33,6 +52,8 @@ const _mockBatchProgress: BatchProgress = {
 describe('SyncContext', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    isAppWindowVisibleMock.mockResolvedValue(true);
+    notifyMock.mockResolvedValue(undefined);
     // デフォルトではidleステータスを返す
     mockInvoke.mockImplementation((cmd: string) => {
       if (cmd === 'get_sync_status') {
@@ -512,6 +533,207 @@ describe('SyncContext', () => {
         expect(result.current.metadata?.batch_size).toBe(100);
       },
       { timeout: 3000 }
+    );
+  });
+
+  it('ignores batch-progress events for other tasks', async () => {
+    let progressCallback:
+      | ((e: { payload: BatchProgress }) => Promise<void>)
+      | null = null;
+    mockListen.mockImplementation((event: string, cb: (e: unknown) => void) => {
+      if (event === BATCH_PROGRESS_EVENT) {
+        progressCallback = cb as (e: {
+          payload: BatchProgress;
+        }) => Promise<void>;
+      }
+      return Promise.resolve(() => {});
+    });
+
+    const { result } = renderHook(() => useSync(), { wrapper });
+    await waitFor(() => expect(progressCallback).not.toBeNull());
+
+    await act(async () => {
+      await progressCallback?.({
+        payload: {
+          task_name: TASK_NAMES.EMAIL_PARSE,
+          batch_number: 1,
+          batch_size: 50,
+          total_items: 100,
+          processed_count: 100,
+          success_count: 1,
+          failed_count: 0,
+          progress_percent: 100,
+          status_message: 'Done',
+          is_complete: true,
+        },
+      });
+    });
+
+    expect(result.current.progress).toBeNull();
+  });
+
+  it('shows toastSuccess on sync completion when visible (success_count > 0)', async () => {
+    let progressCallback:
+      | ((e: { payload: BatchProgress }) => Promise<void>)
+      | null = null;
+    mockListen.mockImplementation((event: string, cb: (e: unknown) => void) => {
+      if (event === BATCH_PROGRESS_EVENT) {
+        progressCallback = cb as (e: {
+          payload: BatchProgress;
+        }) => Promise<void>;
+      }
+      return Promise.resolve(() => {});
+    });
+
+    isAppWindowVisibleMock.mockResolvedValue(true);
+
+    renderHook(() => useSync(), { wrapper });
+    await waitFor(() => expect(progressCallback).not.toBeNull());
+
+    await act(async () => {
+      await progressCallback?.({
+        payload: {
+          task_name: TASK_NAMES.GMAIL_SYNC,
+          batch_number: 1,
+          batch_size: 50,
+          total_items: 100,
+          processed_count: 100,
+          success_count: 3,
+          failed_count: 0,
+          progress_percent: 100,
+          status_message: 'Complete',
+          is_complete: true,
+        },
+      });
+    });
+
+    expect(toastSuccessMock).toHaveBeenCalledWith(
+      'Gmail同期が完了しました',
+      '新たに3件のメールを取り込みました'
+    );
+  });
+
+  it('shows toastSuccess on sync completion when visible (success_count = 0)', async () => {
+    let progressCallback:
+      | ((e: { payload: BatchProgress }) => Promise<void>)
+      | null = null;
+    mockListen.mockImplementation((event: string, cb: (e: unknown) => void) => {
+      if (event === BATCH_PROGRESS_EVENT) {
+        progressCallback = cb as (e: {
+          payload: BatchProgress;
+        }) => Promise<void>;
+      }
+      return Promise.resolve(() => {});
+    });
+
+    isAppWindowVisibleMock.mockResolvedValue(true);
+
+    renderHook(() => useSync(), { wrapper });
+    await waitFor(() => expect(progressCallback).not.toBeNull());
+
+    await act(async () => {
+      await progressCallback?.({
+        payload: {
+          task_name: TASK_NAMES.GMAIL_SYNC,
+          batch_number: 1,
+          batch_size: 50,
+          total_items: 100,
+          processed_count: 100,
+          success_count: 0,
+          failed_count: 0,
+          progress_percent: 100,
+          status_message: 'Complete',
+          is_complete: true,
+        },
+      });
+    });
+
+    expect(toastSuccessMock).toHaveBeenCalledWith(
+      'Gmail同期が完了しました',
+      '新規メッセージはありませんでした'
+    );
+  });
+
+  it('shows toastError on sync completion with error when visible', async () => {
+    let progressCallback:
+      | ((e: { payload: BatchProgress }) => Promise<void>)
+      | null = null;
+    mockListen.mockImplementation((event: string, cb: (e: unknown) => void) => {
+      if (event === BATCH_PROGRESS_EVENT) {
+        progressCallback = cb as (e: {
+          payload: BatchProgress;
+        }) => Promise<void>;
+      }
+      return Promise.resolve(() => {});
+    });
+
+    isAppWindowVisibleMock.mockResolvedValue(true);
+
+    renderHook(() => useSync(), { wrapper });
+    await waitFor(() => expect(progressCallback).not.toBeNull());
+
+    await act(async () => {
+      await progressCallback?.({
+        payload: {
+          task_name: TASK_NAMES.GMAIL_SYNC,
+          batch_number: 1,
+          batch_size: 50,
+          total_items: 100,
+          processed_count: 100,
+          success_count: 0,
+          failed_count: 1,
+          progress_percent: 100,
+          status_message: 'Complete',
+          is_complete: true,
+          error: 'Sync error',
+        },
+      });
+    });
+
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      'Gmail同期に失敗しました',
+      'Sync error'
+    );
+  });
+
+  it('sends notification on sync completion when not visible', async () => {
+    let progressCallback:
+      | ((e: { payload: BatchProgress }) => Promise<void>)
+      | null = null;
+    mockListen.mockImplementation((event: string, cb: (e: unknown) => void) => {
+      if (event === BATCH_PROGRESS_EVENT) {
+        progressCallback = cb as (e: {
+          payload: BatchProgress;
+        }) => Promise<void>;
+      }
+      return Promise.resolve(() => {});
+    });
+
+    isAppWindowVisibleMock.mockResolvedValue(false);
+
+    renderHook(() => useSync(), { wrapper });
+    await waitFor(() => expect(progressCallback).not.toBeNull());
+
+    await act(async () => {
+      await progressCallback?.({
+        payload: {
+          task_name: TASK_NAMES.GMAIL_SYNC,
+          batch_number: 1,
+          batch_size: 50,
+          total_items: 100,
+          processed_count: 100,
+          success_count: 1,
+          failed_count: 0,
+          progress_percent: 100,
+          status_message: 'Complete',
+          is_complete: true,
+        },
+      });
+    });
+
+    expect(notifyMock).toHaveBeenCalledWith(
+      'Gmail同期完了',
+      '新たに1件のメールを取り込みました'
     );
   });
 });
