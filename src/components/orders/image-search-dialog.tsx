@@ -53,7 +53,7 @@ export function ImageSearchDialog({
   const [apiSearchFailed, setApiSearchFailed] = useState(false);
   const [manualUrlInput, setManualUrlInput] = useState('');
 
-  // 初期URLが指定されている場合、入力欄に自動反映（手動入力が空の場合のみ）
+  // 初期URLが指定されている場合、入力欄に自動反映
   useEffect(() => {
     if (!open) return;
     const url = initialUrl?.trim();
