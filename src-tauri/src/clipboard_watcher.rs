@@ -284,6 +284,25 @@ mod tests {
     }
 
     #[test]
+    fn test_extract_first_url_case_insensitive_scheme() {
+        // 大文字の HTTPS も検出される（スキームは大小文字を区別しない）
+        assert_eq!(
+            extract_first_url("HTTPS://example.com/image.jpg").as_deref(),
+            Some("HTTPS://example.com/image.jpg")
+        );
+        // 混在ケースも検出される
+        assert_eq!(
+            extract_first_url("HtTpS://example.com/image.png").as_deref(),
+            Some("HtTpS://example.com/image.png")
+        );
+        // 大文字スキームがテキスト中にある場合も検出される
+        assert_eq!(
+            extract_first_url("Check out HTTPS://example.com/photo.jpg for details").as_deref(),
+            Some("HTTPS://example.com/photo.jpg")
+        );
+    }
+
+    #[test]
     fn test_calculate_simple_hash_consistency() {
         // 同じ入力に対して同じハッシュ値が返されることを確認
         let text = "test content for hashing";
