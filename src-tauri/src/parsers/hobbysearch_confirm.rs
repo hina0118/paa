@@ -125,14 +125,33 @@ fn extract_purchase_items(lines: &[&str]) -> Result<Vec<OrderItem>, String> {
     }
 }
 
-// テストはローカル環境でのみ実行（サンプルファイルに個人情報が含まれるため）
-#[cfg(all(test, not(ci)))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_parse_hobbysearch_confirm() {
-        let sample_email = include_str!("../../../sample/hobbysearch_mail_confirm.txt");
+        // NOTE: `sample/` 配下のファイルは使わず、テスト内でダミー本文を生成する。
+        let sample_email = r#"[注文番号] 25-0821-1050
+
+[商品お届け先]
+山田 太郎 様
+〒100-0001 福岡県テスト市1-2-3
+
+[ご購入内容]
+バンダイ 2733949 ★特価品 カスタマイズマテリアル(デコレーションパーツ1 ホワイト)
+単価：462円 × 個数：1 = 462円
+メーカー2 111 商品2
+単価：400円 × 個数：1 = 400円
+メーカー3 222 商品3
+単価：500円 × 個数：1 = 500円
+メーカー4 333 商品4
+単価：524円 × 個数：1 = 524円
+
+小計 1,886円
+送料 660円
+合計 2,546円
+"#;
         let parser = HobbySearchConfirmParser;
         let result = parser.parse(sample_email);
 

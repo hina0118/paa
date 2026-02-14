@@ -127,14 +127,26 @@ fn extract_purchase_items(lines: &[&str]) -> Result<Vec<OrderItem>, String> {
     }
 }
 
-// テストはローカル環境でのみ実行（サンプルファイルに個人情報が含まれるため）
-#[cfg(all(test, not(ci)))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_parse_hobbysearch_change() {
-        let sample_email = include_str!("../../../sample/hobbysearch_mail_change.txt");
+        // NOTE: `sample/` 配下のファイルは使わず、テスト内でダミー本文を生成する。
+        let sample_email = r#"[注文番号] 12-3456-7890
+
+[商品お届け先]  山田 太郎 様
+〒100-0001 東京都千代田区1-1-1
+
+[ご購入内容]
+バンダイ 2733949 サンプル商品A
+単価：1,000円 × 個数：2 = 2,000円
+
+小計 2,000円
+送料 0円
+合計 2,000円
+"#;
         let parser = HobbySearchChangeParser;
         let result = parser.parse(sample_email);
 
