@@ -42,6 +42,21 @@ jobs:
           CI: true
           # E2E 目標カバレッジ 25% 未達で失敗（coverage-reporter.ts で判定）
 
+      - name: Verify E2E coverage data exists
+        run: |
+          if [ ! -s "coverage-e2e/coverage-data.json" ]; then
+            echo "::error::coverage-e2e/coverage-data.json not found or is empty. E2E coverage threshold check may be skipped."
+            exit 1
+          fi
+
+      - name: Upload E2E coverage data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-coverage-data
+          path: coverage-e2e/coverage-data.json
+          retention-days: 30
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
