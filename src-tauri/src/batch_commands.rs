@@ -11,6 +11,7 @@ use tauri_plugin_notification::NotificationExt;
 use tokio::sync::Mutex;
 
 use crate::batch_runner::{BatchProgressEvent, BatchRunner};
+use crate::batch_runner::BatchEventEmitter;
 use crate::config;
 use crate::e2e_mocks::{
     is_e2e_mock_mode, E2EMockGmailClient, GeminiClientForE2E, GmailClientForE2E,
@@ -35,6 +36,53 @@ use crate::repository::{
     SqliteShopSettingsRepository,
 };
 
+#[async_trait::async_trait]
+trait BatchCommandsApp: BatchEventEmitter {
+    fn notify(&self, title: &str, body: &str);
+    fn app_config_dir(&self) -> Result<std::path::PathBuf, String>;
+    async fn create_gmail_client(&self) -> Result<GmailClientForE2E, String>;
+}
+
+struct TauriBatchCommandsApp {
+    app: tauri::AppHandle,
+}
+
+impl BatchEventEmitter for TauriBatchCommandsApp {
+    fn emit_event<S: serde::Serialize + Clone>(&self, event: &str, payload: S) {
+        let _ = self.app.emit(event, payload);
+    }
+}
+
+#[async_trait::async_trait]
+impl BatchCommandsApp for TauriBatchCommandsApp {
+    fn notify(&self, title: &str, body: &str) {
+        let _ = self
+            .app
+            .notification()
+            .builder()
+            .title(title)
+            .body(body)
+            .show();
+    }
+
+    fn app_config_dir(&self) -> Result<std::path::PathBuf, String> {
+        self.app
+            .path()
+            .app_config_dir()
+            .map_err(|e| format!("Failed to get app config dir: {e}"))
+    }
+
+    async fn create_gmail_client(&self) -> Result<GmailClientForE2E, String> {
+        if is_e2e_mock_mode() {
+            log::info!("Using E2E mock Gmail client");
+            return Ok(GmailClientForE2E::Mock(E2EMockGmailClient));
+        }
+        crate::gmail::GmailClient::new(&self.app)
+            .await
+            .map(|c| GmailClientForE2E::Real(Box::new(c)))
+    }
+}
+
 /// config.parse.batch_size (i64) を usize へ安全に変換。
 /// 0 以下は default にフォールバック。変換失敗時（32-bit で i64 が大きい等）も default。
 /// 上限はクランプしない（大きい i64 は usize::try_from で失敗→default）。
@@ -48,13 +96,18 @@ pub(crate) fn clamp_batch_size(v: i64, default: usize) -> usize {
 
 /// Gmail同期タスクの本体。コマンド・トレイ両方から呼ぶ。
 pub async fn run_sync_task(app: tauri::AppHandle, pool: SqlitePool, sync_state: SyncState) {
+    let app = TauriBatchCommandsApp { app };
+    run_sync_task_with(&app, pool, sync_state).await
+}
+
+async fn run_sync_task_with<A: BatchCommandsApp>(app: &A, pool: SqlitePool, sync_state: SyncState) {
     log::info!("Starting Gmail sync with BatchRunner<GmailSyncTask>...");
 
     if !sync_state.try_start() {
         log::warn!("Sync is already in progress");
         let message = "Sync is already in progress".to_string();
         let error_event = BatchProgressEvent::error(GMAIL_SYNC_TASK_NAME, 0, 0, 0, 0, message);
-        let _ = app.emit(GMAIL_SYNC_EVENT_NAME, error_event);
+        app.emit_event(GMAIL_SYNC_EVENT_NAME, error_event);
         return;
     }
 
@@ -76,7 +129,7 @@ pub async fn run_sync_task(app: tauri::AppHandle, pool: SqlitePool, sync_state: 
                 0,
                 format!("Failed to fetch shop settings: {}", e),
             );
-            let _ = app.emit(GMAIL_SYNC_EVENT_NAME, error_event);
+            app.emit_event(GMAIL_SYNC_EVENT_NAME, error_event);
             return;
         }
     };
@@ -91,14 +144,14 @@ pub async fn run_sync_task(app: tauri::AppHandle, pool: SqlitePool, sync_state: 
         sender_addresses.len()
     );
 
-    let app_config_dir = match app.path().app_config_dir() {
+    let app_config_dir = match app.app_config_dir() {
         Ok(dir) => dir,
-        Err(e) => {
-            let message = format!("Failed to get app config dir: {}", e);
+        Err(message) => {
             log::error!("{}", message);
             sync_state.set_error(&message);
-            let error_event = BatchProgressEvent::error(GMAIL_SYNC_TASK_NAME, 0, 0, 0, 0, message);
-            let _ = app.emit(GMAIL_SYNC_EVENT_NAME, error_event);
+            let error_event =
+                BatchProgressEvent::error(GMAIL_SYNC_TASK_NAME, 0, 0, 0, 0, message);
+            app.emit_event(GMAIL_SYNC_EVENT_NAME, error_event);
             return;
         }
     };
@@ -108,26 +161,21 @@ pub async fn run_sync_task(app: tauri::AppHandle, pool: SqlitePool, sync_state: 
     });
     let batch_size = clamp_batch_size(config.sync.batch_size, 50);
 
-    let gmail_client = if is_e2e_mock_mode() {
-        log::info!("Using E2E mock Gmail client");
-        GmailClientForE2E::Mock(E2EMockGmailClient)
-    } else {
-        match crate::gmail::GmailClient::new(&app).await {
-            Ok(c) => GmailClientForE2E::Real(Box::new(c)),
-            Err(e) => {
-                log::error!("Failed to create Gmail client: {}", e);
-                sync_state.set_error(&e);
-                let error_event = BatchProgressEvent::error(
-                    GMAIL_SYNC_TASK_NAME,
-                    0,
-                    0,
-                    0,
-                    0,
-                    format!("Failed to create Gmail client: {}", e),
-                );
-                let _ = app.emit(GMAIL_SYNC_EVENT_NAME, error_event);
-                return;
-            }
+    let gmail_client = match app.create_gmail_client().await {
+        Ok(c) => c,
+        Err(e) => {
+            log::error!("Failed to create Gmail client: {}", e);
+            sync_state.set_error(&e);
+            let error_event = BatchProgressEvent::error(
+                GMAIL_SYNC_TASK_NAME,
+                0,
+                0,
+                0,
+                0,
+                format!("Failed to create Gmail client: {}", e),
+            );
+            app.emit_event(GMAIL_SYNC_EVENT_NAME, error_event);
+            return;
         }
     };
 
@@ -147,7 +195,7 @@ pub async fn run_sync_task(app: tauri::AppHandle, pool: SqlitePool, sync_state: 
                 0,
                 format!("Failed to fetch message IDs: {}", e),
             );
-            let _ = app.emit(GMAIL_SYNC_EVENT_NAME, error_event);
+            app.emit_event(GMAIL_SYNC_EVENT_NAME, error_event);
             return;
         }
     };
@@ -167,7 +215,7 @@ pub async fn run_sync_task(app: tauri::AppHandle, pool: SqlitePool, sync_state: 
                 0,
                 format!("Failed to filter new message IDs: {}", e),
             );
-            let _ = app.emit(GMAIL_SYNC_EVENT_NAME, error_event);
+            app.emit_event(GMAIL_SYNC_EVENT_NAME, error_event);
             return;
         }
     };
@@ -183,13 +231,8 @@ pub async fn run_sync_task(app: tauri::AppHandle, pool: SqlitePool, sync_state: 
             0,
             "同期対象の新規メッセージがありません".to_string(),
         );
-        let _ = app.emit(GMAIL_SYNC_EVENT_NAME, complete_event);
-        let _ = app
-            .notification()
-            .builder()
-            .title("Gmail同期完了")
-            .body("新規メッセージはありませんでした")
-            .show();
+        app.emit_event(GMAIL_SYNC_EVENT_NAME, complete_event);
+        app.notify("Gmail同期完了", "新規メッセージはありませんでした");
         return;
     }
 
@@ -230,12 +273,7 @@ pub async fn run_sync_task(app: tauri::AppHandle, pool: SqlitePool, sync_state: 
                     "同期完了：新たに{}件のメールを取り込みました",
                     batch_result.success_count
                 );
-                let _ = app
-                    .notification()
-                    .builder()
-                    .title("Gmail同期完了")
-                    .body(&notification_body)
-                    .show();
+                app.notify("Gmail同期完了", &notification_body);
             }
         }
         Err(e) => {
@@ -249,7 +287,7 @@ pub async fn run_sync_task(app: tauri::AppHandle, pool: SqlitePool, sync_state: 
                 0,
                 format!("Sync error: {}", e),
             );
-            let _ = app.emit(GMAIL_SYNC_EVENT_NAME, error_event);
+            app.emit_event(GMAIL_SYNC_EVENT_NAME, error_event);
         }
     }
 }
@@ -696,6 +734,10 @@ pub async fn run_product_name_parse_task(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sqlx::sqlite::SqlitePoolOptions;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Mutex as StdMutex;
+    use tempfile::TempDir;
 
     #[test]
     fn test_clamp_batch_size() {
@@ -705,5 +747,149 @@ mod tests {
         assert_eq!(clamp_batch_size(50, 100), 50);
         assert_eq!(clamp_batch_size(200, 100), 200);
         assert_eq!(clamp_batch_size(i64::MIN, 100), 100);
+    }
+
+    struct FakeApp {
+        config_dir: std::path::PathBuf,
+        emitted_events: StdMutex<Vec<String>>,
+        notify_count: AtomicUsize,
+        fail_create_gmail_client: bool,
+    }
+
+    impl BatchEventEmitter for FakeApp {
+        fn emit_event<S: serde::Serialize + Clone>(&self, event: &str, _payload: S) {
+            self.emitted_events
+                .lock()
+                .unwrap()
+                .push(event.to_string());
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl BatchCommandsApp for FakeApp {
+        fn notify(&self, _title: &str, _body: &str) {
+            self.notify_count.fetch_add(1, Ordering::SeqCst);
+        }
+
+        fn app_config_dir(&self) -> Result<std::path::PathBuf, String> {
+            Ok(self.config_dir.clone())
+        }
+
+        async fn create_gmail_client(&self) -> Result<GmailClientForE2E, String> {
+            if self.fail_create_gmail_client {
+                return Err("boom".to_string());
+            }
+            // 常に E2E モック相当を返す（ネットワークや認証に依存しない）
+            Ok(GmailClientForE2E::Mock(E2EMockGmailClient))
+        }
+    }
+
+    async fn create_pool() -> SqlitePool {
+        SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap()
+    }
+
+    async fn create_shop_settings_table(pool: &SqlitePool) {
+        sqlx::query(
+            r#"
+            CREATE TABLE shop_settings (
+              id INTEGER PRIMARY KEY,
+              shop_name TEXT NOT NULL,
+              sender_address TEXT NOT NULL,
+              parser_type TEXT NOT NULL,
+              is_enabled INTEGER NOT NULL,
+              subject_filters TEXT,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            )
+            "#,
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn insert_enabled_shop(pool: &SqlitePool) {
+        sqlx::query(
+            r#"
+            INSERT INTO shop_settings (id, shop_name, sender_address, parser_type, is_enabled, subject_filters, created_at, updated_at)
+            VALUES (1, 'TestShop', 'shop@example.com', 'hobbysearch_confirm', 1, NULL, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')
+            "#,
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn run_sync_task_emits_error_when_already_running() {
+        let pool = create_pool().await;
+        let tmp = TempDir::new().unwrap();
+        let app = FakeApp {
+            config_dir: tmp.path().to_path_buf(),
+            emitted_events: StdMutex::new(Vec::new()),
+            notify_count: AtomicUsize::new(0),
+            fail_create_gmail_client: false,
+        };
+        let sync_state = SyncState::new();
+        assert!(sync_state.try_start());
+
+        run_sync_task_with(&app, pool, sync_state).await;
+
+        let emitted = app.emitted_events.lock().unwrap();
+        assert_eq!(emitted.len(), 1);
+        assert_eq!(emitted[0], GMAIL_SYNC_EVENT_NAME);
+        assert_eq!(app.notify_count.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn run_sync_task_handles_no_new_messages_with_mock_gmail() {
+        let pool = create_pool().await;
+        create_shop_settings_table(&pool).await;
+        insert_enabled_shop(&pool).await;
+
+        let tmp = TempDir::new().unwrap();
+        let app = FakeApp {
+            config_dir: tmp.path().to_path_buf(),
+            emitted_events: StdMutex::new(Vec::new()),
+            notify_count: AtomicUsize::new(0),
+            fail_create_gmail_client: false,
+        };
+        let sync_state = SyncState::new();
+
+        run_sync_task_with(&app, pool, sync_state).await;
+
+        let emitted = app.emitted_events.lock().unwrap();
+        assert!(
+            !emitted.is_empty(),
+            "should emit at least one progress event"
+        );
+        assert_eq!(app.notify_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn run_sync_task_emits_error_when_gmail_client_factory_fails() {
+        let pool = create_pool().await;
+        create_shop_settings_table(&pool).await;
+        insert_enabled_shop(&pool).await;
+
+        let tmp = TempDir::new().unwrap();
+        let app = FakeApp {
+            config_dir: tmp.path().to_path_buf(),
+            emitted_events: StdMutex::new(Vec::new()),
+            notify_count: AtomicUsize::new(0),
+            fail_create_gmail_client: true,
+        };
+        let sync_state = SyncState::new();
+
+        run_sync_task_with(&app, pool, sync_state).await;
+
+        let emitted = app.emitted_events.lock().unwrap();
+        assert_eq!(emitted.len(), 1);
+        assert_eq!(emitted[0], GMAIL_SYNC_EVENT_NAME);
+        assert_eq!(app.notify_count.load(Ordering::SeqCst), 0);
     }
 }

@@ -40,6 +40,13 @@ pub trait BatchEventEmitter: Send + Sync {
     fn emit_event<S: Serialize + Clone>(&self, event: &str, payload: S);
 }
 
+// 参照をそのまま透過的に扱えるようにする（`&T` を `BatchEventEmitter` として渡せる）
+impl<T: BatchEventEmitter + ?Sized> BatchEventEmitter for &T {
+    fn emit_event<S: Serialize + Clone>(&self, event: &str, payload: S) {
+        (*self).emit_event(event, payload)
+    }
+}
+
 impl<R: Runtime> BatchEventEmitter for tauri::AppHandle<R> {
     fn emit_event<S: Serialize + Clone>(&self, event: &str, payload: S) {
         let _ = self.emit(event, payload);
