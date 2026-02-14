@@ -349,37 +349,22 @@ describe('ImageSearchDialog', () => {
     });
   });
 
-  it('shows notification and allows using detected URL from initialUrl', async () => {
-    const user = userEvent.setup();
+  it('auto-fills detected URL from initialUrl into input field', async () => {
     const detectedUrl = 'https://example.com/detected-image.jpg';
 
     render(<ImageSearchDialog {...defaultProps} initialUrl={detectedUrl} />);
 
-    // Should show notification with detected URL
-    await waitFor(() => {
-      expect(
-        screen.getByText('クリップボードから画像URLを検知しました')
-      ).toBeInTheDocument();
-      expect(screen.getByText(detectedUrl)).toBeInTheDocument();
-    });
-
-    // Should have "このURLを使用" button
-    const useUrlButton = screen.getByRole('button', { name: 'このURLを使用' });
-    expect(useUrlButton).toBeInTheDocument();
-
-    // Click to use the detected URL
-    await user.click(useUrlButton);
-
-    // Notification should disappear and URL should be in input
-    await waitFor(() => {
-      expect(
-        screen.queryByText('クリップボードから画像URLを検知しました')
-      ).not.toBeInTheDocument();
-    });
-
-    // URL should be available for saving
+    // URL should be automatically filled in the input field
     const urlInput = screen.getByPlaceholderText('画像のURLをここに貼り付け');
-    expect(urlInput).toHaveValue(detectedUrl);
+    await waitFor(() => {
+      expect(urlInput).toHaveValue(detectedUrl);
+    });
+
+    // Save button should be enabled for valid HTTPS URL
+    const saveButton = screen.getByRole('button', {
+      name: '選択した画像を保存',
+    });
+    expect(saveButton).toBeEnabled();
   });
 
   it('disables save button and shows error for HTTP URLs', async () => {
@@ -420,8 +405,14 @@ describe('ImageSearchDialog', () => {
       name: '選択した画像を保存',
     });
     expect(saveButton).toBeDisabled();
+    // Verify specific error message for HTTP URLs (case-insensitive)
+    await waitFor(() => {
+      expect(
+        screen.getByText('HTTPのURLは使用できません')
+      ).toBeInTheDocument();
+    });
 
-    // Test ftp protocol
+    // Test ftp protocol - should show generic error message
     await user.clear(urlInput);
     await user.type(urlInput, 'ftp://example.com/image.jpg');
 
@@ -430,7 +421,15 @@ describe('ImageSearchDialog', () => {
     });
     expect(saveButton).toBeDisabled();
 
-    // Test file protocol
+    // Verify generic error message for non-HTTP invalid URLs
+    await waitFor(() => {
+      expect(screen.getByText('このURLは使用できません')).toBeInTheDocument();
+      expect(
+        screen.getByText(/セキュリティ上の理由により、HTTPSのURLのみ対応/)
+      ).toBeInTheDocument();
+    });
+
+    // Test file protocol - should show same generic error message
     await user.clear(urlInput);
     await user.type(urlInput, 'file:///path/to/image.jpg');
 
@@ -438,9 +437,17 @@ describe('ImageSearchDialog', () => {
       name: '選択した画像を保存',
     });
     expect(saveButton).toBeDisabled();
+
+    // Verify generic error message for file protocol too
+    await waitFor(() => {
+      expect(screen.getByText('このURLは使用できません')).toBeInTheDocument();
+      expect(
+        screen.getByText(/セキュリティ上の理由により、HTTPSのURLのみ対応/)
+      ).toBeInTheDocument();
+    });
   });
 
-  it('clears manual input when new initialUrl is detected', async () => {
+  it('replaces manual input when new initialUrl is detected', async () => {
     const { rerender } = render(
       <ImageSearchDialog {...defaultProps} open={true} />
     );
@@ -462,15 +469,9 @@ describe('ImageSearchDialog', () => {
       />
     );
 
-    // Manual input should be cleared
+    // Manual input should be replaced with the detected URL
     await waitFor(() => {
-      expect(urlInput).toHaveValue('');
+      expect(urlInput).toHaveValue(newDetectedUrl);
     });
-
-    // Notification should show the new detected URL
-    expect(
-      screen.getByText('クリップボードから画像URLを検知しました')
-    ).toBeInTheDocument();
-    expect(screen.getByText(newDetectedUrl)).toBeInTheDocument();
   });
 });

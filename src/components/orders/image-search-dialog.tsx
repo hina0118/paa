@@ -52,9 +52,8 @@ export function ImageSearchDialog({
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [apiSearchFailed, setApiSearchFailed] = useState(false);
   const [manualUrlInput, setManualUrlInput] = useState('');
-  const [detectedUrl, setDetectedUrl] = useState<string | null>(null);
 
-  // 初期URLが指定されている場合、検出URLとして保存（自動ロードしない）
+  // 初期URLが指定されている場合、入力欄に自動反映
   useEffect(() => {
     if (!open) return;
     const url = initialUrl?.trim();
@@ -63,8 +62,7 @@ export function ImageSearchDialog({
     setSavedSuccess(false);
     setApiSearchFailed(false);
     setSearchResults([]);
-    setManualUrlInput('');
-    setDetectedUrl(url);
+    setManualUrlInput(url);
   }, [open, initialUrl]);
 
   const handleSearch = useCallback(async () => {
@@ -123,20 +121,18 @@ export function ImageSearchDialog({
     selectedUrl || (manualUrlInput.trim() ? manualUrlInput.trim() : null);
 
   // URL validation - parse URL and check protocol is https:
-  const isValidUrl = (() => {
-    if (!urlToSave) return false;
+  const urlValidation = (() => {
+    if (!urlToSave) return { isValid: false, isHttp: false, parsed: null };
     try {
       const parsed = new URL(urlToSave);
-      return parsed.protocol === 'https:';
+      const isValid = parsed.protocol === 'https:';
+      const isHttp = parsed.protocol === 'http:';
+      return { isValid, isHttp, parsed };
     } catch {
-      return false;
+      return { isValid: false, isHttp: false, parsed: null };
     }
   })();
-  const isInvalidOrNonHttpsUrl = Boolean(urlToSave) && !isValidUrl;
-
-  // Show detected URL notification when no URL is selected/entered yet
-  const shouldShowDetectedUrl =
-    detectedUrl && !selectedUrl && !manualUrlInput.trim();
+  const isInvalidOrNonHttpsUrl = Boolean(urlToSave) && !urlValidation.isValid;
 
   const handleSaveImage = useCallback(async () => {
     if (!urlToSave) return;
@@ -167,7 +163,6 @@ export function ImageSearchDialog({
         setSavedSuccess(false);
         setApiSearchFailed(false);
         setManualUrlInput('');
-        setDetectedUrl(null);
       }
       onOpenChange(newOpen);
     },
@@ -196,33 +191,6 @@ export function ImageSearchDialog({
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto space-y-4">
-          {/* クリップボード検知URL通知 */}
-          {shouldShowDetectedUrl && (
-            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-              <p className="text-sm font-medium text-blue-900 mb-2">
-                クリップボードから画像URLを検知しました
-              </p>
-              <p className="text-xs text-blue-700 mb-3 truncate">
-                {detectedUrl}
-              </p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  const url = detectedUrl;
-                  if (!url) {
-                    return;
-                  }
-                  setManualUrlInput(url);
-                  setDetectedUrl(null);
-                }}
-                className="w-full"
-              >
-                このURLを使用
-              </Button>
-            </div>
-          )}
-
           {/* 検索ボタン */}
           <div className="flex gap-2">
             <Button
@@ -300,10 +268,12 @@ export function ImageSearchDialog({
               {isInvalidOrNonHttpsUrl ? (
                 <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-md">
                   <p className="text-sm text-destructive font-medium">
-                    このURLは使用できません
+                    {urlValidation.isHttp
+                      ? 'HTTPのURLは使用できません'
+                      : 'このURLは使用できません'}
                   </p>
                   <p className="text-xs text-destructive/80 mt-1">
-                    セキュリティ上の理由により、有効なHTTPSのURLのみ対応しています。
+                    セキュリティ上の理由により、HTTPSのURLのみ対応しています。
                   </p>
                 </div>
               ) : (
@@ -359,7 +329,7 @@ export function ImageSearchDialog({
           </Button>
           <Button
             onClick={handleSaveImage}
-            disabled={!isValidUrl || isSaving || savedSuccess}
+            disabled={!urlValidation.isValid || isSaving || savedSuccess}
           >
             {isSaving ? (
               <>
