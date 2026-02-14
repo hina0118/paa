@@ -148,6 +148,39 @@ describe('ApiKeys', () => {
       });
     });
 
+    it('shows error when Gemini API key save fails', async () => {
+      const user = userEvent.setup();
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+        if (cmd === 'is_google_search_configured')
+          return Promise.resolve(false);
+        if (cmd === 'has_gmail_oauth_credentials')
+          return Promise.resolve(false);
+        if (cmd === 'save_gemini_api_key')
+          return Promise.reject(new Error('Keyring error'));
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<ApiKeys />);
+
+      const apiKeyInput = document.getElementById(
+        'gemini-api-key'
+      ) as HTMLInputElement;
+      await user.type(apiKeyInput, 'test-api-key-123');
+
+      await user.click(
+        screen.getByRole('button', { name: 'Gemini APIキーを保存' })
+      );
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/保存に失敗しました: Keyring error/)
+        ).toBeInTheDocument();
+      });
+    });
+
     it('deletes Gemini API key when confirm is accepted', async () => {
       const user = userEvent.setup();
       vi.stubGlobal(
@@ -186,6 +219,39 @@ describe('ApiKeys', () => {
           screen.getByText('Gemini APIキーを削除しました')
         ).toBeInTheDocument();
       });
+
+      vi.unstubAllGlobals();
+    });
+
+    it('does not delete Gemini API key when confirm is cancelled', async () => {
+      const user = userEvent.setup();
+      const confirmMock = vi.fn(() => false);
+      vi.stubGlobal('confirm', confirmMock);
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(true);
+        if (cmd === 'is_google_search_configured')
+          return Promise.resolve(false);
+        if (cmd === 'has_gmail_oauth_credentials')
+          return Promise.resolve(false);
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<ApiKeys />);
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: 'Gemini APIキーを削除' })
+        ).toBeInTheDocument();
+      });
+
+      await user.click(
+        screen.getByRole('button', { name: 'Gemini APIキーを削除' })
+      );
+
+      expect(confirmMock).toHaveBeenCalled();
+      expect(mockInvoke).not.toHaveBeenCalledWith('delete_gemini_api_key');
 
       vi.unstubAllGlobals();
     });
@@ -254,6 +320,82 @@ describe('ApiKeys', () => {
           screen.getByText('APIキーを入力してください')
         ).toBeInTheDocument();
       });
+    });
+
+    it('shows error when SerpApi API key save fails', async () => {
+      const user = userEvent.setup();
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+        if (cmd === 'is_google_search_configured')
+          return Promise.resolve(false);
+        if (cmd === 'has_gmail_oauth_credentials')
+          return Promise.resolve(false);
+        if (cmd === 'save_google_search_api_key')
+          return Promise.reject(new Error('Network error'));
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<ApiKeys />);
+
+      const apiKeyInput = document.getElementById(
+        'serpapi-key'
+      ) as HTMLInputElement;
+      await user.type(apiKeyInput, 'serp-api-key-456');
+
+      await user.click(
+        screen.getByRole('button', { name: 'SerpApi APIキーを保存' })
+      );
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/保存に失敗しました: Network error/)
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('deletes SerpApi API key when confirm is accepted', async () => {
+      const user = userEvent.setup();
+      vi.stubGlobal(
+        'confirm',
+        vi.fn(() => true)
+      );
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+        if (cmd === 'is_google_search_configured') return Promise.resolve(true);
+        if (cmd === 'has_gmail_oauth_credentials')
+          return Promise.resolve(false);
+        if (cmd === 'delete_google_search_config')
+          return Promise.resolve(undefined);
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<ApiKeys />);
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: 'SerpApi APIキーを削除' })
+        ).toBeInTheDocument();
+      });
+
+      await user.click(
+        screen.getByRole('button', { name: 'SerpApi APIキーを削除' })
+      );
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith('delete_google_search_config');
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('SerpApi APIキーを削除しました')
+        ).toBeInTheDocument();
+      });
+
+      vi.unstubAllGlobals();
     });
   });
 
@@ -382,6 +524,45 @@ describe('ApiKeys', () => {
       vi.unstubAllGlobals();
     });
 
+    it('shows error when deleting Gmail OAuth credentials fails', async () => {
+      const user = userEvent.setup();
+      vi.stubGlobal(
+        'confirm',
+        vi.fn(() => true)
+      );
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+        if (cmd === 'is_google_search_configured')
+          return Promise.resolve(false);
+        if (cmd === 'has_gmail_oauth_credentials') return Promise.resolve(true);
+        if (cmd === 'delete_gmail_oauth_credentials')
+          return Promise.reject(new Error('Delete failed'));
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<ApiKeys />);
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: 'Gmail OAuth認証情報を削除' })
+        ).toBeInTheDocument();
+      });
+
+      await user.click(
+        screen.getByRole('button', { name: 'Gmail OAuth認証情報を削除' })
+      );
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/削除に失敗しました: Delete failed/)
+        ).toBeInTheDocument();
+      });
+
+      vi.unstubAllGlobals();
+    });
+
     it('handles Gmail OAuth save error', async () => {
       const user = userEvent.setup();
       mockInvoke.mockImplementation((cmd: string) => {
@@ -445,6 +626,91 @@ describe('ApiKeys', () => {
       expect(
         screen.getByLabelText(/client_secret\.json の内容/)
       ).toBeInTheDocument();
+    });
+
+    it('loads gmail oauth json from uploaded file (FileReader onload)', async () => {
+      const user = userEvent.setup();
+
+      const originalFileReader = global.FileReader;
+      class MockFileReader {
+        public onload: ((e: ProgressEvent<FileReader>) => void) | null = null;
+        public onerror: (() => void) | null = null;
+        readAsText(_file: File) {
+          const e = { target: { result: '{"installed":{"client_id":"x"}}' } };
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          this.onload?.(e as any);
+        }
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (global as any).FileReader = MockFileReader as any;
+
+      renderWithProviders(<ApiKeys />);
+
+      await user.click(
+        screen.getByRole('radio', { name: /ファイルをアップロード/ })
+      );
+
+      const fileInput = document.getElementById(
+        'gmail-oauth-file'
+      ) as HTMLInputElement;
+      const file = new File(['{}'], 'client_secret.json', {
+        type: 'application/json',
+      });
+
+      fireEvent.change(fileInput, { target: { files: [file] } });
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('ファイルが読み込まれました')
+        ).toBeInTheDocument();
+      });
+
+      // input の value はクリアされる（再アップロード可能にする）
+      expect(fileInput.value).toBe('');
+
+      // 復元
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (global as any).FileReader = originalFileReader as any;
+    });
+
+    it('shows error when file read fails (FileReader onerror)', async () => {
+      const user = userEvent.setup();
+
+      const originalFileReader = global.FileReader;
+      class MockFileReaderError {
+        public onload: ((e: ProgressEvent<FileReader>) => void) | null = null;
+        public onerror: (() => void) | null = null;
+        readAsText(_file: File) {
+          this.onerror?.();
+        }
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (global as any).FileReader = MockFileReaderError as any;
+
+      renderWithProviders(<ApiKeys />);
+
+      await user.click(
+        screen.getByRole('radio', { name: /ファイルをアップロード/ })
+      );
+
+      const fileInput = document.getElementById(
+        'gmail-oauth-file'
+      ) as HTMLInputElement;
+      const file = new File(['{}'], 'client_secret.json', {
+        type: 'application/json',
+      });
+
+      fireEvent.change(fileInput, { target: { files: [file] } });
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('ファイルの読み込みに失敗しました')
+        ).toBeInTheDocument();
+      });
+
+      // 復元
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (global as any).FileReader = originalFileReader as any;
     });
   });
 });

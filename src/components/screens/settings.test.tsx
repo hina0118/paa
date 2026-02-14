@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Toaster } from 'sonner';
 import { Settings } from './settings';
@@ -827,6 +827,151 @@ describe('Settings', () => {
     await waitFor(() => {
       // 50 * 100 = 5000（千の位にカンマなし）
       expect(screen.getByText(/5000 件/)).toBeInTheDocument();
+    });
+  });
+
+  it('updates values via onChange and saves with edited values', async () => {
+    const user = userEvent.setup();
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_sync_status')
+        return Promise.resolve(defaultSyncMetadata);
+      if (cmd === 'get_parse_status')
+        return Promise.resolve(defaultParseMetadata);
+      if (cmd === 'get_gemini_config')
+        return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
+
+      // 同期設定
+      if (cmd === 'update_batch_size') return Promise.resolve(undefined);
+      if (cmd === 'update_max_iterations') return Promise.resolve(undefined);
+      if (cmd === 'update_max_results_per_page')
+        return Promise.resolve(undefined);
+      if (cmd === 'update_timeout_minutes') return Promise.resolve(undefined);
+      // パース設定
+      if (cmd === 'update_parse_batch_size') return Promise.resolve(undefined);
+      // Gemini 設定
+      if (cmd === 'update_gemini_batch_size') return Promise.resolve(undefined);
+      if (cmd === 'update_gemini_delay_seconds')
+        return Promise.resolve(undefined);
+
+      return Promise.resolve(null);
+    });
+
+    renderWithProviders(<Settings />);
+
+    await waitFor(() => {
+      // 初期化(useEffect)が終わり、入力欄に初期値が反映されるのを待つ
+      expect(document.getElementById('batch-size')).toHaveValue(50);
+      expect(document.getElementById('max-iterations')).toHaveValue(100);
+      expect(document.getElementById('max-results-per-page')).toHaveValue(100);
+      expect(document.getElementById('timeout-minutes')).toHaveValue(30);
+      expect(document.getElementById('parse-batch-size')).toHaveValue(100);
+      expect(document.getElementById('gemini-batch-size')).toHaveValue(10);
+      expect(document.getElementById('gemini-delay-seconds')).toHaveValue(10);
+    });
+
+    fireEvent.change(document.getElementById('batch-size')!, {
+      target: { value: '60' },
+    });
+    await waitFor(() => {
+      expect(document.getElementById('batch-size')).toHaveValue(60);
+    });
+    await user.click(
+      screen.getByRole('button', { name: '同期バッチサイズを保存' })
+    );
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith('update_batch_size', {
+        batchSize: 60,
+      });
+    });
+
+    fireEvent.change(document.getElementById('max-iterations')!, {
+      target: { value: '120' },
+    });
+    await waitFor(() => {
+      expect(document.getElementById('max-iterations')).toHaveValue(120);
+    });
+    await user.click(
+      screen.getByRole('button', { name: '最大繰り返し回数を保存' })
+    );
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith('update_max_iterations', {
+        maxIterations: 120,
+      });
+    });
+
+    fireEvent.change(document.getElementById('max-results-per-page')!, {
+      target: { value: '150' },
+    });
+    await waitFor(() => {
+      expect(document.getElementById('max-results-per-page')).toHaveValue(150);
+    });
+    await user.click(
+      screen.getByRole('button', { name: '1ページあたり取得件数を保存' })
+    );
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith('update_max_results_per_page', {
+        maxResultsPerPage: 150,
+      });
+    });
+
+    fireEvent.change(document.getElementById('timeout-minutes')!, {
+      target: { value: '40' },
+    });
+    await waitFor(() => {
+      expect(document.getElementById('timeout-minutes')).toHaveValue(40);
+    });
+    await user.click(
+      screen.getByRole('button', { name: '同期タイムアウトを保存' })
+    );
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith('update_timeout_minutes', {
+        timeoutMinutes: 40,
+      });
+    });
+
+    fireEvent.change(document.getElementById('parse-batch-size')!, {
+      target: { value: '140' },
+    });
+    await waitFor(() => {
+      expect(document.getElementById('parse-batch-size')).toHaveValue(140);
+    });
+    await user.click(
+      screen.getByRole('button', { name: 'パースバッチサイズを保存' })
+    );
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith('update_parse_batch_size', {
+        batchSize: 140,
+      });
+    });
+
+    fireEvent.change(document.getElementById('gemini-batch-size')!, {
+      target: { value: '11' },
+    });
+    await waitFor(() => {
+      expect(document.getElementById('gemini-batch-size')).toHaveValue(11);
+    });
+    await user.click(
+      screen.getByRole('button', { name: '商品名パースのバッチサイズを保存' })
+    );
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith('update_gemini_batch_size', {
+        batchSize: 11,
+      });
+    });
+
+    fireEvent.change(document.getElementById('gemini-delay-seconds')!, {
+      target: { value: '5' },
+    });
+    await waitFor(() => {
+      expect(document.getElementById('gemini-delay-seconds')).toHaveValue(5);
+    });
+    await user.click(
+      screen.getByRole('button', { name: 'リクエスト間の待機秒数を保存' })
+    );
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith('update_gemini_delay_seconds', {
+        delaySeconds: 5,
+      });
     });
   });
 });
