@@ -405,6 +405,12 @@ describe('ImageSearchDialog', () => {
       name: '選択した画像を保存',
     });
     expect(saveButton).toBeDisabled();
+    // Verify specific error message for HTTP URLs (case-insensitive)
+    await waitFor(() => {
+      expect(
+        screen.getByText('HTTPのURLは使用できません')
+      ).toBeInTheDocument();
+    });
 
     // Test ftp protocol - should show generic error message
     await user.clear(urlInput);
