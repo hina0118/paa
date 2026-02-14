@@ -121,16 +121,18 @@ export function ImageSearchDialog({
     selectedUrl || (manualUrlInput.trim() ? manualUrlInput.trim() : null);
 
   // URL validation - parse URL and check protocol is https:
-  const isValidUrl = (() => {
-    if (!urlToSave) return false;
+  const urlValidation = (() => {
+    if (!urlToSave) return { isValid: false, isHttp: false, parsed: null };
     try {
       const parsed = new URL(urlToSave);
-      return parsed.protocol === 'https:';
+      const isValid = parsed.protocol === 'https:';
+      const isHttp = parsed.protocol === 'http:';
+      return { isValid, isHttp, parsed };
     } catch {
-      return false;
+      return { isValid: false, isHttp: false, parsed: null };
     }
   })();
-  const isInvalidOrNonHttpsUrl = Boolean(urlToSave) && !isValidUrl;
+  const isInvalidOrNonHttpsUrl = Boolean(urlToSave) && !urlValidation.isValid;
 
   const handleSaveImage = useCallback(async () => {
     if (!urlToSave) return;
@@ -266,7 +268,9 @@ export function ImageSearchDialog({
               {isInvalidOrNonHttpsUrl ? (
                 <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-md">
                   <p className="text-sm text-destructive font-medium">
-                    HTTPのURLは使用できません
+                    {urlValidation.isHttp
+                      ? 'HTTPのURLは使用できません'
+                      : 'このURLは使用できません'}
                   </p>
                   <p className="text-xs text-destructive/80 mt-1">
                     セキュリティ上の理由により、HTTPSのURLのみ対応しています。
@@ -325,7 +329,7 @@ export function ImageSearchDialog({
           </Button>
           <Button
             onClick={handleSaveImage}
-            disabled={!isValidUrl || isSaving || savedSuccess}
+            disabled={!urlValidation.isValid || isSaving || savedSuccess}
           >
             {isSaving ? (
               <>
