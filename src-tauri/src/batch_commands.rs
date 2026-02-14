@@ -40,7 +40,7 @@ use crate::repository::{
 trait BatchCommandsApp: BatchEventEmitter {
     fn notify(&self, title: &str, body: &str);
     fn app_config_dir(&self) -> Result<std::path::PathBuf, String>;
-    fn app_data_dir(&self) -> Option<std::path::PathBuf>;
+    fn app_data_dir(&self) -> Result<std::path::PathBuf, String>;
     async fn create_gmail_client(&self) -> Result<GmailClientForE2E, String>;
 }
 
@@ -73,8 +73,11 @@ impl BatchCommandsApp for TauriBatchCommandsApp {
             .map_err(|e| format!("Failed to get app config dir: {e}"))
     }
 
-    fn app_data_dir(&self) -> Option<std::path::PathBuf> {
-        self.app.path().app_data_dir().ok()
+    fn app_data_dir(&self) -> Result<std::path::PathBuf, String> {
+        self.app
+            .path()
+            .app_data_dir()
+            .map_err(|e| format!("Failed to get app data dir: {e}"))
     }
 
     async fn create_gmail_client(&self) -> Result<GmailClientForE2E, String> {
@@ -557,12 +560,11 @@ async fn run_product_name_parse_task_with<A: BatchCommandsApp>(
     log::info!("Starting product name parse with BatchRunner<ProductNameParseTask>...");
 
     let app_data_dir = match app.app_data_dir() {
-        Some(p) => p,
-        None => {
-            let msg = "Failed to get app data dir".to_string();
-            log::error!("{}", msg);
+        Ok(p) => p,
+        Err(e) => {
+            log::error!("{}", e);
             let error_event =
-                BatchProgressEvent::error(PRODUCT_NAME_PARSE_TASK_NAME, 0, 0, 0, 0, msg);
+                BatchProgressEvent::error(PRODUCT_NAME_PARSE_TASK_NAME, 0, 0, 0, 0, e);
             app.emit_event(PRODUCT_NAME_PARSE_EVENT_NAME, error_event);
             if caller_did_try_start {
                 parse_state.finish();
@@ -789,8 +791,8 @@ mod tests {
             Ok(self.config_dir.clone())
         }
 
-        fn app_data_dir(&self) -> Option<std::path::PathBuf> {
-            self.data_dir.clone()
+        fn app_data_dir(&self) -> Result<std::path::PathBuf, String> {
+            self.data_dir.clone().ok_or_else(|| "Data dir not set".to_string())
         }
 
         async fn create_gmail_client(&self) -> Result<GmailClientForE2E, String> {
