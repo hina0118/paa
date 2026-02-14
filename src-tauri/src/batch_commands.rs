@@ -844,7 +844,7 @@ mod tests {
         sqlx::query(
             r#"
             INSERT INTO shop_settings (id, shop_name, sender_address, parser_type, is_enabled, subject_filters, created_at, updated_at)
-            VALUES (1, 'TestShop', 'shop@example.com', 'hobbysearch_confirm', 1, NULL, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')
+            VALUES (1, 'TestShop', 'shop@example.com', 'hobbysearch_confirm', 1, NULL, '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')
             "#,
         )
         .execute(pool)
