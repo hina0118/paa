@@ -423,7 +423,7 @@ describe('ImageSearchDialog', () => {
       ).toBeInTheDocument();
     });
 
-    // Test file protocol
+    // Test file protocol - should show same generic error message
     await user.clear(urlInput);
     await user.type(urlInput, 'file:///path/to/image.jpg');
 
@@ -431,6 +431,14 @@ describe('ImageSearchDialog', () => {
       name: '選択した画像を保存',
     });
     expect(saveButton).toBeDisabled();
+
+    // Verify generic error message for file protocol too
+    await waitFor(() => {
+      expect(screen.getByText('このURLは使用できません')).toBeInTheDocument();
+      expect(
+        screen.getByText(/セキュリティ上の理由により、HTTPSのURLのみ対応/)
+      ).toBeInTheDocument();
+    });
   });
 
   it('replaces manual input when new initialUrl is detected', async () => {
