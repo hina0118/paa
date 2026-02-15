@@ -8,19 +8,24 @@ interface BatchProgressBarProps {
   completeMessage?: string;
   /** 成功/失敗カウントを表示するか */
   showCounts?: boolean;
+  /** バッチ番号を表示するか（trueの場合、件数表示の代わりにバッチ番号を表示） */
+  showBatchNumber?: boolean;
   /** クラス名 */
   className?: string;
 }
 
 /**
- * 共通のバッチ処理進捗表示コンポーネント
+ * バッチ処理進捗表示コンポーネント
  *
- * メール同期、メールパース、商品名パースで共通して使用できます。
+ * メール同期、メールパース、商品名パースで共通して使用します。
+ * - showBatchNumber: バッチ番号表示（Gmail同期向け）
+ * - showCounts: 成功/失敗カウント表示（パース処理向け）
  */
 export function BatchProgressBar({
   progress,
   completeMessage = '処理が完了しました',
   showCounts = true,
+  showBatchNumber = false,
   className,
 }: BatchProgressBarProps) {
   return (
@@ -28,10 +33,19 @@ export function BatchProgressBar({
       {/* プログレスバー */}
       <div className="space-y-2">
         <div className="flex justify-between text-sm">
-          <span>
-            {progress.processed_count} / {progress.total_items} 件
-          </span>
-          <span>{Math.round(progress.progress_percent)}%</span>
+          {showBatchNumber ? (
+            <>
+              <span>バッチ {progress.batch_number}</span>
+              <span>{progress.processed_count} 件処理済み</span>
+            </>
+          ) : (
+            <>
+              <span>
+                {progress.processed_count} / {progress.total_items} 件
+              </span>
+              <span>{Math.round(progress.progress_percent)}%</span>
+            </>
+          )}
         </div>
         <Progress value={progress.progress_percent} />
       </div>
@@ -80,30 +94,6 @@ export function BatchProgressBar({
           {progress.error}
         </div>
       )}
-    </div>
-  );
-}
-
-/**
- * シンプルなプログレスバー（カウントなし）
- */
-export function SimpleBatchProgressBar({
-  progress,
-  className,
-}: {
-  progress: BatchProgress;
-  className?: string;
-}) {
-  return (
-    <div className={`space-y-2 ${className || ''}`}>
-      <div className="flex justify-between text-sm">
-        <span>バッチ {progress.batch_number}</span>
-        <span>{progress.processed_count} 件処理済み</span>
-      </div>
-      <Progress value={progress.progress_percent} />
-      <div className="text-sm text-muted-foreground">
-        {progress.status_message}
-      </div>
     </div>
   );
 }

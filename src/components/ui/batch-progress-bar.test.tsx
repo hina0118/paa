@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { BatchProgressBar, SimpleBatchProgressBar } from './batch-progress-bar';
+import { BatchProgressBar } from './batch-progress-bar';
 import type { BatchProgress } from '@/contexts/batch-progress-types';
 
 describe('BatchProgressBar', () => {
@@ -70,38 +70,46 @@ describe('BatchProgressBar', () => {
     expect(screen.queryByText('成功:')).not.toBeInTheDocument();
     expect(screen.queryByText('失敗:')).not.toBeInTheDocument();
   });
-});
 
-describe('SimpleBatchProgressBar', () => {
-  const mockProgress: BatchProgress = {
-    task_name: 'メール同期',
-    batch_number: 3,
-    batch_size: 50,
-    total_items: 200,
-    processed_count: 150,
-    success_count: 150,
-    failed_count: 0,
-    progress_percent: 75,
-    status_message: 'メッセージを取得中...',
-    is_complete: false,
-  };
-
-  it('renders simple progress information', () => {
-    render(<SimpleBatchProgressBar progress={mockProgress} />);
+  it('shows batch number when showBatchNumber is true', () => {
+    render(
+      <BatchProgressBar
+        progress={mockProgress}
+        showBatchNumber
+        showCounts={false}
+      />
+    );
 
     // バッチ番号
-    expect(screen.getByText('バッチ 3')).toBeInTheDocument();
+    expect(screen.getByText('バッチ 2')).toBeInTheDocument();
     // 処理件数
-    expect(screen.getByText('150 件処理済み')).toBeInTheDocument();
-    // ステータスメッセージ
-    expect(screen.getByText('メッセージを取得中...')).toBeInTheDocument();
-  });
-
-  it('does not show success/failure counts', () => {
-    render(<SimpleBatchProgressBar progress={mockProgress} />);
-
+    expect(screen.getByText('200 件処理済み')).toBeInTheDocument();
+    // 件数/総数表示は非表示
+    expect(screen.queryByText('200 / 500 件')).not.toBeInTheDocument();
     // 成功/失敗のラベルが表示されない
     expect(screen.queryByText('成功:')).not.toBeInTheDocument();
     expect(screen.queryByText('失敗:')).not.toBeInTheDocument();
+    // ステータスメッセージ
+    expect(screen.getByText('バッチ 2 を処理中...')).toBeInTheDocument();
+  });
+
+  it('shows completion message with showBatchNumber', () => {
+    const completedProgress: BatchProgress = {
+      ...mockProgress,
+      is_complete: true,
+      status_message: '同期完了',
+    };
+
+    render(
+      <BatchProgressBar
+        progress={completedProgress}
+        showBatchNumber
+        showCounts={false}
+        completeMessage="同期が完了しました"
+      />
+    );
+
+    expect(screen.getByText('同期が完了しました')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toBeInTheDocument();
   });
 });
