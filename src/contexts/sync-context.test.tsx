@@ -548,16 +548,14 @@ describe('SyncContext', () => {
       | ((e: { payload: BatchProgress }) => Promise<void>)
       | null = null;
 
-    mockListen.mockImplementation(
-      (event: string, cb: (e: unknown) => void) => {
-        if (event === BATCH_PROGRESS_EVENT) {
-          progressCallback = cb as (e: {
-            payload: BatchProgress;
-          }) => Promise<void>;
-        }
-        return Promise.resolve(() => {});
+    mockListen.mockImplementation((event: string, cb: (e: unknown) => void) => {
+      if (event === BATCH_PROGRESS_EVENT) {
+        progressCallback = cb as (e: {
+          payload: BatchProgress;
+        }) => Promise<void>;
       }
-    );
+      return Promise.resolve(() => {});
+    });
 
     return {
       getProgressCallback: () => progressCallback,
@@ -568,9 +566,7 @@ describe('SyncContext', () => {
     const { getProgressCallback } = setupBatchProgressListener();
 
     const { result } = renderHook(() => useSync(), { wrapper });
-    await waitFor(() =>
-      expect(getProgressCallback()).not.toBeNull()
-    );
+    await waitFor(() => expect(getProgressCallback()).not.toBeNull());
 
     await act(async () => {
       await getProgressCallback()?.({
