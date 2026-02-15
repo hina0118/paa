@@ -5,10 +5,13 @@ import { useSync } from './use-sync';
 import { mockInvoke, mockListen } from '@/test/setup';
 import { ReactNode } from 'react';
 
-const toastSuccessMock = vi.fn();
-const toastErrorMock = vi.fn();
-const notifyMock = vi.fn().mockResolvedValue(undefined);
-const isAppWindowVisibleMock = vi.fn().mockResolvedValue(true);
+const { toastSuccessMock, toastErrorMock, notifyMock, isAppWindowVisibleMock } =
+  vi.hoisted(() => ({
+    toastSuccessMock: vi.fn(),
+    toastErrorMock: vi.fn(),
+    notifyMock: vi.fn<[string, string], Promise<void>>().mockResolvedValue(undefined),
+    isAppWindowVisibleMock: vi.fn<[], Promise<boolean>>().mockResolvedValue(true),
+  }));
 
 vi.mock('@/lib/toast', () => ({
   toastSuccess: (...args: unknown[]) => toastSuccessMock(...args),
@@ -735,5 +738,44 @@ describe('SyncContext', () => {
       'Gmail同期完了',
       '新たに1件のメールを取り込みました'
     );
+  });
+
+  it('sends error notification on sync completion with error when not visible', async () => {
+    let progressCallback:
+      | ((e: { payload: BatchProgress }) => Promise<void>)
+      | null = null;
+    mockListen.mockImplementation((event: string, cb: (e: unknown) => void) => {
+      if (event === BATCH_PROGRESS_EVENT) {
+        progressCallback = cb as (e: {
+          payload: BatchProgress;
+        }) => Promise<void>;
+      }
+      return Promise.resolve(() => {});
+    });
+
+    isAppWindowVisibleMock.mockResolvedValue(false);
+
+    renderHook(() => useSync(), { wrapper });
+    await waitFor(() => expect(progressCallback).not.toBeNull());
+
+    await act(async () => {
+      await progressCallback?.({
+        payload: {
+          task_name: TASK_NAMES.GMAIL_SYNC,
+          batch_number: 1,
+          batch_size: 50,
+          total_items: 100,
+          processed_count: 100,
+          success_count: 0,
+          failed_count: 1,
+          progress_percent: 100,
+          status_message: 'Complete',
+          is_complete: true,
+          error: 'Sync error',
+        },
+      });
+    });
+
+    expect(notifyMock).toHaveBeenCalledWith('Gmail同期失敗', 'Sync error');
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Toaster } from 'sonner';
 import { Settings } from './settings';
@@ -869,9 +869,8 @@ describe('Settings', () => {
       expect(document.getElementById('gemini-delay-seconds')).toHaveValue(10);
     });
 
-    fireEvent.change(document.getElementById('batch-size')!, {
-      target: { value: '60' },
-    });
+    await user.clear(document.getElementById('batch-size')!);
+    await user.type(document.getElementById('batch-size')!, '60');
     await waitFor(() => {
       expect(document.getElementById('batch-size')).toHaveValue(60);
     });
@@ -884,9 +883,8 @@ describe('Settings', () => {
       });
     });
 
-    fireEvent.change(document.getElementById('max-iterations')!, {
-      target: { value: '120' },
-    });
+    await user.clear(document.getElementById('max-iterations')!);
+    await user.type(document.getElementById('max-iterations')!, '120');
     await waitFor(() => {
       expect(document.getElementById('max-iterations')).toHaveValue(120);
     });
@@ -899,9 +897,8 @@ describe('Settings', () => {
       });
     });
 
-    fireEvent.change(document.getElementById('max-results-per-page')!, {
-      target: { value: '150' },
-    });
+    await user.clear(document.getElementById('max-results-per-page')!);
+    await user.type(document.getElementById('max-results-per-page')!, '150');
     await waitFor(() => {
       expect(document.getElementById('max-results-per-page')).toHaveValue(150);
     });
@@ -914,9 +911,8 @@ describe('Settings', () => {
       });
     });
 
-    fireEvent.change(document.getElementById('timeout-minutes')!, {
-      target: { value: '40' },
-    });
+    await user.clear(document.getElementById('timeout-minutes')!);
+    await user.type(document.getElementById('timeout-minutes')!, '40');
     await waitFor(() => {
       expect(document.getElementById('timeout-minutes')).toHaveValue(40);
     });
@@ -929,9 +925,8 @@ describe('Settings', () => {
       });
     });
 
-    fireEvent.change(document.getElementById('parse-batch-size')!, {
-      target: { value: '140' },
-    });
+    await user.clear(document.getElementById('parse-batch-size')!);
+    await user.type(document.getElementById('parse-batch-size')!, '140');
     await waitFor(() => {
       expect(document.getElementById('parse-batch-size')).toHaveValue(140);
     });
@@ -944,9 +939,8 @@ describe('Settings', () => {
       });
     });
 
-    fireEvent.change(document.getElementById('gemini-batch-size')!, {
-      target: { value: '11' },
-    });
+    await user.clear(document.getElementById('gemini-batch-size')!);
+    await user.type(document.getElementById('gemini-batch-size')!, '11');
     await waitFor(() => {
       expect(document.getElementById('gemini-batch-size')).toHaveValue(11);
     });
@@ -959,9 +953,8 @@ describe('Settings', () => {
       });
     });
 
-    fireEvent.change(document.getElementById('gemini-delay-seconds')!, {
-      target: { value: '5' },
-    });
+    await user.clear(document.getElementById('gemini-delay-seconds')!);
+    await user.type(document.getElementById('gemini-delay-seconds')!, '5');
     await waitFor(() => {
       expect(document.getElementById('gemini-delay-seconds')).toHaveValue(5);
     });
