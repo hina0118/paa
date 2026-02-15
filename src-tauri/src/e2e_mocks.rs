@@ -279,6 +279,7 @@ mod tests {
         assert!(token.is_none());
 
         assert!(client.get_message("msg-1").await.is_err());
+        assert!(client.get_message_metadata("msg-1").await.is_err());
     }
 
     #[tokio::test]
