@@ -77,15 +77,22 @@ fn extract_cancel_quantity(lines: &[&str]) -> Result<i64, String> {
     Ok(1)
 }
 
-#[cfg(all(test, not(ci)))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
+    // NOTE: `sample/` 配下のファイルは使わず、テスト内でダミー本文を生成する。
+    const SAMPLE_EMAIL: &str = r#"件名: 【ホビーサーチ】ご注文のキャンセルが確定しました
+
+注文番号：99-9999-9999
+商品名：【抽選販売】 30MS オプションパーツセット22(ターボコスチュームα)[カラーB] (プラモデル)
+キャンセル個数：1
+"#;
+
     #[test]
     fn test_parse_hobbysearch_cancel() {
-        let sample_email = include_str!("../../../sample/hobbysearch_mail_cancel.txt");
         let parser = HobbySearchCancelParser;
-        let result = parser.parse_cancel(sample_email);
+        let result = parser.parse_cancel(SAMPLE_EMAIL);
 
         assert!(result.is_ok());
         let info = result.unwrap();

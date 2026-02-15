@@ -1117,6 +1117,63 @@ mod tests {
         assert!(parser.is_none());
     }
 
+    // ==================== parser type utility Tests ====================
+
+    #[test]
+    fn test_order_lookup_alternate_domains_for_dmm_domains() {
+        assert_eq!(
+            order_lookup_alternate_domains(&Some("mail.dmm.com".to_string())),
+            Some(vec!["mono.dmm.com".to_string()])
+        );
+        assert_eq!(
+            order_lookup_alternate_domains(&Some("mono.dmm.com".to_string())),
+            Some(vec!["mail.dmm.com".to_string()])
+        );
+        assert_eq!(order_lookup_alternate_domains(&None), None);
+        assert_eq!(
+            order_lookup_alternate_domains(&Some("example.com".to_string())),
+            None
+        );
+    }
+
+    #[test]
+    fn test_is_cancel_parser() {
+        assert!(is_cancel_parser("hobbysearch_cancel"));
+        assert!(is_cancel_parser("dmm_cancel"));
+        assert!(!is_cancel_parser("hobbysearch_confirm"));
+        assert!(!is_cancel_parser(""));
+    }
+
+    #[test]
+    fn test_is_order_number_change_parser() {
+        assert!(is_order_number_change_parser("dmm_order_number_change"));
+        assert!(!is_order_number_change_parser("dmm_confirm"));
+    }
+
+    #[test]
+    fn test_is_merge_complete_parser() {
+        assert!(is_merge_complete_parser("dmm_merge_complete"));
+        assert!(!is_merge_complete_parser("dmm_split_complete"));
+    }
+
+    #[test]
+    fn test_parse_cancel_with_parser_unknown_returns_err() {
+        let err = parse_cancel_with_parser("unknown", "body").unwrap_err();
+        assert!(err.contains("Unknown cancel parser"));
+    }
+
+    #[test]
+    fn test_parse_order_number_change_with_parser_unknown_returns_err() {
+        let err = parse_order_number_change_with_parser("unknown", "body").unwrap_err();
+        assert!(err.contains("Unknown order number change parser"));
+    }
+
+    #[test]
+    fn test_parse_consolidation_with_parser_unknown_returns_err() {
+        let err = parse_consolidation_with_parser("unknown", "body").unwrap_err();
+        assert!(err.contains("Unknown merge complete parser"));
+    }
+
     // ==================== Data Structure Tests ====================
 
     #[test]
