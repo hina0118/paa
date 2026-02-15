@@ -46,6 +46,10 @@ describe('ApiKeys', () => {
     mockListen.mockResolvedValue(() => {});
   });
 
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('renders API keys heading', () => {
     renderWithProviders(<ApiKeys />);
     expect(
@@ -81,10 +85,6 @@ describe('ApiKeys', () => {
   });
 
   describe('handleSaveGeminiApiKey / handleDeleteGeminiApiKey', () => {
-    afterEach(() => {
-      vi.unstubAllGlobals();
-    });
-
     it('saves Gemini API key successfully and clears input', async () => {
       const user = userEvent.setup();
       mockInvoke.mockImplementation((cmd: string) => {
@@ -258,10 +258,6 @@ describe('ApiKeys', () => {
   });
 
   describe('handleSaveSerpApiKey / handleDeleteSerpApiKey', () => {
-    afterEach(() => {
-      vi.unstubAllGlobals();
-    });
-
     it('saves SerpApi API key successfully', async () => {
       const user = userEvent.setup();
       mockInvoke.mockImplementation((cmd: string) => {
@@ -402,10 +398,6 @@ describe('ApiKeys', () => {
   });
 
   describe('handleSaveGmailOAuth / handleDeleteGmailOAuth', () => {
-    afterEach(() => {
-      vi.unstubAllGlobals();
-    });
-
     it('saves Gmail OAuth credentials successfully via JSON paste', async () => {
       const user = userEvent.setup();
       mockInvoke.mockImplementation((cmd: string) => {
@@ -633,90 +625,74 @@ describe('ApiKeys', () => {
     it('loads gmail oauth json from uploaded file (FileReader onload)', async () => {
       const user = userEvent.setup();
 
-      const originalFileReader = global.FileReader;
-      try {
-        class MockFileReader {
-          public onload: ((e: ProgressEvent<FileReader>) => void) | null = null;
-          public onerror: (() => void) | null = null;
-          readAsText(_file: File) {
-            const e = { target: { result: '{"installed":{"client_id":"x"}}' } };
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            this.onload?.(e as any);
-          }
+      class MockFileReader {
+        public onload: ((e: ProgressEvent<FileReader>) => void) | null = null;
+        public onerror: (() => void) | null = null;
+        readAsText(_file: File) {
+          const e = { target: { result: '{"installed":{"client_id":"x"}}' } };
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          this.onload?.(e as any);
         }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (global as any).FileReader = MockFileReader as any;
-
-        renderWithProviders(<ApiKeys />);
-
-        await user.click(
-          screen.getByRole('radio', { name: /ファイルをアップロード/ })
-        );
-
-        const fileInput = document.getElementById(
-          'gmail-oauth-file'
-        ) as HTMLInputElement;
-        const file = new File(['{}'], 'client_secret.json', {
-          type: 'application/json',
-        });
-
-        fireEvent.change(fileInput, { target: { files: [file] } });
-
-        await waitFor(() => {
-          expect(
-            screen.getByText('ファイルが読み込まれました')
-          ).toBeInTheDocument();
-        });
-
-        // input の value はクリアされる（再アップロード可能にする）
-        expect(fileInput.value).toBe('');
-      } finally {
-        // 復元
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (global as any).FileReader = originalFileReader as any;
       }
+      vi.stubGlobal('FileReader', MockFileReader);
+
+      renderWithProviders(<ApiKeys />);
+
+      await user.click(
+        screen.getByRole('radio', { name: /ファイルをアップロード/ })
+      );
+
+      const fileInput = document.getElementById(
+        'gmail-oauth-file'
+      ) as HTMLInputElement;
+      const file = new File(['{}'], 'client_secret.json', {
+        type: 'application/json',
+      });
+
+      fireEvent.change(fileInput, { target: { files: [file] } });
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('ファイルが読み込まれました')
+        ).toBeInTheDocument();
+      });
+
+      // input の value はクリアされる（再アップロード可能にする）
+      expect(fileInput.value).toBe('');
     });
 
     it('shows error when file read fails (FileReader onerror)', async () => {
       const user = userEvent.setup();
 
-      const originalFileReader = global.FileReader;
-      try {
-        class MockFileReaderError {
-          public onload: ((e: ProgressEvent<FileReader>) => void) | null = null;
-          public onerror: (() => void) | null = null;
-          readAsText(_file: File) {
-            this.onerror?.();
-          }
+      class MockFileReaderError {
+        public onload: ((e: ProgressEvent<FileReader>) => void) | null = null;
+        public onerror: (() => void) | null = null;
+        readAsText(_file: File) {
+          this.onerror?.();
         }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (global as any).FileReader = MockFileReaderError as any;
-
-        renderWithProviders(<ApiKeys />);
-
-        await user.click(
-          screen.getByRole('radio', { name: /ファイルをアップロード/ })
-        );
-
-        const fileInput = document.getElementById(
-          'gmail-oauth-file'
-        ) as HTMLInputElement;
-        const file = new File(['{}'], 'client_secret.json', {
-          type: 'application/json',
-        });
-
-        fireEvent.change(fileInput, { target: { files: [file] } });
-
-        await waitFor(() => {
-          expect(
-            screen.getByText('ファイルの読み込みに失敗しました')
-          ).toBeInTheDocument();
-        });
-      } finally {
-        // 復元
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (global as any).FileReader = originalFileReader as any;
       }
+      vi.stubGlobal('FileReader', MockFileReaderError);
+
+      renderWithProviders(<ApiKeys />);
+
+      await user.click(
+        screen.getByRole('radio', { name: /ファイルをアップロード/ })
+      );
+
+      const fileInput = document.getElementById(
+        'gmail-oauth-file'
+      ) as HTMLInputElement;
+      const file = new File(['{}'], 'client_secret.json', {
+        type: 'application/json',
+      });
+
+      fireEvent.change(fileInput, { target: { files: [file] } });
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('ファイルの読み込みに失敗しました')
+        ).toBeInTheDocument();
+      });
     });
   });
 });
