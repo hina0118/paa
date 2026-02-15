@@ -233,12 +233,12 @@ mod tests {
         assert_eq!(loaded.sync.max_iterations, 34);
         assert_eq!(loaded.parse.batch_size, 56);
 
-        // デフォルト値から取得した値と比較（保守性向上）
-        let default_config = AppConfig::default();
-        assert_eq!(loaded.sync.max_results_per_page, default_config.sync.max_results_per_page);
-        assert_eq!(loaded.sync.timeout_minutes, default_config.sync.timeout_minutes);
-        assert_eq!(loaded.gemini.batch_size, default_config.gemini.batch_size);
-        assert_eq!(loaded.gemini.delay_seconds, default_config.gemini.delay_seconds);
+        // デフォルト値から取得した値と比較（serde の #[serde(default)] 適用元と揃える）
+        assert_eq!(loaded.sync.max_results_per_page, default_max_results_per_page());
+        assert_eq!(loaded.sync.timeout_minutes, default_sync_timeout_minutes());
+        let default_gemini = GeminiConfig::default();
+        assert_eq!(loaded.gemini.batch_size, default_gemini.batch_size);
+        assert_eq!(loaded.gemini.delay_seconds, default_gemini.delay_seconds);
 
         // window は JSON から省略 → AppConfig の #[serde(default)] で WindowConfig::default
         let default_window = WindowConfig::default();
@@ -267,9 +267,10 @@ mod tests {
         assert_eq!(loaded.sync.max_results_per_page, 3);
         assert_eq!(loaded.sync.timeout_minutes, 4);
 
-        // デフォルト値から取得した値と比較
-        let default_config = AppConfig::default();
-        assert_eq!(loaded.window.width, default_config.window.width);
-        assert_eq!(loaded.gemini.batch_size, default_config.gemini.batch_size);
+        // デフォルト値から取得した値と比較（serde の #[serde(default)] 適用元と揃える）
+        let default_window = WindowConfig::default();
+        let default_gemini = GeminiConfig::default();
+        assert_eq!(loaded.window.width, default_window.width);
+        assert_eq!(loaded.gemini.batch_size, default_gemini.batch_size);
     }
 }
