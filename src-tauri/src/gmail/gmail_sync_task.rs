@@ -238,7 +238,7 @@ where
                         results.push(Ok(GmailSyncOutput {
                             message: metadata,
                             saved: false,
-                            filtered_out: false, // Phase 2 で上書き予定
+                            filtered_out: false, // Phase 2 でメッセージ本文を含む完全版に上書き予定
                         }));
                         candidates.push((input.message_id.clone(), idx));
                     } else {
