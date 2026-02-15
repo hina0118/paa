@@ -829,4 +829,151 @@ describe('Settings', () => {
       expect(screen.getByText(/5000 件/)).toBeInTheDocument();
     });
   });
+
+  describe('setting updates', () => {
+    const testSettingUpdate = async (config: {
+      inputId: string;
+      initialValue: number;
+      newValue: string;
+      buttonName: string;
+      invokeCommand: string;
+      invokePayload: Record<string, number>;
+      successMessage: string;
+    }) => {
+      const user = userEvent.setup();
+
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'get_gemini_config')
+          return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
+
+        if (cmd === 'update_batch_size') return Promise.resolve(undefined);
+        if (cmd === 'update_max_iterations') return Promise.resolve(undefined);
+        if (cmd === 'update_max_results_per_page')
+          return Promise.resolve(undefined);
+        if (cmd === 'update_timeout_minutes') return Promise.resolve(undefined);
+        if (cmd === 'update_parse_batch_size')
+          return Promise.resolve(undefined);
+        if (cmd === 'update_gemini_batch_size')
+          return Promise.resolve(undefined);
+        if (cmd === 'update_gemini_delay_seconds')
+          return Promise.resolve(undefined);
+
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      const input = document.getElementById(config.inputId)!;
+
+      await waitFor(() => {
+        expect(input).toHaveValue(config.initialValue);
+      });
+
+      await user.clear(input);
+      await user.type(input, config.newValue);
+      await waitFor(() => {
+        expect(input).toHaveValue(Number(config.newValue));
+      });
+
+      await user.click(screen.getByRole('button', { name: config.buttonName }));
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith(
+          config.invokeCommand,
+          config.invokePayload
+        );
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText(config.successMessage)).toBeInTheDocument();
+      });
+    };
+
+    it('updates batch size', async () => {
+      await testSettingUpdate({
+        inputId: 'batch-size',
+        initialValue: 50,
+        newValue: '60',
+        buttonName: '同期バッチサイズを保存',
+        invokeCommand: 'update_batch_size',
+        invokePayload: { batchSize: 60 },
+        successMessage: 'バッチサイズを更新しました',
+      });
+    });
+
+    it('updates max iterations', async () => {
+      await testSettingUpdate({
+        inputId: 'max-iterations',
+        initialValue: 100,
+        newValue: '120',
+        buttonName: '最大繰り返し回数を保存',
+        invokeCommand: 'update_max_iterations',
+        invokePayload: { maxIterations: 120 },
+        successMessage: '最大繰り返し回数を更新しました',
+      });
+    });
+
+    it('updates max results per page', async () => {
+      await testSettingUpdate({
+        inputId: 'max-results-per-page',
+        initialValue: 100,
+        newValue: '150',
+        buttonName: '1ページあたり取得件数を保存',
+        invokeCommand: 'update_max_results_per_page',
+        invokePayload: { maxResultsPerPage: 150 },
+        successMessage: '1ページあたり取得件数を更新しました',
+      });
+    });
+
+    it('updates timeout minutes', async () => {
+      await testSettingUpdate({
+        inputId: 'timeout-minutes',
+        initialValue: 30,
+        newValue: '40',
+        buttonName: '同期タイムアウトを保存',
+        invokeCommand: 'update_timeout_minutes',
+        invokePayload: { timeoutMinutes: 40 },
+        successMessage: '同期タイムアウトを更新しました',
+      });
+    });
+
+    it('updates parse batch size', async () => {
+      await testSettingUpdate({
+        inputId: 'parse-batch-size',
+        initialValue: 100,
+        newValue: '140',
+        buttonName: 'パースバッチサイズを保存',
+        invokeCommand: 'update_parse_batch_size',
+        invokePayload: { batchSize: 140 },
+        successMessage: 'パースバッチサイズを更新しました',
+      });
+    });
+
+    it('updates gemini batch size', async () => {
+      await testSettingUpdate({
+        inputId: 'gemini-batch-size',
+        initialValue: 10,
+        newValue: '11',
+        buttonName: '商品名パースのバッチサイズを保存',
+        invokeCommand: 'update_gemini_batch_size',
+        invokePayload: { batchSize: 11 },
+        successMessage: '商品名パースのバッチサイズを更新しました',
+      });
+    });
+
+    it('updates gemini delay seconds', async () => {
+      await testSettingUpdate({
+        inputId: 'gemini-delay-seconds',
+        initialValue: 10,
+        newValue: '5',
+        buttonName: 'リクエスト間の待機秒数を保存',
+        invokeCommand: 'update_gemini_delay_seconds',
+        invokePayload: { delaySeconds: 5 },
+        successMessage: 'リクエスト間の待機秒数を更新しました',
+      });
+    });
+  });
 });

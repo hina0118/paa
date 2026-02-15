@@ -10,6 +10,35 @@ import {
   type BatchProgress,
 } from './batch-progress-types';
 
+const { toastSuccessMock, toastErrorMock, notifyMock, isAppWindowVisibleMock } =
+  vi.hoisted(() => ({
+    toastSuccessMock: vi.fn(),
+    toastErrorMock: vi.fn(),
+    notifyMock: vi
+      .fn<
+        Parameters<(title: string, body: string) => Promise<void>>,
+        Promise<void>
+      >()
+      .mockResolvedValue(undefined),
+    isAppWindowVisibleMock: vi
+      .fn<[], Promise<boolean>>()
+      .mockResolvedValue(true),
+  }));
+
+vi.mock('@/lib/toast', () => ({
+  toastSuccess: (...args: unknown[]) => toastSuccessMock(...args),
+  toastError: (...args: unknown[]) => toastErrorMock(...args),
+}));
+
+vi.mock('@/lib/utils', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/utils')>();
+  return {
+    ...actual,
+    notify: (title: string, body: string) => notifyMock(title, body),
+    isAppWindowVisible: () => isAppWindowVisibleMock(),
+  };
+});
+
 const mockParseMetadata = {
   parse_status: 'idle' as const,
   total_parsed_count: 0,
@@ -19,6 +48,8 @@ const mockParseMetadata = {
 describe('ParseContext', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    isAppWindowVisibleMock.mockResolvedValue(true);
+    notifyMock.mockResolvedValue(undefined);
     mockInvoke.mockImplementation((cmd: string) => {
       if (cmd === 'get_parse_status') {
         return Promise.resolve(mockParseMetadata);
@@ -446,5 +477,188 @@ describe('ParseContext', () => {
     });
 
     expect(mockInvoke).toHaveBeenCalledWith('get_parse_status');
+  });
+
+  const setupBatchProgressListener = () => {
+    let progressCallback:
+      | ((e: { payload: BatchProgress }) => Promise<void>)
+      | null = null;
+
+    mockListen.mockImplementation((event: string, cb: (e: unknown) => void) => {
+      if (event === BATCH_PROGRESS_EVENT) {
+        progressCallback = cb as (e: {
+          payload: BatchProgress;
+        }) => Promise<void>;
+      }
+      return Promise.resolve(() => {});
+    });
+
+    return {
+      getProgressCallback: () => progressCallback,
+    };
+  };
+
+  it('shows toastSuccess on email parse completion when window is visible', async () => {
+    const { getProgressCallback } = setupBatchProgressListener();
+
+    isAppWindowVisibleMock.mockResolvedValue(true);
+
+    renderHook(() => useParse(), { wrapper });
+    await waitFor(() => expect(getProgressCallback()).not.toBeNull());
+
+    await act(async () => {
+      await getProgressCallback()?.({
+        payload: {
+          task_name: TASK_NAMES.EMAIL_PARSE,
+          batch_number: 1,
+          batch_size: 100,
+          total_items: 100,
+          processed_count: 100,
+          success_count: 98,
+          failed_count: 2,
+          progress_percent: 100,
+          status_message: 'Done',
+          is_complete: true,
+        },
+      });
+    });
+
+    expect(toastSuccessMock).toHaveBeenCalledWith(
+      'メールパースが完了しました',
+      '成功: 98件、失敗: 2件'
+    );
+  });
+
+  it('shows toastError on email parse completion with error when window is visible', async () => {
+    const { getProgressCallback } = setupBatchProgressListener();
+
+    isAppWindowVisibleMock.mockResolvedValue(true);
+
+    renderHook(() => useParse(), { wrapper });
+    await waitFor(() => expect(getProgressCallback()).not.toBeNull());
+
+    await act(async () => {
+      await getProgressCallback()?.({
+        payload: {
+          task_name: TASK_NAMES.EMAIL_PARSE,
+          batch_number: 1,
+          batch_size: 100,
+          total_items: 100,
+          processed_count: 100,
+          success_count: 0,
+          failed_count: 1,
+          progress_percent: 100,
+          status_message: 'Done',
+          is_complete: true,
+          error: 'boom',
+        },
+      });
+    });
+
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      'メールパースに失敗しました',
+      'boom'
+    );
+  });
+
+  it('sends notification on email parse completion when window is not visible', async () => {
+    const { getProgressCallback } = setupBatchProgressListener();
+
+    isAppWindowVisibleMock.mockResolvedValue(false);
+
+    renderHook(() => useParse(), { wrapper });
+    await waitFor(() => expect(getProgressCallback()).not.toBeNull());
+
+    await act(async () => {
+      await getProgressCallback()?.({
+        payload: {
+          task_name: TASK_NAMES.EMAIL_PARSE,
+          batch_number: 1,
+          batch_size: 100,
+          total_items: 100,
+          processed_count: 100,
+          success_count: 1,
+          failed_count: 0,
+          progress_percent: 100,
+          status_message: 'Done',
+          is_complete: true,
+        },
+      });
+    });
+
+    expect(notifyMock).toHaveBeenCalledWith(
+      'メールパース完了',
+      '成功: 1件、失敗: 0件'
+    );
+  });
+
+  it('sends failure notification on email parse completion when window is not visible', async () => {
+    const { getProgressCallback } = setupBatchProgressListener();
+
+    isAppWindowVisibleMock.mockResolvedValue(false);
+
+    renderHook(() => useParse(), { wrapper });
+    await waitFor(() => expect(getProgressCallback()).not.toBeNull());
+
+    await act(async () => {
+      await getProgressCallback()?.({
+        payload: {
+          task_name: TASK_NAMES.EMAIL_PARSE,
+          batch_number: 1,
+          batch_size: 100,
+          total_items: 100,
+          processed_count: 100,
+          success_count: 0,
+          failed_count: 1,
+          progress_percent: 100,
+          status_message: 'Failed',
+          is_complete: true,
+          error: 'some error occurred',
+        },
+      });
+    });
+
+    expect(notifyMock).toHaveBeenCalledWith(
+      'メールパース失敗',
+      'some error occurred'
+    );
+  });
+  it('updates geminiApiKeyStatus to available/unavailable and handles error', async () => {
+    // available
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_parse_status') return Promise.resolve(mockParseMetadata);
+      if (cmd === 'has_gemini_api_key') return Promise.resolve(true);
+      return Promise.resolve(undefined);
+    });
+    const { result } = renderHook(() => useParse(), { wrapper });
+    await waitFor(() =>
+      expect(result.current.geminiApiKeyStatus).toBe('available')
+    );
+    expect(result.current.hasGeminiApiKey).toBe(true);
+
+    // unavailable
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_parse_status') return Promise.resolve(mockParseMetadata);
+      if (cmd === 'has_gemini_api_key') return Promise.resolve(false);
+      return Promise.resolve(undefined);
+    });
+    await act(async () => {
+      await result.current.refreshGeminiApiKeyStatus();
+    });
+    expect(result.current.geminiApiKeyStatus).toBe('unavailable');
+    expect(result.current.hasGeminiApiKey).toBe(false);
+
+    // error
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_parse_status') return Promise.resolve(mockParseMetadata);
+      if (cmd === 'has_gemini_api_key')
+        return Promise.reject(new Error('nope'));
+      return Promise.resolve(undefined);
+    });
+    await act(async () => {
+      await result.current.refreshGeminiApiKeyStatus();
+    });
+    expect(result.current.geminiApiKeyStatus).toBe('error');
+    expect(result.current.hasGeminiApiKey).toBe(false);
   });
 });
