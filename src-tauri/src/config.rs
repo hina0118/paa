@@ -209,4 +209,71 @@ mod tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Invalid config"));
     }
+
+    #[test]
+    fn test_load_applies_field_defaults_when_missing_in_json() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join(CONFIG_FILENAME);
+
+        // sync.max_results_per_page / sync.timeout_minutes を省略 → #[serde(default = ...)] が呼ばれる
+        // gemini を空オブジェクトで渡し、gemini.* の default 関数も呼ばれる
+        let json = r#"
+        {
+          "sync": { "batch_size": 12, "max_iterations": 34 },
+          "parse": { "batch_size": 56 },
+          "gemini": {}
+        }
+        "#;
+        fs::write(&path, json).unwrap();
+
+        let loaded = load(dir.path()).unwrap();
+
+        // JSON で指定した値を検証
+        assert_eq!(loaded.sync.batch_size, 12);
+        assert_eq!(loaded.sync.max_iterations, 34);
+        assert_eq!(loaded.parse.batch_size, 56);
+
+        // デフォルト値から取得した値と比較（serde の #[serde(default)] 適用元と揃える）
+        assert_eq!(
+            loaded.sync.max_results_per_page,
+            default_max_results_per_page()
+        );
+        assert_eq!(loaded.sync.timeout_minutes, default_sync_timeout_minutes());
+        let default_gemini = GeminiConfig::default();
+        assert_eq!(loaded.gemini.batch_size, default_gemini.batch_size);
+        assert_eq!(loaded.gemini.delay_seconds, default_gemini.delay_seconds);
+
+        // window は JSON から省略 → AppConfig の #[serde(default)] で WindowConfig::default
+        let default_window = WindowConfig::default();
+        assert_eq!(loaded.window.width, default_window.width);
+        assert_eq!(loaded.window.height, default_window.height);
+        assert_eq!(loaded.window.maximized, default_window.maximized);
+    }
+
+    #[test]
+    fn test_load_applies_serde_defaults_when_window_and_gemini_missing() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join(CONFIG_FILENAME);
+
+        // window / gemini を省略しても読み込める（AppConfig の #[serde(default)]）
+        let json = r#"
+        {
+          "sync": { "batch_size": 1, "max_iterations": 2, "max_results_per_page": 3, "timeout_minutes": 4 },
+          "parse": { "batch_size": 5 }
+        }
+        "#;
+        fs::write(&path, json).unwrap();
+
+        let loaded = load(dir.path()).unwrap();
+
+        // JSON で指定した値を検証
+        assert_eq!(loaded.sync.max_results_per_page, 3);
+        assert_eq!(loaded.sync.timeout_minutes, 4);
+
+        // デフォルト値から取得した値と比較（serde の #[serde(default)] 適用元と揃える）
+        let default_window = WindowConfig::default();
+        let default_gemini = GeminiConfig::default();
+        assert_eq!(loaded.window.width, default_window.width);
+        assert_eq!(loaded.gemini.batch_size, default_gemini.batch_size);
+    }
 }
