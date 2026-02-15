@@ -1155,7 +1155,10 @@ mod tests {
     #[tokio::test]
     async fn before_batch_returns_error_when_no_enabled_settings() {
         let mut shop_repo = MockShopSettingsRepository::new();
-        shop_repo.expect_get_enabled().times(1).returning(|| Ok(vec![]));
+        shop_repo
+            .expect_get_enabled()
+            .times(1)
+            .returning(|| Ok(vec![]));
 
         let context = EmailParseContext {
             order_repo: Arc::new(MockOrderRepository::new()),
@@ -1166,8 +1169,11 @@ mod tests {
             image_save_ctx: None,
         };
 
-        let task: EmailParseTask<MockOrderRepository, MockParseRepository, MockShopSettingsRepository> =
-            EmailParseTask::new();
+        let task: EmailParseTask<
+            MockOrderRepository,
+            MockParseRepository,
+            MockShopSettingsRepository,
+        > = EmailParseTask::new();
 
         let err = task.before_batch(&[], &context).await.unwrap_err();
         assert_eq!(err, "No enabled shop settings found");
@@ -1197,8 +1203,11 @@ mod tests {
             image_save_ctx: None,
         };
 
-        let task: EmailParseTask<MockOrderRepository, MockParseRepository, MockShopSettingsRepository> =
-            EmailParseTask::new();
+        let task: EmailParseTask<
+            MockOrderRepository,
+            MockParseRepository,
+            MockShopSettingsRepository,
+        > = EmailParseTask::new();
 
         task.before_batch(&[], &context).await.unwrap();
 
@@ -1227,8 +1236,11 @@ mod tests {
             image_save_ctx: None,
         };
 
-        let task: EmailParseTask<MockOrderRepository, MockParseRepository, MockShopSettingsRepository> =
-            EmailParseTask::new();
+        let task: EmailParseTask<
+            MockOrderRepository,
+            MockParseRepository,
+            MockShopSettingsRepository,
+        > = EmailParseTask::new();
 
         let results = task
             .process_batch(
