@@ -498,6 +498,7 @@ async fn run_batch_parse_task_with<A: BatchCommandsApp>(
 
     let image_save_ctx = app
         .app_data_dir()
+        .ok()
         .map(|dir| (std::sync::Arc::new(pool.clone()), dir.join("images")));
 
     let context = EmailParseContext {
@@ -792,7 +793,9 @@ mod tests {
         }
 
         fn app_data_dir(&self) -> Result<std::path::PathBuf, String> {
-            self.data_dir.clone().ok_or_else(|| "Data dir not set".to_string())
+            self.data_dir
+                .clone()
+                .ok_or_else(|| "Data dir not set".to_string())
         }
 
         async fn create_gmail_client(&self) -> Result<GmailClientForE2E, String> {
