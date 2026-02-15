@@ -235,9 +235,9 @@ describe('BatchSection', () => {
       await user.click(screen.getByRole('button', { name: '開始' }));
 
       // Click cancel button in dialog
-      const cancelButton = screen.getAllByRole('button', {
+      const cancelButton = screen.getByRole('button', {
         name: 'キャンセル',
-      })[0];
+      });
       await user.click(cancelButton);
 
       // Dialog should be closed (title not visible)
