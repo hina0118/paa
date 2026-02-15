@@ -645,6 +645,8 @@ mod tests {
         let ok_result = results[0].as_ref().unwrap();
         assert!(!ok_result.saved);
         assert!(!ok_result.filtered_out);
+        // Phase 2 で取得した full メッセージが結果へ反映されていることを検証する
+        assert!(ok_result.message.body_plain.is_some());
         assert!(results[1].is_err());
         assert!(results[1]
             .as_ref()
