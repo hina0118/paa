@@ -601,6 +601,43 @@ describe('ParseContext', () => {
     );
   });
 
+  it('sends failure notification on email parse completion when window is not visible', async () => {
+    let progressCallback: ((e: any) => Promise<void>) | null = null;
+    mockListen.mockImplementation((event: string, cb: (e: unknown) => void) => {
+      if (event === BATCH_PROGRESS_EVENT) {
+        progressCallback = cb as (e: any) => Promise<void>;
+      }
+      return Promise.resolve(() => {});
+    });
+
+    isAppWindowVisibleMock.mockResolvedValue(false);
+
+    renderHook(() => useParse(), { wrapper });
+    await waitFor(() => expect(progressCallback).not.toBeNull());
+
+    await act(async () => {
+      await progressCallback?.({
+        payload: {
+          task_name: TASK_NAMES.EMAIL_PARSE,
+          batch_number: 1,
+          batch_size: 100,
+          total_items: 100,
+          processed_count: 100,
+          success_count: 0,
+          failed_count: 1,
+          progress_percent: 100,
+          status_message: 'Failed',
+          is_complete: true,
+        },
+        error: 'some error occurred',
+      } as any);
+    });
+
+    expect(notifyMock).toHaveBeenCalledWith(
+      'メールパース失敗',
+      'some error occurred'
+    );
+  });
   it('updates geminiApiKeyStatus to available/unavailable and handles error', async () => {
     // available
     mockInvoke.mockImplementation((cmd: string) => {
