@@ -684,7 +684,31 @@ mod tests {
     async fn process_batch_overwrites_temp_metadata_when_full_fetch_fails() {
         // Phase 1: メタデータ取得は成功し、フィルタを通過する
         // Phase 2: 本文(full)取得が失敗した場合に、results[0] が Err に上書きされることを検証する
-        let client = MockGmailClientTrait::new();
+        let mut client = MockGmailClientTrait::new();
+
+        // Phase 1: メタデータ取得成功（from_address がショップ設定に合致 → フィルタ通過）
+        client
+            .expect_get_message_metadata()
+            .withf(|id| id == "full-fetch-fail-id")
+            .times(1)
+            .returning(|_| {
+                Ok(GmailMessage {
+                    message_id: "full-fetch-fail-id".to_string(),
+                    snippet: "snippet".to_string(),
+                    subject: Some("subject".to_string()),
+                    body_plain: None,
+                    body_html: None,
+                    internal_date: 1704067200000,
+                    from_address: Some("a@example.com".to_string()),
+                })
+            });
+
+        // Phase 2: 本文(full)取得が失敗
+        client
+            .expect_get_message()
+            .withf(|id| id == "full-fetch-fail-id")
+            .times(1)
+            .returning(|_| Err("full fetch failed".to_string()));
         let email_repo = MockEmailRepository::new();
         let shop_repo = MockShopSettingsRepository::new();
 
