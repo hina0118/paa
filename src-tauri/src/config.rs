@@ -227,18 +227,24 @@ mod tests {
         fs::write(&path, json).unwrap();
 
         let loaded = load(dir.path()).unwrap();
+        
+        // JSON で指定した値を検証
         assert_eq!(loaded.sync.batch_size, 12);
         assert_eq!(loaded.sync.max_iterations, 34);
-        assert_eq!(loaded.sync.max_results_per_page, 100);
-        assert_eq!(loaded.sync.timeout_minutes, 30);
         assert_eq!(loaded.parse.batch_size, 56);
-        assert_eq!(loaded.gemini.batch_size, 10);
-        assert_eq!(loaded.gemini.delay_seconds, 10);
+        
+        // デフォルト値から取得した値と比較（保守性向上）
+        let default_config = AppConfig::default();
+        assert_eq!(loaded.sync.max_results_per_page, default_config.sync.max_results_per_page);
+        assert_eq!(loaded.sync.timeout_minutes, default_config.sync.timeout_minutes);
+        assert_eq!(loaded.gemini.batch_size, default_config.gemini.batch_size);
+        assert_eq!(loaded.gemini.delay_seconds, default_config.gemini.delay_seconds);
 
         // window は JSON から省略 → AppConfig の #[serde(default)] で WindowConfig::default
-        assert_eq!(loaded.window.width, 800);
-        assert_eq!(loaded.window.height, 600);
-        assert!(!loaded.window.maximized);
+        let default_window = WindowConfig::default();
+        assert_eq!(loaded.window.width, default_window.width);
+        assert_eq!(loaded.window.height, default_window.height);
+        assert_eq!(loaded.window.maximized, default_window.maximized);
     }
 
     #[test]
@@ -256,9 +262,14 @@ mod tests {
         fs::write(&path, json).unwrap();
 
         let loaded = load(dir.path()).unwrap();
+        
+        // JSON で指定した値を検証
         assert_eq!(loaded.sync.max_results_per_page, 3);
         assert_eq!(loaded.sync.timeout_minutes, 4);
-        assert_eq!(loaded.window.width, 800);
-        assert_eq!(loaded.gemini.batch_size, 10);
+        
+        // デフォルト値から取得した値と比較
+        let default_config = AppConfig::default();
+        assert_eq!(loaded.window.width, default_config.window.width);
+        assert_eq!(loaded.gemini.batch_size, default_config.gemini.batch_size);
     }
 }
