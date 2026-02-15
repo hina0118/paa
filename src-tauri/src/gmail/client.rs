@@ -699,11 +699,17 @@ impl GmailClient {
         if let Some(headers) = &payload.headers {
             for header in headers {
                 if let Some(name) = &header.name {
-                    let name_lower = name.to_lowercase();
-                    if name_lower == "from" {
+                    // ヘッダー名は ASCII 想定のため、アロケーションを伴わない
+                    // eq_ignore_ascii_case を使用してオーバーヘッドを削減する
+                    if name.eq_ignore_ascii_case("from") {
                         *from_address = header.value.clone();
-                    } else if name_lower == "subject" {
+                    } else if name.eq_ignore_ascii_case("subject") {
                         *subject = header.value.clone();
+                    }
+
+                    // 両方取得できたらこれ以上ループする必要はない
+                    if from_address.is_some() && subject.is_some() {
+                        break;
                     }
                 }
             }
