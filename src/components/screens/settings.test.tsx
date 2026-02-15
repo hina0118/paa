@@ -843,21 +843,16 @@ describe('Settings', () => {
       const user = userEvent.setup();
       renderWithProviders(<Settings />);
 
+      const input = document.getElementById(config.inputId)!;
+
       await waitFor(() => {
-        expect(document.getElementById(config.inputId)).toHaveValue(
-          config.initialValue
-        );
+        expect(input).toHaveValue(config.initialValue);
       });
 
-      await user.clear(document.getElementById(config.inputId)!);
-      await user.type(
-        document.getElementById(config.inputId)!,
-        config.newValue
-      );
+      await user.clear(input);
+      await user.type(input, config.newValue);
       await waitFor(() => {
-        expect(document.getElementById(config.inputId)).toHaveValue(
-          Number(config.newValue)
-        );
+        expect(input).toHaveValue(Number(config.newValue));
       });
 
       await user.click(screen.getByRole('button', { name: config.buttonName }));
