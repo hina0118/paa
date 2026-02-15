@@ -15,7 +15,10 @@ const { toastSuccessMock, toastErrorMock, notifyMock, isAppWindowVisibleMock } =
     toastSuccessMock: vi.fn(),
     toastErrorMock: vi.fn(),
     notifyMock: vi
-      .fn<Parameters<(title: string, body: string) => Promise<void>>, Promise<void>>()
+      .fn<
+        Parameters<(title: string, body: string) => Promise<void>>,
+        Promise<void>
+      >()
       .mockResolvedValue(undefined),
     isAppWindowVisibleMock: vi.fn<[], Promise<boolean>>(() =>
       Promise.resolve(true)
@@ -601,10 +604,14 @@ describe('ParseContext', () => {
   });
 
   it('sends failure notification on email parse completion when window is not visible', async () => {
-    let progressCallback: ((e: any) => Promise<void>) | null = null;
+    let progressCallback:
+      | ((e: { payload: BatchProgress }) => Promise<void>)
+      | null = null;
     mockListen.mockImplementation((event: string, cb: (e: unknown) => void) => {
       if (event === BATCH_PROGRESS_EVENT) {
-        progressCallback = cb as (e: any) => Promise<void>;
+        progressCallback = cb as (e: {
+          payload: BatchProgress;
+        }) => Promise<void>;
       }
       return Promise.resolve(() => {});
     });
@@ -627,9 +634,9 @@ describe('ParseContext', () => {
           progress_percent: 100,
           status_message: 'Failed',
           is_complete: true,
+          error: 'some error occurred',
         },
-        error: 'some error occurred',
-      } as any);
+      });
     });
 
     expect(notifyMock).toHaveBeenCalledWith(
