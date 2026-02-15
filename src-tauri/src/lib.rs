@@ -173,6 +173,38 @@ pub fn validate_max_iterations(max_iterations: i64) -> Result<(), String> {
     Ok(())
 }
 
+/// 1ページあたり取得件数のバリデーション（1〜500）
+pub fn validate_max_results_per_page(max_results_per_page: i64) -> Result<(), String> {
+    if !(1..=500).contains(&max_results_per_page) {
+        return Err("1ページあたり取得件数は1〜500の範囲である必要があります".to_string());
+    }
+    Ok(())
+}
+
+/// 同期タイムアウト（分）のバリデーション（1〜120）
+pub fn validate_timeout_minutes(timeout_minutes: i64) -> Result<(), String> {
+    if !(1..=120).contains(&timeout_minutes) {
+        return Err("同期タイムアウトは1〜120分の範囲である必要があります".to_string());
+    }
+    Ok(())
+}
+
+/// Gemini バッチサイズのバリデーション（1〜50）
+pub fn validate_gemini_batch_size(batch_size: i64) -> Result<(), String> {
+    if !(1..=50).contains(&batch_size) {
+        return Err("商品名パースのバッチサイズは1〜50の範囲である必要があります".to_string());
+    }
+    Ok(())
+}
+
+/// Gemini リクエスト間待機秒数のバリデーション（0〜60）
+pub fn validate_gemini_delay_seconds(delay_seconds: i64) -> Result<(), String> {
+    if !(0..=60).contains(&delay_seconds) {
+        return Err("リクエスト間の待機秒数は0〜60の範囲である必要があります".to_string());
+    }
+    Ok(())
+}
+
 #[tauri::command]
 async fn update_max_iterations(
     app_handle: tauri::AppHandle,
@@ -195,9 +227,7 @@ async fn update_max_results_per_page(
     app_handle: tauri::AppHandle,
     max_results_per_page: i64,
 ) -> Result<(), String> {
-    if !(1..=500).contains(&max_results_per_page) {
-        return Err("1ページあたり取得件数は1〜500の範囲である必要があります".to_string());
-    }
+    validate_max_results_per_page(max_results_per_page)?;
     log::info!("Updating max results per page to: {max_results_per_page}");
     let app_config_dir = app_handle
         .path()
@@ -213,9 +243,7 @@ async fn update_timeout_minutes(
     app_handle: tauri::AppHandle,
     timeout_minutes: i64,
 ) -> Result<(), String> {
-    if !(1..=120).contains(&timeout_minutes) {
-        return Err("同期タイムアウトは1〜120分の範囲である必要があります".to_string());
-    }
+    validate_timeout_minutes(timeout_minutes)?;
     log::info!("Updating sync timeout to: {timeout_minutes} minutes");
     let app_config_dir = app_handle
         .path()
@@ -241,9 +269,7 @@ async fn update_gemini_batch_size(
     app_handle: tauri::AppHandle,
     batch_size: i64,
 ) -> Result<(), String> {
-    if !(1..=50).contains(&batch_size) {
-        return Err("商品名パースのバッチサイズは1〜50の範囲である必要があります".to_string());
-    }
+    validate_gemini_batch_size(batch_size)?;
     log::info!("Updating Gemini batch size to: {batch_size}");
     let app_config_dir = app_handle
         .path()
@@ -259,9 +285,7 @@ async fn update_gemini_delay_seconds(
     app_handle: tauri::AppHandle,
     delay_seconds: i64,
 ) -> Result<(), String> {
-    if !(0..=60).contains(&delay_seconds) {
-        return Err("リクエスト間の待機秒数は0〜60の範囲である必要があります".to_string());
-    }
+    validate_gemini_delay_seconds(delay_seconds)?;
     log::info!("Updating Gemini delay to: {delay_seconds} seconds");
     let app_config_dir = app_handle
         .path()
@@ -1662,6 +1686,7 @@ async fn get_all_excluded_orders(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     #[test]
     fn test_greet() {
@@ -1679,6 +1704,53 @@ mod tests {
     fn test_greet_special_characters() {
         let result = greet("世界");
         assert_eq!(result, "Hello, 世界! You've been greeted from Rust!");
+    }
+
+    // ==================== is_sqlite_version_supported Tests ====================
+
+    #[test]
+    fn test_is_sqlite_version_supported_true_cases() {
+        assert!(is_sqlite_version_supported("3.43.0"));
+        assert!(is_sqlite_version_supported("3.43.1"));
+        assert!(is_sqlite_version_supported("3.50.0"));
+        assert!(is_sqlite_version_supported("4.0.0"));
+        // patch無しでも minor 判定ができれば OK
+        assert!(is_sqlite_version_supported("3.43"));
+    }
+
+    #[test]
+    fn test_is_sqlite_version_supported_false_cases() {
+        assert!(!is_sqlite_version_supported("3.42.9"));
+        assert!(!is_sqlite_version_supported("3.0.0"));
+        assert!(!is_sqlite_version_supported("2.999.0"));
+        assert!(!is_sqlite_version_supported("3")); // minor が無い
+        assert!(!is_sqlite_version_supported("")); // 空
+        assert!(!is_sqlite_version_supported("abc"));
+        assert!(!is_sqlite_version_supported("3.x.0"));
+        assert!(!is_sqlite_version_supported("x.43.0"));
+    }
+
+    // ==================== get_db_filename Tests ====================
+
+    #[test]
+    #[serial]
+    fn test_get_db_filename_switches_by_e2e_env() {
+        let prev = std::env::var("PAA_E2E_MOCK").ok();
+
+        std::env::remove_var("PAA_E2E_MOCK");
+        assert_eq!(get_db_filename(), "paa_data.db");
+
+        std::env::set_var("PAA_E2E_MOCK", "0");
+        assert_eq!(get_db_filename(), "paa_data.db");
+
+        std::env::set_var("PAA_E2E_MOCK", "1");
+        assert_eq!(get_db_filename(), "paa_e2e.db");
+
+        // restore
+        match prev {
+            Some(v) => std::env::set_var("PAA_E2E_MOCK", v),
+            None => std::env::remove_var("PAA_E2E_MOCK"),
+        }
     }
 
     #[test]
@@ -1769,6 +1841,40 @@ mod tests {
         );
         // 全てのログが正しいレベルであることを確認
         assert!(logs.iter().all(|log| log.level == "LIMIT_TEST"));
+    }
+
+    // ==================== validation helpers Tests ====================
+
+    #[test]
+    fn test_validate_max_results_per_page_boundaries() {
+        assert!(validate_max_results_per_page(1).is_ok());
+        assert!(validate_max_results_per_page(500).is_ok());
+        assert!(validate_max_results_per_page(0).is_err());
+        assert!(validate_max_results_per_page(501).is_err());
+    }
+
+    #[test]
+    fn test_validate_timeout_minutes_boundaries() {
+        assert!(validate_timeout_minutes(1).is_ok());
+        assert!(validate_timeout_minutes(120).is_ok());
+        assert!(validate_timeout_minutes(0).is_err());
+        assert!(validate_timeout_minutes(121).is_err());
+    }
+
+    #[test]
+    fn test_validate_gemini_batch_size_boundaries() {
+        assert!(validate_gemini_batch_size(1).is_ok());
+        assert!(validate_gemini_batch_size(50).is_ok());
+        assert!(validate_gemini_batch_size(0).is_err());
+        assert!(validate_gemini_batch_size(51).is_err());
+    }
+
+    #[test]
+    fn test_validate_gemini_delay_seconds_boundaries() {
+        assert!(validate_gemini_delay_seconds(0).is_ok());
+        assert!(validate_gemini_delay_seconds(60).is_ok());
+        assert!(validate_gemini_delay_seconds(-1).is_err());
+        assert!(validate_gemini_delay_seconds(61).is_err());
     }
 
     // ==================== parse_email Tests ====================
