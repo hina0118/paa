@@ -533,6 +533,59 @@ impl GmailClient {
         })
     }
 
+    /// メッセージのメタデータのみ取得（From, Subject等のヘッダー情報）
+    ///
+    /// `format("metadata")` を使用して本文を含まない軽量なレスポンスを返す。
+    /// `body_plain`, `body_html` は常に `None`。
+    async fn get_message_metadata(&self, message_id: &str) -> Result<GmailMessage, String> {
+        log::debug!("Fetching message metadata: {message_id}");
+
+        let (response, message) = self
+            .hub
+            .users()
+            .messages_get("me", message_id)
+            .add_scope(Scope::Readonly)
+            .format("metadata")
+            .add_metadata_headers("From")
+            .add_metadata_headers("Subject")
+            .doit()
+            .await
+            .map_err(|e| format!("Failed to get message metadata {message_id}: {e}"))?;
+
+        log::debug!("Metadata response status: {:?}", response.status());
+
+        let snippet = message.snippet.unwrap_or_default();
+        let internal_date = message.internal_date.unwrap_or(0);
+
+        let mut from_address: Option<String> = None;
+        let mut subject: Option<String> = None;
+
+        if let Some(payload) = &message.payload {
+            if let Some(headers) = &payload.headers {
+                for header in headers {
+                    if let Some(name) = &header.name {
+                        let name_lower = name.to_lowercase();
+                        if name_lower == "from" {
+                            from_address = header.value.clone();
+                        } else if name_lower == "subject" {
+                            subject = header.value.clone();
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(GmailMessage {
+            message_id: message_id.to_string(),
+            snippet,
+            subject,
+            body_plain: None,
+            body_html: None,
+            internal_date,
+            from_address,
+        })
+    }
+
     /// body.data のバイト列を文字列にデコードする
     ///
     /// mime_type に charset が指定されている場合はそれを優先し、Shift_JIS/ISO-2022-JP の
@@ -758,6 +811,10 @@ impl GmailClientTrait for GmailClient {
     async fn get_message(&self, message_id: &str) -> Result<GmailMessage, String> {
         // 既存の get_message メソッドを呼び出す（GmailClient の固有実装）
         GmailClient::get_message(self, message_id).await
+    }
+
+    async fn get_message_metadata(&self, message_id: &str) -> Result<GmailMessage, String> {
+        GmailClient::get_message_metadata(self, message_id).await
     }
 }
 

@@ -29,6 +29,14 @@ impl GmailClientTrait for E2EMockGmailClient {
         log::info!("[E2E Mock] Gmail get_message: {} (unused)", message_id);
         Err("E2E mock: get_message should not be called with empty list".to_string())
     }
+
+    async fn get_message_metadata(&self, message_id: &str) -> Result<GmailMessage, String> {
+        log::info!(
+            "[E2E Mock] Gmail get_message_metadata: {} (unused)",
+            message_id
+        );
+        Err("E2E mock: get_message_metadata should not be called with empty list".to_string())
+    }
 }
 
 /// E2E用 Gemini API モック（入力商品名をそのままパース結果として返す）
@@ -147,6 +155,13 @@ impl GmailClientTrait for GmailClientForE2E {
             Self::Mock(m) => m.get_message(message_id).await,
         }
     }
+
+    async fn get_message_metadata(&self, message_id: &str) -> Result<GmailMessage, String> {
+        match self {
+            Self::Real(c) => c.get_message_metadata(message_id).await,
+            Self::Mock(m) => m.get_message_metadata(message_id).await,
+        }
+    }
 }
 
 /// Gemini クライアントの E2E 対応ラッパー（実機 or モックを切り替え）
@@ -215,6 +230,9 @@ mod tests {
 
         let err = client.get_message("msg-1").await.unwrap_err();
         assert!(err.contains("should not be called"));
+
+        let err_meta = client.get_message_metadata("msg-1").await.unwrap_err();
+        assert!(err_meta.contains("should not be called"));
     }
 
     #[tokio::test]

@@ -26,6 +26,13 @@ pub trait GmailClientTrait: Send + Sync {
 
     /// 単一メッセージを取得
     async fn get_message(&self, message_id: &str) -> Result<GmailMessage, String>;
+
+    /// メッセージのメタデータのみ取得（From, Subject等のヘッダー情報）
+    ///
+    /// `format("metadata")` を使用して本文(body)を含まない軽量なレスポンスを返す。
+    /// 返される `GmailMessage` の `body_plain`, `body_html` は常に `None`。
+    /// フィルタリング判定（送信者・件名チェック）に必要な情報のみ取得する。
+    async fn get_message_metadata(&self, message_id: &str) -> Result<GmailMessage, String>;
 }
 
 #[cfg(test)]

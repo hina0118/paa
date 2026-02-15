@@ -41,6 +41,8 @@ pub struct GmailSyncOutput {
     pub message: GmailMessage,
     /// DB保存が成功したか
     pub saved: bool,
+    /// メタデータ段階でフィルタ除外されたか
+    pub filtered_out: bool,
 }
 
 /// ショップ設定のキャッシュ
@@ -205,7 +207,10 @@ where
         Ok(())
     }
 
-    /// メッセージを取得
+    /// メッセージを2段階で取得（メタデータ → フィルタ → 本文取得）
+    ///
+    /// Phase 1: メタデータのみ取得してショップ設定でフィルタリング
+    /// Phase 2: 条件に合うメッセージのみ本文(full)を取得
     async fn process_batch(
         &self,
         inputs: Vec<Self::Input>,
@@ -213,17 +218,47 @@ where
     ) -> Vec<Result<Self::Output, String>> {
         let mut results: Vec<Result<Self::Output, String>> = Vec::with_capacity(inputs.len());
 
-        for input in inputs {
-            match context.gmail_client.get_message(&input.message_id).await {
-                Ok(message) => {
-                    results.push(Ok(GmailSyncOutput {
-                        message,
-                        saved: false, // after_batch で保存
-                    }));
+        let cache = context.shop_settings_cache.lock().await;
+        let enabled_shops = cache.enabled_shops.clone();
+        drop(cache);
+
+        // Phase 1: メタデータ取得 + フィルタリング
+        let mut candidates: Vec<(String, usize)> = Vec::new(); // (message_id, results内のindex)
+
+        for input in &inputs {
+            match context
+                .gmail_client
+                .get_message_metadata(&input.message_id)
+                .await
+            {
+                Ok(metadata) => {
+                    if crate::logic::sync_logic::should_save_message(&metadata, &enabled_shops) {
+                        // フィルタ通過 → Phase 2 で本文取得する候補
+                        let idx = results.len();
+                        results.push(Ok(GmailSyncOutput {
+                            message: metadata,
+                            saved: false,
+                            filtered_out: false, // Phase 2 で上書き予定
+                        }));
+                        candidates.push((input.message_id.clone(), idx));
+                    } else {
+                        log::debug!(
+                            "[{}] Message {} filtered out at metadata phase (from: {:?}, subject: {:?})",
+                            self.name(),
+                            input.message_id,
+                            metadata.from_address,
+                            metadata.subject,
+                        );
+                        results.push(Ok(GmailSyncOutput {
+                            message: metadata,
+                            saved: false,
+                            filtered_out: true,
+                        }));
+                    }
                 }
                 Err(e) => {
                     log::warn!(
-                        "[{}] Failed to fetch message {}: {}",
+                        "[{}] Failed to fetch metadata for {}: {}",
                         self.name(),
                         input.message_id,
                         e
@@ -232,6 +267,42 @@ where
                         "Failed to fetch message {}: {}",
                         input.message_id, e
                     )));
+                }
+            }
+        }
+
+        let total = inputs.len();
+        let candidate_count = candidates.len();
+        let filtered_out = total - candidate_count - results.iter().filter(|r| r.is_err()).count();
+        log::info!(
+            "[{}] Metadata phase: {} total, {} candidates, {} filtered out",
+            self.name(),
+            total,
+            candidate_count,
+            filtered_out,
+        );
+
+        // Phase 2: 候補のみ本文(full)を取得
+        for (message_id, idx) in candidates {
+            match context.gmail_client.get_message(&message_id).await {
+                Ok(full_message) => {
+                    results[idx] = Ok(GmailSyncOutput {
+                        message: full_message,
+                        saved: false,
+                        filtered_out: false,
+                    });
+                }
+                Err(e) => {
+                    log::warn!(
+                        "[{}] Failed to fetch full message {}: {}",
+                        self.name(),
+                        message_id,
+                        e
+                    );
+                    results[idx] = Err(format!(
+                        "Failed to fetch message {}: {}",
+                        message_id, e
+                    ));
                 }
             }
         }
@@ -259,10 +330,11 @@ where
         let mut saved_count = 0;
         let mut save_errors = 0;
 
-        // 成功したメッセージを収集
+        // 成功したメッセージを収集（メタデータ段階でフィルタ除外されたものは除く）
         let messages: Vec<GmailMessage> = results
             .iter()
             .filter_map(|r| r.as_ref().ok())
+            .filter(|o| !o.filtered_out)
             .map(|o| o.message.clone())
             .collect();
 
@@ -331,6 +403,7 @@ where
         Ok(GmailSyncOutput {
             message,
             saved: false,
+            filtered_out: false,
         })
     }
 }
@@ -470,18 +543,29 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn process_batch_fetches_messages_and_returns_errors_on_failure() {
+    async fn process_batch_two_phase_fetch_filters_and_fetches_full() {
+        // ok-id: メタデータフィルタ通過 → full取得成功
+        // ng-id: メタデータ取得失敗 → エラー
         let mut client = MockGmailClientTrait::new();
+
+        // Phase 1: メタデータ取得
+        client
+            .expect_get_message_metadata()
+            .withf(|id| id == "ok-id")
+            .times(1)
+            .returning(|_| Ok(dummy_message("ok-id")));
+        client
+            .expect_get_message_metadata()
+            .withf(|id| id == "ng-id")
+            .times(1)
+            .returning(|_| Err("boom".to_string()));
+
+        // Phase 2: ok-id のみ full 取得
         client
             .expect_get_message()
             .withf(|id| id == "ok-id")
             .times(1)
             .returning(|_| Ok(dummy_message("ok-id")));
-        client
-            .expect_get_message()
-            .withf(|id| id == "ng-id")
-            .times(1)
-            .returning(|_| Err("boom".to_string()));
 
         let shop_repo = MockShopSettingsRepository::new();
         let email_repo = MockEmailRepository::new();
@@ -489,7 +573,9 @@ mod tests {
             gmail_client: Arc::new(client),
             email_repo: Arc::new(email_repo),
             shop_settings_repo: Arc::new(shop_repo),
-            shop_settings_cache: Arc::new(Mutex::new(ShopSettingsCacheForSync::default())),
+            shop_settings_cache: Arc::new(Mutex::new(ShopSettingsCacheForSync {
+                enabled_shops: vec![dummy_shop_settings(1, "sender@example.com")],
+            })),
         };
 
         let task: GmailSyncTask<
@@ -513,12 +599,90 @@ mod tests {
             .await;
 
         assert_eq!(results.len(), 2);
-        assert!(!results[0].as_ref().unwrap().saved);
+        let ok_result = results[0].as_ref().unwrap();
+        assert!(!ok_result.saved);
+        assert!(!ok_result.filtered_out);
         assert!(results[1].is_err());
         assert!(results[1]
             .as_ref()
             .unwrap_err()
             .contains("Failed to fetch message ng-id"));
+    }
+
+    #[tokio::test]
+    async fn process_batch_skips_full_fetch_for_filtered_out_messages() {
+        // match-id: sender matches → full取得される
+        // nomatch-id: sender doesn't match → filtered_out, get_message は呼ばれない
+        let mut client = MockGmailClientTrait::new();
+
+        client
+            .expect_get_message_metadata()
+            .withf(|id| id == "match-id")
+            .times(1)
+            .returning(|_| Ok(dummy_message("match-id")));
+        client
+            .expect_get_message_metadata()
+            .withf(|id| id == "nomatch-id")
+            .times(1)
+            .returning(|_| {
+                Ok(GmailMessage {
+                    message_id: "nomatch-id".to_string(),
+                    snippet: "snippet".to_string(),
+                    subject: Some("subject".to_string()),
+                    body_plain: None,
+                    body_html: None,
+                    internal_date: 1704067200000,
+                    from_address: Some("unknown@other.com".to_string()),
+                })
+            });
+
+        // match-id のみ full 取得される（nomatch-id は呼ばれないことを expect_get_message で保証）
+        client
+            .expect_get_message()
+            .withf(|id| id == "match-id")
+            .times(1)
+            .returning(|_| Ok(dummy_message("match-id")));
+
+        let shop_repo = MockShopSettingsRepository::new();
+        let email_repo = MockEmailRepository::new();
+        let context = GmailSyncContext {
+            gmail_client: Arc::new(client),
+            email_repo: Arc::new(email_repo),
+            shop_settings_repo: Arc::new(shop_repo),
+            shop_settings_cache: Arc::new(Mutex::new(ShopSettingsCacheForSync {
+                enabled_shops: vec![dummy_shop_settings(1, "sender@example.com")],
+            })),
+        };
+
+        let task: GmailSyncTask<
+            MockGmailClientTrait,
+            MockEmailRepository,
+            MockShopSettingsRepository,
+        > = GmailSyncTask::new();
+
+        let results = task
+            .process_batch(
+                vec![
+                    GmailSyncInput {
+                        message_id: "match-id".to_string(),
+                    },
+                    GmailSyncInput {
+                        message_id: "nomatch-id".to_string(),
+                    },
+                ],
+                &context,
+            )
+            .await;
+
+        assert_eq!(results.len(), 2);
+
+        // match-id: フィルタ通過、full取得済み
+        let match_result = results[0].as_ref().unwrap();
+        assert!(!match_result.filtered_out);
+
+        // nomatch-id: フィルタ除外
+        let nomatch_result = results[1].as_ref().unwrap();
+        assert!(nomatch_result.filtered_out);
     }
 
     #[tokio::test]
