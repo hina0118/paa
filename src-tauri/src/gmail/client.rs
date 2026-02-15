@@ -2264,6 +2264,204 @@ mod tests {
         assert_eq!(body_plain, Some(first_text.to_string()));
     }
 
+    // extract_headers_from_payloadのテスト
+    #[test]
+    fn test_extract_headers_from_payload_both_present() {
+        use google_gmail1::api::{MessagePart, MessagePartHeader};
+
+        let part = MessagePart {
+            headers: Some(vec![
+                MessagePartHeader {
+                    name: Some("From".to_string()),
+                    value: Some("sender@example.com".to_string()),
+                },
+                MessagePartHeader {
+                    name: Some("Subject".to_string()),
+                    value: Some("Test Subject".to_string()),
+                },
+                MessagePartHeader {
+                    name: Some("Date".to_string()),
+                    value: Some("Mon, 1 Jan 2024 12:00:00 +0000".to_string()),
+                },
+            ]),
+            ..Default::default()
+        };
+
+        let mut from_address = None;
+        let mut subject = None;
+
+        GmailClient::extract_headers_from_payload(&part, &mut from_address, &mut subject);
+
+        assert_eq!(from_address, Some("sender@example.com".to_string()));
+        assert_eq!(subject, Some("Test Subject".to_string()));
+    }
+
+    #[test]
+    fn test_extract_headers_from_payload_case_insensitive() {
+        use google_gmail1::api::{MessagePart, MessagePartHeader};
+
+        // ヘッダー名の大小文字が混在している場合
+        let part = MessagePart {
+            headers: Some(vec![
+                MessagePartHeader {
+                    name: Some("from".to_string()), // 小文字
+                    value: Some("sender@example.com".to_string()),
+                },
+                MessagePartHeader {
+                    name: Some("SUBJECT".to_string()), // 大文字
+                    value: Some("Test Subject".to_string()),
+                },
+            ]),
+            ..Default::default()
+        };
+
+        let mut from_address = None;
+        let mut subject = None;
+
+        GmailClient::extract_headers_from_payload(&part, &mut from_address, &mut subject);
+
+        assert_eq!(from_address, Some("sender@example.com".to_string()));
+        assert_eq!(subject, Some("Test Subject".to_string()));
+    }
+
+    #[test]
+    fn test_extract_headers_from_payload_only_from() {
+        use google_gmail1::api::{MessagePart, MessagePartHeader};
+
+        let part = MessagePart {
+            headers: Some(vec![MessagePartHeader {
+                name: Some("From".to_string()),
+                value: Some("sender@example.com".to_string()),
+            }]),
+            ..Default::default()
+        };
+
+        let mut from_address = None;
+        let mut subject = None;
+
+        GmailClient::extract_headers_from_payload(&part, &mut from_address, &mut subject);
+
+        assert_eq!(from_address, Some("sender@example.com".to_string()));
+        assert_eq!(subject, None);
+    }
+
+    #[test]
+    fn test_extract_headers_from_payload_only_subject() {
+        use google_gmail1::api::{MessagePart, MessagePartHeader};
+
+        let part = MessagePart {
+            headers: Some(vec![MessagePartHeader {
+                name: Some("Subject".to_string()),
+                value: Some("Test Subject".to_string()),
+            }]),
+            ..Default::default()
+        };
+
+        let mut from_address = None;
+        let mut subject = None;
+
+        GmailClient::extract_headers_from_payload(&part, &mut from_address, &mut subject);
+
+        assert_eq!(from_address, None);
+        assert_eq!(subject, Some("Test Subject".to_string()));
+    }
+
+    #[test]
+    fn test_extract_headers_from_payload_no_headers() {
+        use google_gmail1::api::MessagePart;
+
+        let part = MessagePart {
+            headers: None,
+            ..Default::default()
+        };
+
+        let mut from_address = None;
+        let mut subject = None;
+
+        GmailClient::extract_headers_from_payload(&part, &mut from_address, &mut subject);
+
+        assert_eq!(from_address, None);
+        assert_eq!(subject, None);
+    }
+
+    #[test]
+    fn test_extract_headers_from_payload_empty_headers() {
+        use google_gmail1::api::MessagePart;
+
+        let part = MessagePart {
+            headers: Some(vec![]),
+            ..Default::default()
+        };
+
+        let mut from_address = None;
+        let mut subject = None;
+
+        GmailClient::extract_headers_from_payload(&part, &mut from_address, &mut subject);
+
+        assert_eq!(from_address, None);
+        assert_eq!(subject, None);
+    }
+
+    #[test]
+    fn test_extract_headers_from_payload_header_without_name() {
+        use google_gmail1::api::{MessagePart, MessagePartHeader};
+
+        let part = MessagePart {
+            headers: Some(vec![
+                MessagePartHeader {
+                    name: None, // nameがない場合
+                    value: Some("somevalue".to_string()),
+                },
+                MessagePartHeader {
+                    name: Some("From".to_string()),
+                    value: Some("sender@example.com".to_string()),
+                },
+            ]),
+            ..Default::default()
+        };
+
+        let mut from_address = None;
+        let mut subject = None;
+
+        GmailClient::extract_headers_from_payload(&part, &mut from_address, &mut subject);
+
+        assert_eq!(from_address, Some("sender@example.com".to_string()));
+        assert_eq!(subject, None);
+    }
+
+    #[test]
+    fn test_extract_headers_from_payload_early_exit() {
+        use google_gmail1::api::{MessagePart, MessagePartHeader};
+
+        // 両方のヘッダーを見つけた後は残りのヘッダーを処理しない（早期終了）
+        let part = MessagePart {
+            headers: Some(vec![
+                MessagePartHeader {
+                    name: Some("From".to_string()),
+                    value: Some("sender@example.com".to_string()),
+                },
+                MessagePartHeader {
+                    name: Some("Subject".to_string()),
+                    value: Some("Test Subject".to_string()),
+                },
+                MessagePartHeader {
+                    name: Some("From".to_string()), // 2つ目のFromは無視される
+                    value: Some("another@example.com".to_string()),
+                },
+            ]),
+            ..Default::default()
+        };
+
+        let mut from_address = None;
+        let mut subject = None;
+
+        GmailClient::extract_headers_from_payload(&part, &mut from_address, &mut subject);
+
+        // 最初のFromとSubjectが採用される
+        assert_eq!(from_address, Some("sender@example.com".to_string()));
+        assert_eq!(subject, Some("Test Subject".to_string()));
+    }
+
     // SyncGuardのテスト
     #[test]
     fn test_sync_guard_clears_running_on_drop() {
