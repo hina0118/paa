@@ -20,9 +20,7 @@ const { toastSuccessMock, toastErrorMock, notifyMock, isAppWindowVisibleMock } =
         Promise<void>
       >()
       .mockResolvedValue(undefined),
-    isAppWindowVisibleMock: vi.fn<[], Promise<boolean>>(() =>
-      Promise.resolve(true)
-    ),
+    isAppWindowVisibleMock: vi.fn<[], Promise<boolean>>().mockResolvedValue(true),
   }));
 
 vi.mock('@/lib/toast', () => ({
