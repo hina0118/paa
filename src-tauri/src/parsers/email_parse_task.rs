@@ -996,6 +996,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gmail::ShopSettings;
+    use crate::repository::{MockOrderRepository, MockParseRepository, MockShopSettingsRepository};
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
 
     #[test]
     fn test_get_candidate_parsers_no_match() {
@@ -1051,6 +1055,211 @@ mod tests {
             Some("キャンセルのお知らせ"),
         );
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_get_candidate_parsers_from_address_none_returns_empty() {
+        let settings = vec![(
+            "shop@example.com".to_string(),
+            "hobbysearch_confirm".to_string(),
+            None,
+            "TestShop".to_string(),
+        )];
+        let result = get_candidate_parsers(&settings, None, Some("x"));
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_get_candidate_parsers_invalid_email_returns_empty() {
+        let settings = vec![(
+            "shop@example.com".to_string(),
+            "hobbysearch_confirm".to_string(),
+            None,
+            "TestShop".to_string(),
+        )];
+        let result = get_candidate_parsers(&settings, Some("not-an-email"), None);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_get_candidate_parsers_sender_case_insensitive() {
+        let settings = vec![(
+            "Shop@Example.com".to_string(),
+            "hobbysearch_confirm".to_string(),
+            None,
+            "TestShop".to_string(),
+        )];
+        let result = get_candidate_parsers(&settings, Some("shop@example.com"), None);
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn test_get_candidate_parsers_subject_filter_invalid_json_is_ignored() {
+        let settings = vec![(
+            "shop@example.com".to_string(),
+            "hobbysearch_confirm".to_string(),
+            Some("not json".to_string()),
+            "TestShop".to_string(),
+        )];
+
+        // JSON パースエラー時はフィルター無視（旧実装互換）→ sender が合えば通す
+        let result = get_candidate_parsers(&settings, Some("shop@example.com"), None);
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn test_get_candidate_parsers_subject_filter_empty_list_allows_all() {
+        let settings = vec![(
+            "shop@example.com".to_string(),
+            "hobbysearch_confirm".to_string(),
+            Some("[]".to_string()),
+            "TestShop".to_string(),
+        )];
+
+        let result = get_candidate_parsers(&settings, Some("shop@example.com"), None);
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn test_get_candidate_parsers_subject_filter_requires_subject_when_non_empty() {
+        let settings = vec![(
+            "shop@example.com".to_string(),
+            "hobbysearch_confirm".to_string(),
+            Some(r#"["注文確認"]"#.to_string()),
+            "TestShop".to_string(),
+        )];
+
+        // 件名が無い場合は除外
+        let result = get_candidate_parsers(&settings, Some("shop@example.com"), None);
+        assert!(result.is_empty());
+    }
+
+    fn dummy_shop_settings(
+        sender_address: &str,
+        parser_type: &str,
+        subject_filters: Option<String>,
+        shop_name: &str,
+    ) -> ShopSettings {
+        ShopSettings {
+            id: 1,
+            shop_name: shop_name.to_string(),
+            sender_address: sender_address.to_string(),
+            parser_type: parser_type.to_string(),
+            is_enabled: true,
+            subject_filters,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            updated_at: "2026-01-01T00:00:00Z".to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn before_batch_returns_error_when_no_enabled_settings() {
+        let mut shop_repo = MockShopSettingsRepository::new();
+        shop_repo
+            .expect_get_enabled()
+            .times(1)
+            .returning(|| Ok(vec![]));
+
+        let context = EmailParseContext {
+            order_repo: Arc::new(MockOrderRepository::new()),
+            parse_repo: Arc::new(MockParseRepository::new()),
+            shop_settings_repo: Arc::new(shop_repo),
+            shop_settings_cache: Arc::new(Mutex::new(ShopSettingsCache::default())),
+            parse_state: Arc::new(ParseState::new()),
+            image_save_ctx: None,
+        };
+
+        let task: EmailParseTask<
+            MockOrderRepository,
+            MockParseRepository,
+            MockShopSettingsRepository,
+        > = EmailParseTask::new();
+
+        let err = task.before_batch(&[], &context).await.unwrap_err();
+        assert_eq!(err, "No enabled shop settings found");
+    }
+
+    #[tokio::test]
+    async fn before_batch_caches_settings_fields() {
+        let mut shop_repo = MockShopSettingsRepository::new();
+        shop_repo.expect_get_enabled().times(1).returning(|| {
+            Ok(vec![
+                dummy_shop_settings(
+                    "shop@example.com",
+                    "hobbysearch_confirm",
+                    Some(r#"["注文確認"]"#.to_string()),
+                    "TestShop",
+                ),
+                dummy_shop_settings("other@example.com", "dmm_confirm", None, "OtherShop"),
+            ])
+        });
+
+        let context = EmailParseContext {
+            order_repo: Arc::new(MockOrderRepository::new()),
+            parse_repo: Arc::new(MockParseRepository::new()),
+            shop_settings_repo: Arc::new(shop_repo),
+            shop_settings_cache: Arc::new(Mutex::new(ShopSettingsCache::default())),
+            parse_state: Arc::new(ParseState::new()),
+            image_save_ctx: None,
+        };
+
+        let task: EmailParseTask<
+            MockOrderRepository,
+            MockParseRepository,
+            MockShopSettingsRepository,
+        > = EmailParseTask::new();
+
+        task.before_batch(&[], &context).await.unwrap();
+
+        let cache = context.shop_settings_cache.lock().await;
+        assert_eq!(cache.settings.len(), 2);
+        assert_eq!(cache.settings[0].0, "shop@example.com");
+        assert_eq!(cache.settings[0].1, "hobbysearch_confirm");
+        assert_eq!(cache.settings[0].3, "TestShop");
+    }
+
+    #[tokio::test]
+    async fn process_batch_returns_no_matching_parser_error_when_from_address_missing() {
+        let context = EmailParseContext {
+            order_repo: Arc::new(MockOrderRepository::new()),
+            parse_repo: Arc::new(MockParseRepository::new()),
+            shop_settings_repo: Arc::new(MockShopSettingsRepository::new()),
+            shop_settings_cache: Arc::new(Mutex::new(ShopSettingsCache {
+                settings: vec![(
+                    "shop@example.com".to_string(),
+                    "hobbysearch_confirm".to_string(),
+                    None,
+                    "TestShop".to_string(),
+                )],
+            })),
+            parse_state: Arc::new(ParseState::new()),
+            image_save_ctx: None,
+        };
+
+        let task: EmailParseTask<
+            MockOrderRepository,
+            MockParseRepository,
+            MockShopSettingsRepository,
+        > = EmailParseTask::new();
+
+        let results = task
+            .process_batch(
+                vec![EmailParseInput {
+                    email_id: 1,
+                    message_id: "m".to_string(),
+                    body_plain: "body".to_string(),
+                    from_address: None,
+                    subject: Some("x".to_string()),
+                    internal_date: None,
+                }],
+                &context,
+            )
+            .await;
+
+        assert_eq!(results.len(), 1);
+        let err = results[0].as_ref().unwrap_err();
+        assert!(err.starts_with(NO_MATCHING_PARSER_PREFIX));
+        assert!(err.contains("email 1"));
     }
 
     #[test]
