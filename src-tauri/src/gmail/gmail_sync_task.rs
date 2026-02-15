@@ -422,7 +422,10 @@ mod tests {
             .withf(|q, max, token| q == "q" && *max == 10 && token.is_none())
             .times(1)
             .returning(|_, _, _| {
-                Ok((vec!["a".to_string(), "b".to_string()], Some("t1".to_string())))
+                Ok((
+                    vec!["a".to_string(), "b".to_string()],
+                    Some("t1".to_string()),
+                ))
             });
 
         client
@@ -432,10 +435,7 @@ mod tests {
             .returning(|_, _, _| Ok((vec!["c".to_string()], None)));
 
         let ids = fetch_all_message_ids(&client, "q", 10, None).await.unwrap();
-        assert_eq!(
-            ids,
-            vec!["a".to_string(), "b".to_string(), "c".to_string()]
-        );
+        assert_eq!(ids, vec!["a".to_string(), "b".to_string(), "c".to_string()]);
     }
 
     #[tokio::test]
@@ -456,8 +456,11 @@ mod tests {
             shop_settings_cache: Arc::new(Mutex::new(ShopSettingsCacheForSync::default())),
         };
 
-        let task: GmailSyncTask<MockGmailClientTrait, MockEmailRepository, MockShopSettingsRepository> =
-            GmailSyncTask::new();
+        let task: GmailSyncTask<
+            MockGmailClientTrait,
+            MockEmailRepository,
+            MockShopSettingsRepository,
+        > = GmailSyncTask::new();
 
         task.before_batch(&[], &context).await.unwrap();
 
@@ -489,8 +492,11 @@ mod tests {
             shop_settings_cache: Arc::new(Mutex::new(ShopSettingsCacheForSync::default())),
         };
 
-        let task: GmailSyncTask<MockGmailClientTrait, MockEmailRepository, MockShopSettingsRepository> =
-            GmailSyncTask::new();
+        let task: GmailSyncTask<
+            MockGmailClientTrait,
+            MockEmailRepository,
+            MockShopSettingsRepository,
+        > = GmailSyncTask::new();
 
         let results = task
             .process_batch(
@@ -530,8 +536,11 @@ mod tests {
             })),
         };
 
-        let task: GmailSyncTask<MockGmailClientTrait, MockEmailRepository, MockShopSettingsRepository> =
-            GmailSyncTask::new();
+        let task: GmailSyncTask<
+            MockGmailClientTrait,
+            MockEmailRepository,
+            MockShopSettingsRepository,
+        > = GmailSyncTask::new();
 
         let results: Vec<Result<GmailSyncOutput, String>> = vec![Err("x".to_string())];
         task.after_batch(1, &results, &context).await.unwrap();

@@ -468,7 +468,9 @@ mod tests {
                 Ok(map)
             });
         repo.expect_find_by_normalized_names()
-            .withf(move |normalized_names| normalized_names.len() == 1 && normalized_names[0] == normalized_b)
+            .withf(move |normalized_names| {
+                normalized_names.len() == 1 && normalized_names[0] == normalized_b
+            })
             .times(1)
             .returning(move |_normalized_names| {
                 let mut map = HashMap::new();
@@ -495,7 +497,8 @@ mod tests {
         assert_eq!(cache.normalized_cache.len(), 1);
         assert_eq!(cache.raw_name_cache.get("A").unwrap().name, "A-parsed");
         assert_eq!(
-            cache.normalized_cache
+            cache
+                .normalized_cache
                 .get(&input_b.normalized_name)
                 .unwrap()
                 .name,
@@ -632,7 +635,10 @@ mod tests {
         let input_b = create_input("B".to_string(), None);
 
         let mut client = MockGeminiClientTrait::new();
-        client.expect_parse_single_chunk().times(1).returning(|_| None);
+        client
+            .expect_parse_single_chunk()
+            .times(1)
+            .returning(|_| None);
 
         let repo = MockProductMasterRepository::new();
         let context = ProductNameParseContext {
@@ -648,8 +654,14 @@ mod tests {
             .await;
 
         assert_eq!(results.len(), 2);
-        assert!(results[0].as_ref().unwrap_err().contains("Gemini API failed"));
-        assert!(results[1].as_ref().unwrap_err().contains("Gemini API failed"));
+        assert!(results[0]
+            .as_ref()
+            .unwrap_err()
+            .contains("Gemini API failed"));
+        assert!(results[1]
+            .as_ref()
+            .unwrap_err()
+            .contains("Gemini API failed"));
     }
 
     #[tokio::test]
