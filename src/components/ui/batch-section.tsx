@@ -160,7 +160,7 @@ export function BatchSection({
       </Card>
 
       {/* 進捗Card */}
-      {(isRunning || progress) && progress && (
+      {progress && (
         <Card>
           <CardHeader>
             <CardTitle>{progressTitle}</CardTitle>
