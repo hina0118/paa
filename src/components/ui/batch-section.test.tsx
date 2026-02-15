@@ -126,6 +126,46 @@ describe('BatchSection', () => {
 
       expect(onCancel).toHaveBeenCalledTimes(1);
     });
+
+    it('renders custom cancel button label', () => {
+      const onCancel = vi.fn();
+
+      render(
+        <BatchSection
+          {...defaultProps}
+          isRunning
+          onCancel={onCancel}
+          cancelLabel="中止"
+        />
+      );
+
+      expect(screen.getByRole('button', { name: '中止' })).toBeInTheDocument();
+    });
+
+    it('renders cancel button with destructive variant', () => {
+      const onCancel = vi.fn();
+
+      render(
+        <BatchSection
+          {...defaultProps}
+          isRunning
+          onCancel={onCancel}
+          cancelVariant="destructive"
+        />
+      );
+
+      const cancelButton = screen.getByRole('button', { name: 'キャンセル' });
+      expect(cancelButton).toHaveClass('bg-destructive');
+    });
+
+    it('renders cancel button with outline variant by default', () => {
+      const onCancel = vi.fn();
+
+      render(<BatchSection {...defaultProps} isRunning onCancel={onCancel} />);
+
+      const cancelButton = screen.getByRole('button', { name: 'キャンセル' });
+      expect(cancelButton).toHaveClass('border');
+    });
   });
 
   describe('confirm dialog', () => {
