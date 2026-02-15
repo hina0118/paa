@@ -50,11 +50,12 @@ function killPaaProcesses() {
   try {
     if (isWindows) {
       // Windows: debug ビルドのバイナリのフルパス（tauriAppPath）に一致するプロセスだけを終了させる
-      const psCommand =
-        `Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -eq \"${tauriAppPath}\" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }`;
+      const psCommand = `Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -eq "${tauriAppPath}" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }`;
       execSync(
         `powershell -NoProfile -NonInteractive -Command "${psCommand}"`,
-        { stdio: 'ignore' }
+        {
+          stdio: 'ignore',
+        }
       );
     } else {
       // debug ビルドのバイナリのフルパスで特定して kill
