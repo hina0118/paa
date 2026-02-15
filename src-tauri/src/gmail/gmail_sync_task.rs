@@ -297,10 +297,7 @@ where
                         message_id,
                         e
                     );
-                    results[idx] = Err(format!(
-                        "Failed to fetch message {}: {}",
-                        message_id, e
-                    ));
+                    results[idx] = Err(format!("Failed to fetch message {}: {}", message_id, e));
                 }
             }
         }
