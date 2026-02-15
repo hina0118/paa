@@ -69,16 +69,16 @@ for input in inputs:
     if should_save_message(metadata, shop_settings):
         candidates.push(id)
     else:
-        results.push(Ok(GmailSyncOutput { message: metadata, saved: false, filtered: true }))
+        results.push(Ok(GmailSyncOutput { message: metadata, saved: false, filtered_out: true }))
 
 // Phase 2: 候補のみ full 取得
 for id in candidates:
     message = get_message(id)  // full（本文あり）
-    results.push(Ok(GmailSyncOutput { message, saved: false, filtered: false }))
+    results.push(Ok(GmailSyncOutput { message, saved: false, filtered_out: false }))
 ```
 
-- `GmailSyncOutput` に `filtered: bool` フィールドを追加（メタデータのみでフィルタ除外されたことを示す）
-- `after_batch` では `filtered == false` のメッセージのみ DB 保存対象にする
+- `GmailSyncOutput` に `filtered_out: bool` フィールドを追加（メタデータのみでフィルタ除外されたことを示す）
+- `after_batch` では `filtered_out == false` のメッセージのみ DB 保存対象にする
 
 ### Step 5: `GmailSyncOutput` にフィールド追加
 
