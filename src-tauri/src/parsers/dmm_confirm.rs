@@ -672,14 +672,33 @@ fn extract_amounts(lines: &[&str]) -> (Option<i64>, Option<i64>, Option<i64>) {
     (subtotal, shipping_fee, total_amount)
 }
 
-// テストはローカル環境でのみ実行（サンプルファイルに個人情報が含まれるため）
-#[cfg(all(test, not(ci)))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_parse_dmm_confirm() {
-        let sample_email = include_str!("../../../sample/dmm_mail_confirm.txt");
+        // NOTE: `sample/` 配下のファイルは使わず、テスト内でダミー本文を生成する。
+        let sample_email = r#"テスト 太郎 様
+
+DMM通販をご利用いただき、ありがとうございます。
+下記の内容にてご注文を承りましたのでご確認ください。
+
+■　ご注文内容確認
+ご注文番号:BS-27599843
+ご注文日：2025/6/1
+
+受取人のお名前：テスト 太郎 様
+
+───────────────────────────────────
+BS-27599843　発送元：千葉配送センター　発送：配送業者は発送時に確定
+───────────────────────────────────
+30MM ARMORED CORE VI FIRES OF RUBICON BALAM INDUSTRIES BD-011 MELANDER 1個 2,530円
+
+商品小計:2,530円
+送料:530円
+お支払い金額:3,060円(税込)
+"#;
         let parser = DmmConfirmParser;
         let result = parser.parse(sample_email);
 
