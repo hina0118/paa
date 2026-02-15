@@ -462,6 +462,10 @@ mod tests {
     }
 
     fn dummy_message_metadata(id: &str) -> GmailMessage {
+        dummy_message_metadata_with_from(id, "sender@example.com")
+    }
+
+    fn dummy_message_metadata_with_from(id: &str, from: &str) -> GmailMessage {
         GmailMessage {
             message_id: id.to_string(),
             snippet: "snippet".to_string(),
@@ -469,7 +473,7 @@ mod tests {
             body_plain: None,
             body_html: None,
             internal_date: 1704067200000,
-            from_address: Some("sender@example.com".to_string()),
+            from_address: Some(from.to_string()),
         }
     }
 
@@ -628,32 +632,12 @@ mod tests {
             .expect_get_message_metadata()
             .withf(|id| id == "match-id")
             .times(1)
-            .returning(|_| {
-                Ok(GmailMessage {
-                    message_id: "match-id".to_string(),
-                    snippet: "snippet".to_string(),
-                    subject: Some("subject".to_string()),
-                    body_plain: None,
-                    body_html: None,
-                    internal_date: 1704067200000,
-                    from_address: Some("sender@example.com".to_string()),
-                })
-            });
+            .returning(|_| Ok(dummy_message_metadata("match-id")));
         client
             .expect_get_message_metadata()
             .withf(|id| id == "nomatch-id")
             .times(1)
-            .returning(|_| {
-                Ok(GmailMessage {
-                    message_id: "nomatch-id".to_string(),
-                    snippet: "snippet".to_string(),
-                    subject: Some("subject".to_string()),
-                    body_plain: None,
-                    body_html: None,
-                    internal_date: 1704067200000,
-                    from_address: Some("unknown@other.com".to_string()),
-                })
-            });
+            .returning(|_| Ok(dummy_message_metadata_with_from("nomatch-id", "unknown@other.com")));
 
         // match-id のみ full 取得される（nomatch-id は呼ばれないことを expect_get_message で保証）
         client
@@ -715,17 +699,7 @@ mod tests {
             .expect_get_message_metadata()
             .withf(|id| id == "full-fetch-fail-id")
             .times(1)
-            .returning(|_| {
-                Ok(GmailMessage {
-                    message_id: "full-fetch-fail-id".to_string(),
-                    snippet: "snippet".to_string(),
-                    subject: Some("subject".to_string()),
-                    body_plain: None,
-                    body_html: None,
-                    internal_date: 1704067200000,
-                    from_address: Some("a@example.com".to_string()),
-                })
-            });
+            .returning(|_| Ok(dummy_message_metadata_with_from("full-fetch-fail-id", "a@example.com")));
 
         // Phase 2: 本文(full)取得が失敗
         client
