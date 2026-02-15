@@ -49,7 +49,13 @@ function killPaaProcesses() {
   // 次の worker で single-instance チェックに引っかかるため
   try {
     if (isWindows) {
-      execSync('taskkill /F /IM paa.exe 2>nul', { stdio: 'ignore' });
+      // Windows: debug ビルドのバイナリのフルパス（tauriAppPath）に一致するプロセスだけを終了させる
+      const normalizedPath = tauriAppPath.replace(/\\/g, '\\\\');
+      const psCommand = `Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -eq '${normalizedPath}' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }`;
+      execSync(
+        `powershell -NoProfile -NonInteractive -Command "${psCommand}"`,
+        { stdio: 'ignore' }
+      );
     } else {
       // debug ビルドのバイナリのフルパスで特定して kill
       execSync(`pkill -f "${tauriAppPath}" 2>/dev/null || true`, {
