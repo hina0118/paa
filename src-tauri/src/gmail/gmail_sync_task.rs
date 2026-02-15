@@ -262,7 +262,7 @@ where
                         e
                     );
                     results.push(Err(format!(
-                        "Failed to fetch message {}: {}",
+                        "Failed to fetch metadata for {}: {}",
                         input.message_id, e
                     )));
                 }
