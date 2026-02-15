@@ -14,10 +14,9 @@ const { toastSuccessMock, toastErrorMock, notifyMock, isAppWindowVisibleMock } =
   vi.hoisted(() => ({
     toastSuccessMock: vi.fn(),
     toastErrorMock: vi.fn(),
-    notifyMock: vi.fn<
-      Parameters<(title: string, body: string) => Promise<void>>,
-      Promise<void>
-    >(() => Promise.resolve()),
+    notifyMock: vi
+      .fn<Parameters<(title: string, body: string) => Promise<void>>, Promise<void>>()
+      .mockResolvedValue(undefined),
     isAppWindowVisibleMock: vi.fn<[], Promise<boolean>>(() =>
       Promise.resolve(true)
     ),
