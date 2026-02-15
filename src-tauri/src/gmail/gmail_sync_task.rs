@@ -271,13 +271,14 @@ where
 
         let total = inputs.len();
         let candidate_count = candidates.len();
-        let filtered_out = total - candidate_count - results.iter().filter(|r| r.is_err()).count();
+        let filtered_out_count =
+            total - candidate_count - results.iter().filter(|r| r.is_err()).count();
         log::info!(
             "[{}] Metadata phase: {} total, {} candidates, {} filtered out",
             self.name(),
             total,
             candidate_count,
-            filtered_out,
+            filtered_out_count,
         );
 
         // Phase 2: 候補のみ本文(full)を取得
