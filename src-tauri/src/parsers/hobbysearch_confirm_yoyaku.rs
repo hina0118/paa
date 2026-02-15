@@ -127,14 +127,24 @@ fn extract_yoyaku_items(lines: &[&str]) -> Result<Vec<OrderItem>, String> {
     }
 }
 
-// テストはローカル環境でのみ実行（サンプルファイルに個人情報が含まれるため）
-#[cfg(all(test, not(ci)))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_parse_hobbysearch_confirm_yoyaku() {
-        let sample_email = include_str!("../../../sample/hobbysearch_mail_confirm_yoyaku.txt");
+        // NOTE: `sample/` 配下のファイルは使わず、テスト内でダミー本文を生成する。
+        let sample_email = r#"[注文番号] 25-1021-1156
+
+[商品お届け先]  山田 太郎 様
+〒812-0044 福岡県テスト市1-2-3
+
+[ご予約内容]
+コトブキヤ FG195 フレームアームズ・ガール ドゥルガーII 〈ノワールVer.〉
+単価：8,096円 × 個数：1 = 8,096円
+
+予約商品合計 8,096円
+"#;
         let parser = HobbySearchConfirmYoyakuParser;
         let result = parser.parse(sample_email);
 
@@ -161,6 +171,6 @@ mod tests {
         // 配送先の確認
         assert!(order_info.delivery_address.is_some());
         let address = order_info.delivery_address.unwrap();
-        assert_eq!(address.name, "原田 裕基");
+        assert_eq!(address.name, "山田 太郎");
     }
 }

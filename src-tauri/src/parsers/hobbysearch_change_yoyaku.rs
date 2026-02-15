@@ -129,14 +129,25 @@ fn extract_yoyaku_items(lines: &[&str]) -> Result<Vec<OrderItem>, String> {
     }
 }
 
-// テストはローカル環境でのみ実行（サンプルファイルに個人情報が含まれるため）
-#[cfg(all(test, not(ci)))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_parse_hobbysearch_change_yoyaku() {
-        let sample_email = include_str!("../../../sample/hobbysearch_mail_change_yoyaku.txt");
+        // NOTE: `sample/` 配下のファイルは使わず、テスト内でダミー本文を生成する。
+        let sample_email = r#"[注文番号] 12-3456-7890
+
+[商品お届け先]
+山田 太郎 様
+〒100-0001 東京都千代田区1-1-1
+
+[ご予約内容]
+コトブキヤ FG195 サンプル予約商品
+単価：8,096円 × 個数：1 = 8,096円
+
+予約商品合計 8,096円
+"#;
         let parser = HobbySearchChangeYoyakuParser;
         let result = parser.parse(sample_email);
 
