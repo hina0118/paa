@@ -40,6 +40,10 @@ interface BatchSectionProps {
   onStart: () => void;
   /** キャンセルハンドラ（省略時はキャンセル不可） */
   onCancel?: () => void;
+  /** キャンセルボタンのラベル（デフォルト: "キャンセル"） */
+  cancelLabel?: string;
+  /** キャンセルボタンのバリアント（デフォルト: "outline"） */
+  cancelVariant?: 'outline' | 'destructive';
   /** 開始ボタンのラベル */
   startLabel: string;
   /** 処理中のボタンラベル */
@@ -74,6 +78,8 @@ export function BatchSection({
   progress,
   onStart,
   onCancel,
+  cancelLabel = 'キャンセル',
+  cancelVariant = 'outline',
   startLabel,
   runningLabel,
   startDisabled = false,
@@ -148,8 +154,8 @@ export function BatchSection({
               {isRunning ? runningLabel : startLabel}
             </Button>
             {isRunning && onCancel && (
-              <Button onClick={onCancel} variant="outline">
-                キャンセル
+              <Button onClick={onCancel} variant={cancelVariant}>
+                {cancelLabel}
               </Button>
             )}
           </div>
