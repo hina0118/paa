@@ -12,7 +12,7 @@
 
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { spawn, spawnSync } from 'child_process';
+import { spawn, spawnSync, execSync } from 'child_process';
 import os from 'os';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -43,12 +43,31 @@ const tauriDriverPath = path.join(
 let tauriDriver: ReturnType<typeof spawn> | null = null;
 let exitRequested = false;
 
+function killPaaProcesses() {
+  // tauri-driver が起動した paa アプリを確実に終了させる
+  // afterSession で tauri-driver だけ kill しても paa プロセスが残り、
+  // 次の worker で single-instance チェックに引っかかるため
+  try {
+    if (isWindows) {
+      execSync('taskkill /F /IM paa.exe 2>nul', { stdio: 'ignore' });
+    } else {
+      // debug ビルドのバイナリのフルパスで特定して kill
+      execSync(`pkill -f "${tauriAppPath}" 2>/dev/null || true`, {
+        stdio: 'ignore',
+      });
+    }
+  } catch {
+    // プロセスが既に終了している場合は無視
+  }
+}
+
 function closeTauriDriver() {
   exitRequested = true;
   if (tauriDriver) {
     tauriDriver.kill();
     tauriDriver = null;
   }
+  killPaaProcesses();
 }
 
 function onShutdown(fn: () => void) {
@@ -131,6 +150,10 @@ export const config = {
   },
 
   async beforeSession() {
+    // 前回のセッションで残った paa プロセスを確実に終了させる
+    killPaaProcesses();
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
     // Windows: msedgedriver のパスを指定する場合（PATH に通していないとき）
     const nativeDriverPath = process.env.MSEDGEDRIVER_PATH;
     const tauriDriverArgs = nativeDriverPath
@@ -159,5 +182,7 @@ export const config = {
 
   async afterSession() {
     closeTauriDriver();
+    // paa プロセスの終了と D-Bus シングルインスタンスロックの解放を待つ
+    await new Promise((resolve) => setTimeout(resolve, 1000));
   },
 };
