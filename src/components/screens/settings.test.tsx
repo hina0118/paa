@@ -831,17 +831,17 @@ describe('Settings', () => {
   });
 
   describe('setting updates', () => {
-    const testSettingUpdate = async (
-      user: ReturnType<typeof userEvent.setup>,
-      config: {
-        inputId: string;
-        initialValue: number;
-        newValue: string;
-        buttonName: string;
-        invokeCommand: string;
-        invokePayload: Record<string, number>;
-      }
-    ) => {
+    const testSettingUpdate = async (config: {
+      inputId: string;
+      initialValue: number;
+      newValue: string;
+      buttonName: string;
+      invokeCommand: string;
+      invokePayload: Record<string, number>;
+    }) => {
+      const user = userEvent.setup();
+      renderWithProviders(<Settings />);
+
       await waitFor(() => {
         expect(document.getElementById(config.inputId)).toHaveValue(
           config.initialValue
@@ -891,13 +891,10 @@ describe('Settings', () => {
 
         return Promise.resolve(null);
       });
-
-      renderWithProviders(<Settings />);
     });
 
     it('updates batch size', async () => {
-      const user = userEvent.setup();
-      await testSettingUpdate(user, {
+      await testSettingUpdate({
         inputId: 'batch-size',
         initialValue: 50,
         newValue: '60',
@@ -908,8 +905,7 @@ describe('Settings', () => {
     });
 
     it('updates max iterations', async () => {
-      const user = userEvent.setup();
-      await testSettingUpdate(user, {
+      await testSettingUpdate({
         inputId: 'max-iterations',
         initialValue: 100,
         newValue: '120',
@@ -920,8 +916,7 @@ describe('Settings', () => {
     });
 
     it('updates max results per page', async () => {
-      const user = userEvent.setup();
-      await testSettingUpdate(user, {
+      await testSettingUpdate({
         inputId: 'max-results-per-page',
         initialValue: 100,
         newValue: '150',
@@ -932,8 +927,7 @@ describe('Settings', () => {
     });
 
     it('updates timeout minutes', async () => {
-      const user = userEvent.setup();
-      await testSettingUpdate(user, {
+      await testSettingUpdate({
         inputId: 'timeout-minutes',
         initialValue: 30,
         newValue: '40',
@@ -944,8 +938,7 @@ describe('Settings', () => {
     });
 
     it('updates parse batch size', async () => {
-      const user = userEvent.setup();
-      await testSettingUpdate(user, {
+      await testSettingUpdate({
         inputId: 'parse-batch-size',
         initialValue: 100,
         newValue: '140',
@@ -956,8 +949,7 @@ describe('Settings', () => {
     });
 
     it('updates gemini batch size', async () => {
-      const user = userEvent.setup();
-      await testSettingUpdate(user, {
+      await testSettingUpdate({
         inputId: 'gemini-batch-size',
         initialValue: 10,
         newValue: '11',
@@ -968,8 +960,7 @@ describe('Settings', () => {
     });
 
     it('updates gemini delay seconds', async () => {
-      const user = userEvent.setup();
-      await testSettingUpdate(user, {
+      await testSettingUpdate({
         inputId: 'gemini-delay-seconds',
         initialValue: 10,
         newValue: '5',
