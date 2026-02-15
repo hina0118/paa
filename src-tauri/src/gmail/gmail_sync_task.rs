@@ -262,7 +262,7 @@ where
                         e
                     );
                     results.push(Err(format!(
-                        "Failed to fetch message {}: {}",
+                        "Failed to fetch metadata for {}: {}",
                         input.message_id, e
                     )));
                 }
@@ -651,7 +651,7 @@ mod tests {
         assert!(results[1]
             .as_ref()
             .unwrap_err()
-            .contains("Failed to fetch message ng-id"));
+            .contains("Failed to fetch metadata for ng-id"));
     }
 
     #[tokio::test]
