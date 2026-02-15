@@ -412,6 +412,8 @@ mod tests {
     use super::*;
     use crate::gemini::client::MockGeminiClientTrait;
     use crate::repository::MockProductMasterRepository;
+    use crate::repository::ProductMaster;
+    use std::collections::HashMap;
 
     #[test]
     fn test_create_input() {
@@ -427,5 +429,334 @@ mod tests {
             ProductNameParseTask::new();
         assert_eq!(task.name(), "商品名パース");
         assert_eq!(task.event_name(), "batch-progress");
+    }
+
+    fn dummy_product_master(id: i64, raw: &str, normalized: &str, name: &str) -> ProductMaster {
+        ProductMaster {
+            id,
+            raw_name: raw.to_string(),
+            normalized_name: normalized.to_string(),
+            maker: None,
+            series: None,
+            product_name: Some(name.to_string()),
+            scale: None,
+            is_reissue: false,
+            platform_hint: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            updated_at: "2026-01-01T00:00:00Z".to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn before_batch_builds_cache_from_raw_and_normalized() {
+        let input_a = create_input("A".to_string(), None);
+        let input_b = create_input("B".to_string(), None);
+        let normalized_b = input_b.normalized_name.clone();
+        let normalized_b_for_returning = normalized_b.clone();
+        let inputs = vec![input_a.clone(), input_b.clone()];
+
+        let mut repo = MockProductMasterRepository::new();
+        repo.expect_find_by_raw_names()
+            .withf(|raw_names| raw_names.len() == 2 && raw_names[0] == "A" && raw_names[1] == "B")
+            .times(1)
+            .returning(|_raw_names| {
+                let mut map = HashMap::new();
+                map.insert(
+                    "A".to_string(),
+                    dummy_product_master(1, "A", "a", "A-parsed"),
+                );
+                Ok(map)
+            });
+        repo.expect_find_by_normalized_names()
+            .withf(move |normalized_names| {
+                normalized_names.len() == 1 && normalized_names[0] == normalized_b
+            })
+            .times(1)
+            .returning(move |_normalized_names| {
+                let mut map = HashMap::new();
+                map.insert(
+                    normalized_b_for_returning.clone(),
+                    dummy_product_master(2, "B", &normalized_b_for_returning, "B-parsed"),
+                );
+                Ok(map)
+            });
+
+        let client = MockGeminiClientTrait::new();
+        let context = ProductNameParseContext {
+            gemini_client: Arc::new(client),
+            repository: Arc::new(repo),
+            cache: Arc::new(Mutex::new(ProductNameParseCache::default())),
+        };
+
+        let task: ProductNameParseTask<MockGeminiClientTrait, MockProductMasterRepository> =
+            ProductNameParseTask::new();
+        task.before_batch(&inputs, &context).await.unwrap();
+
+        let cache = context.cache.lock().await;
+        assert_eq!(cache.raw_name_cache.len(), 1);
+        assert_eq!(cache.normalized_cache.len(), 1);
+        assert_eq!(cache.raw_name_cache.get("A").unwrap().name, "A-parsed");
+        assert_eq!(
+            cache
+                .normalized_cache
+                .get(&input_b.normalized_name)
+                .unwrap()
+                .name,
+            "B-parsed"
+        );
+    }
+
+    #[tokio::test]
+    async fn process_batch_all_cache_hits_does_not_call_api() {
+        let input_a = create_input("A".to_string(), None);
+        let input_b = create_input("B".to_string(), None);
+
+        let mut client = MockGeminiClientTrait::new();
+        client.expect_parse_single_chunk().times(0);
+        client.expect_parse_product_name().times(0);
+
+        let repo = MockProductMasterRepository::new();
+        let mut cache = ProductNameParseCache::default();
+        cache.raw_name_cache.insert(
+            "A".to_string(),
+            ParsedProduct {
+                name: "A-parsed".to_string(),
+                ..Default::default()
+            },
+        );
+        cache.normalized_cache.insert(
+            input_b.normalized_name.clone(),
+            ParsedProduct {
+                name: "B-parsed".to_string(),
+                ..Default::default()
+            },
+        );
+
+        let context = ProductNameParseContext {
+            gemini_client: Arc::new(client),
+            repository: Arc::new(repo),
+            cache: Arc::new(Mutex::new(cache)),
+        };
+
+        let task: ProductNameParseTask<MockGeminiClientTrait, MockProductMasterRepository> =
+            ProductNameParseTask::new();
+        let results = task
+            .process_batch(vec![input_a.clone(), input_b.clone()], &context)
+            .await;
+
+        assert_eq!(results.len(), 2);
+        let out0 = results[0].as_ref().unwrap();
+        assert!(out0.cache_hit);
+        let out1 = results[1].as_ref().unwrap();
+        assert!(out1.cache_hit);
+    }
+
+    #[tokio::test]
+    async fn process_batch_cache_misses_call_api_and_fill_results() {
+        let input_a = create_input("A".to_string(), None);
+        let input_b = create_input("B".to_string(), None);
+
+        let mut client = MockGeminiClientTrait::new();
+        client
+            .expect_parse_single_chunk()
+            .withf(|names| names.len() == 2 && names[0] == "A" && names[1] == "B")
+            .times(1)
+            .returning(|_names| {
+                Some(vec![
+                    ParsedProduct {
+                        name: "A-api".to_string(),
+                        ..Default::default()
+                    },
+                    ParsedProduct {
+                        name: "B-api".to_string(),
+                        ..Default::default()
+                    },
+                ])
+            });
+
+        let repo = MockProductMasterRepository::new();
+        let context = ProductNameParseContext {
+            gemini_client: Arc::new(client),
+            repository: Arc::new(repo),
+            cache: Arc::new(Mutex::new(ProductNameParseCache::default())),
+        };
+
+        let task: ProductNameParseTask<MockGeminiClientTrait, MockProductMasterRepository> =
+            ProductNameParseTask::new();
+        let results = task
+            .process_batch(vec![input_a.clone(), input_b.clone()], &context)
+            .await;
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].as_ref().unwrap().parsed.name, "A-api");
+        assert!(!results[0].as_ref().unwrap().cache_hit);
+        assert_eq!(results[1].as_ref().unwrap().parsed.name, "B-api");
+        assert!(!results[1].as_ref().unwrap().cache_hit);
+    }
+
+    #[tokio::test]
+    async fn process_batch_api_result_count_mismatch_returns_errors() {
+        let input_a = create_input("A".to_string(), None);
+        let input_b = create_input("B".to_string(), None);
+
+        let mut client = MockGeminiClientTrait::new();
+        client
+            .expect_parse_single_chunk()
+            .times(1)
+            .returning(|_names| Some(vec![ParsedProduct::default()]));
+
+        let repo = MockProductMasterRepository::new();
+        let context = ProductNameParseContext {
+            gemini_client: Arc::new(client),
+            repository: Arc::new(repo),
+            cache: Arc::new(Mutex::new(ProductNameParseCache::default())),
+        };
+
+        let task: ProductNameParseTask<MockGeminiClientTrait, MockProductMasterRepository> =
+            ProductNameParseTask::new();
+        let results = task
+            .process_batch(vec![input_a.clone(), input_b.clone()], &context)
+            .await;
+
+        assert_eq!(results.len(), 2);
+        assert!(results[0]
+            .as_ref()
+            .unwrap_err()
+            .contains("API result count mismatch"));
+        assert!(results[1]
+            .as_ref()
+            .unwrap_err()
+            .contains("API result count mismatch"));
+    }
+
+    #[tokio::test]
+    async fn process_batch_api_failure_returns_errors() {
+        let input_a = create_input("A".to_string(), None);
+        let input_b = create_input("B".to_string(), None);
+
+        let mut client = MockGeminiClientTrait::new();
+        client
+            .expect_parse_single_chunk()
+            .times(1)
+            .returning(|_| None);
+
+        let repo = MockProductMasterRepository::new();
+        let context = ProductNameParseContext {
+            gemini_client: Arc::new(client),
+            repository: Arc::new(repo),
+            cache: Arc::new(Mutex::new(ProductNameParseCache::default())),
+        };
+
+        let task: ProductNameParseTask<MockGeminiClientTrait, MockProductMasterRepository> =
+            ProductNameParseTask::new();
+        let results = task
+            .process_batch(vec![input_a.clone(), input_b.clone()], &context)
+            .await;
+
+        assert_eq!(results.len(), 2);
+        assert!(results[0]
+            .as_ref()
+            .unwrap_err()
+            .contains("Gemini API failed"));
+        assert!(results[1]
+            .as_ref()
+            .unwrap_err()
+            .contains("Gemini API failed"));
+    }
+
+    #[tokio::test]
+    async fn after_batch_saves_only_cache_misses_and_ignores_save_errors() {
+        let input_a = create_input("A".to_string(), None);
+        let input_b = create_input("B".to_string(), Some("amazon".to_string()));
+
+        let mut repo = MockProductMasterRepository::new();
+        repo.expect_save()
+            .withf(|raw, _normalized, parsed, platform_hint| {
+                raw == "B" && parsed.name == "B-api" && platform_hint.as_deref() == Some("amazon")
+            })
+            .times(1)
+            .returning(|_, _, _, _| Err("db error".to_string()));
+
+        let client = MockGeminiClientTrait::new();
+        let context = ProductNameParseContext {
+            gemini_client: Arc::new(client),
+            repository: Arc::new(repo),
+            cache: Arc::new(Mutex::new(ProductNameParseCache::default())),
+        };
+
+        let task: ProductNameParseTask<MockGeminiClientTrait, MockProductMasterRepository> =
+            ProductNameParseTask::new();
+
+        let results: Vec<Result<ProductNameParseOutput, String>> = vec![
+            Ok(ProductNameParseOutput {
+                input: input_a,
+                parsed: ParsedProduct {
+                    name: "A-cached".to_string(),
+                    ..Default::default()
+                },
+                cache_hit: true,
+            }),
+            Ok(ProductNameParseOutput {
+                input: input_b,
+                parsed: ParsedProduct {
+                    name: "B-api".to_string(),
+                    ..Default::default()
+                },
+                cache_hit: false,
+            }),
+        ];
+
+        task.after_batch(1, &results, &context).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn process_single_uses_cache_then_calls_api_and_saves_on_miss() {
+        let input_a = create_input("A".to_string(), None);
+        let input_b = create_input("B".to_string(), None);
+
+        let mut client = MockGeminiClientTrait::new();
+        client
+            .expect_parse_product_name()
+            .withf(|name| name == "B")
+            .times(1)
+            .returning(|_name| {
+                Ok(ParsedProduct {
+                    name: "B-api".to_string(),
+                    ..Default::default()
+                })
+            });
+        client.expect_parse_single_chunk().times(0);
+
+        let mut repo = MockProductMasterRepository::new();
+        repo.expect_save()
+            .withf(|raw, _normalized, parsed, _hint| raw == "B" && parsed.name == "B-api")
+            .times(1)
+            .returning(|_, _, _, _| Ok(1));
+
+        let mut cache = ProductNameParseCache::default();
+        cache.raw_name_cache.insert(
+            "A".to_string(),
+            ParsedProduct {
+                name: "A-cached".to_string(),
+                ..Default::default()
+            },
+        );
+
+        let context = ProductNameParseContext {
+            gemini_client: Arc::new(client),
+            repository: Arc::new(repo),
+            cache: Arc::new(Mutex::new(cache)),
+        };
+
+        let task: ProductNameParseTask<MockGeminiClientTrait, MockProductMasterRepository> =
+            ProductNameParseTask::new();
+
+        let out_a = task.process(input_a, &context).await.unwrap();
+        assert!(out_a.cache_hit);
+        assert_eq!(out_a.parsed.name, "A-cached");
+
+        let out_b = task.process(input_b, &context).await.unwrap();
+        assert!(!out_b.cache_hit);
+        assert_eq!(out_b.parsed.name, "B-api");
     }
 }

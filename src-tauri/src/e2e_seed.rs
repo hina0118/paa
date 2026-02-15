@@ -93,3 +93,142 @@ pub async fn seed_if_e2e_and_empty(pool: &SqlitePool) {
 
     log::info!("[E2E Seed] Test data seeded successfully");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serial_test::serial;
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+    use std::str::FromStr;
+
+    async fn create_pool() -> SqlitePool {
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .create_if_missing(true);
+        SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .unwrap()
+    }
+
+    async fn create_tables(pool: &SqlitePool) {
+        // seed が参照・挿入するカラムのみ用意
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS orders (
+              id INTEGER PRIMARY KEY,
+              shop_domain TEXT,
+              shop_name TEXT,
+              order_number TEXT,
+              order_date TEXT,
+              created_at TEXT,
+              updated_at TEXT
+            );
+            CREATE TABLE IF NOT EXISTS items (
+              id INTEGER PRIMARY KEY,
+              order_id INTEGER,
+              item_name TEXT,
+              item_name_normalized TEXT,
+              price INTEGER,
+              quantity INTEGER,
+              created_at TEXT,
+              updated_at TEXT
+            );
+            CREATE TABLE IF NOT EXISTS deliveries (
+              id INTEGER PRIMARY KEY,
+              order_id INTEGER,
+              tracking_number TEXT,
+              carrier TEXT,
+              delivery_status TEXT,
+              created_at TEXT,
+              updated_at TEXT
+            );
+            CREATE TABLE IF NOT EXISTS emails (
+              id INTEGER PRIMARY KEY,
+              message_id TEXT,
+              body_plain TEXT,
+              analysis_status TEXT,
+              created_at TEXT,
+              updated_at TEXT,
+              from_address TEXT,
+              subject TEXT
+            );
+            "#,
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn seed_noop_when_not_e2e_mode() {
+        std::env::remove_var("PAA_E2E_MOCK");
+        let pool = create_pool().await;
+        seed_if_e2e_and_empty(&pool).await;
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn seed_skips_when_tables_not_ready() {
+        std::env::set_var("PAA_E2E_MOCK", "1");
+        let pool = create_pool().await;
+
+        // テーブル未作成のため、COUNT がエラーになりスキップされる
+        seed_if_e2e_and_empty(&pool).await;
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn seed_inserts_when_e2e_and_orders_empty() {
+        std::env::set_var("PAA_E2E_MOCK", "1");
+        let pool = create_pool().await;
+        create_tables(&pool).await;
+
+        seed_if_e2e_and_empty(&pool).await;
+
+        let (orders,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM orders")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let (items,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let (deliveries,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM deliveries")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let (emails,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM emails")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(orders, 1);
+        assert_eq!(items, 1);
+        assert_eq!(deliveries, 1);
+        assert_eq!(emails, 1);
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn seed_skips_when_orders_already_has_data() {
+        std::env::set_var("PAA_E2E_MOCK", "1");
+        let pool = create_pool().await;
+        create_tables(&pool).await;
+
+        sqlx::query("INSERT INTO orders (id) VALUES (1)")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        seed_if_e2e_and_empty(&pool).await;
+
+        let (orders,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM orders")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(orders, 1);
+    }
+}

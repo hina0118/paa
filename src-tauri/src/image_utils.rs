@@ -19,27 +19,44 @@ pub(crate) fn validate_image_url(url_str: &str) -> Result<(), String> {
         return Err("Only HTTPS URLs are allowed".to_string());
     }
 
-    // ホスト名の検証
-    let host_str = parsed.host_str().ok_or("URL has no host")?.to_lowercase();
+    // ホスト名の検証（SSRF 対策）
+    let host = parsed.host().ok_or("URL has no host")?;
+    match host {
+        url::Host::Domain(domain) => {
+            let host_str = domain.to_lowercase();
 
-    // localhost 系をブロック
-    if host_str == "localhost"
-        || host_str == "127.0.0.1"
-        || host_str == "::1"
-        || host_str == "0.0.0.0"
-    {
-        return Err("Localhost URLs are not allowed".to_string());
-    }
+            // localhost 系をブロック
+            if host_str == "localhost" {
+                return Err("Localhost URLs are not allowed".to_string());
+            }
 
-    // メタデータエンドポイント
-    if host_str == "169.254.169.254" || host_str == "metadata" {
-        return Err("Metadata endpoint URLs are not allowed".to_string());
-    }
+            // メタデータエンドポイント
+            if host_str == "metadata" {
+                return Err("Metadata endpoint URLs are not allowed".to_string());
+            }
+        }
+        url::Host::Ipv4(ipv4) => {
+            // ループバック / unspecified は localhost 扱い
+            if ipv4.is_loopback() || ipv4.is_unspecified() {
+                return Err("Localhost URLs are not allowed".to_string());
+            }
 
-    // IPアドレスの場合はプライベート範囲をブロック
-    if let Ok(ip) = host_str.parse::<IpAddr>() {
-        if is_private_ip(ip) {
-            return Err("Private IP addresses are not allowed".to_string());
+            // 169.254.169.254 はクラウドメタデータで有名
+            if ipv4.octets() == [169, 254, 169, 254] {
+                return Err("Metadata endpoint URLs are not allowed".to_string());
+            }
+
+            if is_private_ip(IpAddr::V4(ipv4)) {
+                return Err("Private IP addresses are not allowed".to_string());
+            }
+        }
+        url::Host::Ipv6(ipv6) => {
+            if ipv6.is_loopback() {
+                return Err("Localhost URLs are not allowed".to_string());
+            }
+            if is_private_ip(IpAddr::V6(ipv6)) {
+                return Err("Private IP addresses are not allowed".to_string());
+            }
         }
     }
 
@@ -262,4 +279,150 @@ pub async fn save_image_from_url_for_item(
     );
 
     Ok(file_name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+    use std::str::FromStr;
+
+    async fn create_test_pool_with_images_table() -> SqlitePool {
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .create_if_missing(true);
+
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .unwrap();
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS images (
+              id INTEGER PRIMARY KEY,
+              item_name_normalized TEXT NOT NULL UNIQUE,
+              file_name TEXT NOT NULL,
+              created_at TEXT
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        pool
+    }
+
+    #[test]
+    fn validate_image_url_rejects_non_https() {
+        let err = validate_image_url("http://example.com/a.jpg").unwrap_err();
+        assert_eq!(err, "Only HTTPS URLs are allowed");
+    }
+
+    #[test]
+    fn validate_image_url_rejects_missing_host() {
+        let err = validate_image_url("https://").unwrap_err();
+        assert!(err.contains("Invalid URL:"));
+    }
+
+    #[test]
+    fn validate_image_url_rejects_localhost_hosts() {
+        for host in ["localhost", "127.0.0.1", "0.0.0.0", "[::1]"] {
+            let err = validate_image_url(&format!("https://{host}/a.png")).unwrap_err();
+            assert_eq!(err, "Localhost URLs are not allowed");
+        }
+    }
+
+    #[test]
+    fn validate_image_url_rejects_metadata_endpoints() {
+        for host in ["169.254.169.254", "metadata"] {
+            let err = validate_image_url(&format!("https://{host}/a.webp")).unwrap_err();
+            assert_eq!(err, "Metadata endpoint URLs are not allowed");
+        }
+    }
+
+    #[test]
+    fn is_private_ip_v4_ranges() {
+        assert!(is_private_ip(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))));
+        assert!(is_private_ip(IpAddr::V4(Ipv4Addr::new(172, 16, 0, 1))));
+        assert!(is_private_ip(IpAddr::V4(Ipv4Addr::new(172, 31, 255, 255))));
+        assert!(!is_private_ip(IpAddr::V4(Ipv4Addr::new(172, 32, 0, 1))));
+        assert!(is_private_ip(IpAddr::V4(Ipv4Addr::new(192, 168, 0, 1))));
+        assert!(is_private_ip(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))));
+        assert!(is_private_ip(IpAddr::V4(Ipv4Addr::new(169, 254, 1, 2))));
+        assert!(!is_private_ip(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))));
+    }
+
+    #[test]
+    fn is_private_ip_v6_ranges() {
+        assert!(is_private_ip(IpAddr::V6(Ipv6Addr::LOCALHOST)));
+        assert!(is_private_ip(IpAddr::V6(
+            Ipv6Addr::from_str("fe80::1").unwrap()
+        )));
+        assert!(is_private_ip(IpAddr::V6(
+            Ipv6Addr::from_str("fc00::1").unwrap()
+        )));
+        assert!(!is_private_ip(IpAddr::V6(
+            Ipv6Addr::from_str("2001:4860:4860::8888").unwrap()
+        )));
+    }
+
+    #[test]
+    fn validate_image_url_rejects_private_ip_host() {
+        let err = validate_image_url("https://10.0.0.1/a.jpg").unwrap_err();
+        assert_eq!(err, "Private IP addresses are not allowed");
+    }
+
+    #[test]
+    fn validate_image_url_accepts_public_https_url() {
+        validate_image_url("https://example.com/a.jpg").unwrap();
+    }
+
+    #[tokio::test]
+    async fn save_image_skip_if_exists_returns_existing_file_name_without_validating_url() {
+        let pool = create_test_pool_with_images_table().await;
+
+        sqlx::query("INSERT INTO images (item_name_normalized, file_name) VALUES (?, ?)")
+            .bind("item-1")
+            .bind("existing.png")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let tmp = tempfile::tempdir().unwrap();
+
+        // URL は不正でも、skip_if_exists=true かつ既存があれば早期 return で成功する
+        let file_name = save_image_from_url_for_item(
+            &pool,
+            tmp.path(),
+            "item-1",
+            "http://not-https.example/a.png",
+            true,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(file_name, "existing.png");
+    }
+
+    #[tokio::test]
+    async fn save_image_skip_if_exists_validates_url_when_no_existing_record() {
+        let pool = create_test_pool_with_images_table().await;
+        let tmp = tempfile::tempdir().unwrap();
+
+        let err = save_image_from_url_for_item(
+            &pool,
+            tmp.path(),
+            "item-2",
+            "http://example.com/a.png",
+            true,
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(err, "Only HTTPS URLs are allowed");
+    }
 }

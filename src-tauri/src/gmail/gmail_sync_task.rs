@@ -343,6 +343,11 @@ pub fn create_sync_input(message_id: String) -> GmailSyncInput {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gmail::client::ShopSettings;
+    use crate::gmail_client::MockGmailClientTrait;
+    use crate::repository::{MockEmailRepository, MockShopSettingsRepository};
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
 
     #[test]
     fn test_create_sync_input() {
@@ -352,9 +357,6 @@ mod tests {
 
     #[test]
     fn test_task_name_and_event() {
-        use crate::gmail_client::MockGmailClientTrait;
-        use crate::repository::{MockEmailRepository, MockShopSettingsRepository};
-
         let task: GmailSyncTask<
             MockGmailClientTrait,
             MockEmailRepository,
@@ -362,5 +364,185 @@ mod tests {
         > = GmailSyncTask::new();
         assert_eq!(task.name(), "メール同期");
         assert_eq!(task.event_name(), "batch-progress");
+    }
+
+    fn dummy_shop_settings(id: i64, sender: &str) -> ShopSettings {
+        ShopSettings {
+            id,
+            shop_name: format!("shop-{id}"),
+            sender_address: sender.to_string(),
+            parser_type: "dmm_confirm".to_string(),
+            is_enabled: true,
+            subject_filters: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            updated_at: "2026-01-01T00:00:00Z".to_string(),
+        }
+    }
+
+    fn dummy_message(id: &str) -> GmailMessage {
+        GmailMessage {
+            message_id: id.to_string(),
+            snippet: "snippet".to_string(),
+            subject: Some("subject".to_string()),
+            body_plain: Some("plain".to_string()),
+            body_html: None,
+            internal_date: 1704067200000,
+            from_address: Some("sender@example.com".to_string()),
+        }
+    }
+
+    #[tokio::test]
+    async fn fetch_all_message_ids_paginates_and_respects_max_total() {
+        let mut client = MockGmailClientTrait::new();
+
+        client
+            .expect_list_message_ids()
+            .withf(|q, max, token| q == "q" && *max == 10 && token.is_none())
+            .times(1)
+            .returning(|_, _, _| {
+                Ok((
+                    vec!["a".to_string(), "b".to_string(), "c".to_string()],
+                    Some("t1".to_string()),
+                ))
+            });
+
+        // max_total で truncate されるため、2ページ目は呼ばれないことを期待
+        let ids = fetch_all_message_ids(&client, "q", 10, Some(2))
+            .await
+            .unwrap();
+        assert_eq!(ids, vec!["a".to_string(), "b".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn fetch_all_message_ids_paginates_until_next_token_none() {
+        let mut client = MockGmailClientTrait::new();
+
+        client
+            .expect_list_message_ids()
+            .withf(|q, max, token| q == "q" && *max == 10 && token.is_none())
+            .times(1)
+            .returning(|_, _, _| {
+                Ok((
+                    vec!["a".to_string(), "b".to_string()],
+                    Some("t1".to_string()),
+                ))
+            });
+
+        client
+            .expect_list_message_ids()
+            .withf(|q, max, token| q == "q" && *max == 10 && token.as_deref() == Some("t1"))
+            .times(1)
+            .returning(|_, _, _| Ok((vec!["c".to_string()], None)));
+
+        let ids = fetch_all_message_ids(&client, "q", 10, None).await.unwrap();
+        assert_eq!(ids, vec!["a".to_string(), "b".to_string(), "c".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn before_batch_loads_shop_settings_into_cache() {
+        let mut shop_repo = MockShopSettingsRepository::new();
+        shop_repo
+            .expect_get_enabled()
+            .times(1)
+            .returning(|| Ok(vec![dummy_shop_settings(1, "a@example.com")]));
+
+        let client = MockGmailClientTrait::new();
+        let email_repo = MockEmailRepository::new();
+
+        let context = GmailSyncContext {
+            gmail_client: Arc::new(client),
+            email_repo: Arc::new(email_repo),
+            shop_settings_repo: Arc::new(shop_repo),
+            shop_settings_cache: Arc::new(Mutex::new(ShopSettingsCacheForSync::default())),
+        };
+
+        let task: GmailSyncTask<
+            MockGmailClientTrait,
+            MockEmailRepository,
+            MockShopSettingsRepository,
+        > = GmailSyncTask::new();
+
+        task.before_batch(&[], &context).await.unwrap();
+
+        let cache = context.shop_settings_cache.lock().await;
+        assert_eq!(cache.enabled_shops.len(), 1);
+        assert_eq!(cache.enabled_shops[0].sender_address, "a@example.com");
+    }
+
+    #[tokio::test]
+    async fn process_batch_fetches_messages_and_returns_errors_on_failure() {
+        let mut client = MockGmailClientTrait::new();
+        client
+            .expect_get_message()
+            .withf(|id| id == "ok-id")
+            .times(1)
+            .returning(|_| Ok(dummy_message("ok-id")));
+        client
+            .expect_get_message()
+            .withf(|id| id == "ng-id")
+            .times(1)
+            .returning(|_| Err("boom".to_string()));
+
+        let shop_repo = MockShopSettingsRepository::new();
+        let email_repo = MockEmailRepository::new();
+        let context = GmailSyncContext {
+            gmail_client: Arc::new(client),
+            email_repo: Arc::new(email_repo),
+            shop_settings_repo: Arc::new(shop_repo),
+            shop_settings_cache: Arc::new(Mutex::new(ShopSettingsCacheForSync::default())),
+        };
+
+        let task: GmailSyncTask<
+            MockGmailClientTrait,
+            MockEmailRepository,
+            MockShopSettingsRepository,
+        > = GmailSyncTask::new();
+
+        let results = task
+            .process_batch(
+                vec![
+                    GmailSyncInput {
+                        message_id: "ok-id".to_string(),
+                    },
+                    GmailSyncInput {
+                        message_id: "ng-id".to_string(),
+                    },
+                ],
+                &context,
+            )
+            .await;
+
+        assert_eq!(results.len(), 2);
+        assert!(!results[0].as_ref().unwrap().saved);
+        assert!(results[1].is_err());
+        assert!(results[1]
+            .as_ref()
+            .unwrap_err()
+            .contains("Failed to fetch message ng-id"));
+    }
+
+    #[tokio::test]
+    async fn after_batch_returns_ok_when_no_messages_to_save() {
+        let client = MockGmailClientTrait::new();
+        let email_repo = MockEmailRepository::new();
+        let shop_repo = MockShopSettingsRepository::new();
+
+        let context = GmailSyncContext {
+            gmail_client: Arc::new(client),
+            email_repo: Arc::new(email_repo),
+            shop_settings_repo: Arc::new(shop_repo),
+            shop_settings_cache: Arc::new(Mutex::new(ShopSettingsCacheForSync {
+                enabled_shops: vec![dummy_shop_settings(1, "a@example.com")],
+            })),
+        };
+
+        let task: GmailSyncTask<
+            MockGmailClientTrait,
+            MockEmailRepository,
+            MockShopSettingsRepository,
+        > = GmailSyncTask::new();
+
+        let results: Vec<Result<GmailSyncOutput, String>> = vec![Err("x".to_string())];
+        task.after_batch(1, &results, &context).await.unwrap();
     }
 }
