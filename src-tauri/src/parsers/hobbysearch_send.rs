@@ -138,14 +138,40 @@ fn extract_purchase_items(lines: &[&str]) -> Result<Vec<OrderItem>, String> {
     }
 }
 
-// テストはローカル環境でのみ実行（サンプルファイルに個人情報が含まれるため）
-#[cfg(all(test, not(ci)))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_parse_hobbysearch_send() {
-        let sample_email = include_str!("../../../sample/hobbysearch_mail_send.txt");
+        // NOTE: `sample/` 配下のファイルは使わず、テスト内でダミー本文を生成する。
+        let sample_email = r#"[代表注文番号] 25-0807-1624
+
+[商品お届け先]
+山田 太郎 様
+〒812-0044 福岡県テスト市1-2-3
+
+[運送会社] 佐川急便
+[配送伝票] 470550808943
+
+[ご購入内容]
+マックスファクトリー 014554 PLAMAX BP-02 ソフィア・F・シャーリング 虎アーマーVer. (プラモデル)
+単価：9,350円 × 個数：1 = 9,350円
+メーカー2 0002 商品2 (プラモデル)
+単価：12,000円 × 個数：1 = 12,000円
+メーカー3 0003 商品3 (ディスプレイ)
+単価：8,000円 × 個数：1 = 8,000円
+メーカー4 0004 商品4 (プラモデル)
+単価：7,000円 × 個数：1 = 7,000円
+メーカー5 0005 商品5 (プラモデル)
+単価：6,000円 × 個数：1 = 6,000円
+メーカー6 0006 商品6 (プラモデル)
+単価：2,312円 × 個数：2 = 4,624円
+
+小計 46,974円
+送料 0円
+合計 46,974円
+"#;
         let parser = HobbySearchSendParser;
         let result = parser.parse(sample_email);
 
@@ -180,7 +206,7 @@ mod tests {
         // 配送先の確認
         assert!(order_info.delivery_address.is_some());
         let address = order_info.delivery_address.unwrap();
-        assert_eq!(address.name, "原田 裕基");
+        assert_eq!(address.name, "山田 太郎");
         assert_eq!(address.postal_code, Some("812-0044".to_string()));
     }
 }
