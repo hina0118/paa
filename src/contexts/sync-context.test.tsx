@@ -5,10 +5,13 @@ import { useSync } from './use-sync';
 import { mockInvoke, mockListen } from '@/test/setup';
 import { ReactNode } from 'react';
 
-const toastSuccessMock = vi.fn();
-const toastErrorMock = vi.fn();
-const notifyMock = vi.fn().mockResolvedValue(undefined);
-const isAppWindowVisibleMock = vi.fn().mockResolvedValue(true);
+const { toastSuccessMock, toastErrorMock, notifyMock, isAppWindowVisibleMock } =
+  vi.hoisted(() => ({
+    toastSuccessMock: vi.fn(),
+    toastErrorMock: vi.fn(),
+    notifyMock: vi.fn().mockResolvedValue(undefined),
+    isAppWindowVisibleMock: vi.fn().mockResolvedValue(true),
+  }));
 
 vi.mock('@/lib/toast', () => ({
   toastSuccess: (...args: unknown[]) => toastSuccessMock(...args),
