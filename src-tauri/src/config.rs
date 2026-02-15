@@ -234,7 +234,10 @@ mod tests {
         assert_eq!(loaded.parse.batch_size, 56);
 
         // デフォルト値から取得した値と比較（serde の #[serde(default)] 適用元と揃える）
-        assert_eq!(loaded.sync.max_results_per_page, default_max_results_per_page());
+        assert_eq!(
+            loaded.sync.max_results_per_page,
+            default_max_results_per_page()
+        );
         assert_eq!(loaded.sync.timeout_minutes, default_sync_timeout_minutes());
         let default_gemini = GeminiConfig::default();
         assert_eq!(loaded.gemini.batch_size, default_gemini.batch_size);
