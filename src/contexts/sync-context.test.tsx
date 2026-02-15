@@ -589,25 +589,15 @@ describe('SyncContext', () => {
   });
 
   it('shows toastSuccess on sync completion when visible (success_count > 0)', async () => {
-    let progressCallback:
-      | ((e: { payload: BatchProgress }) => Promise<void>)
-      | null = null;
-    mockListen.mockImplementation((event: string, cb: (e: unknown) => void) => {
-      if (event === BATCH_PROGRESS_EVENT) {
-        progressCallback = cb as (e: {
-          payload: BatchProgress;
-        }) => Promise<void>;
-      }
-      return Promise.resolve(() => {});
-    });
+    const { getProgressCallback } = setupBatchProgressListener();
 
     isAppWindowVisibleMock.mockResolvedValue(true);
 
     renderHook(() => useSync(), { wrapper });
-    await waitFor(() => expect(progressCallback).not.toBeNull());
+    await waitFor(() => expect(getProgressCallback()).not.toBeNull());
 
     await act(async () => {
-      await progressCallback?.({
+      await getProgressCallback()?.({
         payload: {
           task_name: TASK_NAMES.GMAIL_SYNC,
           batch_number: 1,
