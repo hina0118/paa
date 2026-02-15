@@ -359,8 +359,12 @@ mod tests {
     #[test]
     fn is_private_ip_v6_ranges() {
         assert!(is_private_ip(IpAddr::V6(Ipv6Addr::LOCALHOST)));
-        assert!(is_private_ip(IpAddr::V6(Ipv6Addr::from_str("fe80::1").unwrap())));
-        assert!(is_private_ip(IpAddr::V6(Ipv6Addr::from_str("fc00::1").unwrap())));
+        assert!(is_private_ip(IpAddr::V6(
+            Ipv6Addr::from_str("fe80::1").unwrap()
+        )));
+        assert!(is_private_ip(IpAddr::V6(
+            Ipv6Addr::from_str("fc00::1").unwrap()
+        )));
         assert!(!is_private_ip(IpAddr::V6(
             Ipv6Addr::from_str("2001:4860:4860::8888").unwrap()
         )));
