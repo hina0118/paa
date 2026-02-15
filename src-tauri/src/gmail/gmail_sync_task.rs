@@ -684,6 +684,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn process_batch_overwrites_temp_metadata_when_full_fetch_fails() {
+        // Phase 1: メタデータ取得は成功し、フィルタを通過する
+        // Phase 2: 本文(full)取得が失敗した場合に、results[0] が Err に上書きされることを検証する
+        let client = MockGmailClientTrait::new();
+        let email_repo = MockEmailRepository::new();
+        let shop_repo = MockShopSettingsRepository::new();
+
+        let context = GmailSyncContext {
+            gmail_client: Arc::new(client),
+            email_repo: Arc::new(email_repo),
+            shop_settings_repo: Arc::new(shop_repo),
+            shop_settings_cache: Arc::new(Mutex::new(ShopSettingsCacheForSync {
+                // 既存テストと同様に有効なショップ設定を入れておき、
+                // 対象メッセージがフィルタ除外されないようにする
+                enabled_shops: vec![dummy_shop_settings(1, "a@example.com")],
+            })),
+        };
+
+        let task: GmailSyncTask<
+            MockGmailClientTrait,
+            MockEmailRepository,
+            MockShopSettingsRepository,
+        > = GmailSyncTask::new();
+
+        let inputs = vec![GmailSyncInput {
+            message_id: "full-fetch-fail-id".to_string(),
+        }];
+
+        let results = task.process_batch(inputs, &context).await;
+
+        assert_eq!(results.len(), 1);
+        // Phase 2 の full 取得失敗により、一時的に格納されていたメタデータではなく
+        // エラーが最終結果として格納されていることを確認する
+        assert!(results[0].is_err());
+    }
+
+    #[tokio::test]
     async fn after_batch_returns_ok_when_no_messages_to_save() {
         let client = MockGmailClientTrait::new();
         let email_repo = MockEmailRepository::new();
