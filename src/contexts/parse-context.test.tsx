@@ -651,7 +651,7 @@ describe('ParseContext', () => {
       if (cmd === 'has_gemini_api_key') return Promise.resolve(true);
       return Promise.resolve(undefined);
     });
-    const { result, rerender } = renderHook(() => useParse(), { wrapper });
+    const { result } = renderHook(() => useParse(), { wrapper });
     await waitFor(() =>
       expect(result.current.geminiApiKeyStatus).toBe('available')
     );
@@ -681,7 +681,5 @@ describe('ParseContext', () => {
     });
     expect(result.current.geminiApiKeyStatus).toBe('error');
     expect(result.current.hasGeminiApiKey).toBe(false);
-
-    rerender();
   });
 });
