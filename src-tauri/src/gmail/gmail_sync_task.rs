@@ -719,6 +719,8 @@ mod tests {
         // match-id: フィルタ通過、full取得済み
         let match_result = results[0].as_ref().unwrap();
         assert!(!match_result.filtered_out);
+        // Phase 2 の full 取得結果になっていることを確認する（例: body_plain が Some）
+        assert!(match_result.message.body_plain.is_some());
 
         // nomatch-id: フィルタ除外
         let nomatch_result = results[1].as_ref().unwrap();
