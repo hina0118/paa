@@ -677,40 +677,42 @@ describe('ApiKeys', () => {
       const user = userEvent.setup();
 
       const originalFileReader = global.FileReader;
-      class MockFileReaderError {
-        public onload: ((e: ProgressEvent<FileReader>) => void) | null = null;
-        public onerror: (() => void) | null = null;
-        readAsText(_file: File) {
-          this.onerror?.();
+      try {
+        class MockFileReaderError {
+          public onload: ((e: ProgressEvent<FileReader>) => void) | null = null;
+          public onerror: (() => void) | null = null;
+          readAsText(_file: File) {
+            this.onerror?.();
+          }
         }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (global as any).FileReader = MockFileReaderError as any;
+
+        renderWithProviders(<ApiKeys />);
+
+        await user.click(
+          screen.getByRole('radio', { name: /ファイルをアップロード/ })
+        );
+
+        const fileInput = document.getElementById(
+          'gmail-oauth-file'
+        ) as HTMLInputElement;
+        const file = new File(['{}'], 'client_secret.json', {
+          type: 'application/json',
+        });
+
+        fireEvent.change(fileInput, { target: { files: [file] } });
+
+        await waitFor(() => {
+          expect(
+            screen.getByText('ファイルの読み込みに失敗しました')
+          ).toBeInTheDocument();
+        });
+      } finally {
+        // 復元
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (global as any).FileReader = originalFileReader as any;
       }
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (global as any).FileReader = MockFileReaderError as any;
-
-      renderWithProviders(<ApiKeys />);
-
-      await user.click(
-        screen.getByRole('radio', { name: /ファイルをアップロード/ })
-      );
-
-      const fileInput = document.getElementById(
-        'gmail-oauth-file'
-      ) as HTMLInputElement;
-      const file = new File(['{}'], 'client_secret.json', {
-        type: 'application/json',
-      });
-
-      fireEvent.change(fileInput, { target: { files: [file] } });
-
-      await waitFor(() => {
-        expect(
-          screen.getByText('ファイルの読み込みに失敗しました')
-        ).toBeInTheDocument();
-      });
-
-      // 復元
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (global as any).FileReader = originalFileReader as any;
     });
   });
 });
