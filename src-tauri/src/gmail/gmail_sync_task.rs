@@ -638,7 +638,12 @@ mod tests {
             .expect_get_message_metadata()
             .withf(|id| id == "nomatch-id")
             .times(1)
-            .returning(|_| Ok(dummy_message_metadata_with_from("nomatch-id", "unknown@other.com")));
+            .returning(|_| {
+                Ok(dummy_message_metadata_with_from(
+                    "nomatch-id",
+                    "unknown@other.com",
+                ))
+            });
 
         // match-id のみ full 取得される（nomatch-id は呼ばれないことを expect_get_message で保証）
         client
@@ -700,7 +705,12 @@ mod tests {
             .expect_get_message_metadata()
             .withf(|id| id == "full-fetch-fail-id")
             .times(1)
-            .returning(|_| Ok(dummy_message_metadata_with_from("full-fetch-fail-id", "a@example.com")));
+            .returning(|_| {
+                Ok(dummy_message_metadata_with_from(
+                    "full-fetch-fail-id",
+                    "a@example.com",
+                ))
+            });
 
         // Phase 2: 本文(full)取得が失敗
         client
