@@ -841,6 +841,30 @@ describe('Settings', () => {
       successMessage: string;
     }) => {
       const user = userEvent.setup();
+
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'get_gemini_config')
+          return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
+
+        if (cmd === 'update_batch_size') return Promise.resolve(undefined);
+        if (cmd === 'update_max_iterations') return Promise.resolve(undefined);
+        if (cmd === 'update_max_results_per_page')
+          return Promise.resolve(undefined);
+        if (cmd === 'update_timeout_minutes') return Promise.resolve(undefined);
+        if (cmd === 'update_parse_batch_size')
+          return Promise.resolve(undefined);
+        if (cmd === 'update_gemini_batch_size')
+          return Promise.resolve(undefined);
+        if (cmd === 'update_gemini_delay_seconds')
+          return Promise.resolve(undefined);
+
+        return Promise.resolve(null);
+      });
+
       renderWithProviders(<Settings />);
 
       const input = document.getElementById(config.inputId)!;
@@ -867,31 +891,6 @@ describe('Settings', () => {
         expect(screen.getByText(config.successMessage)).toBeInTheDocument();
       });
     };
-
-    beforeEach(() => {
-      mockInvoke.mockImplementation((cmd: string) => {
-        if (cmd === 'get_sync_status')
-          return Promise.resolve(defaultSyncMetadata);
-        if (cmd === 'get_parse_status')
-          return Promise.resolve(defaultParseMetadata);
-        if (cmd === 'get_gemini_config')
-          return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
-
-        if (cmd === 'update_batch_size') return Promise.resolve(undefined);
-        if (cmd === 'update_max_iterations') return Promise.resolve(undefined);
-        if (cmd === 'update_max_results_per_page')
-          return Promise.resolve(undefined);
-        if (cmd === 'update_timeout_minutes') return Promise.resolve(undefined);
-        if (cmd === 'update_parse_batch_size')
-          return Promise.resolve(undefined);
-        if (cmd === 'update_gemini_batch_size')
-          return Promise.resolve(undefined);
-        if (cmd === 'update_gemini_delay_seconds')
-          return Promise.resolve(undefined);
-
-        return Promise.resolve(null);
-      });
-    });
 
     it('updates batch size', async () => {
       await testSettingUpdate({
