@@ -482,18 +482,7 @@ impl GmailClient {
 
         // Extract From and Subject headers from payload
         if let Some(payload) = &message.payload {
-            if let Some(headers) = &payload.headers {
-                for header in headers {
-                    if let Some(name) = &header.name {
-                        let name_lower = name.to_lowercase();
-                        if name_lower == "from" {
-                            from_address = header.value.clone();
-                        } else if name_lower == "subject" {
-                            subject = header.value.clone();
-                        }
-                    }
-                }
-            }
+            Self::extract_headers_from_payload(payload, &mut from_address, &mut subject);
         }
 
         // 再帰的にMIMEパートを解析
@@ -561,18 +550,7 @@ impl GmailClient {
         let mut subject: Option<String> = None;
 
         if let Some(payload) = &message.payload {
-            if let Some(headers) = &payload.headers {
-                for header in headers {
-                    if let Some(name) = &header.name {
-                        let name_lower = name.to_lowercase();
-                        if name_lower == "from" {
-                            from_address = header.value.clone();
-                        } else if name_lower == "subject" {
-                            subject = header.value.clone();
-                        }
-                    }
-                }
-            }
+            Self::extract_headers_from_payload(payload, &mut from_address, &mut subject);
         }
 
         Ok(GmailMessage {
@@ -706,6 +684,28 @@ impl GmailClient {
                     data.len()
                 );
                 None
+            }
+        }
+    }
+
+    /// ペイロードのヘッダーから From と Subject を抽出するヘルパー関数
+    ///
+    /// `get_message` と `get_message_metadata` で共通のヘッダー抽出ロジック。
+    fn extract_headers_from_payload(
+        payload: &google_gmail1::api::MessagePart,
+        from_address: &mut Option<String>,
+        subject: &mut Option<String>,
+    ) {
+        if let Some(headers) = &payload.headers {
+            for header in headers {
+                if let Some(name) = &header.name {
+                    let name_lower = name.to_lowercase();
+                    if name_lower == "from" {
+                        *from_address = header.value.clone();
+                    } else if name_lower == "subject" {
+                        *subject = header.value.clone();
+                    }
+                }
             }
         }
     }
