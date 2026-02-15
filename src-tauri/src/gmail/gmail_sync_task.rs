@@ -390,16 +390,45 @@ where
         Ok(())
     }
 
-    /// 単一アイテムの処理
+    /// 単一アイテムの処理（2段階フェッチ最適化対応）
+    ///
+    /// Phase 1: メタデータのみ取得してショップ設定でフィルタリング
+    /// Phase 2: 条件に合うメッセージのみ本文(full)を取得
     async fn process(
         &self,
         input: Self::Input,
         context: &Self::Context,
     ) -> Result<Self::Output, String> {
-        let message = context.gmail_client.get_message(&input.message_id).await?;
+        // Phase 1: メタデータ取得
+        let metadata = context
+            .gmail_client
+            .get_message_metadata(&input.message_id)
+            .await?;
+
+        // ショップ設定を取得
+        let cache = context.shop_settings_cache.lock().await;
+        let enabled_shops = cache.enabled_shops.clone();
+        drop(cache);
+
+        // フィルタリング判定
+        if !crate::logic::sync_logic::should_save_message(&metadata, &enabled_shops) {
+            log::debug!(
+                "[{}] Message {} filtered out at metadata phase",
+                self.name(),
+                input.message_id,
+            );
+            return Ok(GmailSyncOutput {
+                message: metadata,
+                saved: false,
+                filtered_out: true,
+            });
+        }
+
+        // Phase 2: フィルタ通過 → 本文(full)を取得
+        let full_message = context.gmail_client.get_message(&input.message_id).await?;
 
         Ok(GmailSyncOutput {
-            message,
+            message: full_message,
             saved: false,
             filtered_out: false,
         })
