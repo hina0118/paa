@@ -543,24 +543,37 @@ describe('SyncContext', () => {
     );
   });
 
-  it('ignores batch-progress events for other tasks', async () => {
+  const setupBatchProgressListener = () => {
     let progressCallback:
       | ((e: { payload: BatchProgress }) => Promise<void>)
       | null = null;
-    mockListen.mockImplementation((event: string, cb: (e: unknown) => void) => {
-      if (event === BATCH_PROGRESS_EVENT) {
-        progressCallback = cb as (e: {
-          payload: BatchProgress;
-        }) => Promise<void>;
+
+    mockListen.mockImplementation(
+      (event: string, cb: (e: unknown) => void) => {
+        if (event === BATCH_PROGRESS_EVENT) {
+          progressCallback = cb as (e: {
+            payload: BatchProgress;
+          }) => Promise<void>;
+        }
+        return Promise.resolve(() => {});
       }
-      return Promise.resolve(() => {});
-    });
+    );
+
+    return {
+      getProgressCallback: () => progressCallback,
+    };
+  };
+
+  it('ignores batch-progress events for other tasks', async () => {
+    const { getProgressCallback } = setupBatchProgressListener();
 
     const { result } = renderHook(() => useSync(), { wrapper });
-    await waitFor(() => expect(progressCallback).not.toBeNull());
+    await waitFor(() =>
+      expect(getProgressCallback()).not.toBeNull()
+    );
 
     await act(async () => {
-      await progressCallback?.({
+      await getProgressCallback()?.({
         payload: {
           task_name: TASK_NAMES.EMAIL_PARSE,
           batch_number: 1,
