@@ -614,7 +614,17 @@ mod tests {
             .expect_get_message_metadata()
             .withf(|id| id == "match-id")
             .times(1)
-            .returning(|_| Ok(dummy_message("match-id")));
+            .returning(|_| {
+                Ok(GmailMessage {
+                    message_id: "match-id".to_string(),
+                    snippet: "snippet".to_string(),
+                    subject: Some("subject".to_string()),
+                    body_plain: None,
+                    body_html: None,
+                    internal_date: 1704067200000,
+                    from_address: Some("sender@example.com".to_string()),
+                })
+            });
         client
             .expect_get_message_metadata()
             .withf(|id| id == "nomatch-id")
