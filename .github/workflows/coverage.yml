@@ -244,15 +244,15 @@ jobs:
   coverage-status-check:
     name: Coverage Status Check
     runs-on: ubuntu-latest
-    needs: [coverage-frontend, coverage-rust, coverage-e2e-tauri]
+    # NOTE: coverage-e2e-tauri は if:false でスキップ中のため、集約ジョブの依存から外す
+    needs: [coverage-frontend, coverage-rust]
     if: always()
 
     steps:
       - name: Check coverage results
         run: |
           if [[ "${{ needs.coverage-frontend.result }}" == "failure" ]] || \
-             [[ "${{ needs.coverage-rust.result }}" == "failure" ]] || \
-             [[ "${{ needs.coverage-e2e-tauri.result }}" == "failure" ]]; then
+             [[ "${{ needs.coverage-rust.result }}" == "failure" ]]; then
             echo "::error::Coverage check failed. Please ensure all coverage thresholds are met."
             exit 1
           fi
