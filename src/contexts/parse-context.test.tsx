@@ -10,15 +10,18 @@ import {
   type BatchProgress,
 } from './batch-progress-types';
 
-const toastSuccessMock = vi.fn();
-const toastErrorMock = vi.fn();
-const notifyMock = vi.fn<
-  Parameters<(title: string, body: string) => Promise<void>>,
-  Promise<void>
->(() => Promise.resolve());
-const isAppWindowVisibleMock = vi.fn<[], Promise<boolean>>(() =>
-  Promise.resolve(true)
-);
+const { toastSuccessMock, toastErrorMock, notifyMock, isAppWindowVisibleMock } =
+  vi.hoisted(() => ({
+    toastSuccessMock: vi.fn(),
+    toastErrorMock: vi.fn(),
+    notifyMock: vi.fn<
+      Parameters<(title: string, body: string) => Promise<void>>,
+      Promise<void>
+    >(() => Promise.resolve()),
+    isAppWindowVisibleMock: vi.fn<[], Promise<boolean>>(() =>
+      Promise.resolve(true)
+    ),
+  }));
 
 vi.mock('@/lib/toast', () => ({
   toastSuccess: (...args: unknown[]) => toastSuccessMock(...args),
