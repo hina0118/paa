@@ -242,7 +242,7 @@ mod tests {
     }
 
     #[test]
-    fn test_load_applies_subject_defaults_when_window_and_gemini_missing() {
+    fn test_load_applies_serde_defaults_when_window_and_gemini_missing() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join(CONFIG_FILENAME);
 
