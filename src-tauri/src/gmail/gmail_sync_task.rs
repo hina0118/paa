@@ -651,7 +651,7 @@ mod tests {
         assert!(results[1]
             .as_ref()
             .unwrap_err()
-            .contains("Failed to fetch message ng-id"));
+            .contains("Failed to fetch metadata for ng-id"));
     }
 
     #[tokio::test]
