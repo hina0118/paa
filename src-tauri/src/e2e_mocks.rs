@@ -224,7 +224,7 @@ mod tests {
         assert_eq!(parsed.name, "ABC");
 
         let chunk = client
-            .parse_single_chunk(&vec!["A".to_string(), "B".to_string()])
+            .parse_single_chunk(&["A".to_string(), "B".to_string()])
             .await
             .unwrap();
         assert_eq!(chunk.len(), 2);
@@ -232,7 +232,7 @@ mod tests {
         assert_eq!(chunk[1].name, "B");
 
         let batch = client
-            .parse_product_names_batch(&vec!["X".to_string()])
+            .parse_product_names_batch(&["X".to_string()])
             .await
             .unwrap();
         assert_eq!(batch.len(), 1);
