@@ -243,11 +243,9 @@ where
                         candidates.push((input.message_id.clone(), idx));
                     } else {
                         log::debug!(
-                            "[{}] Message {} filtered out at metadata phase (from: {:?}, subject: {:?})",
+                            "[{}] Message {} filtered out at metadata phase",
                             self.name(),
                             input.message_id,
-                            metadata.from_address,
-                            metadata.subject,
                         );
                         results.push(Ok(GmailSyncOutput {
                             message: metadata,
