@@ -227,12 +227,12 @@ mod tests {
         fs::write(&path, json).unwrap();
 
         let loaded = load(dir.path()).unwrap();
-        
+
         // JSON で指定した値を検証
         assert_eq!(loaded.sync.batch_size, 12);
         assert_eq!(loaded.sync.max_iterations, 34);
         assert_eq!(loaded.parse.batch_size, 56);
-        
+
         // デフォルト値から取得した値と比較（保守性向上）
         let default_config = AppConfig::default();
         assert_eq!(loaded.sync.max_results_per_page, default_config.sync.max_results_per_page);
@@ -262,11 +262,11 @@ mod tests {
         fs::write(&path, json).unwrap();
 
         let loaded = load(dir.path()).unwrap();
-        
+
         // JSON で指定した値を検証
         assert_eq!(loaded.sync.max_results_per_page, 3);
         assert_eq!(loaded.sync.timeout_minutes, 4);
-        
+
         // デフォルト値から取得した値と比較
         let default_config = AppConfig::default();
         assert_eq!(loaded.window.width, default_config.window.width);
