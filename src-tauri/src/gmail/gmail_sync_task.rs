@@ -319,8 +319,10 @@ where
             results.len()
         );
 
-        let cache = context.shop_settings_cache.lock().await;
-        let enabled_shops = &cache.enabled_shops;
+        let enabled_shops = {
+            let cache = context.shop_settings_cache.lock().await;
+            cache.enabled_shops.clone()
+        };
 
         let mut saved_count = 0;
         let mut save_errors = 0;
@@ -346,7 +348,7 @@ where
         match crate::gmail::client::save_messages_to_db_with_repo(
             context.email_repo.as_ref(),
             messages,
-            enabled_shops,
+            &enabled_shops,
         )
         .await
         {
@@ -459,6 +461,18 @@ mod tests {
         }
     }
 
+    fn dummy_message_metadata(id: &str) -> GmailMessage {
+        GmailMessage {
+            message_id: id.to_string(),
+            snippet: "snippet".to_string(),
+            subject: Some("subject".to_string()),
+            body_plain: None,
+            body_html: None,
+            internal_date: 1704067200000,
+            from_address: Some("sender@example.com".to_string()),
+        }
+    }
+
     #[tokio::test]
     async fn fetch_all_message_ids_paginates_and_respects_max_total() {
         let mut client = MockGmailClientTrait::new();
@@ -548,7 +562,7 @@ mod tests {
             .expect_get_message_metadata()
             .withf(|id| id == "ok-id")
             .times(1)
-            .returning(|_| Ok(dummy_message("ok-id")));
+            .returning(|_| Ok(dummy_message_metadata("ok-id")));
         client
             .expect_get_message_metadata()
             .withf(|id| id == "ng-id")
