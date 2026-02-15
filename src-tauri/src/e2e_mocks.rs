@@ -181,3 +181,92 @@ impl GeminiClientTrait for GeminiClientForE2E {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serial_test::serial;
+
+    #[test]
+    #[serial]
+    fn is_e2e_mock_mode_reflects_env_var() {
+        std::env::remove_var("PAA_E2E_MOCK");
+        assert!(!is_e2e_mock_mode());
+
+        std::env::set_var("PAA_E2E_MOCK", "0");
+        assert!(!is_e2e_mock_mode());
+
+        std::env::set_var("PAA_E2E_MOCK", "1");
+        assert!(is_e2e_mock_mode());
+
+        std::env::remove_var("PAA_E2E_MOCK");
+        assert!(!is_e2e_mock_mode());
+    }
+
+    #[tokio::test]
+    async fn e2e_mock_gmail_client_returns_empty_and_errors_on_get_message() {
+        let client = E2EMockGmailClient;
+        let (ids, token) = client
+            .list_message_ids("q", 10, None::<String>)
+            .await
+            .unwrap();
+        assert!(ids.is_empty());
+        assert!(token.is_none());
+
+        let err = client.get_message("msg-1").await.unwrap_err();
+        assert!(err.contains("should not be called"));
+    }
+
+    #[tokio::test]
+    async fn e2e_mock_gemini_client_echoes_product_names() {
+        let client = E2EMockGeminiClient;
+        let parsed = client.parse_product_name("ABC").await.unwrap();
+        assert_eq!(parsed.name, "ABC");
+
+        let chunk = client
+            .parse_single_chunk(&["A".to_string(), "B".to_string()])
+            .await
+            .unwrap();
+        assert_eq!(chunk.len(), 2);
+        assert_eq!(chunk[0].name, "A");
+        assert_eq!(chunk[1].name, "B");
+
+        let batch = client
+            .parse_product_names_batch(&["X".to_string()])
+            .await
+            .unwrap();
+        assert_eq!(batch.len(), 1);
+        assert_eq!(batch[0].name, "X");
+    }
+
+    #[tokio::test]
+    async fn e2e_mock_image_search_client_returns_up_to_three_results() {
+        let client = E2EMockImageSearchClient;
+        let results = client.search_images("q", 10).await.unwrap();
+        assert_eq!(results.len(), 3);
+        assert!(results[0].url.contains("e2e-mock-image-1"));
+
+        let results2 = client.search_images("q", 2).await.unwrap();
+        assert_eq!(results2.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn gmail_client_for_e2e_mock_delegates_to_mock() {
+        let client = GmailClientForE2E::Mock(E2EMockGmailClient);
+        let (ids, token) = client
+            .list_message_ids("q", 10, None::<String>)
+            .await
+            .unwrap();
+        assert!(ids.is_empty());
+        assert!(token.is_none());
+
+        assert!(client.get_message("msg-1").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn gemini_client_for_e2e_mock_delegates_to_mock() {
+        let client = GeminiClientForE2E::Mock(E2EMockGeminiClient);
+        let parsed = client.parse_product_name("ABC").await.unwrap();
+        assert_eq!(parsed.name, "ABC");
+    }
+}
