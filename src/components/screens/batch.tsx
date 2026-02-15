@@ -103,6 +103,8 @@ export function Batch() {
         progress={syncProgress}
         onStart={handleStartSync}
         onCancel={handleCancelSync}
+        cancelVariant="destructive"
+        cancelLabel="中止"
         startLabel={
           syncMetadata?.sync_status === 'paused' ? '同期を再開' : '同期を開始'
         }
