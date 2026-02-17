@@ -2,7 +2,7 @@ use sqlx::sqlite::SqlitePool;
 use std::sync::{Arc, Mutex};
 use tauri::Manager;
 
-use crate::batch_commands;
+use crate::orchestration;
 
 /// 商品名パースの多重実行ガード用状態
 #[derive(Clone, Default)]
@@ -76,7 +76,7 @@ pub async fn start_product_name_parse(
 
     let pool_clone = pool.inner().clone();
     let parse_state_clone = parse_state.inner().clone();
-    tauri::async_runtime::spawn(batch_commands::run_product_name_parse_task(
+    tauri::async_runtime::spawn(orchestration::run_product_name_parse_task(
         app_handle,
         pool_clone,
         parse_state_clone,
