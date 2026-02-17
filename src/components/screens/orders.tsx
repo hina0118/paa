@@ -3,13 +3,9 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { ShoppingCart, Search, LayoutGrid, List } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { useDatabase } from '@/hooks/useDatabase';
-import {
-  loadOrderItems,
-  getOrderItemFilterOptions,
-} from '@/lib/orders-queries';
-import { parseNumericFilter } from '@/lib/utils';
-import { toastError, formatError } from '@/lib/toast';
+import { useDebouncedSearch } from '@/hooks/useDebouncedSearch';
+import { useOrderFilters } from '@/hooks/useOrderFilters';
+import { useOrderItems } from '@/hooks/useOrderItems';
 import { OrderItemCard } from '@/components/orders/order-item-card';
 import { OrderItemRowView } from '@/components/orders/order-item-row';
 import { OrderItemDrawer } from '@/components/orders/order-item-drawer';
@@ -26,115 +22,34 @@ const CARD_ROW_PADDING_AND_GAP = 16 + 16;
 const LIST_ROW_HEIGHT = 80;
 
 export function Orders() {
-  const { getDb } = useDatabase();
-  const [items, setItems] = useState<OrderItemRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [searchInput, setSearchInput] = useState('');
-  const [searchDebounced, setSearchDebounced] = useState('');
-  const [shopDomain, setShopDomain] = useState<string>('');
-  const [year, setYear] = useState<string>('');
-  const [priceMin, setPriceMin] = useState<string>('');
-  const [priceMax, setPriceMax] = useState<string>('');
-  const [filterOptions, setFilterOptions] = useState<{
-    shopDomains: string[];
-    years: number[];
-  }>({ shopDomains: [], years: [] });
-  const [columnCount, setColumnCount] = useState(4);
+  // 検索: デバウンス付き
+  const { searchInput, searchDebounced, setSearchInput, clearSearch } =
+    useDebouncedSearch(SEARCH_DEBOUNCE_MS);
+
+  // フィルタ: shopDomain, year, priceMin, priceMax + ドロップダウン選択肢
+  const { filters, setFilter, clearFilters, filterOptions } = useOrderFilters();
+
+  // データ取得 + ソート + ドロワー状態
+  const {
+    items,
+    loading,
+    sort,
+    setSort,
+    selectedItem,
+    drawerOpen,
+    openDrawer,
+    setDrawerOpen,
+    handleImageUpdated,
+  } = useOrderItems({ searchDebounced, filters });
+
+  // 表示設定（純粋な表示制御のためローカル状態で十分）
   const [viewMode, setViewMode] = useState<'card' | 'list'>('card');
-  const [sortBy, setSortBy] = useState<'order_date' | 'price'>('order_date');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-  const [selectedItem, setSelectedItem] = useState<OrderItemRow | null>(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const loadItemsRequestId = useRef(0);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setSearchDebounced(searchInput);
-    }, SEARCH_DEBOUNCE_MS);
-    return () => clearTimeout(timer);
-  }, [searchInput]);
-
-  const loadFilters = useCallback(async () => {
-    try {
-      const db = await getDb();
-      const options = await getOrderItemFilterOptions(db);
-      setFilterOptions(options);
-    } catch (err) {
-      toastError(
-        `フィルタオプションの読み込みに失敗しました: ${formatError(err)}`
-      );
-      console.error('Failed to load filter options:', err);
-    }
-  }, [getDb]);
-
-  const loadItems = useCallback(async (): Promise<
-    OrderItemRow[] | undefined
-  > => {
-    const requestId = (loadItemsRequestId.current += 1);
-    setLoading(true);
-    try {
-      const db = await getDb();
-      const rows = await loadOrderItems(db, {
-        search: searchDebounced || undefined,
-        shopDomain: shopDomain || undefined,
-        year: parseNumericFilter(year),
-        priceMin: parseNumericFilter(priceMin),
-        priceMax: parseNumericFilter(priceMax),
-        sortBy,
-        sortOrder,
-      });
-      if (requestId === loadItemsRequestId.current) {
-        setItems(rows);
-        return rows;
-      }
-      return undefined;
-    } catch (err) {
-      if (requestId === loadItemsRequestId.current) {
-        toastError(`商品一覧の読み込みに失敗しました: ${formatError(err)}`);
-        console.error('Failed to load order items:', err);
-        setItems([]);
-      }
-      return undefined;
-    } finally {
-      if (requestId === loadItemsRequestId.current) {
-        setLoading(false);
-      }
-    }
-  }, [
-    getDb,
-    searchDebounced,
-    shopDomain,
-    year,
-    priceMin,
-    priceMax,
-    sortBy,
-    sortOrder,
-  ]);
-
-  useEffect(() => {
-    loadFilters();
-  }, [loadFilters]);
-
-  useEffect(() => {
-    loadItems();
-  }, [loadItems]);
+  const [columnCount, setColumnCount] = useState(4);
 
   const handleClearFilters = () => {
-    setSearchInput('');
-    setSearchDebounced('');
-    setShopDomain('');
-    setYear('');
-    setPriceMin('');
-    setPriceMax('');
+    clearSearch();
+    clearFilters();
   };
-
-  const handleImageUpdated = useCallback(async () => {
-    const newItems = await loadItems();
-    if (newItems && selectedItem) {
-      const updated = newItems.find((i) => i.id === selectedItem.id);
-      if (updated) setSelectedItem(updated);
-    }
-  }, [loadItems, selectedItem]);
 
   return (
     <div className="container mx-auto py-10 px-6">
@@ -198,8 +113,8 @@ export function Orders() {
             </label>
             <select
               id="filter-shop"
-              value={shopDomain}
-              onChange={(e) => setShopDomain(e.target.value)}
+              value={filters.shopDomain}
+              onChange={(e) => setFilter('shopDomain', e.target.value)}
               className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
             >
               <option value="">すべて</option>
@@ -219,8 +134,8 @@ export function Orders() {
             </label>
             <select
               id="filter-year"
-              value={year}
-              onChange={(e) => setYear(e.target.value)}
+              value={filters.year}
+              onChange={(e) => setFilter('year', e.target.value)}
               className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
             >
               <option value="">すべて</option>
@@ -240,14 +155,13 @@ export function Orders() {
             </label>
             <select
               id="sort"
-              value={`${sortBy}-${sortOrder}`}
+              value={`${sort.sortBy}-${sort.sortOrder}`}
               onChange={(e) => {
                 const [by, order] = e.target.value.split('-') as [
                   'order_date' | 'price',
                   'asc' | 'desc',
                 ];
-                setSortBy(by);
-                setSortOrder(order);
+                setSort({ sortBy: by, sortOrder: order });
               }}
               className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
             >
@@ -268,8 +182,8 @@ export function Orders() {
               id="filter-price-min"
               type="number"
               placeholder="最小"
-              value={priceMin}
-              onChange={(e) => setPriceMin(e.target.value)}
+              value={filters.priceMin}
+              onChange={(e) => setFilter('priceMin', e.target.value)}
               className="w-24 h-9"
             />
             <span className="text-muted-foreground">〜</span>
@@ -277,8 +191,8 @@ export function Orders() {
               id="filter-price-max"
               type="number"
               placeholder="最大"
-              value={priceMax}
-              onChange={(e) => setPriceMax(e.target.value)}
+              value={filters.priceMax}
+              onChange={(e) => setFilter('priceMax', e.target.value)}
               className="w-24 h-9"
             />
             <span className="text-sm text-muted-foreground">円</span>
@@ -300,10 +214,7 @@ export function Orders() {
           viewMode={viewMode}
           columnCount={viewMode === 'list' ? 1 : columnCount}
           onColumnCountChange={setColumnCount}
-          onItemClick={(item) => {
-            setSelectedItem(item);
-            setDrawerOpen(true);
-          }}
+          onItemClick={openDrawer}
         />
       )}
       <OrderItemDrawer
