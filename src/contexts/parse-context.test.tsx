@@ -386,11 +386,10 @@ describe('ParseContext', () => {
   });
 
   it('handles batch-progress event without is_complete (no refresh)', async () => {
-    let progressCallback: ((e: { payload: BatchProgress }) => void) | null =
-      null;
+    const progressCallbacks: ((e: { payload: BatchProgress }) => void)[] = [];
     mockListen.mockImplementation((event: string, cb: (e: unknown) => void) => {
       if (event === BATCH_PROGRESS_EVENT) {
-        progressCallback = cb as (e: { payload: BatchProgress }) => void;
+        progressCallbacks.push(cb as (e: { payload: BatchProgress }) => void);
       }
       return Promise.resolve(() => {});
     });
@@ -410,11 +409,11 @@ describe('ParseContext', () => {
 
     renderHook(() => useParse(), { wrapper });
 
-    await waitFor(() => expect(progressCallback).not.toBeNull());
+    await waitFor(() => expect(progressCallbacks.length).toBeGreaterThan(0));
 
     const countBefore = getParseStatusCallCount;
     await act(async () => {
-      progressCallback?.({
+      const event = {
         payload: {
           task_name: TASK_NAMES.EMAIL_PARSE,
           batch_number: 1,
@@ -427,7 +426,8 @@ describe('ParseContext', () => {
           status_message: 'In progress',
           is_complete: false,
         },
-      });
+      };
+      for (const cb of progressCallbacks) cb(event);
     });
 
     // is_complete=false なので refreshStatus は呼ばれない
@@ -435,11 +435,10 @@ describe('ParseContext', () => {
   });
 
   it('handles batch-progress event with is_complete', async () => {
-    let progressCallback: ((e: { payload: BatchProgress }) => void) | null =
-      null;
+    const progressCallbacks: ((e: { payload: BatchProgress }) => void)[] = [];
     mockListen.mockImplementation((event: string, cb: (e: unknown) => void) => {
       if (event === BATCH_PROGRESS_EVENT) {
-        progressCallback = cb as (e: { payload: BatchProgress }) => void;
+        progressCallbacks.push(cb as (e: { payload: BatchProgress }) => void);
       }
       return Promise.resolve(() => {});
     });
@@ -457,10 +456,10 @@ describe('ParseContext', () => {
 
     renderHook(() => useParse(), { wrapper });
 
-    await waitFor(() => expect(progressCallback).not.toBeNull());
+    await waitFor(() => expect(progressCallbacks.length).toBeGreaterThan(0));
 
     await act(async () => {
-      progressCallback?.({
+      const event = {
         payload: {
           task_name: TASK_NAMES.EMAIL_PARSE,
           batch_number: 1,
@@ -473,41 +472,45 @@ describe('ParseContext', () => {
           status_message: 'Done',
           is_complete: true,
         },
-      });
+      };
+      for (const cb of progressCallbacks) cb(event);
     });
 
     expect(mockInvoke).toHaveBeenCalledWith('get_parse_status');
   });
 
   const setupBatchProgressListener = () => {
-    let progressCallback:
-      | ((e: { payload: BatchProgress }) => Promise<void>)
-      | null = null;
+    const progressCallbacks: ((e: {
+      payload: BatchProgress;
+    }) => Promise<void>)[] = [];
 
     mockListen.mockImplementation((event: string, cb: (e: unknown) => void) => {
       if (event === BATCH_PROGRESS_EVENT) {
-        progressCallback = cb as (e: {
-          payload: BatchProgress;
-        }) => Promise<void>;
+        progressCallbacks.push(
+          cb as (e: { payload: BatchProgress }) => Promise<void>
+        );
       }
       return Promise.resolve(() => {});
     });
 
     return {
-      getProgressCallback: () => progressCallback,
+      hasCallbacks: () => progressCallbacks.length > 0,
+      broadcast: async (event: { payload: BatchProgress }) => {
+        for (const cb of progressCallbacks) await cb(event);
+      },
     };
   };
 
   it('shows toastSuccess on email parse completion when window is visible', async () => {
-    const { getProgressCallback } = setupBatchProgressListener();
+    const { hasCallbacks, broadcast } = setupBatchProgressListener();
 
     isAppWindowVisibleMock.mockResolvedValue(true);
 
     renderHook(() => useParse(), { wrapper });
-    await waitFor(() => expect(getProgressCallback()).not.toBeNull());
+    await waitFor(() => expect(hasCallbacks()).toBe(true));
 
     await act(async () => {
-      await getProgressCallback()?.({
+      await broadcast({
         payload: {
           task_name: TASK_NAMES.EMAIL_PARSE,
           batch_number: 1,
@@ -530,15 +533,15 @@ describe('ParseContext', () => {
   });
 
   it('shows toastError on email parse completion with error when window is visible', async () => {
-    const { getProgressCallback } = setupBatchProgressListener();
+    const { hasCallbacks, broadcast } = setupBatchProgressListener();
 
     isAppWindowVisibleMock.mockResolvedValue(true);
 
     renderHook(() => useParse(), { wrapper });
-    await waitFor(() => expect(getProgressCallback()).not.toBeNull());
+    await waitFor(() => expect(hasCallbacks()).toBe(true));
 
     await act(async () => {
-      await getProgressCallback()?.({
+      await broadcast({
         payload: {
           task_name: TASK_NAMES.EMAIL_PARSE,
           batch_number: 1,
@@ -562,15 +565,15 @@ describe('ParseContext', () => {
   });
 
   it('sends notification on email parse completion when window is not visible', async () => {
-    const { getProgressCallback } = setupBatchProgressListener();
+    const { hasCallbacks, broadcast } = setupBatchProgressListener();
 
     isAppWindowVisibleMock.mockResolvedValue(false);
 
     renderHook(() => useParse(), { wrapper });
-    await waitFor(() => expect(getProgressCallback()).not.toBeNull());
+    await waitFor(() => expect(hasCallbacks()).toBe(true));
 
     await act(async () => {
-      await getProgressCallback()?.({
+      await broadcast({
         payload: {
           task_name: TASK_NAMES.EMAIL_PARSE,
           batch_number: 1,
@@ -593,15 +596,15 @@ describe('ParseContext', () => {
   });
 
   it('sends failure notification on email parse completion when window is not visible', async () => {
-    const { getProgressCallback } = setupBatchProgressListener();
+    const { hasCallbacks, broadcast } = setupBatchProgressListener();
 
     isAppWindowVisibleMock.mockResolvedValue(false);
 
     renderHook(() => useParse(), { wrapper });
-    await waitFor(() => expect(getProgressCallback()).not.toBeNull());
+    await waitFor(() => expect(hasCallbacks()).toBe(true));
 
     await act(async () => {
-      await getProgressCallback()?.({
+      await broadcast({
         payload: {
           task_name: TASK_NAMES.EMAIL_PARSE,
           batch_number: 1,
