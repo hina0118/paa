@@ -91,6 +91,9 @@ impl BatchCommandsApp for TauriBatchCommandsApp {
 /// config.parse.batch_size (i64) を usize へ安全に変換。
 /// 0 以下は default にフォールバック。変換失敗時（32-bit で i64 が大きい等）も default。
 /// 上限はクランプしない（大きい i64 は usize::try_from で失敗→default）。
+///
+/// Note: バッチ処理モジュール内でのみ利用するユーティリティのため `pub(crate)` とし、
+/// 上部の `pub use` で再エクスポートしないのは意図的な設計です。
 pub(crate) fn clamp_batch_size(v: i64, default: usize) -> usize {
     if v <= 0 {
         default
