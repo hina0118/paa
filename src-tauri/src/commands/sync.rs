@@ -48,9 +48,7 @@ pub async fn start_sync(
 }
 
 #[tauri::command]
-pub async fn cancel_sync(
-    sync_state: tauri::State<'_, gmail::SyncState>,
-) -> Result<(), String> {
+pub async fn cancel_sync(sync_state: tauri::State<'_, gmail::SyncState>) -> Result<(), String> {
     log::info!("Cancelling sync...");
     sync_state.request_cancel();
     Ok(())
