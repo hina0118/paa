@@ -1,9 +1,9 @@
 use sqlx::sqlite::SqlitePool;
 use tauri::Manager;
 
-use crate::batch_commands;
 use crate::config;
 use crate::logic::email_parser::get_candidate_parsers;
+use crate::orchestration;
 use crate::parsers;
 use crate::repository::{
     OrderRepository, ShopSettingsRepository, SqliteOrderRepository, SqliteShopSettingsRepository,
@@ -104,12 +104,12 @@ pub async fn start_batch_parse(
             .app_config_dir()
             .map_err(|e| format!("Failed to get app config dir: {e}"))?;
         let config = config::load(&app_config_dir)?;
-        batch_commands::clamp_batch_size(config.parse.batch_size, 100)
+        orchestration::clamp_batch_size(config.parse.batch_size, 100)
     };
 
     let pool_clone = pool.inner().clone();
     let parse_state_clone = parse_state.inner().clone();
-    tauri::async_runtime::spawn(batch_commands::run_batch_parse_task(
+    tauri::async_runtime::spawn(orchestration::run_batch_parse_task(
         app_handle,
         pool_clone,
         parse_state_clone,
