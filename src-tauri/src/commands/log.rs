@@ -92,7 +92,10 @@ pub fn add_log_entry(level: &str, message: &str) {
 /// limitパラメータはフィルタリング後のログに適用されます。
 /// 例：limit=100, `level_filter="ERROR"の場合、ERRORログから最大100件を返します`。
 #[tauri::command]
-pub fn get_logs(level_filter: Option<String>, limit: Option<usize>) -> Result<Vec<LogEntry>, String> {
+pub fn get_logs(
+    level_filter: Option<String>,
+    limit: Option<usize>,
+) -> Result<Vec<LogEntry>, String> {
     let buffer = LOG_BUFFER
         .lock()
         .map_err(|e| format!("Failed to lock log buffer: {e}"))?;
