@@ -1,7 +1,7 @@
 use sqlx::sqlite::SqlitePool;
 use tauri::Manager;
 
-use crate::batch_commands;
+use crate::orchestration;
 use crate::config;
 use crate::gmail;
 
@@ -39,7 +39,7 @@ pub async fn start_sync(
 ) -> Result<(), String> {
     let pool_clone = pool.inner().clone();
     let sync_state_clone = sync_state.inner().clone();
-    tauri::async_runtime::spawn(batch_commands::run_sync_task(
+    tauri::async_runtime::spawn(orchestration::run_sync_task(
         app_handle,
         pool_clone,
         sync_state_clone,
