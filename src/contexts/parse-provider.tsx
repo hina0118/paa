@@ -1,23 +1,18 @@
 import { useState, useEffect, useCallback, type ReactNode } from 'react';
-import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { type ParseMetadata, ParseContext } from './parse-context-value';
-import {
-  type BatchProgress,
-  BATCH_PROGRESS_EVENT,
-  TASK_NAMES,
-} from './batch-progress-types';
-import { toastSuccess, toastError } from '@/lib/toast';
-import { notify, isAppWindowVisible } from '@/lib/utils';
+import { type BatchProgress, TASK_NAMES } from './batch-progress-types';
+import { useBatchNotification } from '@/hooks/useBatchNotification';
+import { useBatchProgressEvent } from '@/hooks/useBatchProgressEvent';
+
+const buildCountMessage = (data: BatchProgress) =>
+  `成功: ${data.success_count}件、失敗: ${data.failed_count}件`;
 
 export function ParseProvider({ children }: { children: ReactNode }) {
   const [isParsing, setIsParsing] = useState(false);
-  const [progress, setProgress] = useState<BatchProgress | null>(null);
   const [metadata, setMetadata] = useState<ParseMetadata | null>(null);
   // 商品名パース (Gemini API)
   const [isProductNameParsing, setIsProductNameParsing] = useState(false);
-  const [productNameProgress, setProductNameProgress] =
-    useState<BatchProgress | null>(null);
   const [geminiApiKeyStatus, setGeminiApiKeyStatus] = useState<
     'checking' | 'available' | 'unavailable' | 'error'
   >('checking');
@@ -43,106 +38,45 @@ export function ParseProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // 共通イベント（batch-progress）をリッスン
-  useEffect(() => {
-    const unlisten = listen<BatchProgress>(
-      BATCH_PROGRESS_EVENT,
-      async (event) => {
-        const data = event.payload;
+  const notifyEmailParse = useBatchNotification(
+    'メールパース',
+    buildCountMessage,
+    'email parse'
+  );
 
-        // メールパースのイベント
-        if (data.task_name === TASK_NAMES.EMAIL_PARSE) {
-          setProgress(data);
+  const notifyProductNameParse = useBatchNotification(
+    '商品名解析',
+    buildCountMessage,
+    'product name parse'
+  );
 
-          if (data.is_complete) {
-            setIsParsing(false);
-            refreshStatus();
-            const visible = await isAppWindowVisible();
-            if (visible) {
-              if (data.error) {
-                toastError('メールパースに失敗しました', data.error);
-              } else {
-                toastSuccess(
-                  'メールパースが完了しました',
-                  `成功: ${data.success_count}件、失敗: ${data.failed_count}件`
-                );
-              }
-            } else {
-              if (data.error) {
-                try {
-                  await notify('メールパース失敗', data.error);
-                } catch (error) {
-                  console.error(
-                    'Failed to send email parse failure notification:',
-                    error
-                  );
-                }
-              } else {
-                try {
-                  await notify(
-                    'メールパース完了',
-                    `成功: ${data.success_count}件、失敗: ${data.failed_count}件`
-                  );
-                } catch (error) {
-                  console.error(
-                    'Failed to send email parse completion notification:',
-                    error
-                  );
-                }
-              }
-            }
-          }
-        }
+  const handleEmailParseComplete = useCallback(
+    async (data: BatchProgress) => {
+      setIsParsing(false);
+      refreshStatus();
+      await notifyEmailParse(data);
+    },
+    [refreshStatus, notifyEmailParse]
+  );
 
-        // 商品名パースのイベント
-        if (data.task_name === TASK_NAMES.PRODUCT_NAME_PARSE) {
-          setProductNameProgress(data);
+  const handleProductNameParseComplete = useCallback(
+    async (data: BatchProgress) => {
+      setIsProductNameParsing(false);
+      await notifyProductNameParse(data);
+    },
+    [notifyProductNameParse]
+  );
 
-          if (data.is_complete) {
-            setIsProductNameParsing(false);
-            const visible = await isAppWindowVisible();
-            if (visible) {
-              if (data.error) {
-                toastError('商品名解析に失敗しました', data.error);
-              } else {
-                toastSuccess(
-                  '商品名解析が完了しました',
-                  `成功: ${data.success_count}件、失敗: ${data.failed_count}件`
-                );
-              }
-            } else {
-              if (data.error) {
-                try {
-                  await notify('商品名解析失敗', data.error);
-                } catch (error) {
-                  console.error(
-                    'Failed to send product name parse failure notification:',
-                    error
-                  );
-                }
-              } else {
-                try {
-                  await notify(
-                    '商品名解析完了',
-                    `成功: ${data.success_count}件、失敗: ${data.failed_count}件`
-                  );
-                } catch (error) {
-                  console.error(
-                    'Failed to send product name parse completion notification:',
-                    error
-                  );
-                }
-              }
-            }
-          }
-        }
-      }
+  const { progress, setProgress } = useBatchProgressEvent(
+    TASK_NAMES.EMAIL_PARSE,
+    handleEmailParseComplete
+  );
+
+  const { progress: productNameProgress, setProgress: setProductNameProgress } =
+    useBatchProgressEvent(
+      TASK_NAMES.PRODUCT_NAME_PARSE,
+      handleProductNameParseComplete
     );
-
-    return () => {
-      unlisten.then((fn) => fn());
-    };
-  }, [refreshStatus]);
 
   useEffect(() => {
     refreshStatus();
