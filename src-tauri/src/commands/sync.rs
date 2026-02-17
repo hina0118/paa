@@ -1,9 +1,9 @@
 use sqlx::sqlite::SqlitePool;
 use tauri::Manager;
 
-use crate::orchestration;
 use crate::config;
 use crate::gmail;
+use crate::orchestration;
 
 /// 最大繰り返し回数のバリデーション（1以上である必要がある）
 pub fn validate_max_iterations(max_iterations: i64) -> Result<(), String> {

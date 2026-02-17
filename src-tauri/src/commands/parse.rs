@@ -1,9 +1,9 @@
 use sqlx::sqlite::SqlitePool;
 use tauri::Manager;
 
-use crate::orchestration;
 use crate::config;
 use crate::logic::email_parser::get_candidate_parsers;
+use crate::orchestration;
 use crate::parsers;
 use crate::repository::{
     OrderRepository, ShopSettingsRepository, SqliteOrderRepository, SqliteShopSettingsRepository,
