@@ -545,7 +545,7 @@ async fn run_batch_parse_task_with<A: BatchCommandsApp>(
 pub async fn run_product_name_parse_task(
     app: tauri::AppHandle,
     pool: SqlitePool,
-    parse_state: crate::ProductNameParseState,
+    parse_state: crate::commands::ProductNameParseState,
     caller_did_try_start: bool,
 ) {
     let app = TauriBatchCommandsApp { app };
@@ -555,7 +555,7 @@ pub async fn run_product_name_parse_task(
 async fn run_product_name_parse_task_with<A: BatchCommandsApp>(
     app: &A,
     pool: SqlitePool,
-    parse_state: crate::ProductNameParseState,
+    parse_state: crate::commands::ProductNameParseState,
     caller_did_try_start: bool,
 ) {
     log::info!("Starting product name parse with BatchRunner<ProductNameParseTask>...");
@@ -978,7 +978,7 @@ mod tests {
             notify_count: AtomicUsize::new(0),
             fail_create_gmail_client: false,
         };
-        let parse_state = crate::ProductNameParseState::new();
+        let parse_state = crate::commands::ProductNameParseState::new();
         parse_state.try_start().unwrap();
 
         run_product_name_parse_task_with(&app, pool, parse_state.clone(), true).await;
