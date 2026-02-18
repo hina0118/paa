@@ -22,20 +22,11 @@ describe('formatNumber', () => {
 });
 
 describe('formatBytes', () => {
-  it('returns "0 文字" for 0', () => {
-    expect(formatBytes(0)).toBe('0 文字');
-  });
-
-  it('formats positive number with 文字 suffix', () => {
-    expect(formatBytes(500)).toBe('500 文字');
-  });
-
-  it('rounds decimal values', () => {
-    expect(formatBytes(500.7)).toBe('501 文字');
-  });
-
-  it('formats large value with comma', () => {
-    expect(formatBytes(2000)).toBe('2,000 文字');
+  it('delegates to formatCharacters (deprecated)', () => {
+    expect(formatBytes(0)).toBe(formatCharacters(0));
+    expect(formatBytes(500)).toBe(formatCharacters(500));
+    expect(formatBytes(500.7)).toBe(formatCharacters(500.7));
+    expect(formatBytes(2000)).toBe(formatCharacters(2000));
   });
 });
 
