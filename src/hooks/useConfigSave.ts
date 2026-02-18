@@ -24,25 +24,30 @@ export function useConfigSave(
   label: string
 ): UseConfigSaveResult {
   const [isSaving, setIsSaving] = useState(false);
-  const inFlightRef = useRef(false);
+  const inFlightPromiseRef = useRef<Promise<void> | null>(null);
 
-  const save = useCallback(async () => {
-    if (inFlightRef.current) {
-      return;
+  const save = useCallback(() => {
+    if (inFlightPromiseRef.current) {
+      return inFlightPromiseRef.current;
     }
-    inFlightRef.current = true;
-    setIsSaving(true);
-    try {
-      const result = await saveFn();
-      if (result !== false) {
-        toastSuccess(`${label}を更新しました`);
+
+    const saveOperation = (async () => {
+      setIsSaving(true);
+      try {
+        const result = await saveFn();
+        if (result !== false) {
+          toastSuccess(`${label}を更新しました`);
+        }
+      } catch (error) {
+        toastError(`更新に失敗しました: ${formatError(error)}`);
+      } finally {
+        setIsSaving(false);
+        inFlightPromiseRef.current = null;
       }
-    } catch (error) {
-      toastError(`更新に失敗しました: ${formatError(error)}`);
-    } finally {
-      setIsSaving(false);
-      inFlightRef.current = false;
-    }
+    })();
+
+    inFlightPromiseRef.current = saveOperation;
+    return saveOperation;
   }, [saveFn, label]);
 
   return { isSaving, save };
