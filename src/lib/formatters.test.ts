@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   formatNumber,
   formatBytes,
+  formatCharacters,
   formatCurrency,
   calculatePercentage,
 } from './formatters';
@@ -35,6 +36,24 @@ describe('formatBytes', () => {
 
   it('formats large value with comma', () => {
     expect(formatBytes(2000)).toBe('2,000 文字');
+  });
+});
+
+describe('formatCharacters', () => {
+  it('returns "0 文字" for 0', () => {
+    expect(formatCharacters(0)).toBe('0 文字');
+  });
+
+  it('formats positive number with 文字 suffix', () => {
+    expect(formatCharacters(500)).toBe('500 文字');
+  });
+
+  it('rounds decimal values', () => {
+    expect(formatCharacters(500.7)).toBe('501 文字');
+  });
+
+  it('formats large value with comma', () => {
+    expect(formatCharacters(2000)).toBe('2,000 文字');
   });
 });
 

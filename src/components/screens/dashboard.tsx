@@ -71,8 +71,16 @@ export function Dashboard() {
             <p className="text-muted-foreground">
               {loadError
                 ? 'データの読み込みに失敗しました。上の「更新」ボタンで再試行してください。'
-                : 'データがありません。'}
+                : 'データがありません。上の「更新」ボタンで読み込んでください。'}
             </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {loading && (
+        <Card>
+          <CardContent className="flex items-center justify-center py-10">
+            <p className="text-muted-foreground">読み込み中...</p>
           </CardContent>
         </Card>
       )}

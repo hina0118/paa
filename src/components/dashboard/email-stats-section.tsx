@@ -1,7 +1,7 @@
 import { formatDateTime } from '@/lib/utils';
 import {
   formatNumber,
-  formatBytes,
+  formatCharacters,
   calculatePercentage,
 } from '@/lib/formatters';
 import type { EmailStats } from '@/hooks/useDashboardStats';
@@ -222,7 +222,7 @@ export function EmailStatsSection({
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">テキスト形式</span>
                 <span className="text-sm text-muted-foreground">
-                  {formatBytes(emailStats.avg_plain_length)}
+                  {formatCharacters(emailStats.avg_plain_length)}
                 </span>
               </div>
               <div className="mt-2 h-2 w-full bg-secondary rounded-full overflow-hidden">
@@ -238,7 +238,7 @@ export function EmailStatsSection({
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium">HTML形式</span>
                 <span className="text-sm text-muted-foreground">
-                  {formatBytes(emailStats.avg_html_length)}
+                  {formatCharacters(emailStats.avg_html_length)}
                 </span>
               </div>
               <div className="mt-2 h-2 w-full bg-secondary rounded-full overflow-hidden">
