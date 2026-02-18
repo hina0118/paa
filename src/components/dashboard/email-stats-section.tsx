@@ -290,7 +290,7 @@ export function EmailStatsSection({
               {emailStats.without_body > 0 && (
                 <p className="text-xs text-amber-600 dark:text-amber-400">
                   {formatNumber(emailStats.without_body)}{' '}
-                  件のメールに本文データがありません。 再同期をお勧めします。
+                  件のメールに本文データがありません。再同期をお勧めします。
                 </p>
               )}
               {emailStats.without_body === 0 && (
