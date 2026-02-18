@@ -163,4 +163,82 @@ describe('useDashboardStats', () => {
     rerender();
     expect(result.current.loadStats).toBe(first);
   });
+
+  it('古いリクエスト結果を破棄する（requestIdパターン）', async () => {
+    const firstEmailStats = {
+      total_emails: 100,
+      with_body_plain: 80,
+      with_body_html: 90,
+      without_body: 10,
+      avg_plain_length: 500,
+      avg_html_length: 2000,
+    };
+
+    const secondEmailStats = {
+      total_emails: 200,
+      with_body_plain: 160,
+      with_body_html: 180,
+      without_body: 20,
+      avg_plain_length: 600,
+      avg_html_length: 2500,
+    };
+
+    // First call: resolve slowly
+    // Second call: resolve immediately with different data
+    let resolveFirst: ((value: unknown) => void) | null = null;
+    let callCount = 0;
+
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_email_stats') {
+        callCount++;
+        if (callCount === 1) {
+          return new Promise((resolve) => {
+            resolveFirst = resolve;
+          });
+        }
+        return Promise.resolve(secondEmailStats);
+      }
+      // Other stats return defaults
+      switch (cmd) {
+        case 'get_order_stats':
+          return Promise.resolve(defaultOrderStats);
+        case 'get_delivery_stats':
+          return Promise.resolve(defaultDeliveryStats);
+        case 'get_product_master_stats':
+          return Promise.resolve(defaultProductMasterStats);
+        case 'get_misc_stats':
+          return Promise.resolve(defaultMiscStats);
+        default:
+          return Promise.resolve(null);
+      }
+    });
+
+    const { result } = renderHook(() => useDashboardStats());
+
+    // First call (will be slow)
+    act(() => {
+      void result.current.loadStats();
+    });
+
+    // Second call before first completes
+    await act(async () => {
+      await result.current.loadStats();
+    });
+
+    // Wait for second request to complete
+    await waitFor(() => {
+      expect(result.current.emailStats).toEqual(secondEmailStats);
+    });
+
+    // Now resolve the first (stale) request
+    resolveFirst?.(firstEmailStats);
+
+    // Stats should still show second result (stale result is discarded)
+    // Give time for any potential state update
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+
+    expect(result.current.emailStats).toEqual(secondEmailStats);
+  });
 });
