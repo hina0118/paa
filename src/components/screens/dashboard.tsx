@@ -71,7 +71,7 @@ export function Dashboard() {
             <p className="text-muted-foreground">
               {loadError
                 ? 'データの読み込みに失敗しました。上の「更新」ボタンで再試行してください。'
-                : 'データを読み込んでいます...'}
+                : 'データがありません。'}
             </p>
           </CardContent>
         </Card>
