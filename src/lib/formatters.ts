@@ -1,5 +1,7 @@
+const numberFormatter = new Intl.NumberFormat('ja-JP');
+
 export function formatNumber(num: number): string {
-  return new Intl.NumberFormat('ja-JP').format(num);
+  return numberFormatter.format(num);
 }
 
 /**
