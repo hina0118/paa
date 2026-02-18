@@ -35,7 +35,7 @@ export function DeliveryStatsSection({ deliveryStats }: Props) {
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
           {DELIVERY_ITEMS.map(({ key, label }) => (
             <div
-              key={label}
+              key={key}
               className="flex items-center justify-between rounded border px-3 py-2"
             >
               <span className="text-sm text-muted-foreground">{label}</span>
