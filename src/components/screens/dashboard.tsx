@@ -77,7 +77,7 @@ export function Dashboard() {
         </Card>
       )}
 
-      {loading && (
+      {loading && !emailStats && (
         <Card>
           <CardContent className="flex items-center justify-center py-10">
             <p className="text-muted-foreground">読み込み中...</p>
