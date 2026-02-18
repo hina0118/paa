@@ -37,14 +37,16 @@ describe('useConfigSave', () => {
 
     const { result } = renderHook(() => useConfigSave(saveFn, 'テスト'));
 
+    let savePromise: Promise<void>;
     act(() => {
-      void result.current.save();
+      savePromise = result.current.save();
     });
 
     expect(result.current.isSaving).toBe(true);
 
     await act(async () => {
       resolve?.();
+      await savePromise;
     });
 
     expect(result.current.isSaving).toBe(false);
@@ -110,5 +112,41 @@ describe('useConfigSave', () => {
     const first = result.current.save;
     rerender();
     expect(result.current.save).toBe(first);
+  });
+
+  it('save が実行中のときに再度呼ばれても二重実行されない', async () => {
+    let resolve: (() => void) | null = null;
+    const saveFn = vi.fn(
+      () =>
+        new Promise<void>((r) => {
+          resolve = r;
+        })
+    );
+
+    const { result } = renderHook(() => useConfigSave(saveFn, 'テスト'));
+
+    let firstSavePromise: Promise<void>;
+    let secondSavePromise: Promise<void>;
+    act(() => {
+      firstSavePromise = result.current.save();
+    });
+
+    // 実行中に再度呼ぶ
+    act(() => {
+      secondSavePromise = result.current.save();
+    });
+
+    // saveFn は1回だけ呼ばれる
+    expect(saveFn).toHaveBeenCalledTimes(1);
+
+    // 両方のプロミスは同じものである
+    expect(firstSavePromise).toBe(secondSavePromise);
+
+    await act(async () => {
+      resolve?.();
+      await firstSavePromise;
+    });
+
+    expect(result.current.isSaving).toBe(false);
   });
 });

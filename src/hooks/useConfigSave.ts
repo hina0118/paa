@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { toastSuccess, toastError, formatError } from '@/lib/toast';
 
 export interface UseConfigSaveResult {
@@ -24,19 +24,30 @@ export function useConfigSave(
   label: string
 ): UseConfigSaveResult {
   const [isSaving, setIsSaving] = useState(false);
+  const inFlightPromiseRef = useRef<Promise<void> | null>(null);
 
-  const save = useCallback(async () => {
-    setIsSaving(true);
-    try {
-      const result = await saveFn();
-      if (result !== false) {
-        toastSuccess(`${label}を更新しました`);
-      }
-    } catch (error) {
-      toastError(`更新に失敗しました: ${formatError(error)}`);
-    } finally {
-      setIsSaving(false);
+  const save = useCallback(() => {
+    if (inFlightPromiseRef.current) {
+      return inFlightPromiseRef.current;
     }
+
+    const saveOperation = (async () => {
+      setIsSaving(true);
+      try {
+        const result = await saveFn();
+        if (result !== false) {
+          toastSuccess(`${label}を更新しました`);
+        }
+      } catch (error) {
+        toastError(`更新に失敗しました: ${formatError(error)}`);
+      } finally {
+        setIsSaving(false);
+        inFlightPromiseRef.current = null;
+      }
+    })();
+
+    inFlightPromiseRef.current = saveOperation;
+    return saveOperation;
   }, [saveFn, label]);
 
   return { isSaving, save };
