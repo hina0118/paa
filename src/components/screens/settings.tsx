@@ -12,7 +12,8 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { toastSuccess, toastError, formatError } from '@/lib/toast';
+import { toastError } from '@/lib/toast';
+import { useConfigSave } from '@/hooks/useConfigSave';
 
 interface GeminiConfig {
   batch_size: number;
@@ -36,15 +37,6 @@ export function Settings() {
   const [parseBatchSize, setParseBatchSize] = useState<string>('');
   const [geminiBatchSize, setGeminiBatchSize] = useState<string>('');
   const [geminiDelaySeconds, setGeminiDelaySeconds] = useState<string>('');
-  const [isSavingBatchSize, setIsSavingBatchSize] = useState(false);
-  const [isSavingMaxIterations, setIsSavingMaxIterations] = useState(false);
-  const [isSavingMaxResultsPerPage, setIsSavingMaxResultsPerPage] =
-    useState(false);
-  const [isSavingTimeoutMinutes, setIsSavingTimeoutMinutes] = useState(false);
-  const [isSavingParseBatchSize, setIsSavingParseBatchSize] = useState(false);
-  const [isSavingGeminiBatchSize, setIsSavingGeminiBatchSize] = useState(false);
-  const [isSavingGeminiDelaySeconds, setIsSavingGeminiDelaySeconds] =
-    useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
 
   useEffect(() => {
@@ -76,131 +68,68 @@ export function Settings() {
     loadGeminiConfig();
   }, []);
 
-  const handleSaveBatchSize = async () => {
+  const batchSizeConfig = useConfigSave(async () => {
     const value = parseInt(batchSize, 10);
     if (isNaN(value) || value <= 0) {
       toastError('バッチサイズは1以上の整数を入力してください');
-      return;
+      return false;
     }
+    await updateBatchSize(value);
+  }, 'バッチサイズ');
 
-    setIsSavingBatchSize(true);
-    try {
-      await updateBatchSize(value);
-      toastSuccess('バッチサイズを更新しました');
-    } catch (error) {
-      toastError(`更新に失敗しました: ${formatError(error)}`);
-    } finally {
-      setIsSavingBatchSize(false);
-    }
-  };
-
-  const handleSaveMaxIterations = async () => {
+  const maxIterationsConfig = useConfigSave(async () => {
     const value = parseInt(maxIterations, 10);
     if (isNaN(value) || value <= 0) {
       toastError('最大繰り返し回数は1以上の整数を入力してください');
-      return;
+      return false;
     }
+    await updateMaxIterations(value);
+  }, '最大繰り返し回数');
 
-    setIsSavingMaxIterations(true);
-    try {
-      await updateMaxIterations(value);
-      toastSuccess('最大繰り返し回数を更新しました');
-    } catch (error) {
-      toastError(`更新に失敗しました: ${formatError(error)}`);
-    } finally {
-      setIsSavingMaxIterations(false);
-    }
-  };
-
-  const handleSaveMaxResultsPerPage = async () => {
+  const maxResultsPerPageConfig = useConfigSave(async () => {
     const value = parseInt(maxResultsPerPage, 10);
     if (isNaN(value) || value < 1 || value > 500) {
       toastError('1ページあたり取得件数は1〜500の範囲で入力してください');
-      return;
+      return false;
     }
+    await updateMaxResultsPerPage(value);
+  }, '1ページあたり取得件数');
 
-    setIsSavingMaxResultsPerPage(true);
-    try {
-      await updateMaxResultsPerPage(value);
-      toastSuccess('1ページあたり取得件数を更新しました');
-    } catch (error) {
-      toastError(`更新に失敗しました: ${formatError(error)}`);
-    } finally {
-      setIsSavingMaxResultsPerPage(false);
-    }
-  };
-
-  const handleSaveTimeoutMinutes = async () => {
+  const timeoutMinutesConfig = useConfigSave(async () => {
     const value = parseInt(timeoutMinutes, 10);
     if (isNaN(value) || value < 1 || value > 120) {
       toastError('同期タイムアウトは1〜120分の範囲で入力してください');
-      return;
+      return false;
     }
+    await updateTimeoutMinutes(value);
+  }, '同期タイムアウト');
 
-    setIsSavingTimeoutMinutes(true);
-    try {
-      await updateTimeoutMinutes(value);
-      toastSuccess('同期タイムアウトを更新しました');
-    } catch (error) {
-      toastError(`更新に失敗しました: ${formatError(error)}`);
-    } finally {
-      setIsSavingTimeoutMinutes(false);
-    }
-  };
-
-  const handleSaveParseBatchSize = async () => {
+  const parseBatchSizeConfig = useConfigSave(async () => {
     const value = parseInt(parseBatchSize, 10);
     if (isNaN(value) || value <= 0) {
       toastError('パースバッチサイズは1以上の整数を入力してください');
-      return;
+      return false;
     }
+    await updateParseBatchSize(value);
+  }, 'パースバッチサイズ');
 
-    setIsSavingParseBatchSize(true);
-    try {
-      await updateParseBatchSize(value);
-      toastSuccess('パースバッチサイズを更新しました');
-    } catch (error) {
-      toastError(`更新に失敗しました: ${formatError(error)}`);
-    } finally {
-      setIsSavingParseBatchSize(false);
-    }
-  };
-
-  const handleSaveGeminiBatchSize = async () => {
+  const geminiBatchSizeConfig = useConfigSave(async () => {
     const value = parseInt(geminiBatchSize, 10);
     if (isNaN(value) || value < 1 || value > 50) {
       toastError('商品名パースのバッチサイズは1〜50の範囲で入力してください');
-      return;
+      return false;
     }
+    await invoke('update_gemini_batch_size', { batchSize: value });
+  }, '商品名パースのバッチサイズ');
 
-    setIsSavingGeminiBatchSize(true);
-    try {
-      await invoke('update_gemini_batch_size', { batchSize: value });
-      toastSuccess('商品名パースのバッチサイズを更新しました');
-    } catch (error) {
-      toastError(`更新に失敗しました: ${formatError(error)}`);
-    } finally {
-      setIsSavingGeminiBatchSize(false);
-    }
-  };
-
-  const handleSaveGeminiDelaySeconds = async () => {
+  const geminiDelaySecondsConfig = useConfigSave(async () => {
     const value = parseInt(geminiDelaySeconds, 10);
     if (isNaN(value) || value < 0 || value > 60) {
       toastError('リクエスト間の待機秒数は0〜60の範囲で入力してください');
-      return;
+      return false;
     }
-
-    setIsSavingGeminiDelaySeconds(true);
-    try {
-      await invoke('update_gemini_delay_seconds', { delaySeconds: value });
-      toastSuccess('リクエスト間の待機秒数を更新しました');
-    } catch (error) {
-      toastError(`更新に失敗しました: ${formatError(error)}`);
-    } finally {
-      setIsSavingGeminiDelaySeconds(false);
-    }
-  };
+    await invoke('update_gemini_delay_seconds', { delaySeconds: value });
+  }, 'リクエスト間の待機秒数');
 
   return (
     <div className="container mx-auto py-10 px-6 space-y-6">
@@ -233,12 +162,12 @@ export function Settings() {
                 min="1"
                 value={batchSize}
                 onChange={(e) => setBatchSize(e.target.value)}
-                disabled={isSavingBatchSize}
+                disabled={batchSizeConfig.isSaving}
                 className="max-w-xs"
               />
               <Button
-                onClick={handleSaveBatchSize}
-                disabled={isSavingBatchSize}
+                onClick={batchSizeConfig.save}
+                disabled={batchSizeConfig.isSaving}
                 aria-label="同期バッチサイズを保存"
               >
                 保存
@@ -262,12 +191,12 @@ export function Settings() {
                 min="1"
                 value={maxIterations}
                 onChange={(e) => setMaxIterations(e.target.value)}
-                disabled={isSavingMaxIterations}
+                disabled={maxIterationsConfig.isSaving}
                 className="max-w-xs"
               />
               <Button
-                onClick={handleSaveMaxIterations}
-                disabled={isSavingMaxIterations}
+                onClick={maxIterationsConfig.save}
+                disabled={maxIterationsConfig.isSaving}
                 aria-label="最大繰り返し回数を保存"
               >
                 保存
@@ -293,12 +222,12 @@ export function Settings() {
                 max="500"
                 value={maxResultsPerPage}
                 onChange={(e) => setMaxResultsPerPage(e.target.value)}
-                disabled={isSavingMaxResultsPerPage}
+                disabled={maxResultsPerPageConfig.isSaving}
                 className="max-w-xs"
               />
               <Button
-                onClick={handleSaveMaxResultsPerPage}
-                disabled={isSavingMaxResultsPerPage}
+                onClick={maxResultsPerPageConfig.save}
+                disabled={maxResultsPerPageConfig.isSaving}
                 aria-label="1ページあたり取得件数を保存"
               >
                 保存
@@ -321,12 +250,12 @@ export function Settings() {
                 max="120"
                 value={timeoutMinutes}
                 onChange={(e) => setTimeoutMinutes(e.target.value)}
-                disabled={isSavingTimeoutMinutes}
+                disabled={timeoutMinutesConfig.isSaving}
                 className="max-w-xs"
               />
               <Button
-                onClick={handleSaveTimeoutMinutes}
-                disabled={isSavingTimeoutMinutes}
+                onClick={timeoutMinutesConfig.save}
+                disabled={timeoutMinutesConfig.isSaving}
                 aria-label="同期タイムアウトを保存"
               >
                 保存
@@ -370,12 +299,12 @@ export function Settings() {
                 max="50"
                 value={geminiBatchSize}
                 onChange={(e) => setGeminiBatchSize(e.target.value)}
-                disabled={isSavingGeminiBatchSize}
+                disabled={geminiBatchSizeConfig.isSaving}
                 className="max-w-xs"
               />
               <Button
-                onClick={handleSaveGeminiBatchSize}
-                disabled={isSavingGeminiBatchSize}
+                onClick={geminiBatchSizeConfig.save}
+                disabled={geminiBatchSizeConfig.isSaving}
                 aria-label="商品名パースのバッチサイズを保存"
               >
                 保存
@@ -401,12 +330,12 @@ export function Settings() {
                 max="60"
                 value={geminiDelaySeconds}
                 onChange={(e) => setGeminiDelaySeconds(e.target.value)}
-                disabled={isSavingGeminiDelaySeconds}
+                disabled={geminiDelaySecondsConfig.isSaving}
                 className="max-w-xs"
               />
               <Button
-                onClick={handleSaveGeminiDelaySeconds}
-                disabled={isSavingGeminiDelaySeconds}
+                onClick={geminiDelaySecondsConfig.save}
+                disabled={geminiDelaySecondsConfig.isSaving}
                 aria-label="リクエスト間の待機秒数を保存"
               >
                 保存
@@ -436,12 +365,12 @@ export function Settings() {
                 min="1"
                 value={parseBatchSize}
                 onChange={(e) => setParseBatchSize(e.target.value)}
-                disabled={isSavingParseBatchSize}
+                disabled={parseBatchSizeConfig.isSaving}
                 className="max-w-xs"
               />
               <Button
-                onClick={handleSaveParseBatchSize}
-                disabled={isSavingParseBatchSize}
+                onClick={parseBatchSizeConfig.save}
+                disabled={parseBatchSizeConfig.isSaving}
                 aria-label="パースバッチサイズを保存"
               >
                 保存
