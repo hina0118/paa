@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { toastError, formatError } from '@/lib/toast';
 
@@ -59,6 +59,11 @@ export type UseDashboardStatsResult = {
  * - 5種類の統計データの並列フェッチ（Promise.all）
  * - loading / loadError 状態の管理
  * - エラー時のトースト通知
+ *
+ * ## requestId パターン
+ * `loadStats()` は tauri invoke 経由の非同期IPC呼び出しのため
+ * AbortController ではキャンセルできない。requestId を使って
+ * 古いリクエストの結果が新しいリクエストの結果を上書きするのを防ぐ。
  */
 export function useDashboardStats(): UseDashboardStatsResult {
   const [emailStats, setEmailStats] = useState<EmailStats | null>(null);
@@ -71,8 +76,10 @@ export function useDashboardStats(): UseDashboardStatsResult {
   const [miscStats, setMiscStats] = useState<MiscStats | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  const loadStatsRequestId = useRef(0);
 
   const loadStats = useCallback(async () => {
+    const requestId = (loadStatsRequestId.current += 1);
     try {
       setLoading(true);
       setLoadError(false);
@@ -89,17 +96,23 @@ export function useDashboardStats(): UseDashboardStatsResult {
         invoke<ProductMasterStats>('get_product_master_stats'),
         invoke<MiscStats>('get_misc_stats'),
       ]);
-      setEmailStats(emailResult);
-      setOrderStats(orderResult);
-      setDeliveryStats(deliveryResult);
-      setProductMasterStats(productMasterResult);
-      setMiscStats(miscResult);
+      if (requestId === loadStatsRequestId.current) {
+        setEmailStats(emailResult);
+        setOrderStats(orderResult);
+        setDeliveryStats(deliveryResult);
+        setProductMasterStats(productMasterResult);
+        setMiscStats(miscResult);
+      }
     } catch (err) {
-      setLoadError(true);
-      toastError(`統計の読み込みに失敗しました: ${formatError(err)}`);
-      console.error('Failed to load dashboard stats:', err);
+      if (requestId === loadStatsRequestId.current) {
+        setLoadError(true);
+        toastError(`統計の読み込みに失敗しました: ${formatError(err)}`);
+        console.error('Failed to load dashboard stats:', err);
+      }
     } finally {
-      setLoading(false);
+      if (requestId === loadStatsRequestId.current) {
+        setLoading(false);
+      }
     }
   }, []);
 
