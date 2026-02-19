@@ -13,7 +13,7 @@ import {
 describe('ナビゲーション (Tauri)', () => {
   it('サイドバーが表示される', async () => {
     await expectSidebarVisible();
-    for (const id of ['dashboard', 'orders', 'batch', 'logs', 'shop-settings', 'api-keys', 'settings']) {
+    for (const id of ['dashboard', 'orders', 'batch', 'logs', 'shop-settings', 'backup', 'api-keys', 'settings']) {
       const btn = await $(`[data-testid="${id}"]`);
       await expect(btn).toBeDisplayed();
     }
