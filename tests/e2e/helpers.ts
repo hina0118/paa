@@ -2,10 +2,10 @@ import { Page, expect } from '@playwright/test';
 
 /**
  * サイドバーから指定の画面に遷移する
+ * @param screenId - サイドバーボタンの data-testid 値（例: 'dashboard', 'shop-settings'）
  */
-export async function navigateToScreen(page: Page, screenName: string) {
-  // "Settings"と"Shop Settings"が両方存在するため、exact matchを使用
-  const button = page.getByRole('button', { name: screenName, exact: true });
+export async function navigateToScreen(page: Page, screenId: string) {
+  const button = page.getByTestId(screenId);
   await button.click();
 }
 

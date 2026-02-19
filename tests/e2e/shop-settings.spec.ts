@@ -9,7 +9,7 @@ test.describe('Shop Settings画面', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await expectSidebarVisible(page);
-    await navigateToScreen(page, 'Shop Settings');
+    await navigateToScreen(page, 'shop-settings');
   });
 
   test('Shop Settings画面が表示される', async ({ page }) => {
