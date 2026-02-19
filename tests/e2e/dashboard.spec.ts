@@ -8,7 +8,7 @@ import {
 test.describe('ダッシュボード画面', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    await navigateToScreen(page, 'Dashboard');
+    await navigateToScreen(page, 'dashboard');
     await expectScreenTitle(page, 'ダッシュボード');
   });
 

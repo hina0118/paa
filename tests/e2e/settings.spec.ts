@@ -9,7 +9,7 @@ import {
 test.describe('設定画面', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    await navigateToScreen(page, 'Settings');
+    await navigateToScreen(page, 'settings');
     await expectScreenTitle(page, '設定');
   });
 
