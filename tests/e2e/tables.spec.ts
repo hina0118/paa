@@ -49,7 +49,9 @@ test.describe('Tables画面', () => {
     for (const table of tables) {
       await page.getByTestId(table.id).click();
       await expect(
-        page.getByRole('heading', { name: new RegExp(`${table.heading} テーブル`) })
+        page.getByRole('heading', {
+          name: new RegExp(`${table.heading} テーブル`),
+        })
       ).toBeVisible({ timeout: 5000 });
     }
   });
