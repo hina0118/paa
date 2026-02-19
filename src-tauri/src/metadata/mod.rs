@@ -4,12 +4,12 @@
 //! item_overrides, order_overrides, excluded_items, excluded_orders を
 //! ZIP 形式でバックアップ・復元する。
 
-pub mod export;
-pub mod file_safety;
-pub mod import;
-pub mod manifest;
-pub mod restore;
-pub mod table_converters;
+mod export;
+mod file_safety;
+pub(crate) mod import;
+mod manifest;
+mod restore;
+mod table_converters;
 
 pub use export::export_metadata;
 pub use import::import_metadata;
