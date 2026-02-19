@@ -86,7 +86,7 @@ describe('ナビゲーション (Tauri)', () => {
 
     const tablesBtn = await $('[data-testid="tables-section-toggle"]');
     await tablesBtn.click();
-    // 閉じた後は Tables ボタンに ▶ が表示される（折りたたみ状態）
+    // 閉じた後は「テーブル」ボタンに ▶ が表示される（折りたたみ状態）
     const tablesText = await tablesBtn.getText();
     expect(tablesText).toContain('▶');
   });
