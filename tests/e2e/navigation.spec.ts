@@ -15,74 +15,63 @@ test.describe('ナビゲーション', () => {
   test('サイドバーが表示される', async ({ page }) => {
     await expectSidebarVisible(page);
     // ナビゲーション項目が表示されることを確認
-    await expect(page.getByRole('button', { name: 'Dashboard' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Orders' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Batch' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Logs' })).toBeVisible();
-    await expect(
-      page.getByRole('button', { name: 'Shop Settings' })
-    ).toBeVisible();
-    await expect(
-      page.getByRole('button', { name: 'API Keys', exact: true })
-    ).toBeVisible();
-    // "Settings"はexact matchを使用（"Shop Settings"と区別するため）
-    await expect(
-      page.getByRole('button', { name: 'Settings', exact: true })
-    ).toBeVisible();
+    await expect(page.getByTestId('dashboard')).toBeVisible();
+    await expect(page.getByTestId('orders')).toBeVisible();
+    await expect(page.getByTestId('batch')).toBeVisible();
+    await expect(page.getByTestId('logs')).toBeVisible();
+    await expect(page.getByTestId('shop-settings')).toBeVisible();
+    await expect(page.getByTestId('api-keys')).toBeVisible();
+    await expect(page.getByTestId('settings')).toBeVisible();
   });
 
   test('Dashboard画面に遷移できる', async ({ page }) => {
-    await navigateToScreen(page, 'Dashboard');
+    await navigateToScreen(page, 'dashboard');
     await expectScreenTitle(page, 'ダッシュボード');
   });
 
   test('Orders画面に遷移できる', async ({ page }) => {
-    await navigateToScreen(page, 'Orders');
+    await navigateToScreen(page, 'orders');
     await expectScreenTitle(page, '商品一覧');
   });
 
   test('Batch画面に遷移できる', async ({ page }) => {
-    await navigateToScreen(page, 'Batch');
+    await navigateToScreen(page, 'batch');
     await expectScreenTitle(page, 'バッチ処理');
   });
 
   test('Logs画面に遷移できる', async ({ page }) => {
-    await navigateToScreen(page, 'Logs');
+    await navigateToScreen(page, 'logs');
     // Logs画面のタイトルを確認
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
   });
 
   test('Shop Settings画面に遷移できる', async ({ page }) => {
-    await navigateToScreen(page, 'Shop Settings');
+    await navigateToScreen(page, 'shop-settings');
     // Shop Settings画面のタイトルを確認
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
   });
 
   test('Settings画面に遷移できる', async ({ page }) => {
-    await navigateToScreen(page, 'Settings');
+    await navigateToScreen(page, 'settings');
     await expectScreenTitle(page, '設定');
   });
 
   test('Tablesセクションを展開して閉じることができる', async ({ page }) => {
-    const tablesButton = page.getByRole('button', { name: /Tables/ });
+    const tablesButton = page.getByTestId('tables-section-toggle');
     await tablesButton.click();
-    await expect(
-      page.getByRole('button', { name: 'Emails', exact: true })
-    ).toBeVisible();
+    await expect(page.getByTestId('table-emails')).toBeVisible();
     await tablesButton.click();
-    await expect(
-      page.getByRole('button', { name: 'Emails', exact: true })
-    ).not.toBeVisible();
+    await expect(page.getByTestId('table-emails')).not.toBeVisible();
   });
 
   test('アクティブな画面のボタンがハイライトされる', async ({ page }) => {
     // 初期状態はOrdersがアクティブ（デフォルト画面）
-    const ordersButton = page.getByRole('button', { name: 'Orders' });
+    const ordersButton = page.getByTestId('orders');
     await expect(ordersButton).toHaveAttribute('aria-current', 'page');
 
     // Dashboardに遷移
-    await navigateToScreen(page, 'Dashboard');
-    const dashboardButton = page.getByRole('button', { name: 'Dashboard' });
+    await navigateToScreen(page, 'dashboard');
+    const dashboardButton = page.getByTestId('dashboard');
     await expect(dashboardButton).toHaveAttribute('aria-current', 'page');
 
     // Ordersは非アクティブになる（aria-current が付かない）

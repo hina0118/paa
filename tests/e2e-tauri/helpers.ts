@@ -4,17 +4,15 @@
  * Playwright の helpers.ts と同様の機能を WebdriverIO API で提供
  */
 
-import { $, $$, expect } from '@wdio/globals';
+import { $, expect } from '@wdio/globals';
 
 /**
  * サイドバーから指定の画面に遷移する
+ * @param screenId - サイドバーボタンの data-testid 値（例: 'dashboard', 'shop-settings'）
  */
-export async function navigateToScreen(screenName: string) {
-  const buttons = await $$('button');
-  const btn = await buttons.find(
-    async (el) => (await el.getText()) === screenName
-  );
-  if (!btn) throw new Error(`Button "${screenName}" not found`);
+export async function navigateToScreen(screenId: string) {
+  const btn = await $(`[data-testid="${screenId}"]`);
+  await btn.waitForDisplayed({ timeout: 5000 });
   await btn.click();
 }
 
@@ -41,28 +39,24 @@ export async function expectSidebarVisible() {
  * Tables セクションを展開する
  */
 export async function expandTablesSection() {
-  const tablesBtn = await $('button*=Tables');
+  const tablesBtn = await $('[data-testid="tables-section-toggle"]');
   await tablesBtn.waitForDisplayed({ timeout: 5000 });
   const text = await tablesBtn.getText();
   if (text.includes('▶')) {
     await tablesBtn.click();
     // 展開アニメーション待ち
-    const emailsBtn = await $('button=Emails');
+    const emailsBtn = await $('[data-testid="table-emails"]');
     await emailsBtn.waitForDisplayed({ timeout: 3000 });
   }
 }
 
 /**
  * Tables セクション内のサブメニューをクリックする
- * 注: トップレベルに同名の「Orders」があるため、Tables 展開後の ul.ml-4 内のボタンのみ対象にする
+ * @param tableId - テーブルボタンの data-testid 値（例: 'table-orders'）
  */
-export async function navigateToTable(tableName: string) {
+export async function navigateToTable(tableId: string) {
   await expandTablesSection();
-  // Tables 展開後のサブメニューは ul.ml-4 内にある（トップレベルと区別）
-  const tableButtons = await $$('aside ul.ml-4 button');
-  const btn = await tableButtons.find(
-    async (el) => (await el.getText()) === tableName
-  );
-  if (!btn) throw new Error(`Table button "${tableName}" not found`);
+  const btn = await $(`[data-testid="${tableId}"]`);
+  await btn.waitForDisplayed({ timeout: 3000 });
   await btn.click();
 }
