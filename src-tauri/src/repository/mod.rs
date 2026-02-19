@@ -32,26 +32,24 @@ pub use stats::{
 };
 
 // order
-pub use order::{OrderRepository, SqliteOrderRepository};
 #[cfg(test)]
 pub use order::MockOrderRepository;
+pub use order::{OrderRepository, SqliteOrderRepository};
 
 // parse
-pub use parse::{ParseRepository, SqliteParseRepository};
 #[cfg(test)]
 pub use parse::MockParseRepository;
+pub use parse::{ParseRepository, SqliteParseRepository};
 
 // shop_settings
-pub use shop_settings::{ShopSettingsRepository, SqliteShopSettingsRepository};
 #[cfg(test)]
 pub use shop_settings::MockShopSettingsRepository;
+pub use shop_settings::{ShopSettingsRepository, SqliteShopSettingsRepository};
 
 // product_master
-pub use product_master::{
-    ProductMaster, ProductMasterRepository, SqliteProductMasterRepository,
-};
 #[cfg(test)]
 pub use product_master::MockProductMasterRepository;
+pub use product_master::{ProductMaster, ProductMasterRepository, SqliteProductMasterRepository};
 
 // overrides
 pub use overrides::{
