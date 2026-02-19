@@ -12,7 +12,7 @@ import {
 describe('ダッシュボード (Tauri)', () => {
   before(async () => {
     await expectSidebarVisible();
-    await navigateToScreen('Dashboard');
+    await navigateToScreen('dashboard');
     await expectScreenTitle('ダッシュボード');
   });
 

@@ -106,6 +106,7 @@ export function Sidebar() {
                   variant={isActive ? 'secondary' : 'ghost'}
                   className="w-full justify-start"
                   aria-current={isActive ? 'page' : undefined}
+                  data-testid={item.id}
                   onClick={() => setCurrentScreen(item.id)}
                 >
                   <Icon className="mr-2 h-4 w-4" />
@@ -120,6 +121,7 @@ export function Sidebar() {
           <Button
             variant="ghost"
             className="w-full justify-start"
+            data-testid="tables-section-toggle"
             onClick={() => setIsTableSectionOpen(!isTableSectionOpen)}
           >
             <Database className="mr-2 h-4 w-4" />
@@ -137,6 +139,7 @@ export function Sidebar() {
                       variant={isActive ? 'secondary' : 'ghost'}
                       className="w-full justify-start text-sm"
                       aria-current={isActive ? 'page' : undefined}
+                      data-testid={item.id}
                       onClick={() => setCurrentScreen(item.id)}
                     >
                       {item.name}
