@@ -19,7 +19,7 @@ pub mod gmail_client;
 pub mod google_search;
 pub mod image_utils;
 pub mod logic;
-pub mod metadata_export;
+pub mod metadata;
 pub mod orchestration;
 pub mod parsers;
 pub mod repository;
