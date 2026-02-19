@@ -59,31 +59,31 @@ type TableItem = {
 };
 
 const navigationItems: NavigationItem[] = [
-  { name: 'Dashboard', icon: LayoutDashboard, id: 'dashboard' },
-  { name: 'Orders', icon: ShoppingCart, id: 'orders' },
-  { name: 'Batch', icon: Layers, id: 'batch' },
-  { name: 'Logs', icon: ScrollText, id: 'logs' },
-  { name: 'Shop Settings', icon: Store, id: 'shop-settings' },
+  { name: 'ダッシュボード', icon: LayoutDashboard, id: 'dashboard' },
+  { name: '注文一覧', icon: ShoppingCart, id: 'orders' },
+  { name: 'バッチ処理', icon: Layers, id: 'batch' },
+  { name: 'ログ', icon: ScrollText, id: 'logs' },
+  { name: '店舗設定', icon: Store, id: 'shop-settings' },
   { name: 'データのバックアップ', icon: Archive, id: 'backup' },
-  { name: 'API Keys', icon: Key, id: 'api-keys' },
-  { name: 'Settings', icon: Settings, id: 'settings' },
+  { name: 'APIキー設定', icon: Key, id: 'api-keys' },
+  { name: '設定', icon: Settings, id: 'settings' },
 ];
 
 const tableItems: TableItem[] = [
-  { name: 'Emails', id: 'table-emails' },
-  { name: 'Orders', id: 'table-orders' },
-  { name: 'Items', id: 'table-items' },
-  { name: 'Images', id: 'table-images' },
-  { name: 'Deliveries', id: 'table-deliveries' },
-  { name: 'HTMLs', id: 'table-htmls' },
-  { name: 'Order-Emails', id: 'table-order-emails' },
-  { name: 'Order-HTMLs', id: 'table-order-htmls' },
-  { name: 'Shop Settings', id: 'table-shop-settings' },
-  { name: 'Product Master', id: 'table-product-master' },
-  { name: 'Item Overrides', id: 'table-item-overrides' },
-  { name: 'Order Overrides', id: 'table-order-overrides' },
-  { name: 'Excluded Items', id: 'table-excluded-items' },
-  { name: 'Excluded Orders', id: 'table-excluded-orders' },
+  { name: 'メール', id: 'table-emails' },
+  { name: '注文', id: 'table-orders' },
+  { name: '商品アイテム', id: 'table-items' },
+  { name: '画像', id: 'table-images' },
+  { name: '配送情報', id: 'table-deliveries' },
+  { name: 'HTML本文', id: 'table-htmls' },
+  { name: '注文-メール', id: 'table-order-emails' },
+  { name: '注文-HTML', id: 'table-order-htmls' },
+  { name: '店舗設定', id: 'table-shop-settings' },
+  { name: '商品マスタ', id: 'table-product-master' },
+  { name: 'アイテム上書き', id: 'table-item-overrides' },
+  { name: '注文上書き', id: 'table-order-overrides' },
+  { name: '除外アイテム', id: 'table-excluded-items' },
+  { name: '除外注文', id: 'table-excluded-orders' },
 ];
 
 export function Sidebar() {
@@ -123,7 +123,7 @@ export function Sidebar() {
             onClick={() => setIsTableSectionOpen(!isTableSectionOpen)}
           >
             <Database className="mr-2 h-4 w-4" />
-            Tables
+            テーブル
             <span className="ml-auto">{isTableSectionOpen ? '▼' : '▶'}</span>
           </Button>
 
