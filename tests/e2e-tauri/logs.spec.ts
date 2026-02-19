@@ -8,7 +8,7 @@ import { navigateToScreen, expectSidebarVisible } from './helpers';
 describe('ログ (Tauri)', () => {
   before(async () => {
     await expectSidebarVisible();
-    await navigateToScreen('Logs');
+    await navigateToScreen('logs');
     const heading = await $('h1');
     await expect(heading).toBeDisplayed({ wait: 10000 });
   });

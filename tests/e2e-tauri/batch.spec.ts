@@ -14,7 +14,7 @@ import {
 describe('バッチ処理 (Tauri)', () => {
   before(async () => {
     await expectSidebarVisible();
-    await navigateToScreen('Batch');
+    await navigateToScreen('batch');
     await expectScreenTitle('バッチ処理');
   });
 

@@ -12,7 +12,7 @@ import {
 describe('設定画面 (Tauri)', () => {
   before(async () => {
     await expectSidebarVisible();
-    await navigateToScreen('Settings');
+    await navigateToScreen('settings');
     await expectScreenTitle('設定');
   });
 

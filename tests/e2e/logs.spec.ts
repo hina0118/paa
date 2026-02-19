@@ -5,7 +5,7 @@ test.describe('Logs画面', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await expectSidebarVisible(page);
-    await navigateToScreen(page, 'Logs');
+    await navigateToScreen(page, 'logs');
   });
 
   test('Logs画面が表示される', async ({ page }) => {

@@ -9,7 +9,7 @@ test.describe('Orders画面（商品一覧）', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await expectSidebarVisible(page);
-    await navigateToScreen(page, 'Orders');
+    await navigateToScreen(page, 'orders');
     await expectScreenTitle(page, '商品一覧');
   });
 

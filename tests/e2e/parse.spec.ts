@@ -5,7 +5,7 @@ test.describe('Parse画面（Batch内）', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await expectSidebarVisible(page);
-    await navigateToScreen(page, 'Batch');
+    await navigateToScreen(page, 'batch');
   });
 
   test('パースセクションが表示される', async ({ page }) => {
