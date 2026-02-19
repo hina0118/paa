@@ -2,7 +2,7 @@
  * Tauri アプリ起動時のナビゲーション E2E テスト
  */
 
-import { $, $$, expect } from '@wdio/globals';
+import { $, expect } from '@wdio/globals';
 import {
   navigateToScreen,
   expectScreenTitle,
@@ -13,65 +13,66 @@ import {
 describe('ナビゲーション (Tauri)', () => {
   it('サイドバーが表示される', async () => {
     await expectSidebarVisible();
-    // WebdriverIO の $$ は ElementArray を返す。Array.from でイテラブルに変換
-    const buttons = await $$('button');
-    const texts = await Promise.all(
-      Array.from(buttons).map((b) => b.getText())
-    );
-    expect(texts).toContain('Dashboard');
-    expect(texts).toContain('Orders');
-    expect(texts).toContain('Batch');
-    expect(texts).toContain('Logs');
-    expect(texts).toContain('Shop Settings');
-    expect(texts).toContain('データのバックアップ');
-    expect(texts).toContain('Settings');
+    for (const id of [
+      'dashboard',
+      'orders',
+      'batch',
+      'logs',
+      'shop-settings',
+      'backup',
+      'api-keys',
+      'settings',
+    ]) {
+      const btn = await $(`[data-testid="${id}"]`);
+      await expect(btn).toBeDisplayed();
+    }
   });
 
   it('Dashboard 画面に遷移できる', async () => {
-    await navigateToScreen('Dashboard');
+    await navigateToScreen('dashboard');
     await expectScreenTitle('ダッシュボード');
   });
 
   it('Orders 画面に遷移できる', async () => {
-    await navigateToScreen('Orders');
+    await navigateToScreen('orders');
     await expectScreenTitle('商品一覧');
   });
 
   it('Batch 画面に遷移できる', async () => {
-    await navigateToScreen('Batch');
+    await navigateToScreen('batch');
     await expectScreenTitle('バッチ処理');
   });
 
   it('Logs 画面に遷移できる', async () => {
-    await navigateToScreen('Logs');
+    await navigateToScreen('logs');
     const heading = await $('h1');
     await expect(heading).toBeDisplayed({ wait: 10000 });
   });
 
   it('Shop Settings 画面に遷移できる', async () => {
-    await navigateToScreen('Shop Settings');
+    await navigateToScreen('shop-settings');
     const heading = await $('h1');
     await expect(heading).toBeDisplayed({ wait: 10000 });
   });
 
   it('データのバックアップ画面に遷移できる', async () => {
-    await navigateToScreen('データのバックアップ');
+    await navigateToScreen('backup');
     await expectScreenTitle('データのバックアップ');
   });
 
   it('API Keys 画面に遷移できる', async () => {
-    await navigateToScreen('API Keys');
+    await navigateToScreen('api-keys');
     const heading = await $('h1');
     await expect(heading).toBeDisplayed({ wait: 10000 });
   });
 
   it('Settings 画面に遷移できる', async () => {
-    await navigateToScreen('Settings');
+    await navigateToScreen('settings');
     await expectScreenTitle('設定');
   });
 
   it('設定画面で同期設定・パース設定カードが表示される', async () => {
-    await navigateToScreen('Settings');
+    await navigateToScreen('settings');
     const syncHeading = await $('h3=同期設定');
     await expect(syncHeading).toBeDisplayed();
     const parseHeading = await $('h3=パース設定');
@@ -80,7 +81,7 @@ describe('ナビゲーション (Tauri)', () => {
 
   it('Tables セクションを展開して Emails に遷移できる', async () => {
     await expandTablesSection();
-    const emailsBtn = await $('button=Emails');
+    const emailsBtn = await $('[data-testid="table-emails"]');
     await expect(emailsBtn).toBeDisplayed();
     await emailsBtn.click();
     const heading = await $('h1');
@@ -89,12 +90,12 @@ describe('ナビゲーション (Tauri)', () => {
 
   it('Tables セクションを展開して閉じることができる', async () => {
     await expandTablesSection();
-    const emailsBtn = await $('button=Emails');
+    const emailsBtn = await $('[data-testid="table-emails"]');
     await expect(emailsBtn).toBeDisplayed();
 
-    const tablesBtn = await $('button*=Tables');
+    const tablesBtn = await $('[data-testid="tables-section-toggle"]');
     await tablesBtn.click();
-    // 閉じた後は Tables ボタンに ▶ が表示される（折りたたみ状態）
+    // 閉じた後は「テーブル」ボタンに ▶ が表示される（折りたたみ状態）
     const tablesText = await tablesBtn.getText();
     expect(tablesText).toContain('▶');
   });

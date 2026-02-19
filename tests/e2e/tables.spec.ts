@@ -2,18 +2,11 @@ import { test, expect } from './fixtures';
 import type { Page } from '@playwright/test';
 import { expectSidebarVisible } from './helpers';
 
-function expandTablesAndNavigate(page: Page, tableName: string) {
+function expandTablesAndNavigate(page: Page, tableId: string) {
   return async () => {
-    const tablesButton = page.getByRole('button', { name: /Tables/ });
+    const tablesButton = page.getByTestId('tables-section-toggle');
     await tablesButton.click();
-    const tablesSection = page.locator('ul').filter({
-      has: page.getByRole('button', { name: 'Emails' }),
-    });
-    const tableButton = tablesSection.getByRole('button', {
-      name: tableName,
-      exact: true,
-    });
-    await tableButton.click();
+    await page.getByTestId(tableId).click();
   };
 }
 
@@ -26,64 +19,56 @@ test.describe('Tables画面', () => {
   test('Tablesセクションを展開してEmailsテーブルに遷移できる', async ({
     page,
   }) => {
-    await expandTablesAndNavigate(page, 'Emails')();
+    await expandTablesAndNavigate(page, 'table-emails')();
     await expect(
       page.getByRole('heading', { name: /Emails テーブル/ })
     ).toBeVisible();
   });
 
   test('複数のテーブルに遷移できる', async ({ page }) => {
-    await expandTablesAndNavigate(page, 'Emails')();
+    await expandTablesAndNavigate(page, 'table-emails')();
     await expect(
       page.getByRole('heading', { name: /Emails テーブル/ })
     ).toBeVisible({ timeout: 5000 });
 
-    const tablesSection = page.locator('ul').filter({
-      has: page.getByRole('button', { name: 'Emails' }),
-    });
     const tables = [
-      'Orders',
-      'Items',
-      'Images',
-      'Deliveries',
-      'HTMLs',
-      'Order-Emails',
-      'Order-HTMLs',
-      'Shop Settings',
-      'Product Master',
-      'Item Overrides',
-      'Order Overrides',
-      'Excluded Items',
-      'Excluded Orders',
+      { id: 'table-orders', heading: 'Orders' },
+      { id: 'table-items', heading: 'Items' },
+      { id: 'table-images', heading: 'Images' },
+      { id: 'table-deliveries', heading: 'Deliveries' },
+      { id: 'table-htmls', heading: 'HTMLs' },
+      { id: 'table-order-emails', heading: 'Order-Emails' },
+      { id: 'table-order-htmls', heading: 'Order-HTMLs' },
+      { id: 'table-shop-settings', heading: 'Shop Settings' },
+      { id: 'table-product-master', heading: 'Product Master' },
+      { id: 'table-item-overrides', heading: 'Item Overrides' },
+      { id: 'table-order-overrides', heading: 'Order Overrides' },
+      { id: 'table-excluded-items', heading: 'Excluded Items' },
+      { id: 'table-excluded-orders', heading: 'Excluded Orders' },
     ] as const;
-    for (const tableName of tables) {
-      await tablesSection
-        .getByRole('button', { name: tableName, exact: true })
-        .click();
+    for (const table of tables) {
+      await page.getByTestId(table.id).click();
       await expect(
-        page.getByRole('heading', { name: new RegExp(`${tableName} テーブル`) })
+        page.getByRole('heading', {
+          name: new RegExp(`${table.heading} テーブル`),
+        })
       ).toBeVisible({ timeout: 5000 });
     }
   });
 
   test('EmailsからOrdersテーブルに遷移できる', async ({ page }) => {
-    await expandTablesAndNavigate(page, 'Emails')();
+    await expandTablesAndNavigate(page, 'table-emails')();
     await expect(
       page.getByRole('heading', { name: /Emails テーブル/ })
     ).toBeVisible({ timeout: 5000 });
-    const tablesSection = page.locator('ul').filter({
-      has: page.getByRole('button', { name: 'Emails' }),
-    });
-    await tablesSection
-      .getByRole('button', { name: 'Orders', exact: true })
-      .click();
+    await page.getByTestId('table-orders').click();
     await expect(
       page.getByRole('heading', { name: /Orders テーブル/ })
     ).toBeVisible({ timeout: 5000 });
   });
 
   test('テーブル画面で読み込み中または結果が表示される', async ({ page }) => {
-    await expandTablesAndNavigate(page, 'Emails')();
+    await expandTablesAndNavigate(page, 'table-emails')();
     await expect(
       page.getByRole('heading', { name: /Emails テーブル/ })
     ).toBeVisible();
@@ -96,7 +81,7 @@ test.describe('Tables画面', () => {
   });
 
   test('更新ボタンをクリックできる', async ({ page }) => {
-    await expandTablesAndNavigate(page, 'Emails')();
+    await expandTablesAndNavigate(page, 'table-emails')();
     await expect(
       page.getByRole('heading', { name: /Emails テーブル/ })
     ).toBeVisible();
@@ -106,7 +91,7 @@ test.describe('Tables画面', () => {
   });
 
   test('ページネーションで次へをクリックできる', async ({ page }) => {
-    await expandTablesAndNavigate(page, 'Shop Settings')();
+    await expandTablesAndNavigate(page, 'table-shop-settings')();
     await expect(
       page.getByRole('heading', { name: /Shop Settings テーブル/ })
     ).toBeVisible({ timeout: 10000 });
@@ -118,7 +103,7 @@ test.describe('Tables画面', () => {
   });
 
   test('前へ・次へボタンが表示される', async ({ page }) => {
-    await expandTablesAndNavigate(page, 'Emails')();
+    await expandTablesAndNavigate(page, 'table-emails')();
     await expect(
       page.getByRole('heading', { name: /Emails テーブル/ })
     ).toBeVisible();
@@ -129,7 +114,7 @@ test.describe('Tables画面', () => {
   });
 
   test('セルをクリックすると詳細ダイアログが表示される', async ({ page }) => {
-    await expandTablesAndNavigate(page, 'Shop Settings')();
+    await expandTablesAndNavigate(page, 'table-shop-settings')();
     await expect(
       page.getByRole('heading', { name: /Shop Settings テーブル/ })
     ).toBeVisible({ timeout: 10000 });
