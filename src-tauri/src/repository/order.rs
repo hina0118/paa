@@ -6,7 +6,7 @@ use crate::parsers::OrderInfo;
 use async_trait::async_trait;
 #[cfg(test)]
 use mockall::automock;
-use once_cell;
+use once_cell::sync::Lazy;
 use regex::Regex;
 use sqlx::sqlite::{Sqlite, SqlitePool};
 use std::collections::{HashMap, HashSet};
@@ -105,7 +105,7 @@ pub trait OrderRepository: Send + Sync {
 
 /// 商品名比較用に【】[]（）() で囲まれた部分を除去する
 fn strip_bracketed_content(s: &str) -> String {
-    static RE: once_cell::sync::Lazy<Regex> = once_cell::sync::Lazy::new(|| {
+    static RE: Lazy<Regex> = Lazy::new(|| {
         // 【】[]（）() とその囲まれた内容を除去
         Regex::new(r"【[^】]*】|\[[^\]]*\]|（[^）]*）|\([^)]*\)")
             .expect("strip_bracketed_content regex")
