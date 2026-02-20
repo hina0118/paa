@@ -1,11 +1,13 @@
-use super::hobbysearch_common::{extract_amounts, extract_delivery_address, parse_item_line};
-use super::{EmailParser, OrderInfo, OrderItem};
+use super::{extract_delivery_address, extract_yoyaku_total, parse_item_line};
+use crate::parsers::{EmailParser, OrderInfo, OrderItem};
 use regex::Regex;
 
-/// 注文確認メール用パーサー
-pub struct HobbySearchConfirmParser;
+/// 組み換え（予約）メール用パーサー
+/// 注: このパーサーは既存の注文番号に対して商品を完全に置き換えます
+/// 元の注文（統合元）との紐付けは将来的に実装予定
+pub struct HobbySearchChangeYoyakuParser;
 
-impl EmailParser for HobbySearchConfirmParser {
+impl EmailParser for HobbySearchChangeYoyakuParser {
     fn parse(&self, email_body: &str) -> Result<OrderInfo, String> {
         let lines: Vec<&str> = email_body.lines().collect();
 
@@ -15,21 +17,21 @@ impl EmailParser for HobbySearchConfirmParser {
         // 配送先情報を抽出
         let delivery_address = extract_delivery_address(&lines);
 
-        // 商品情報を抽出（[ご購入内容]セクション）
-        let items = extract_purchase_items(&lines)?;
+        // 組み換え後の商品情報を抽出（[ご予約内容]セクション）
+        let items = extract_yoyaku_items(&lines)?;
 
-        // 金額情報を抽出
-        let (subtotal, shipping_fee, total_amount) = extract_amounts(&lines);
+        // 予約商品合計を抽出
+        let subtotal = extract_yoyaku_total(&lines);
 
         Ok(OrderInfo {
             order_number,
             order_date: None,
             delivery_address,
-            delivery_info: None, // 注文確認時点では配送情報なし
+            delivery_info: None,
             items,
             subtotal,
-            shipping_fee,
-            total_amount,
+            shipping_fee: None,
+            total_amount: None,
         })
     }
 }
@@ -50,10 +52,10 @@ fn extract_order_number(lines: &[&str]) -> Result<String, String> {
     Err("Order number not found".to_string())
 }
 
-/// 商品情報を抽出（[ご購入内容]セクション）
-fn extract_purchase_items(lines: &[&str]) -> Result<Vec<OrderItem>, String> {
+/// 組み換え後の商品情報を抽出（[ご予約内容]セクション）
+fn extract_yoyaku_items(lines: &[&str]) -> Result<Vec<OrderItem>, String> {
     let mut items = Vec::new();
-    let mut in_purchase_section = false;
+    let mut in_yoyaku_section = false;
 
     // 商品行のパターン: "メーカー 品番 商品名 (プラモデル) シリーズ"
     // 次の行: "単価：X円 × 個数：Y = Z円"
@@ -64,19 +66,21 @@ fn extract_purchase_items(lines: &[&str]) -> Result<Vec<OrderItem>, String> {
     while i < lines.len() {
         let line = lines[i].trim();
 
-        // [ご購入内容]セクション開始
-        if line == "[ご購入内容]" {
-            in_purchase_section = true;
+        // [ご予約内容]セクション開始
+        if line == "[ご予約内容]" {
+            in_yoyaku_section = true;
             i += 1;
             continue;
         }
 
-        // セクション終了判定（小計または区切り線）
-        if in_purchase_section && (line.starts_with("小計") || line.starts_with("[▼")) {
+        // セクション終了判定（予約商品合計または空行）
+        if in_yoyaku_section
+            && (line.starts_with("予約商品合計") || line.starts_with("一回の発送ごとに"))
+        {
             break;
         }
 
-        if in_purchase_section && !line.is_empty() && !line.starts_with("単価：") {
+        if in_yoyaku_section && !line.is_empty() && !line.starts_with("単価：") {
             // 次の行に価格情報があるか確認
             if i + 1 < lines.len() {
                 let next_line = lines[i + 1].trim();
@@ -130,57 +134,44 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_hobbysearch_confirm() {
+    fn test_parse_hobbysearch_change_yoyaku() {
         // NOTE: `sample/` 配下のファイルは使わず、テスト内でダミー本文を生成する。
-        let sample_email = r#"[注文番号] 25-0821-1050
+        let sample_email = r#"[注文番号] 12-3456-7890
 
 [商品お届け先]
 山田 太郎 様
-〒100-0001 福岡県テスト市1-2-3
+〒100-0001 東京都千代田区1-1-1
 
-[ご購入内容]
-バンダイ 2733949 ★特価品 カスタマイズマテリアル(デコレーションパーツ1 ホワイト)
-単価：462円 × 個数：1 = 462円
-メーカー2 111 商品2
-単価：400円 × 個数：1 = 400円
-メーカー3 222 商品3
-単価：500円 × 個数：1 = 500円
-メーカー4 333 商品4
-単価：524円 × 個数：1 = 524円
+[ご予約内容]
+コトブキヤ FG195 サンプル予約商品
+単価：8,096円 × 個数：1 = 8,096円
 
-小計 1,886円
-送料 660円
-合計 2,546円
+予約商品合計 8,096円
 "#;
-        let parser = HobbySearchConfirmParser;
+        let parser = HobbySearchChangeYoyakuParser;
         let result = parser.parse(sample_email);
 
         assert!(result.is_ok());
         let order_info = result.unwrap();
 
-        // 注文番号の確認
-        assert_eq!(order_info.order_number, "25-0821-1050");
+        // 注文番号の確認（XX-XXXX-XXXX 形式、個人情報を含む具体値は避ける）
+        let order_no_re = Regex::new(r"^\d+-\d+-\d+$").unwrap();
+        assert!(order_no_re.is_match(&order_info.order_number));
 
-        // 商品数の確認
-        assert_eq!(order_info.items.len(), 4);
+        // 商品数の確認（組み換え後）
+        assert!(!order_info.items.is_empty());
 
-        // 最初の商品の確認
-        assert_eq!(
-            order_info.items[0].name,
-            "バンダイ 2733949 ★特価品 カスタマイズマテリアル(デコレーションパーツ1 ホワイト)"
-        );
-        assert_eq!(order_info.items[0].unit_price, 462);
-        assert_eq!(order_info.items[0].quantity, 1);
+        // 最初の商品の確認（名前・単価・数量が正しくパースされていること）
+        assert!(!order_info.items[0].name.is_empty());
+        assert!(order_info.items[0].unit_price > 0);
+        assert!(order_info.items[0].quantity > 0);
 
-        // 金額情報の確認
-        assert_eq!(order_info.subtotal, Some(1886));
-        assert_eq!(order_info.shipping_fee, Some(660));
-        assert_eq!(order_info.total_amount, Some(2546));
+        // 予約商品合計の確認
+        assert!(order_info.subtotal.unwrap() > 0);
 
         // 配送先の確認
         assert!(order_info.delivery_address.is_some());
         let address = order_info.delivery_address.unwrap();
-        assert_eq!(address.name, "山田 太郎");
-        assert_eq!(address.postal_code, Some("100-0001".to_string()));
+        assert!(!address.name.is_empty());
     }
 }

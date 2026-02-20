@@ -1,13 +1,11 @@
-use super::hobbysearch_common::{extract_delivery_address, extract_yoyaku_total, parse_item_line};
-use super::{EmailParser, OrderInfo, OrderItem};
+use super::{extract_delivery_address, extract_yoyaku_total, parse_item_line};
+use crate::parsers::{EmailParser, OrderInfo, OrderItem};
 use regex::Regex;
 
-/// 組み換え（予約）メール用パーサー
-/// 注: このパーサーは既存の注文番号に対して商品を完全に置き換えます
-/// 元の注文（統合元）との紐付けは将来的に実装予定
-pub struct HobbySearchChangeYoyakuParser;
+/// 予約注文確認メール用パーサー
+pub struct HobbySearchConfirmYoyakuParser;
 
-impl EmailParser for HobbySearchChangeYoyakuParser {
+impl EmailParser for HobbySearchConfirmYoyakuParser {
     fn parse(&self, email_body: &str) -> Result<OrderInfo, String> {
         let lines: Vec<&str> = email_body.lines().collect();
 
@@ -17,7 +15,7 @@ impl EmailParser for HobbySearchChangeYoyakuParser {
         // 配送先情報を抽出
         let delivery_address = extract_delivery_address(&lines);
 
-        // 組み換え後の商品情報を抽出（[ご予約内容]セクション）
+        // 商品情報を抽出（[ご予約内容]セクション）
         let items = extract_yoyaku_items(&lines)?;
 
         // 予約商品合計を抽出
@@ -27,10 +25,10 @@ impl EmailParser for HobbySearchChangeYoyakuParser {
             order_number,
             order_date: None,
             delivery_address,
-            delivery_info: None,
+            delivery_info: None, // 予約確認時点では配送情報なし
             items,
             subtotal,
-            shipping_fee: None,
+            shipping_fee: None, // 予約時は送料別計算
             total_amount: None,
         })
     }
@@ -52,7 +50,7 @@ fn extract_order_number(lines: &[&str]) -> Result<String, String> {
     Err("Order number not found".to_string())
 }
 
-/// 組み換え後の商品情報を抽出（[ご予約内容]セクション）
+/// 予約商品情報を抽出（[ご予約内容]セクション）
 fn extract_yoyaku_items(lines: &[&str]) -> Result<Vec<OrderItem>, String> {
     let mut items = Vec::new();
     let mut in_yoyaku_section = false;
@@ -134,44 +132,45 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_hobbysearch_change_yoyaku() {
+    fn test_parse_hobbysearch_confirm_yoyaku() {
         // NOTE: `sample/` 配下のファイルは使わず、テスト内でダミー本文を生成する。
-        let sample_email = r#"[注文番号] 12-3456-7890
+        let sample_email = r#"[注文番号] 25-1021-1156
 
-[商品お届け先]
-山田 太郎 様
-〒100-0001 東京都千代田区1-1-1
+[商品お届け先]  山田 太郎 様
+〒100-0001 福岡県テスト市1-2-3
 
 [ご予約内容]
-コトブキヤ FG195 サンプル予約商品
+コトブキヤ FG195 フレームアームズ・ガール ドゥルガーII 〈ノワールVer.〉
 単価：8,096円 × 個数：1 = 8,096円
 
 予約商品合計 8,096円
 "#;
-        let parser = HobbySearchChangeYoyakuParser;
+        let parser = HobbySearchConfirmYoyakuParser;
         let result = parser.parse(sample_email);
 
         assert!(result.is_ok());
         let order_info = result.unwrap();
 
-        // 注文番号の確認（XX-XXXX-XXXX 形式、個人情報を含む具体値は避ける）
-        let order_no_re = Regex::new(r"^\d+-\d+-\d+$").unwrap();
-        assert!(order_no_re.is_match(&order_info.order_number));
+        // 注文番号の確認
+        assert_eq!(order_info.order_number, "25-1021-1156");
 
-        // 商品数の確認（組み換え後）
-        assert!(!order_info.items.is_empty());
+        // 商品数の確認
+        assert_eq!(order_info.items.len(), 1);
 
-        // 最初の商品の確認（名前・単価・数量が正しくパースされていること）
-        assert!(!order_info.items[0].name.is_empty());
-        assert!(order_info.items[0].unit_price > 0);
-        assert!(order_info.items[0].quantity > 0);
+        // 商品の確認
+        assert_eq!(
+            order_info.items[0].name,
+            "コトブキヤ FG195 フレームアームズ・ガール ドゥルガーII 〈ノワールVer.〉"
+        );
+        assert_eq!(order_info.items[0].unit_price, 8096);
+        assert_eq!(order_info.items[0].quantity, 1);
 
         // 予約商品合計の確認
-        assert!(order_info.subtotal.unwrap() > 0);
+        assert_eq!(order_info.subtotal, Some(8096));
 
         // 配送先の確認
         assert!(order_info.delivery_address.is_some());
         let address = order_info.delivery_address.unwrap();
-        assert!(!address.name.is_empty());
+        assert_eq!(address.name, "山田 太郎");
     }
 }

@@ -1,13 +1,11 @@
-use super::hobbysearch_common::{extract_amounts, extract_delivery_address, parse_item_line};
-use super::{EmailParser, OrderInfo, OrderItem};
+use super::{extract_amounts, extract_delivery_address, parse_item_line};
+use crate::parsers::{EmailParser, OrderInfo, OrderItem};
 use regex::Regex;
 
-/// 組み換え（購入分）メール用パーサー
-/// 注: このパーサーは既存の注文番号に対して商品を完全に置き換えます
-/// [ご購入内容]セクションを持つ組み替えメールを処理
-pub struct HobbySearchChangeParser;
+/// 注文確認メール用パーサー
+pub struct HobbySearchConfirmParser;
 
-impl EmailParser for HobbySearchChangeParser {
+impl EmailParser for HobbySearchConfirmParser {
     fn parse(&self, email_body: &str) -> Result<OrderInfo, String> {
         let lines: Vec<&str> = email_body.lines().collect();
 
@@ -20,14 +18,14 @@ impl EmailParser for HobbySearchChangeParser {
         // 商品情報を抽出（[ご購入内容]セクション）
         let items = extract_purchase_items(&lines)?;
 
-        // 金額情報を抽出（小計・送料・合計）
+        // 金額情報を抽出
         let (subtotal, shipping_fee, total_amount) = extract_amounts(&lines);
 
         Ok(OrderInfo {
             order_number,
             order_date: None,
             delivery_address,
-            delivery_info: None,
+            delivery_info: None, // 注文確認時点では配送情報なし
             items,
             subtotal,
             shipping_fee,
@@ -132,47 +130,57 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_hobbysearch_change() {
+    fn test_parse_hobbysearch_confirm() {
         // NOTE: `sample/` 配下のファイルは使わず、テスト内でダミー本文を生成する。
-        let sample_email = r#"[注文番号] 12-3456-7890
+        let sample_email = r#"[注文番号] 25-0821-1050
 
-[商品お届け先]  山田 太郎 様
-〒100-0001 東京都千代田区1-1-1
+[商品お届け先]
+山田 太郎 様
+〒100-0001 福岡県テスト市1-2-3
 
 [ご購入内容]
-バンダイ 2733949 サンプル商品A
-単価：1,000円 × 個数：2 = 2,000円
+バンダイ 2733949 ★特価品 カスタマイズマテリアル(デコレーションパーツ1 ホワイト)
+単価：462円 × 個数：1 = 462円
+メーカー2 111 商品2
+単価：400円 × 個数：1 = 400円
+メーカー3 222 商品3
+単価：500円 × 個数：1 = 500円
+メーカー4 333 商品4
+単価：524円 × 個数：1 = 524円
 
-小計 2,000円
-送料 0円
-合計 2,000円
+小計 1,886円
+送料 660円
+合計 2,546円
 "#;
-        let parser = HobbySearchChangeParser;
+        let parser = HobbySearchConfirmParser;
         let result = parser.parse(sample_email);
 
         assert!(result.is_ok());
         let order_info = result.unwrap();
 
-        // 注文番号の確認（XX-XXXX-XXXX 形式）
-        let order_no_re = Regex::new(r"^\d+-\d+-\d+$").unwrap();
-        assert!(order_no_re.is_match(&order_info.order_number));
+        // 注文番号の確認
+        assert_eq!(order_info.order_number, "25-0821-1050");
 
         // 商品数の確認
-        assert!(!order_info.items.is_empty());
+        assert_eq!(order_info.items.len(), 4);
 
-        // 最初の商品の確認（名前・単価・数量が正しくパースされていること）
-        assert!(!order_info.items[0].name.is_empty());
-        assert!(order_info.items[0].unit_price > 0);
-        assert!(order_info.items[0].quantity > 0);
+        // 最初の商品の確認
+        assert_eq!(
+            order_info.items[0].name,
+            "バンダイ 2733949 ★特価品 カスタマイズマテリアル(デコレーションパーツ1 ホワイト)"
+        );
+        assert_eq!(order_info.items[0].unit_price, 462);
+        assert_eq!(order_info.items[0].quantity, 1);
 
         // 金額情報の確認
-        assert!(order_info.subtotal.unwrap() > 0);
-        assert!(order_info.shipping_fee.unwrap() >= 0);
-        assert!(order_info.total_amount.unwrap() > 0);
+        assert_eq!(order_info.subtotal, Some(1886));
+        assert_eq!(order_info.shipping_fee, Some(660));
+        assert_eq!(order_info.total_amount, Some(2546));
 
         // 配送先の確認
         assert!(order_info.delivery_address.is_some());
         let address = order_info.delivery_address.unwrap();
-        assert!(!address.name.is_empty());
+        assert_eq!(address.name, "山田 太郎");
+        assert_eq!(address.postal_code, Some("100-0001".to_string()));
     }
 }
