@@ -62,19 +62,27 @@ export async function navigateToTable(tableId: string) {
 }
 
 /**
- * 表示中のSonnerトーストがすべて消えるまで待機する
- * クリック操作の前に呼び出すことでトーストによるブロックを防ぐ
+ * 表示中のSonnerトーストが消えるまでベストエフォートで待機する（最大 MAX_ITERATIONS 回）
+ * クリック操作の前に呼び出すことでトーストによるブロックを防ぐ。
+ * 上限に達してもトーストが残っている場合は待機を諦め、後続のクリック操作側で成否を判定させる。
  */
 export async function dismissToasts() {
-  while (true) {
+  const MAX_ITERATIONS = 10;
+  for (let _i = 0; _i < MAX_ITERATIONS; _i++) {
     const toasts = await $$('[data-sonner-toast]');
     if (toasts.length === 0) return;
     try {
       await toasts[0].waitForDisplayed({ reverse: true, timeout: 10000 });
-    } catch {
-      // 一定時間待ってもトーストが消えない場合はここで終了し、
-      // その後のクリック操作側でブロックされていればそこで失敗させる
-      return;
+    } catch (error) {
+      // waitForDisplayed はタイムアウト時に例外を投げるが、このヘルパーでは
+      // 「一定時間待っても消えない場合は待機を諦めて次の操作に進む」方針とする。
+      if (error instanceof Error && error.name === 'WaitUntilTimeoutError') {
+        return;
+      }
+      // タイムアウト以外のエラーは想定外なのでそのまま送出する
+      throw error;
     }
   }
+  // MAX_ITERATIONS 到達時もトーストが残っている可能性があるが、
+  // ここでは待機を諦め、後続のクリック操作側で成否を判定させる。
 }
