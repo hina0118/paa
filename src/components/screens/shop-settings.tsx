@@ -420,6 +420,7 @@ export function ShopSettings() {
                             variant="outline"
                             size="sm"
                             aria-expanded={isExpanded}
+                            aria-controls={`parsers-${group.shop_name}`}
                             onClick={() => toggleExpand(group.shop_name)}
                           >
                             {isExpanded ? (
@@ -440,7 +441,10 @@ export function ShopSettings() {
 
                     {/* Expanded parser rows */}
                     {isExpanded && (
-                      <div className="border-t bg-muted/30">
+                      <div
+                        id={`parsers-${group.shop_name}`}
+                        className="border-t bg-muted/30"
+                      >
                         <div className="p-3 space-y-3">
                           {group.parsers.map((shop) => (
                             <div
