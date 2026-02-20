@@ -3,6 +3,7 @@ import {
   navigateToScreen,
   expectSidebarVisible,
   expectScreenTitle,
+  dismissToasts,
 } from './helpers';
 
 test.describe('Shop Settings画面', () => {
@@ -10,6 +11,7 @@ test.describe('Shop Settings画面', () => {
     await page.goto('/');
     await expectSidebarVisible(page);
     await navigateToScreen(page, 'shop-settings');
+    await dismissToasts(page);
   });
 
   test('Shop Settings画面が表示される', async ({ page }) => {

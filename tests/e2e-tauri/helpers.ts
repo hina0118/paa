@@ -66,12 +66,14 @@ export async function navigateToTable(tableId: string) {
  * クリック操作の前に呼び出すことでトーストによるブロックを防ぐ
  */
 export async function dismissToasts() {
-  const toast = await $('[data-sonner-toast]');
-  const exists = await toast.isExisting();
-  if (!exists) return;
-  const visible = await toast.isDisplayed();
-  if (!visible) return;
-  await toast
-    .waitForDisplayed({ reverse: true, timeout: 10000 })
-    .catch(() => {});
+  while (true) {
+    const toast = await $('[data-sonner-toast]');
+    const exists = await toast.isExisting();
+    if (!exists) return;
+    const visible = await toast.isDisplayed();
+    if (!visible) return;
+    await toast
+      .waitForDisplayed({ reverse: true, timeout: 10000 })
+      .catch(() => {});
+  }
 }
