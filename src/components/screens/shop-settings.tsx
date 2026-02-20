@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { toastSuccess, toastError, formatError } from '@/lib/toast';
 
 interface ShopSetting {
@@ -29,7 +30,7 @@ interface ShopSettingDisplay extends Omit<ShopSetting, 'subject_filters'> {
 
 interface ShopGroup {
   shop_name: string;
-  is_enabled: boolean; // true if all parsers are enabled
+  is_enabled: boolean; // true if all parsers in the group are enabled
   parsers: ShopSettingDisplay[];
 }
 
@@ -45,6 +46,10 @@ function groupShops(shops: ShopSettingDisplay[]): ShopGroup[] {
     is_enabled: parsers.every((p) => p.is_enabled),
     parsers,
   }));
+}
+
+function toPanelId(shopName: string): string {
+  return `parsers-${shopName.replace(/[^\w-]/g, '-')}`;
 }
 
 export function ShopSettings() {
@@ -418,6 +423,12 @@ export function ShopSettings() {
                           <Button
                             variant="outline"
                             size="sm"
+                            aria-expanded={isExpanded}
+                            aria-controls={
+                              isExpanded
+                                ? toPanelId(group.shop_name)
+                                : undefined
+                            }
                             onClick={() => toggleExpand(group.shop_name)}
                           >
                             {isExpanded ? (
@@ -438,7 +449,10 @@ export function ShopSettings() {
 
                     {/* Expanded parser rows */}
                     {isExpanded && (
-                      <div className="border-t bg-muted/30">
+                      <div
+                        id={toPanelId(group.shop_name)}
+                        className="border-t bg-muted/30"
+                      >
                         <div className="p-3 space-y-3">
                           {group.parsers.map((shop) => (
                             <div
@@ -565,6 +579,26 @@ export function ShopSettings() {
                                     <p className="text-xs text-muted-foreground">
                                       設定した場合、いずれかの件名パターンを含むメールのみを取り込みます
                                     </p>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <Checkbox
+                                      id={`is-enabled-${shop.id}`}
+                                      checked={
+                                        editForm.is_enabled ?? shop.is_enabled
+                                      }
+                                      onCheckedChange={(checked) =>
+                                        setEditForm({
+                                          ...editForm,
+                                          is_enabled: checked === true,
+                                        })
+                                      }
+                                    />
+                                    <label
+                                      htmlFor={`is-enabled-${shop.id}`}
+                                      className="text-sm font-medium cursor-pointer"
+                                    >
+                                      有効
+                                    </label>
                                   </div>
                                   <div className="flex gap-2">
                                     <Button
