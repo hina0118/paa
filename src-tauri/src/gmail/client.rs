@@ -1014,10 +1014,20 @@ pub async fn toggle_shop_enabled(
 mod shop_settings_tests {
     use super::*;
     use std::collections::HashMap;
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+    use std::str::FromStr;
 
     async fn setup_test_db() -> SqlitePool {
         // Use an in-memory SQLite database for isolation
-        let pool = SqlitePool::connect(":memory:")
+        // Note: We must use SqliteConnectOptions + SqlitePoolOptions with max_connections=1
+        // to ensure all queries see the same in-memory database.
+        let connect_options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .expect("failed to parse sqlite::memory: connect options")
+            .create_if_missing(true);
+
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(connect_options)
             .await
             .expect("failed to create in-memory sqlite pool");
 
