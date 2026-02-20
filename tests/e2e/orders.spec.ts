@@ -3,6 +3,7 @@ import {
   navigateToScreen,
   expectScreenTitle,
   expectSidebarVisible,
+  dismissToasts,
 } from './helpers';
 
 test.describe('Orders画面（商品一覧）', () => {
@@ -11,6 +12,7 @@ test.describe('Orders画面（商品一覧）', () => {
     await expectSidebarVisible(page);
     await navigateToScreen(page, 'orders');
     await expectScreenTitle(page, '商品一覧');
+    await dismissToasts(page);
   });
 
   test('検索ボックスが表示される', async ({ page }) => {

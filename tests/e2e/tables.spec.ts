@@ -1,6 +1,6 @@
 import { test, expect } from './fixtures';
 import type { Page } from '@playwright/test';
-import { expectSidebarVisible } from './helpers';
+import { expectSidebarVisible, dismissToasts } from './helpers';
 
 function expandTablesAndNavigate(page: Page, tableId: string) {
   return async () => {
@@ -85,6 +85,7 @@ test.describe('Tables画面', () => {
     await expect(
       page.getByRole('heading', { name: /Emails テーブル/ })
     ).toBeVisible();
+    await dismissToasts(page);
     const refreshButton = page.getByRole('button', { name: '更新' });
     await expect(refreshButton).toBeVisible({ timeout: 10000 });
     await refreshButton.click();
@@ -95,6 +96,7 @@ test.describe('Tables画面', () => {
     await expect(
       page.getByRole('heading', { name: /Shop Settings テーブル/ })
     ).toBeVisible({ timeout: 10000 });
+    await dismissToasts(page);
     await expect(page.getByText(/55件/)).toBeVisible();
     const nextButton = page.getByRole('button', { name: /次へ/ });
     await expect(nextButton).toBeEnabled();
@@ -118,6 +120,7 @@ test.describe('Tables画面', () => {
     await expect(
       page.getByRole('heading', { name: /Shop Settings テーブル/ })
     ).toBeVisible({ timeout: 10000 });
+    await dismissToasts(page);
     const clickableCell = page
       .locator('td[title="クリックして全文表示"]')
       .first();

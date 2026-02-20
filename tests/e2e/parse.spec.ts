@@ -1,11 +1,16 @@
 import { test, expect } from './fixtures';
-import { navigateToScreen, expectSidebarVisible } from './helpers';
+import {
+  navigateToScreen,
+  expectSidebarVisible,
+  dismissToasts,
+} from './helpers';
 
 test.describe('Parse画面（Batch内）', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await expectSidebarVisible(page);
     await navigateToScreen(page, 'batch');
+    await dismissToasts(page);
   });
 
   test('パースセクションが表示される', async ({ page }) => {

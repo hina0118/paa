@@ -3,6 +3,7 @@ import {
   navigateToScreen,
   expectScreenTitle,
   expectSidebarVisible,
+  dismissToasts,
 } from './helpers';
 
 test.describe('ナビゲーション', () => {
@@ -10,6 +11,7 @@ test.describe('ナビゲーション', () => {
     await page.goto('/');
     // サイドバーが表示されるまで待機
     await expectSidebarVisible(page);
+    await dismissToasts(page);
   });
 
   test('サイドバーが表示される', async ({ page }) => {

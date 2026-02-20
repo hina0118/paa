@@ -3,6 +3,7 @@ import {
   navigateToScreen,
   expectScreenTitle,
   expectButtonEnabled,
+  dismissToasts,
 } from './helpers';
 
 test.describe('ダッシュボード画面', () => {
@@ -10,6 +11,7 @@ test.describe('ダッシュボード画面', () => {
     await page.goto('/');
     await navigateToScreen(page, 'dashboard');
     await expectScreenTitle(page, 'ダッシュボード');
+    await dismissToasts(page);
   });
 
   test('サイドバーからダッシュボード画面に遷移できる', async ({ page }) => {
