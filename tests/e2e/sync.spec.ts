@@ -3,6 +3,7 @@ import {
   navigateToScreen,
   expectScreenTitle,
   expectSidebarVisible,
+  dismissToasts,
 } from './helpers';
 
 test.describe('Sync画面（Batch内）', () => {
@@ -11,6 +12,7 @@ test.describe('Sync画面（Batch内）', () => {
     await expectSidebarVisible(page);
     await navigateToScreen(page, 'batch');
     await expectScreenTitle(page, 'バッチ処理');
+    await dismissToasts(page);
   });
 
   test('Gmail同期セクションが表示される', async ({ page }) => {

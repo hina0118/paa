@@ -60,3 +60,18 @@ export async function navigateToTable(tableId: string) {
   await btn.waitForDisplayed({ timeout: 3000 });
   await btn.click();
 }
+
+/**
+ * 表示中のSonnerトーストがすべて消えるまで待機する
+ * クリック操作の前に呼び出すことでトーストによるブロックを防ぐ
+ */
+export async function dismissToasts() {
+  const toast = await $('[data-sonner-toast]');
+  const exists = await toast.isExisting();
+  if (!exists) return;
+  const visible = await toast.isDisplayed();
+  if (!visible) return;
+  await toast
+    .waitForDisplayed({ reverse: true, timeout: 10000 })
+    .catch(() => {});
+}
