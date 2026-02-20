@@ -10,7 +10,6 @@
     "tauri": "tauri",
     "test:e2e": "playwright test",
     "test:e2e:tauri": "wdio run wdio.tauri.conf.ts",
-    "test:e2e:tauri:coverage": "cross-env PAA_E2E_COVERAGE=1 wdio run wdio.tauri.conf.ts",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:coverage": "playwright test && powershell -ExecutionPolicy Bypass -File scripts/show-e2e-coverage.ps1",
     "test:e2e:rust-coverage": "powershell -ExecutionPolicy Bypass -File scripts/e2e-with-rust-coverage.ps1",
