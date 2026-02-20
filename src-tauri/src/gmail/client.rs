@@ -993,6 +993,23 @@ pub async fn get_enabled_shop_settings(pool: &SqlitePool) -> Result<Vec<ShopSett
     .map_err(|e| format!("Failed to fetch enabled shop settings: {e}"))
 }
 
+/// Toggle is_enabled for all rows with the given shop_name
+pub async fn toggle_shop_enabled(
+    pool: &SqlitePool,
+    shop_name: &str,
+    is_enabled: bool,
+) -> Result<(), String> {
+    sqlx::query(
+        "UPDATE shop_settings SET is_enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE shop_name = ?",
+    )
+    .bind(is_enabled)
+    .bind(shop_name)
+    .execute(pool)
+    .await
+    .map_err(|e| format!("Failed to toggle shop enabled: {e}"))?;
+    Ok(())
+}
+
 /// Create a new shop setting
 pub async fn create_shop_setting(
     pool: &SqlitePool,

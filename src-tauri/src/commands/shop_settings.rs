@@ -53,3 +53,12 @@ pub async fn delete_shop_setting(
 ) -> Result<(), String> {
     gmail::delete_shop_setting(pool.inner(), id).await
 }
+
+#[tauri::command]
+pub async fn toggle_shop_enabled(
+    pool: tauri::State<'_, SqlitePool>,
+    shop_name: String,
+    is_enabled: bool,
+) -> Result<(), String> {
+    gmail::toggle_shop_enabled(pool.inner(), &shop_name, is_enabled).await
+}
