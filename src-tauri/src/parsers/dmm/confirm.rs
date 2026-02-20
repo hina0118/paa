@@ -5,7 +5,7 @@
 //!
 //! HTML を優先してパースし、フォールバックでテキストをパースする。
 
-use super::{EmailParser, OrderInfo, OrderItem};
+use crate::parsers::{DeliveryAddress, EmailParser, OrderInfo, OrderItem};
 use regex::Regex;
 use scraper::{Element, Html, Selector};
 
@@ -146,9 +146,7 @@ fn extract_order_date_from_html(document: &Html) -> Option<String> {
     None
 }
 
-pub(crate) fn extract_delivery_address_from_html(
-    document: &Html,
-) -> Option<super::DeliveryAddress> {
+pub(crate) fn extract_delivery_address_from_html(document: &Html) -> Option<DeliveryAddress> {
     let td_selector = Selector::parse("td").unwrap_or_else(|_| Selector::parse("div").unwrap());
     let re = Regex::new(r"受取人のお名前\s*[：:]\s*(.+)").ok()?;
     let re2 = Regex::new(r"購入者のお名前\s*[：:]\s*(.+)").ok()?;
@@ -159,7 +157,7 @@ pub(crate) fn extract_delivery_address_from_html(
             if let Some(m) = captures.get(1) {
                 let name = m.as_str().trim().trim_end_matches('様').trim().to_string();
                 if !name.is_empty() {
-                    return Some(super::DeliveryAddress {
+                    return Some(DeliveryAddress {
                         name,
                         postal_code: None,
                         address: None,
@@ -489,7 +487,7 @@ fn extract_order_date(lines: &[&str]) -> Option<String> {
     None
 }
 
-fn extract_delivery_address(lines: &[&str]) -> Option<super::DeliveryAddress> {
+fn extract_delivery_address(lines: &[&str]) -> Option<DeliveryAddress> {
     let patterns = [
         Regex::new(r"受取人のお名前\s*[：:]\s*(.+)"),
         Regex::new(r"購入者のお名前\s*[：:]\s*(.+)"),
@@ -501,7 +499,7 @@ fn extract_delivery_address(lines: &[&str]) -> Option<super::DeliveryAddress> {
                 if let Some(m) = cap.get(1) {
                     let name = m.as_str().trim().trim_end_matches('様').trim().to_string();
                     if !name.is_empty() {
-                        return Some(super::DeliveryAddress {
+                        return Some(DeliveryAddress {
                             name,
                             postal_code: None,
                             address: None,
@@ -738,7 +736,7 @@ DMM通販をご利用いただき、ありがとうございます。
 下記の内容にてご注文を承りましたのでご確認ください。
 
 ■　ご注文内容確認
-ご注文番号:28156389　
+ご注文番号:28156389
 ご注文日：2025/9/16
 お支払い方法:クレジットカード
 
@@ -785,7 +783,7 @@ DMM通販をご利用いただき、ありがとうございます。
 下記の内容にてご注文を承りましたのでご確認ください。
 
 ■　ご注文内容確認
-ご注文番号:24167237　
+ご注文番号:24167237
 ご注文日：2023/12/26
 お支払い方法:クレジットカード
 
@@ -957,7 +955,7 @@ DMM通販をご利用いただき、ありがとうございます。
 下記の内容にてご注文を承りましたのでご確認ください。
 
 ■　ご注文内容確認
-ご注文番号:17033992　
+ご注文番号:17033992
 ご注文日：2019/12/5
 お支払い方法:クレジットカード
 

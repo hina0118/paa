@@ -1,5 +1,5 @@
-use super::hobbysearch_common::{extract_amounts, extract_delivery_address, parse_item_line};
-use super::{EmailParser, OrderInfo, OrderItem};
+use super::{extract_amounts, extract_delivery_address, parse_item_line};
+use crate::parsers::{EmailParser, OrderInfo, OrderItem};
 use regex::Regex;
 
 /// 注文確認メール用パーサー

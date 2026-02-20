@@ -57,22 +57,9 @@ pub mod order_number_change_info;
 // まとめ完了情報（全店舗共通）
 pub mod consolidation_info;
 
-// ホビーサーチ用の共通パースユーティリティ関数
-mod hobbysearch_common;
-
-// ホビーサーチ用パーサー
-pub mod dmm_cancel;
-pub mod dmm_confirm;
-pub mod dmm_merge_complete;
-pub mod dmm_order_number_change;
-pub mod dmm_send;
-pub mod dmm_split_complete;
-pub mod hobbysearch_cancel;
-pub mod hobbysearch_change;
-pub mod hobbysearch_change_yoyaku;
-pub mod hobbysearch_confirm;
-pub mod hobbysearch_confirm_yoyaku;
-pub mod hobbysearch_send;
+// ベンダーごとのパーサーモジュール
+pub mod dmm;
+pub mod hobbysearch;
 
 // BatchTask 実装
 pub mod email_parse_task;
@@ -315,8 +302,8 @@ pub(crate) fn parse_cancel_with_parser(
     body: &str,
 ) -> Result<CancelInfo, String> {
     match parser_type {
-        "hobbysearch_cancel" => hobbysearch_cancel::HobbySearchCancelParser.parse_cancel(body),
-        "dmm_cancel" => dmm_cancel::DmmCancelParser.parse_cancel(body),
+        "hobbysearch_cancel" => hobbysearch::cancel::HobbySearchCancelParser.parse_cancel(body),
+        "dmm_cancel" => dmm::cancel::DmmCancelParser.parse_cancel(body),
         _ => Err(format!("Unknown cancel parser: {}", parser_type)),
     }
 }
@@ -328,7 +315,7 @@ pub(crate) fn parse_order_number_change_with_parser(
 ) -> Result<order_number_change_info::OrderNumberChangeInfo, String> {
     match parser_type {
         "dmm_order_number_change" => {
-            dmm_order_number_change::DmmOrderNumberChangeParser.parse_order_number_change(body)
+            dmm::order_number_change::DmmOrderNumberChangeParser.parse_order_number_change(body)
         }
         _ => Err(format!(
             "Unknown order number change parser: {}",
@@ -344,7 +331,7 @@ pub(crate) fn parse_consolidation_with_parser(
 ) -> Result<consolidation_info::ConsolidationInfo, String> {
     match parser_type {
         "dmm_merge_complete" => {
-            dmm_merge_complete::DmmMergeCompleteParser.parse_consolidation(body)
+            dmm::merge_complete::DmmMergeCompleteParser.parse_consolidation(body)
         }
         _ => Err(format!("Unknown merge complete parser: {}", parser_type)),
     }
@@ -353,18 +340,18 @@ pub(crate) fn parse_consolidation_with_parser(
 /// パーサータイプから適切なパーサーを取得する
 pub fn get_parser(parser_type: &str) -> Option<Box<dyn EmailParser>> {
     match parser_type {
-        "hobbysearch_confirm" => Some(Box::new(hobbysearch_confirm::HobbySearchConfirmParser)),
+        "hobbysearch_confirm" => Some(Box::new(hobbysearch::confirm::HobbySearchConfirmParser)),
         "hobbysearch_confirm_yoyaku" => Some(Box::new(
-            hobbysearch_confirm_yoyaku::HobbySearchConfirmYoyakuParser,
+            hobbysearch::confirm_yoyaku::HobbySearchConfirmYoyakuParser,
         )),
-        "hobbysearch_change" => Some(Box::new(hobbysearch_change::HobbySearchChangeParser)),
+        "hobbysearch_change" => Some(Box::new(hobbysearch::change::HobbySearchChangeParser)),
         "hobbysearch_change_yoyaku" => Some(Box::new(
-            hobbysearch_change_yoyaku::HobbySearchChangeYoyakuParser,
+            hobbysearch::change_yoyaku::HobbySearchChangeYoyakuParser,
         )),
-        "hobbysearch_send" => Some(Box::new(hobbysearch_send::HobbySearchSendParser)),
-        "dmm_confirm" => Some(Box::new(dmm_confirm::DmmConfirmParser)),
-        "dmm_send" => Some(Box::new(dmm_send::DmmSendParser)),
-        "dmm_split_complete" => Some(Box::new(dmm_split_complete::DmmSplitCompleteParser)),
+        "hobbysearch_send" => Some(Box::new(hobbysearch::send::HobbySearchSendParser)),
+        "dmm_confirm" => Some(Box::new(dmm::confirm::DmmConfirmParser)),
+        "dmm_send" => Some(Box::new(dmm::send::DmmSendParser)),
+        "dmm_split_complete" => Some(Box::new(dmm::split_complete::DmmSplitCompleteParser)),
         _ => None,
     }
 }
