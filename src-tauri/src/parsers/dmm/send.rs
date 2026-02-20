@@ -7,7 +7,7 @@
 //! 最終的な発送状態を deliveries テーブルに反映するため、DeliveryInfo を中心に抽出します。
 //! HTML メールが多いため、本文に `<html>` が含まれる場合は HTML からテキストを抽出してからパースします。
 
-use super::{DeliveryAddress, DeliveryInfo, EmailParser, OrderInfo, OrderItem};
+use crate::parsers::{DeliveryAddress, DeliveryInfo, EmailParser, OrderInfo, OrderItem};
 use regex::Regex;
 use scraper::Html;
 
@@ -22,12 +22,11 @@ impl EmailParser for DmmSendParser {
             let document = Html::parse_document(email_body);
 
             // 確定メールと同じロジックで注文番号・商品・金額を取得
-            let order_number = super::dmm_confirm::extract_order_number_from_html(&document)?;
-            let delivery_address =
-                super::dmm_confirm::extract_delivery_address_from_html(&document);
-            let items = super::dmm_confirm::extract_items_from_html(&document)?;
+            let order_number = super::confirm::extract_order_number_from_html(&document)?;
+            let delivery_address = super::confirm::extract_delivery_address_from_html(&document);
+            let items = super::confirm::extract_items_from_html(&document)?;
             let (subtotal, shipping_fee, total_amount) =
-                super::dmm_confirm::extract_amounts_from_html(&document);
+                super::confirm::extract_amounts_from_html(&document);
 
             // 発送メール特有の配送業者・お問い合わせ番号をテキストから抽出
             // text() はテキストノード間に区切りを入れないため、\n で結合して改行を保持する

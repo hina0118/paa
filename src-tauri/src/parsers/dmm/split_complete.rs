@@ -5,7 +5,7 @@
 //!
 //! 1通のメールに複数の分割後注文が含まれるため、parse_multi で Vec<OrderInfo> を返す。
 
-use super::{EmailParser, OrderInfo, OrderItem};
+use crate::parsers::{EmailParser, OrderInfo, OrderItem};
 use regex::Regex;
 
 /// 商品名から【○月再生産分】等のプレフィックスを除去（dmm_confirm と同様）
