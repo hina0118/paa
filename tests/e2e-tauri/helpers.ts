@@ -73,10 +73,14 @@ export async function dismissToasts() {
     if (toasts.length === 0) return;
     try {
       await toasts[0].waitForDisplayed({ reverse: true, timeout: 10000 });
-    } catch {
-      // 一定時間待ってもトーストが消えない場合はここで終了し、
-      // その後のクリック操作側でブロックされていればそこで失敗させる
-      return;
+    } catch (error) {
+      // waitForDisplayed はタイムアウト時に例外を投げるが、このヘルパーでは
+      // 「一定時間待っても消えない場合は待機を諦めて次の操作に進む」方針とする。
+      if (error instanceof Error && error.name === 'WaitUntilTimeoutError') {
+        return;
+      }
+      // タイムアウト以外のエラーは想定外なのでそのまま送出する
+      throw error;
     }
   }
   // MAX_ITERATIONS 到達時もトーストが残っている可能性があるが、
