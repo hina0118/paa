@@ -70,7 +70,7 @@ test.describe('Shop Settings画面', () => {
     await addButton.click();
 
     try {
-      await expectSuccessMessage(page, '店舗設定を追加しました');
+      await expectSuccessMessage(page, '新しい店舗設定を追加しました');
       // Verify the new shop card appears in the registered shops list
       await expect(page.getByRole('heading', { name: shopName })).toBeVisible({
         timeout: DEFAULT_ELEMENT_TIMEOUT,
