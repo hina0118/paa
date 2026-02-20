@@ -67,11 +67,8 @@ export async function navigateToTable(tableId: string) {
  */
 export async function dismissToasts() {
   while (true) {
-    const toast = await $('[data-sonner-toast]');
-    const exists = await toast.isExisting();
-    if (!exists) return;
-    const visible = await toast.isDisplayed();
-    if (!visible) return;
-    await toast.waitForDisplayed({ reverse: true, timeout: 10000 });
+    const toasts = await $$('[data-sonner-toast]');
+    if (toasts.length === 0) return;
+    await toasts[0].waitForDisplayed({ reverse: true, timeout: 10000 });
   }
 }
