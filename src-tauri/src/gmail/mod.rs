@@ -13,6 +13,7 @@ pub use client::{
     get_enabled_shop_settings,
     save_messages_to_db,
     save_messages_to_db_with_repo,
+    toggle_shop_enabled,
     update_shop_setting,
     CreateShopSettings,
     FetchResult,
