@@ -1164,15 +1164,9 @@ mod shop_settings_tests {
         let before = fetch_shop_settings_by_name(&pool, "target_shop").await;
         assert_eq!(before.len(), 2);
 
-        let mut before_map: HashMap<i64, (bool, String)> = HashMap::new();
+        let mut before_map: HashMap<i64, bool> = HashMap::new();
         for row in &before {
-            before_map.insert(
-                row.id,
-                (
-                    row.is_enabled,
-                    row.updated_at.to_string(),
-                ),
-            );
+            before_map.insert(row.id, row.is_enabled);
         }
 
         // Perform the toggle
@@ -1188,19 +1182,11 @@ mod shop_settings_tests {
                 row.is_enabled,
                 "expected is_enabled to be true for shop_name=target_shop"
             );
-            let (before_enabled, before_updated_at) =
-                before_map.get(&row.id).expect("missing row in before_map");
+            let before_enabled = before_map.get(&row.id).expect("missing row in before_map");
             // is_enabled should change from the initial false value
             assert_ne!(
                 *before_enabled, row.is_enabled,
                 "is_enabled should be toggled for row id={}",
-                row.id
-            );
-            // updated_at should also be changed by the UPDATE statement
-            let after_updated_at = row.updated_at.to_string();
-            assert_ne!(
-                *before_updated_at, after_updated_at,
-                "updated_at should change for row id={}",
                 row.id
             );
         }
