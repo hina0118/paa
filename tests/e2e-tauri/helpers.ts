@@ -66,7 +66,8 @@ export async function navigateToTable(tableId: string) {
  * クリック操作の前に呼び出すことでトーストによるブロックを防ぐ
  */
 export async function dismissToasts() {
-  while (true) {
+  const MAX_ITERATIONS = 10;
+  for (let _i = 0; _i < MAX_ITERATIONS; _i++) {
     const toasts = await $$('[data-sonner-toast]');
     if (toasts.length === 0) return;
     try {
