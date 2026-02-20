@@ -185,7 +185,10 @@ describe('ShopSettings', () => {
       await waitFor(() => {
         expect(mockInvoke).toHaveBeenCalledWith(
           'toggle_shop_enabled',
-          expect.objectContaining({ shopId: mockShop.id, isEnabled: false })
+          expect.objectContaining({
+            shopName: mockShop.shop_name,
+            isEnabled: false,
+          })
         );
       });
     });
@@ -217,7 +220,10 @@ describe('ShopSettings', () => {
       await waitFor(() => {
         expect(mockInvoke).toHaveBeenCalledWith(
           'toggle_shop_enabled',
-          expect.objectContaining({ shopId: mockShop.id, isEnabled: true })
+          expect.objectContaining({
+            shopName: mockShop.shop_name,
+            isEnabled: true,
+          })
         );
       });
     });
