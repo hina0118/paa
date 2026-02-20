@@ -1011,7 +1011,7 @@ pub async fn toggle_shop_enabled(
 }
 
 #[cfg(test)]
-mod tests {
+mod shop_settings_tests {
     use super::*;
     use std::collections::HashMap;
 
