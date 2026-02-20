@@ -129,7 +129,7 @@ test.describe('Shop Settings画面', () => {
     await page.getByRole('button', { name: '追加', exact: true }).click();
 
     try {
-      await expectSuccessMessage(page, '店舗設定を追加しました');
+      await expectSuccessMessage(page, '新しい店舗設定を追加しました');
       const shopCard = getShopCard(page, shopName);
       const editButton = shopCard.getByRole('button', { name: '編集' });
       await editButton.waitFor({
