@@ -114,3 +114,30 @@ export async function expectCardVisible(page: Page, title: string) {
     page.getByRole('heading', { name: title, level: 3 })
   ).toBeVisible();
 }
+
+/**
+ * 表示中のSonnerトーストが消えるまでベストエフォートで待機する（最大 MAX_ITERATIONS 回）
+ * クリック操作の前に呼び出すことでトーストによるブロックを防ぐ。
+ * 上限に達してもトーストが残っている場合は待機を諦め、後続のクリック操作側で成否を判定させる。
+ */
+export async function dismissToasts(page: Page) {
+  const MAX_ITERATIONS = 10;
+  for (let _i = 0; _i < MAX_ITERATIONS; _i++) {
+    const toasts = page.locator('[data-sonner-toast]');
+    const count = await toasts.count();
+    if (count === 0) return;
+    try {
+      await toasts.first().waitFor({ state: 'hidden', timeout: 10000 });
+    } catch (error) {
+      // waitFor はタイムアウト時に例外を投げるが、このヘルパーでは
+      // 「一定時間待っても消えない場合は待機を諦めて次の操作に進む」方針とする。
+      if (error instanceof Error && error.name === 'TimeoutError') {
+        return;
+      }
+      // タイムアウト以外のエラーは想定外なのでそのまま送出する
+      throw error;
+    }
+  }
+  // MAX_ITERATIONS 到達時もトーストが残っている可能性があるが、
+  // ここでは待機を諦め、後続のクリック操作側で成否を判定させる。
+}
