@@ -1131,7 +1131,7 @@ mod shop_settings_tests {
     }
 
     #[tokio::test]
-    async fn toggle_shop_enabled_updates_all_matching_rows_and_updated_at() {
+    async fn toggle_shop_enabled_updates_all_matching_rows() {
         let pool = setup_test_db().await;
 
         // Insert multiple rows with the same shop_name and one with a different name
@@ -1160,7 +1160,7 @@ mod shop_settings_tests {
         )
         .await;
 
-        // Capture updated_at and is_enabled for target_shop before toggle
+        // Capture is_enabled for target_shop rows before toggle
         let before = fetch_shop_settings_by_name(&pool, "target_shop").await;
         assert_eq!(before.len(), 2);
 
