@@ -4,7 +4,7 @@
  * Playwright の helpers.ts と同様の機能を WebdriverIO API で提供
  */
 
-import { $, expect } from '@wdio/globals';
+import { $, $$, expect } from '@wdio/globals';
 
 /**
  * サイドバーから指定の画面に遷移する
@@ -66,12 +66,9 @@ export async function navigateToTable(tableId: string) {
  * クリック操作の前に呼び出すことでトーストによるブロックを防ぐ
  */
 export async function dismissToasts() {
-  const toast = await $('[data-sonner-toast]');
-  const exists = await toast.isExisting();
-  if (!exists) return;
-  const visible = await toast.isDisplayed();
-  if (!visible) return;
-  await toast
-    .waitForDisplayed({ reverse: true, timeout: 10000 })
-    .catch(() => {});
+  while (true) {
+    const toasts = await $$('[data-sonner-toast]');
+    if (toasts.length === 0) return;
+    await toasts[0].waitForDisplayed({ reverse: true, timeout: 10000 });
+  }
 }

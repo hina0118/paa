@@ -120,13 +120,10 @@ export async function expectCardVisible(page: Page, title: string) {
  * クリック操作の前に呼び出すことでトーストによるブロックを防ぐ
  */
 export async function dismissToasts(page: Page) {
-  const toasts = page.locator('[data-sonner-toast]');
-  const count = await toasts.count();
-  if (count === 0) return;
-  for (let i = 0; i < count; i++) {
-    await toasts
-      .nth(i)
-      .waitFor({ state: 'hidden', timeout: 10000 })
-      .catch(() => {});
+  while (true) {
+    const toasts = page.locator('[data-sonner-toast]');
+    const count = await toasts.count();
+    if (count === 0) return;
+    await toasts.first().waitFor({ state: 'hidden', timeout: 10000 });
   }
 }

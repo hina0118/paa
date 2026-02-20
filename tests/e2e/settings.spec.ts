@@ -4,6 +4,7 @@ import {
   expectScreenTitle,
   expectSuccessMessage,
   expectErrorMessage,
+  dismissToasts,
 } from './helpers';
 
 test.describe('設定画面', () => {
@@ -11,6 +12,7 @@ test.describe('設定画面', () => {
     await page.goto('/');
     await navigateToScreen(page, 'settings');
     await expectScreenTitle(page, '設定');
+    await dismissToasts(page);
   });
 
   test('設定画面が表示される', async ({ page }) => {
