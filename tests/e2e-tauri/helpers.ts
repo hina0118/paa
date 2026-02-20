@@ -69,6 +69,12 @@ export async function dismissToasts() {
   while (true) {
     const toasts = await $$('[data-sonner-toast]');
     if (toasts.length === 0) return;
-    await toasts[0].waitForDisplayed({ reverse: true, timeout: 10000 });
+    try {
+      await toasts[0].waitForDisplayed({ reverse: true, timeout: 10000 });
+    } catch {
+      // 一定時間待ってもトーストが消えない場合はここで終了し、
+      // その後のクリック操作側でブロックされていればそこで失敗させる
+      return;
+    }
   }
 }
