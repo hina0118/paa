@@ -1073,7 +1073,7 @@ mod shop_settings_tests {
             .expect("failed to insert shop_setting");
 
         // Optionally adjust is_enabled if needed
-        if is_enabled == false {
+        if !is_enabled {
             sqlx::query("UPDATE shop_settings SET is_enabled = 0 WHERE id = ?")
                 .bind(id)
                 .execute(pool)
