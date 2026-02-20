@@ -62,8 +62,9 @@ export async function navigateToTable(tableId: string) {
 }
 
 /**
- * 表示中のSonnerトーストがすべて消えるまで待機する
- * クリック操作の前に呼び出すことでトーストによるブロックを防ぐ
+ * 表示中のSonnerトーストが消えるまでベストエフォートで待機する（最大 MAX_ITERATIONS 回）
+ * クリック操作の前に呼び出すことでトーストによるブロックを防ぐ。
+ * 上限に達してもトーストが残っている場合は待機を諦め、後続のクリック操作側で成否を判定させる。
  */
 export async function dismissToasts() {
   const MAX_ITERATIONS = 10;
@@ -78,4 +79,6 @@ export async function dismissToasts() {
       return;
     }
   }
+  // MAX_ITERATIONS 到達時もトーストが残っている可能性があるが、
+  // ここでは待機を諦め、後続のクリック操作側で成否を判定させる。
 }
