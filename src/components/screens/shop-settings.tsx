@@ -49,7 +49,7 @@ function groupShops(shops: ShopSettingDisplay[]): ShopGroup[] {
 }
 
 function toPanelId(shopName: string): string {
-  return `parsers-${shopName.replace(/[^\w-]/g, '-')}`;
+  return `parsers-${encodeURIComponent(shopName)}`;
 }
 
 export function ShopSettings() {
