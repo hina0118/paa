@@ -1,5 +1,5 @@
-use super::hobbysearch_common::{extract_delivery_address, extract_yoyaku_total, parse_item_line};
-use super::{EmailParser, OrderInfo, OrderItem};
+use super::{extract_delivery_address, extract_yoyaku_total, parse_item_line};
+use crate::parsers::{EmailParser, OrderInfo, OrderItem};
 use regex::Regex;
 
 /// 組み換え（予約）メール用パーサー
