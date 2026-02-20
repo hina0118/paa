@@ -120,7 +120,8 @@ export async function expectCardVisible(page: Page, title: string) {
  * クリック操作の前に呼び出すことでトーストによるブロックを防ぐ
  */
 export async function dismissToasts(page: Page) {
-  while (true) {
+  const MAX_ITERATIONS = 10;
+  for (let _i = 0; _i < MAX_ITERATIONS; _i++) {
     const toasts = page.locator('[data-sonner-toast]');
     const count = await toasts.count();
     if (count === 0) return;
@@ -129,7 +130,7 @@ export async function dismissToasts(page: Page) {
     } catch (error) {
       // waitFor はタイムアウト時に例外を投げるが、このヘルパーでは
       // 「一定時間待っても消えない場合は待機を諦めて次の操作に進む」方針とする。
-      if (error instanceof Error && error.message.includes('Timeout')) {
+      if (error instanceof Error && error.name === 'TimeoutError') {
         return;
       }
       // タイムアウト以外のエラーは想定外なのでそのまま送出する
