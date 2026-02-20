@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { toastSuccess, toastError, formatError } from '@/lib/toast';
 
 interface ShopSetting {
@@ -29,7 +30,7 @@ interface ShopSettingDisplay extends Omit<ShopSetting, 'subject_filters'> {
 
 interface ShopGroup {
   shop_name: string;
-  is_enabled: boolean; // true if all parsers are enabled
+  is_enabled: boolean; // true if all parsers in the group are enabled
   parsers: ShopSettingDisplay[];
 }
 
@@ -418,6 +419,7 @@ export function ShopSettings() {
                           <Button
                             variant="outline"
                             size="sm"
+                            aria-expanded={isExpanded}
                             onClick={() => toggleExpand(group.shop_name)}
                           >
                             {isExpanded ? (
@@ -565,6 +567,26 @@ export function ShopSettings() {
                                     <p className="text-xs text-muted-foreground">
                                       設定した場合、いずれかの件名パターンを含むメールのみを取り込みます
                                     </p>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <Checkbox
+                                      id={`is-enabled-${shop.id}`}
+                                      checked={
+                                        editForm.is_enabled ?? shop.is_enabled
+                                      }
+                                      onCheckedChange={(checked) =>
+                                        setEditForm({
+                                          ...editForm,
+                                          is_enabled: checked === true,
+                                        })
+                                      }
+                                    />
+                                    <label
+                                      htmlFor={`is-enabled-${shop.id}`}
+                                      className="text-sm font-medium"
+                                    >
+                                      有効
+                                    </label>
                                   </div>
                                   <div className="flex gap-2">
                                     <Button
