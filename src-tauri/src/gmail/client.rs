@@ -2882,4 +2882,84 @@ mod tests {
         assert!(!GmailClient::is_base64_format(html_content));
         assert_eq!(GmailClient::try_decode_base64(html_content), None);
     }
+
+    // Helper: create an in-memory DB with the shop_settings table
+    async fn create_shop_settings_db() -> sqlx::SqlitePool {
+        let options = sqlx::sqlite::SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .create_if_missing(true);
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .connect_with(options)
+            .await
+            .expect("Failed to create test database");
+        sqlx::query(
+            r"
+            CREATE TABLE IF NOT EXISTS shop_settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                shop_name TEXT NOT NULL,
+                sender_address TEXT NOT NULL,
+                parser_type TEXT NOT NULL,
+                is_enabled INTEGER NOT NULL DEFAULT 1,
+                subject_filters TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            ",
+        )
+        .execute(&pool)
+        .await
+        .expect("Failed to create shop_settings table");
+        pool
+    }
+
+    #[tokio::test]
+    async fn test_toggle_shop_enabled_multiple_rows() {
+        let pool = create_shop_settings_db().await;
+        // Insert two rows for the same shop
+        for addr in &["a@example.com", "b@example.com"] {
+            sqlx::query(
+                "INSERT INTO shop_settings (shop_name, sender_address, parser_type, is_enabled) VALUES (?, ?, ?, 1)",
+            )
+            .bind("TestShop")
+            .bind(addr)
+            .bind("amazon")
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        // Disable
+        toggle_shop_enabled(&pool, "TestShop", false).await.unwrap();
+        let rows = get_all_shop_settings(&pool).await.unwrap();
+        assert!(
+            rows.iter()
+                .filter(|r| r.shop_name == "TestShop")
+                .all(|r| !r.is_enabled),
+            "All rows for TestShop should be disabled"
+        );
+        // Re-enable
+        toggle_shop_enabled(&pool, "TestShop", true).await.unwrap();
+        let rows = get_all_shop_settings(&pool).await.unwrap();
+        assert!(
+            rows.iter()
+                .filter(|r| r.shop_name == "TestShop")
+                .all(|r| r.is_enabled),
+            "All rows for TestShop should be enabled"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_toggle_shop_enabled_nonexistent_shop() {
+        let pool = create_shop_settings_db().await;
+        // Should succeed without error even when no rows match
+        let result = toggle_shop_enabled(&pool, "NoSuchShop", false).await;
+        assert!(result.is_ok(), "toggle with non-existent shop_name should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_toggle_shop_enabled_empty_shop_name() {
+        let pool = create_shop_settings_db().await;
+        // Empty string shop_name: no rows match, should succeed without error
+        let result = toggle_shop_enabled(&pool, "", false).await;
+        assert!(result.is_ok(), "toggle with empty shop_name should succeed");
+    }
 }

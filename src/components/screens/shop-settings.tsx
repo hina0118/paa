@@ -211,6 +211,9 @@ export function ShopSettings() {
         shopName,
         isEnabled: !currentEnabled,
       });
+      toastSuccess(
+        `${shopName} を${!currentEnabled ? '有効' : '無効'}にしました`
+      );
       await loadShops();
     } catch (err) {
       toastError(`更新に失敗しました: ${formatError(err)}`);
