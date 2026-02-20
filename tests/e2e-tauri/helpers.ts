@@ -72,8 +72,6 @@ export async function dismissToasts() {
     if (!exists) return;
     const visible = await toast.isDisplayed();
     if (!visible) return;
-    await toast
-      .waitForDisplayed({ reverse: true, timeout: 10000 })
-      .catch(() => {});
+    await toast.waitForDisplayed({ reverse: true, timeout: 10000 });
   }
 }
