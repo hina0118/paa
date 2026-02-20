@@ -48,6 +48,10 @@ function groupShops(shops: ShopSettingDisplay[]): ShopGroup[] {
   }));
 }
 
+function toPanelId(shopName: string): string {
+  return `parsers-${shopName.replace(/[^\w-]/g, '-')}`;
+}
+
 export function ShopSettings() {
   const [shops, setShops] = useState<ShopSettingDisplay[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -420,7 +424,11 @@ export function ShopSettings() {
                             variant="outline"
                             size="sm"
                             aria-expanded={isExpanded}
-                            aria-controls={`parsers-${group.shop_name}`}
+                            aria-controls={
+                              isExpanded
+                                ? toPanelId(group.shop_name)
+                                : undefined
+                            }
                             onClick={() => toggleExpand(group.shop_name)}
                           >
                             {isExpanded ? (
@@ -442,7 +450,7 @@ export function ShopSettings() {
                     {/* Expanded parser rows */}
                     {isExpanded && (
                       <div
-                        id={`parsers-${group.shop_name}`}
+                        id={toPanelId(group.shop_name)}
                         className="border-t bg-muted/30"
                       >
                         <div className="p-3 space-y-3">
