@@ -124,6 +124,16 @@ export async function dismissToasts(page: Page) {
     const toasts = page.locator('[data-sonner-toast]');
     const count = await toasts.count();
     if (count === 0) return;
-    await toasts.first().waitFor({ state: 'hidden', timeout: 10000 });
+    try {
+      await toasts.first().waitFor({ state: 'hidden', timeout: 10000 });
+    } catch (error) {
+      // waitFor はタイムアウト時に例外を投げるが、このヘルパーでは
+      // 「一定時間待っても消えない場合は待機を諦めて次の操作に進む」方針とする。
+      if (error instanceof Error && error.message.includes('Timeout')) {
+        return;
+      }
+      // タイムアウト以外のエラーは想定外なのでそのまま送出する
+      throw error;
+    }
   }
 }
