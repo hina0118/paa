@@ -7,6 +7,7 @@ import {
   navigateToScreen,
   expectScreenTitle,
   expectSidebarVisible,
+  dismissToasts,
 } from './helpers';
 
 describe('ダッシュボード (Tauri)', () => {
@@ -14,6 +15,7 @@ describe('ダッシュボード (Tauri)', () => {
     await expectSidebarVisible();
     await navigateToScreen('dashboard');
     await expectScreenTitle('ダッシュボード');
+    await dismissToasts();
   });
 
   it('統計を読み込みボタンが表示される', async () => {

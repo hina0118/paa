@@ -8,9 +8,13 @@ import {
   expectScreenTitle,
   expectSidebarVisible,
   expandTablesSection,
+  dismissToasts,
 } from './helpers';
 
 describe('ナビゲーション (Tauri)', () => {
+  before(async () => {
+    await dismissToasts();
+  });
   it('サイドバーが表示される', async () => {
     await expectSidebarVisible();
     for (const id of [

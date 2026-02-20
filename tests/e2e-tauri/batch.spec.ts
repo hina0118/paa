@@ -9,6 +9,7 @@ import {
   navigateToScreen,
   expectScreenTitle,
   expectSidebarVisible,
+  dismissToasts,
 } from './helpers';
 
 describe('バッチ処理 (Tauri)', () => {
@@ -16,6 +17,7 @@ describe('バッチ処理 (Tauri)', () => {
     await expectSidebarVisible();
     await navigateToScreen('batch');
     await expectScreenTitle('バッチ処理');
+    await dismissToasts();
   });
 
   it('Gmail同期セクションが表示される', async () => {
