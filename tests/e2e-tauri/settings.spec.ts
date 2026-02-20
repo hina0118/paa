@@ -7,6 +7,7 @@ import {
   navigateToScreen,
   expectScreenTitle,
   expectSidebarVisible,
+  dismissToasts,
 } from './helpers';
 
 describe('設定画面 (Tauri)', () => {
@@ -14,6 +15,7 @@ describe('設定画面 (Tauri)', () => {
     await expectSidebarVisible();
     await navigateToScreen('settings');
     await expectScreenTitle('設定');
+    await dismissToasts();
   });
 
   it('バッチサイズを変更して保存できる（Tauri API 経由）', async () => {
