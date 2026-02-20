@@ -97,7 +97,7 @@ test.describe('Shop Settings画面', () => {
     await page.getByRole('button', { name: '追加', exact: true }).click();
 
     try {
-      await expectSuccessMessage(page, '店舗設定を追加しました');
+      await expectSuccessMessage(page, '新しい店舗設定を追加しました');
       // Click the disable button for the newly added shop
       const shopCard = getShopCard(page, shopName);
       const toggleButton = shopCard.getByRole('button', { name: '無効化' });
