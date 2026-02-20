@@ -4,7 +4,7 @@
  * Playwright の helpers.ts と同様の機能を WebdriverIO API で提供
  */
 
-import { $, expect } from '@wdio/globals';
+import { $, $$, expect } from '@wdio/globals';
 
 /**
  * サイドバーから指定の画面に遷移する
