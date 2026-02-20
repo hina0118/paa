@@ -1,11 +1,16 @@
 import { test, expect } from './fixtures';
-import { navigateToScreen, expectSidebarVisible } from './helpers';
+import {
+  navigateToScreen,
+  expectSidebarVisible,
+  dismissToasts,
+} from './helpers';
 
 test.describe('Logs画面', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await expectSidebarVisible(page);
     await navigateToScreen(page, 'logs');
+    await dismissToasts(page);
   });
 
   test('Logs画面が表示される', async ({ page }) => {

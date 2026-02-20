@@ -3,7 +3,11 @@
  */
 
 import { $, expect } from '@wdio/globals';
-import { navigateToScreen, expectSidebarVisible } from './helpers';
+import {
+  navigateToScreen,
+  expectSidebarVisible,
+  dismissToasts,
+} from './helpers';
 
 describe('ログ (Tauri)', () => {
   before(async () => {
@@ -11,6 +15,7 @@ describe('ログ (Tauri)', () => {
     await navigateToScreen('logs');
     const heading = await $('h1');
     await expect(heading).toBeDisplayed({ wait: 10000 });
+    await dismissToasts();
   });
 
   it('ログ画面のタイトルが表示される', async () => {

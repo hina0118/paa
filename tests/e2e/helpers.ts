@@ -114,3 +114,19 @@ export async function expectCardVisible(page: Page, title: string) {
     page.getByRole('heading', { name: title, level: 3 })
   ).toBeVisible();
 }
+
+/**
+ * 表示中のSonnerトーストがすべて消えるまで待機する
+ * クリック操作の前に呼び出すことでトーストによるブロックを防ぐ
+ */
+export async function dismissToasts(page: Page) {
+  const toasts = page.locator('[data-sonner-toast]');
+  const count = await toasts.count();
+  if (count === 0) return;
+  for (let i = 0; i < count; i++) {
+    await toasts
+      .nth(i)
+      .waitFor({ state: 'hidden', timeout: 10000 })
+      .catch(() => {});
+  }
+}
