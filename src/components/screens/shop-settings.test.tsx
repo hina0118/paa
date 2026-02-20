@@ -158,4 +158,68 @@ describe('ShopSettings', () => {
       });
     });
   });
+
+  describe('shop group enable/disable buttons', () => {
+    it('calls toggle_shop_enabled with isEnabled: false when clicking the disable button for an enabled shop', async () => {
+      const user = userEvent.setup();
+
+      mockInvoke.mockImplementation((cmd: string, args?: unknown) => {
+        if (cmd === 'get_all_shop_settings') {
+          return Promise.resolve([mockShop]);
+        }
+        if (cmd === 'toggle_shop_enabled') {
+          return Promise.resolve(undefined);
+        }
+        return Promise.resolve(null);
+      });
+
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByText('テスト店舗')).toBeInTheDocument();
+      });
+
+      const disableButton = screen.getByRole('button', { name: '無効化' });
+      await user.click(disableButton);
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith(
+          'toggle_shop_enabled',
+          expect.objectContaining({ shopId: mockShop.id, isEnabled: false })
+        );
+      });
+    });
+
+    it('calls toggle_shop_enabled with isEnabled: true when clicking the enable button for a disabled shop', async () => {
+      const user = userEvent.setup();
+
+      const disabledShop = { ...mockShop, is_enabled: false };
+
+      mockInvoke.mockImplementation((cmd: string, args?: unknown) => {
+        if (cmd === 'get_all_shop_settings') {
+          return Promise.resolve([disabledShop]);
+        }
+        if (cmd === 'toggle_shop_enabled') {
+          return Promise.resolve(undefined);
+        }
+        return Promise.resolve(null);
+      });
+
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByText('テスト店舗')).toBeInTheDocument();
+      });
+
+      const enableButton = screen.getByRole('button', { name: '有効化' });
+      await user.click(enableButton);
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith(
+          'toggle_shop_enabled',
+          expect.objectContaining({ shopId: mockShop.id, isEnabled: true })
+        );
+      });
+    });
+  });
 });
