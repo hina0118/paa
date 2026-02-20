@@ -124,9 +124,6 @@ export async function dismissToasts(page: Page) {
     const toasts = page.locator('[data-sonner-toast]');
     const count = await toasts.count();
     if (count === 0) return;
-    await toasts
-      .first()
-      .waitFor({ state: 'hidden', timeout: 10000 })
-      .catch(() => {});
+    await toasts.first().waitFor({ state: 'hidden', timeout: 10000 });
   }
 }
