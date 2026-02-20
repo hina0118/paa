@@ -587,7 +587,7 @@ export function ShopSettings() {
                                     />
                                     <label
                                       htmlFor={`is-enabled-${shop.id}`}
-                                      className="text-sm font-medium"
+                                      className="text-sm font-medium cursor-pointer"
                                     >
                                       有効
                                     </label>
