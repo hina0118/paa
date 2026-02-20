@@ -217,6 +217,7 @@ export function ShopSettings() {
         isEnabled: !currentEnabled,
       });
       await loadShops();
+      toastSuccess('店舗設定を更新しました');
     } catch (err) {
       toastError(`更新に失敗しました: ${formatError(err)}`);
     }
