@@ -8,12 +8,13 @@ import {
   ScrollText,
   Store,
   Archive,
+  ChevronDown,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { useNavigation } from '@/contexts/use-navigation';
 import type { Screen } from '@/contexts/navigation-context-value';
 import type { ComponentType } from 'react';
 import { useState } from 'react';
+import { cn } from '@/lib/utils';
 
 /** サイドバーナビゲーションで表示する画面（Screen のサブセット） */
 type NavigationScreen = Extract<
@@ -91,64 +92,103 @@ export function Sidebar() {
   const [isTableSectionOpen, setIsTableSectionOpen] = useState(false);
 
   return (
-    <aside className="w-64 border-r bg-muted/40 flex flex-col h-screen">
-      <div className="p-6 border-b">
-        <h2 className="text-2xl font-bold">PAA</h2>
+    <aside className="w-56 border-r bg-background flex flex-col h-screen">
+      <div className="h-14 flex items-center gap-2 px-4 border-b">
+        <div className="h-7 w-7 rounded-lg bg-primary flex items-center justify-center shrink-0">
+          <span className="text-xs font-bold text-primary-foreground">P</span>
+        </div>
+        <span className="font-semibold text-sm tracking-wide">PAA Dashboard</span>
       </div>
-      <nav className="flex-1 p-4 overflow-y-auto">
-        <ul className="space-y-2">
-          {navigationItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = currentScreen === item.id;
-            return (
-              <li key={item.id}>
-                <Button
-                  variant={isActive ? 'secondary' : 'ghost'}
-                  className="w-full justify-start"
-                  aria-current={isActive ? 'page' : undefined}
-                  data-testid={item.id}
-                  onClick={() => setCurrentScreen(item.id)}
-                >
-                  <Icon className="mr-2 h-4 w-4" />
-                  {item.name}
-                </Button>
-              </li>
-            );
-          })}
-        </ul>
 
-        <div className="mt-6">
-          <Button
-            variant="ghost"
-            className="w-full justify-start"
+      <nav className="flex-1 p-3 overflow-y-auto space-y-6">
+        <div>
+          <ul className="space-y-0.5">
+            {navigationItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = currentScreen === item.id;
+              return (
+                <li key={item.id}>
+                  <button
+                    className={cn(
+                      'group relative flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-150',
+                      isActive
+                        ? 'bg-primary/10 text-primary'
+                        : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
+                    )}
+                    aria-current={isActive ? 'page' : undefined}
+                    data-testid={item.id}
+                    onClick={() => setCurrentScreen(item.id)}
+                  >
+                    {isActive && (
+                      <span
+                        className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-1 rounded-r-full bg-primary"
+                        aria-hidden="true"
+                      />
+                    )}
+                    <Icon
+                      className={cn(
+                        'h-4 w-4 shrink-0',
+                        isActive
+                          ? 'text-primary'
+                          : 'text-muted-foreground group-hover:text-foreground'
+                      )}
+                    />
+                    {item.name}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+
+        <div>
+          <p className="mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">
+            データ
+          </p>
+          <button
+            className="group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-all duration-150"
             data-testid="tables-section-toggle"
             onClick={() => setIsTableSectionOpen(!isTableSectionOpen)}
           >
-            <Database className="mr-2 h-4 w-4" />
+            <Database className="h-4 w-4 shrink-0 text-muted-foreground group-hover:text-foreground" />
             テーブル
-            <span className="ml-auto">{isTableSectionOpen ? '▼' : '▶'}</span>
-          </Button>
+            <ChevronDown
+              className={cn(
+                'ml-auto h-3.5 w-3.5 text-muted-foreground transition-transform duration-200',
+                isTableSectionOpen && 'rotate-180'
+              )}
+            />
+          </button>
 
-          {isTableSectionOpen && (
-            <ul className="mt-2 ml-4 space-y-1">
+          <div
+            className={cn(
+              'overflow-hidden transition-all duration-200',
+              isTableSectionOpen ? 'max-h-[600px] opacity-100' : 'max-h-0 opacity-0'
+            )}
+          >
+            <ul className="mt-1 ml-4 space-y-0.5 border-l border-border/50 pl-2">
               {tableItems.map((item) => {
                 const isActive = currentScreen === item.id;
                 return (
                   <li key={item.id}>
-                    <Button
-                      variant={isActive ? 'secondary' : 'ghost'}
-                      className="w-full justify-start text-sm"
+                    <button
+                      className={cn(
+                        'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium transition-colors',
+                        isActive
+                          ? 'text-primary bg-primary/5'
+                          : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'
+                      )}
                       aria-current={isActive ? 'page' : undefined}
                       data-testid={item.id}
                       onClick={() => setCurrentScreen(item.id)}
                     >
                       {item.name}
-                    </Button>
+                    </button>
                   </li>
                 );
               })}
             </ul>
-          )}
+          </div>
         </div>
       </nav>
     </aside>

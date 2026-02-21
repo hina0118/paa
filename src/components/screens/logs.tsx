@@ -9,6 +9,7 @@ import {
   CardTitle,
 } from '../ui/card';
 import { Button } from '../ui/button';
+import { PageHeader } from '../ui/page-header';
 import { toastError, formatError } from '@/lib/toast';
 import { Input } from '../ui/input';
 
@@ -94,33 +95,23 @@ export function Logs() {
   return (
     <div className="flex flex-col h-screen">
       <div className="container mx-auto py-10 px-6 space-y-4 flex-shrink-0">
-        <div className="mb-8 flex justify-between items-start">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-primary/10">
-              <ScrollText className="h-6 w-6 text-primary" />
-            </div>
-            <h1 className="text-3xl font-bold tracking-tight">
-              ログビューアー
-            </h1>
-          </div>
-          <div className="flex gap-2">
-            <Button
-              variant={autoRefresh ? 'default' : 'outline'}
-              onClick={() => setAutoRefresh(!autoRefresh)}
-              aria-label={autoRefresh ? '自動更新を停止' : '自動更新を開始'}
-              aria-pressed={autoRefresh}
-            >
-              {autoRefresh ? '自動更新中' : '自動更新'}
-            </Button>
-            <Button
-              onClick={() => loadLogs(filterLevel || undefined)}
-              disabled={loading}
-              aria-label="ログを手動で更新"
-            >
-              {loading ? '読み込み中...' : '更新'}
-            </Button>
-          </div>
-        </div>
+        <PageHeader title="ログビューアー" icon={ScrollText}>
+          <Button
+            variant={autoRefresh ? 'default' : 'outline'}
+            onClick={() => setAutoRefresh(!autoRefresh)}
+            aria-label={autoRefresh ? '自動更新を停止' : '自動更新を開始'}
+            aria-pressed={autoRefresh}
+          >
+            {autoRefresh ? '自動更新中' : '自動更新'}
+          </Button>
+          <Button
+            onClick={() => loadLogs(filterLevel || undefined)}
+            disabled={loading}
+            aria-label="ログを手動で更新"
+          >
+            {loading ? '読み込み中...' : '更新'}
+          </Button>
+        </PageHeader>
 
         <div className="grid gap-4 md:grid-cols-5">
           <Card>
