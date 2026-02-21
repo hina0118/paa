@@ -16,8 +16,8 @@ describe('StatusBadge', () => {
       expect(screen.getByText('同期中')).toBeInTheDocument();
 
       const badge = screen.getByText('同期中');
-      expect(badge).toHaveClass('bg-blue-100');
-      expect(badge).toHaveClass('text-blue-800');
+      expect(badge).toHaveClass('bg-primary/10');
+      expect(badge).toHaveClass('text-primary');
     });
 
     it('renders idle status correctly', () => {
@@ -26,8 +26,8 @@ describe('StatusBadge', () => {
       expect(screen.getByText('待機中')).toBeInTheDocument();
 
       const badge = screen.getByText('待機中');
-      expect(badge).toHaveClass('bg-green-100');
-      expect(badge).toHaveClass('text-green-800');
+      expect(badge).toHaveClass('bg-emerald-500/10');
+      expect(badge).toHaveClass('text-emerald-700');
     });
 
     it('renders paused status correctly', () => {
@@ -36,8 +36,8 @@ describe('StatusBadge', () => {
       expect(screen.getByText('一時停止')).toBeInTheDocument();
 
       const badge = screen.getByText('一時停止');
-      expect(badge).toHaveClass('bg-yellow-100');
-      expect(badge).toHaveClass('text-yellow-800');
+      expect(badge).toHaveClass('bg-amber-500/10');
+      expect(badge).toHaveClass('text-amber-700');
     });
 
     it('renders error status correctly', () => {
@@ -46,8 +46,8 @@ describe('StatusBadge', () => {
       expect(screen.getByText('エラー')).toBeInTheDocument();
 
       const badge = screen.getByText('エラー');
-      expect(badge).toHaveClass('bg-red-100');
-      expect(badge).toHaveClass('text-red-800');
+      expect(badge).toHaveClass('bg-destructive/10');
+      expect(badge).toHaveClass('text-destructive');
     });
   });
 
@@ -58,8 +58,8 @@ describe('StatusBadge', () => {
       expect(screen.getByText('処理中')).toBeInTheDocument();
 
       const badge = screen.getByText('処理中');
-      expect(badge).toHaveClass('bg-blue-100');
-      expect(badge).toHaveClass('text-blue-800');
+      expect(badge).toHaveClass('bg-primary/10');
+      expect(badge).toHaveClass('text-primary');
     });
 
     it('renders idle status correctly', () => {
@@ -68,8 +68,8 @@ describe('StatusBadge', () => {
       expect(screen.getByText('待機中')).toBeInTheDocument();
 
       const badge = screen.getByText('待機中');
-      expect(badge).toHaveClass('bg-green-100');
-      expect(badge).toHaveClass('text-green-800');
+      expect(badge).toHaveClass('bg-emerald-500/10');
+      expect(badge).toHaveClass('text-emerald-700');
     });
 
     it('renders completed status correctly', () => {
@@ -78,8 +78,8 @@ describe('StatusBadge', () => {
       expect(screen.getByText('完了')).toBeInTheDocument();
 
       const badge = screen.getByText('完了');
-      expect(badge).toHaveClass('bg-green-100');
-      expect(badge).toHaveClass('text-green-800');
+      expect(badge).toHaveClass('bg-emerald-500/10');
+      expect(badge).toHaveClass('text-emerald-700');
     });
 
     it('renders error status correctly', () => {
@@ -88,15 +88,18 @@ describe('StatusBadge', () => {
       expect(screen.getByText('エラー')).toBeInTheDocument();
 
       const badge = screen.getByText('エラー');
-      expect(badge).toHaveClass('bg-red-100');
-      expect(badge).toHaveClass('text-red-800');
+      expect(badge).toHaveClass('bg-destructive/10');
+      expect(badge).toHaveClass('text-destructive');
     });
   });
 
   describe('default handling', () => {
     it('renders default label and style for undefined status', () => {
       const customConfig: StatusConfig = {
-        active: { label: 'アクティブ', className: 'bg-blue-100 text-blue-800' },
+        active: {
+          label: 'アクティブ',
+          className: 'bg-primary/10 text-primary border border-primary/20',
+        },
       };
 
       render(<StatusBadge status={undefined} config={customConfig} />);
@@ -104,8 +107,8 @@ describe('StatusBadge', () => {
       expect(screen.getByText('不明')).toBeInTheDocument();
 
       const badge = screen.getByText('不明');
-      expect(badge).toHaveClass('bg-gray-100');
-      expect(badge).toHaveClass('text-gray-800');
+      expect(badge).toHaveClass('bg-muted');
+      expect(badge).toHaveClass('text-muted-foreground');
     });
 
     it('renders default label and style for unknown status', () => {
@@ -114,8 +117,8 @@ describe('StatusBadge', () => {
       expect(screen.getByText('不明')).toBeInTheDocument();
 
       const badge = screen.getByText('不明');
-      expect(badge).toHaveClass('bg-gray-100');
-      expect(badge).toHaveClass('text-gray-800');
+      expect(badge).toHaveClass('bg-muted');
+      expect(badge).toHaveClass('text-muted-foreground');
     });
 
     it('renders default label when status is empty string', () => {
@@ -163,10 +166,10 @@ describe('StatusBadge', () => {
 
       const badge = screen.getByText('待機中');
       expect(badge).toHaveClass('px-2');
-      expect(badge).toHaveClass('py-1');
-      expect(badge).toHaveClass('rounded');
+      expect(badge).toHaveClass('py-0.5');
+      expect(badge).toHaveClass('rounded-md');
       expect(badge).toHaveClass('text-xs');
-      expect(badge).toHaveClass('font-semibold');
+      expect(badge).toHaveClass('font-medium');
     });
   });
 });

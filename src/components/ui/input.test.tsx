@@ -119,4 +119,16 @@ describe('Input', () => {
     const input = screen.getByRole('textbox');
     expect(input).toBeRequired();
   });
+
+  it('has focus-visible:ring-2 class', () => {
+    render(<Input />);
+    const input = screen.getByRole('textbox');
+    expect(input).toHaveClass('focus-visible:ring-2');
+  });
+
+  it('has aria-[invalid=true]:border-destructive class', () => {
+    render(<Input />);
+    const input = screen.getByRole('textbox');
+    expect(input).toHaveClass('aria-[invalid=true]:border-destructive');
+  });
 });

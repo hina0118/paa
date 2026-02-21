@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/ui/page-header';
 import { toastError } from '@/lib/toast';
 import { useConfigSave } from '@/hooks/useConfigSave';
 
@@ -133,14 +134,7 @@ export function Settings() {
 
   return (
     <div className="container mx-auto py-10 px-6 space-y-6">
-      <div className="mb-8 space-y-2">
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-primary/10">
-            <SettingsIcon className="h-6 w-6 text-primary" />
-          </div>
-          <h1 className="text-3xl font-bold tracking-tight">設定</h1>
-        </div>
-      </div>
+      <PageHeader title="設定" icon={SettingsIcon} />
 
       <Card>
         <CardHeader>

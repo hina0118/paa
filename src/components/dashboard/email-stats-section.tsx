@@ -14,6 +14,11 @@ import {
   CardHeader,
   CardTitle,
 } from '../ui/card';
+import {
+  StatusBadge,
+  SYNC_STATUS_CONFIG,
+  PARSE_STATUS_CONFIG,
+} from '../ui/status-badge';
 
 // プログレスバーの最大値（文字数）
 // テキスト形式: 一般的なメールの平均的な長さを基準に5000文字
@@ -162,32 +167,10 @@ export function EmailStatsSection({
           <CardContent>
             <div className="space-y-4">
               <div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">ステータス</span>
-                  <span
-                    className={`px-2 py-1 rounded text-xs font-semibold ${
-                      syncMetadata?.sync_status === 'syncing'
-                        ? 'bg-blue-100 text-blue-800'
-                        : syncMetadata?.sync_status === 'idle'
-                          ? 'bg-green-100 text-green-800'
-                          : syncMetadata?.sync_status === 'paused'
-                            ? 'bg-yellow-100 text-yellow-800'
-                            : syncMetadata?.sync_status === 'error'
-                              ? 'bg-red-100 text-red-800'
-                              : 'bg-gray-100 text-gray-800'
-                    }`}
-                  >
-                    {syncMetadata?.sync_status === 'syncing'
-                      ? '同期中'
-                      : syncMetadata?.sync_status === 'idle'
-                        ? '待機中'
-                        : syncMetadata?.sync_status === 'paused'
-                          ? '一時停止'
-                          : syncMetadata?.sync_status === 'error'
-                            ? 'エラー'
-                            : '不明'}
-                  </span>
-                </div>
+                <StatusBadge
+                  status={syncMetadata?.sync_status}
+                  config={SYNC_STATUS_CONFIG}
+                />
               </div>
               <div>
                 <div className="flex items-center justify-between">
@@ -204,7 +187,7 @@ export function EmailStatsSection({
                 </p>
               )}
               {syncMetadata?.last_error_message && (
-                <p className="text-xs text-red-600 dark:text-red-400">
+                <p className="text-xs text-destructive">
                   エラー: {syncMetadata.last_error_message}
                 </p>
               )}
@@ -227,7 +210,7 @@ export function EmailStatsSection({
               </div>
               <div className="mt-2 h-2 w-full bg-secondary rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-blue-500 transition-all"
+                  className="h-full bg-primary rounded-full transition-all"
                   style={{
                     width: `${Math.min(100, (emailStats.avg_plain_length / PROGRESS_MAX_PLAIN) * 100)}%`,
                   }}
@@ -243,7 +226,7 @@ export function EmailStatsSection({
               </div>
               <div className="mt-2 h-2 w-full bg-secondary rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-green-500 transition-all"
+                  className="h-full bg-emerald-500 rounded-full transition-all"
                   style={{
                     width: `${Math.min(100, (emailStats.avg_html_length / PROGRESS_MAX_HTML) * 100)}%`,
                   }}
@@ -272,12 +255,12 @@ export function EmailStatsSection({
               </div>
               <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
                 <div
-                  className={`h-full transition-all ${
+                  className={`h-full rounded-full transition-all ${
                     emailStats.without_body === 0
-                      ? 'bg-green-500'
+                      ? 'bg-emerald-500'
                       : emailStats.without_body < emailStats.total_emails * 0.1
                         ? 'bg-amber-500'
-                        : 'bg-red-500'
+                        : 'bg-destructive'
                   }`}
                   style={{
                     width: `${calculatePercentage(
@@ -294,7 +277,7 @@ export function EmailStatsSection({
                 </p>
               )}
               {emailStats.without_body === 0 && (
-                <p className="text-xs text-green-600 dark:text-green-400">
+                <p className="text-xs text-emerald-600 dark:text-emerald-400">
                   全てのメールに本文データがあります。
                 </p>
               )}
@@ -310,28 +293,10 @@ export function EmailStatsSection({
           <CardContent>
             <div className="space-y-4">
               <div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">ステータス</span>
-                  <span
-                    className={`px-2 py-1 rounded text-xs font-semibold ${
-                      parseMetadata?.parse_status === 'running'
-                        ? 'bg-blue-100 text-blue-800'
-                        : parseMetadata?.parse_status === 'completed'
-                          ? 'bg-green-100 text-green-800'
-                          : parseMetadata?.parse_status === 'error'
-                            ? 'bg-red-100 text-red-800'
-                            : 'bg-gray-100 text-gray-800'
-                    }`}
-                  >
-                    {parseMetadata?.parse_status === 'running'
-                      ? 'パース中'
-                      : parseMetadata?.parse_status === 'completed'
-                        ? '完了'
-                        : parseMetadata?.parse_status === 'error'
-                          ? 'エラー'
-                          : '待機中'}
-                  </span>
-                </div>
+                <StatusBadge
+                  status={parseMetadata?.parse_status}
+                  config={PARSE_STATUS_CONFIG}
+                />
               </div>
               <div>
                 <div className="flex items-center justify-between">
@@ -348,7 +313,7 @@ export function EmailStatsSection({
                 </p>
               )}
               {parseMetadata?.last_error_message && (
-                <p className="text-xs text-red-600 dark:text-red-400">
+                <p className="text-xs text-destructive">
                   エラー: {parseMetadata.last_error_message}
                 </p>
               )}

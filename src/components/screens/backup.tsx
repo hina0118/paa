@@ -16,6 +16,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/ui/page-header';
 
 interface ExportResult {
   images_count: number;
@@ -221,19 +222,11 @@ export function Backup() {
 
   return (
     <div className="container mx-auto py-10 px-6 space-y-6">
-      <div className="mb-8 space-y-2">
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-primary/10">
-            <Archive className="h-6 w-6 text-primary" />
-          </div>
-          <h1 className="text-3xl font-bold tracking-tight">
-            データのバックアップ
-          </h1>
-        </div>
-        <p className="text-muted-foreground">
-          AI解析済みの商品データや店舗設定、取得済みメールなどのメタデータと画像ファイル（キャッシュ）をバックアップ・復元します。DBをリセットしても重要なデータを維持できます。
-        </p>
-      </div>
+      <PageHeader
+        title="データのバックアップ"
+        description="AI解析済みの商品データや店舗設定、取得済みメールなどのメタデータと画像ファイル（キャッシュ）をバックアップ・復元します。DBをリセットしても重要なデータを維持できます。"
+        icon={Archive}
+      />
 
       <Card>
         <CardHeader>
