@@ -11,6 +11,8 @@ type LoadParams = {
   year?: number;
   priceMin?: number;
   priceMax?: number;
+  deliveryStatus?: 'not_shipped' | 'shipped';
+  elapsedMonths?: number;
   sortBy?: 'order_date' | 'price';
   sortOrder?: 'asc' | 'desc';
 };
@@ -25,6 +27,8 @@ export async function loadOrderItems(
     year,
     priceMin,
     priceMax,
+    deliveryStatus,
+    elapsedMonths,
     sortBy = 'order_date',
     sortOrder = 'desc',
   } = params;
@@ -99,6 +103,21 @@ export async function loadOrderItems(
   if (priceMax != null) {
     conditions.push('COALESCE(io.price, i.price) <= ?');
     args.push(priceMax);
+  }
+  if (deliveryStatus === 'not_shipped') {
+    conditions.push(
+      "(ld.delivery_status IS NULL OR ld.delivery_status = 'not_shipped')"
+    );
+    if (elapsedMonths != null) {
+      conditions.push(
+        "COALESCE(oo.order_date, o.order_date) <= datetime('now', ?)"
+      );
+      args.push(`-${elapsedMonths} months`);
+    }
+  } else if (deliveryStatus === 'shipped') {
+    conditions.push(
+      "ld.delivery_status IN ('shipped', 'in_transit', 'out_for_delivery', 'delivered')"
+    );
   }
 
   const orderCol =

@@ -14,6 +14,8 @@ export type OrdersFilterState = {
   year: string;
   priceMin: string;
   priceMax: string;
+  deliveryStatus: string;
+  elapsedMonths: string;
 };
 
 /** フィルタドロップダウンの選択肢 */
@@ -27,6 +29,8 @@ const INITIAL_FILTERS: OrdersFilterState = {
   year: '',
   priceMin: '',
   priceMax: '',
+  deliveryStatus: '',
+  elapsedMonths: '12',
 };
 
 const INITIAL_OPTIONS: OrdersFilterOptions = {
@@ -37,7 +41,7 @@ const INITIAL_OPTIONS: OrdersFilterOptions = {
 /**
  * Ordersスクリーンのフィルタ状態を管理するフック
  *
- * - 4つのフィルタ値（shopDomain, year, priceMin, priceMax）を単一オブジェクトで管理
+ * - 6つのフィルタ値（shopDomain, year, priceMin, priceMax, deliveryStatus, elapsedMonths）を単一オブジェクトで管理
  * - マウント時にDBからフィルタ選択肢（ショップ一覧、年一覧）をロード
  * - `setFilter('key', value)` で型安全に個別フィールドを更新
  * - `clearFilters()` で全フィルタを空文字にリセット
