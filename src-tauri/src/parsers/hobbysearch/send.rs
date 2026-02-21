@@ -149,37 +149,39 @@ fn extract_order_sections(lines: &[&str]) -> Vec<(String, Vec<OrderItem>)> {
         }
 
         // 現在のセクション内の商品を解析
-        if current_order_number.is_some() && !line.is_empty() && !line.starts_with("単価：") {
-            if i + 1 < lines.len() {
-                let next_line = lines[i + 1].trim();
-                if let Some(captures) = price_pattern.captures(next_line) {
-                    let (name, manufacturer, model_number) = parse_item_line(line);
-                    let unit_price = captures
-                        .get(1)
-                        .map(|m| m.as_str().replace(',', "").parse::<i64>().unwrap_or(0))
-                        .unwrap_or(0);
-                    let quantity = captures
-                        .get(2)
-                        .map(|m| m.as_str().parse::<i64>().unwrap_or(1))
-                        .unwrap_or(1);
-                    let subtotal = captures
-                        .get(3)
-                        .map(|m| m.as_str().replace(',', "").parse::<i64>().unwrap_or(0))
-                        .unwrap_or(0);
+        if current_order_number.is_some()
+            && !line.is_empty()
+            && !line.starts_with("単価：")
+            && i + 1 < lines.len()
+        {
+            let next_line = lines[i + 1].trim();
+            if let Some(captures) = price_pattern.captures(next_line) {
+                let (name, manufacturer, model_number) = parse_item_line(line);
+                let unit_price = captures
+                    .get(1)
+                    .map(|m| m.as_str().replace(',', "").parse::<i64>().unwrap_or(0))
+                    .unwrap_or(0);
+                let quantity = captures
+                    .get(2)
+                    .map(|m| m.as_str().parse::<i64>().unwrap_or(1))
+                    .unwrap_or(1);
+                let subtotal = captures
+                    .get(3)
+                    .map(|m| m.as_str().replace(',', "").parse::<i64>().unwrap_or(0))
+                    .unwrap_or(0);
 
-                    current_items.push(OrderItem {
-                        name,
-                        manufacturer,
-                        model_number,
-                        unit_price,
-                        quantity,
-                        subtotal,
-                        image_url: None,
-                    });
+                current_items.push(OrderItem {
+                    name,
+                    manufacturer,
+                    model_number,
+                    unit_price,
+                    quantity,
+                    subtotal,
+                    image_url: None,
+                });
 
-                    i += 2;
-                    continue;
-                }
+                i += 2;
+                continue;
             }
         }
 
