@@ -51,6 +51,98 @@ describe('ShopSettings', () => {
     });
   });
 
+  it('groups multiple parsers with the same shop_name into a single card', async () => {
+    const mockShop2 = {
+      ...mockShop,
+      id: 2,
+      sender_address: 'test2@example.com',
+      parser_type: 'TypeB',
+    };
+
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_all_shop_settings') {
+        return Promise.resolve([mockShop, mockShop2]);
+      }
+      return Promise.resolve(null);
+    });
+
+    renderComponent();
+
+    await waitFor(() => {
+      expect(screen.getByText('テスト店舗')).toBeInTheDocument();
+    });
+
+    // Both parser types should appear in the group card header summary
+    expect(screen.getByText(/TypeA/)).toBeInTheDocument();
+    expect(screen.getByText(/TypeB/)).toBeInTheDocument();
+    // But only one group card (one shop_name heading)
+    expect(screen.getAllByText('テスト店舗')).toHaveLength(1);
+  });
+
+  it('shows 無効 badge when some parsers in the group are disabled', async () => {
+    const partiallyDisabledShop = {
+      ...mockShop,
+      id: 2,
+      is_enabled: false,
+      parser_type: 'TypeB',
+    };
+
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_all_shop_settings') {
+        return Promise.resolve([mockShop, partiallyDisabledShop]);
+      }
+      return Promise.resolve(null);
+    });
+
+    renderComponent();
+
+    await waitFor(() => {
+      expect(screen.getByText('テスト店舗')).toBeInTheDocument();
+    });
+
+    // When not all parsers are enabled, the group should show 無効
+    expect(screen.getByText('無効')).toBeInTheDocument();
+  });
+
+  it('renders region role and aria-labelledby when a group is expanded', async () => {
+    const user = userEvent.setup();
+
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_all_shop_settings') {
+        return Promise.resolve([mockShop]);
+      }
+      return Promise.resolve(null);
+    });
+
+    renderComponent();
+
+    // Wait for shop group heading to appear
+    await waitFor(() => {
+      expect(screen.getByText('テスト店舗')).toBeInTheDocument();
+    });
+
+    // Expand the group (aria-expanded=false -> true)
+    const expandButton = screen.getByRole('button', {
+      name: /編集/,
+      expanded: false,
+    });
+    await user.click(expandButton);
+
+    // After expansion, a region should be rendered and labeled by the shop name heading
+    const heading = screen.getByText('テスト店舗');
+    expect(heading).toBeInTheDocument();
+    expect(heading).toHaveAttribute('id');
+    const headingId = heading.getAttribute('id') as string;
+    expect(headingId).toBe(
+      `shop-group-label-${encodeURIComponent('テスト店舗')}`
+    );
+
+    const region = screen.getByRole('region', {
+      name: 'テスト店舗',
+    });
+    expect(region).toBeInTheDocument();
+    expect(region).toHaveAttribute('aria-labelledby', headingId);
+  });
   describe('is_enabled checkbox in edit mode', () => {
     it('calls update_shop_setting with isEnabled: false when checkbox is unchecked and saved', async () => {
       const user = userEvent.setup();
