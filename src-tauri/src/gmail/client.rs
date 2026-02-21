@@ -1013,8 +1013,8 @@ pub async fn toggle_shop_enabled(
 #[cfg(test)]
 mod shop_settings_tests {
     use super::*;
-    use std::collections::HashMap;
     use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+    use std::collections::HashMap;
     use std::str::FromStr;
 
     async fn setup_test_db() -> SqlitePool {
@@ -1082,10 +1082,7 @@ mod shop_settings_tests {
         }
     }
 
-    async fn fetch_shop_settings_by_name(
-        pool: &SqlitePool,
-        shop_name: &str,
-    ) -> Vec<ShopSettings> {
+    async fn fetch_shop_settings_by_name(pool: &SqlitePool, shop_name: &str) -> Vec<ShopSettings> {
         sqlx::query_as::<_, ShopSettings>(
             r#"
             SELECT id, shop_name, sender_address, parser_type, is_enabled,
@@ -1122,7 +1119,10 @@ mod shop_settings_tests {
 
         // Toggle for a shop_name that does not exist
         let result = toggle_shop_enabled(&pool, "non_existing_shop", false).await;
-        assert!(result.is_ok(), "toggle_shop_enabled should not fail when no rows match");
+        assert!(
+            result.is_ok(),
+            "toggle_shop_enabled should not fail when no rows match"
+        );
 
         // Ensure existing rows were not modified
         let after = fetch_shop_settings_by_name(&pool, "existing_shop").await;
@@ -1135,30 +1135,9 @@ mod shop_settings_tests {
         let pool = setup_test_db().await;
 
         // Insert multiple rows with the same shop_name and one with a different name
-        insert_shop_setting(
-            &pool,
-            "target_shop",
-            "shop1@example.com",
-            "parser_a",
-            false,
-        )
-        .await;
-        insert_shop_setting(
-            &pool,
-            "target_shop",
-            "shop2@example.com",
-            "parser_b",
-            false,
-        )
-        .await;
-        insert_shop_setting(
-            &pool,
-            "other_shop",
-            "other@example.com",
-            "parser_c",
-            false,
-        )
-        .await;
+        insert_shop_setting(&pool, "target_shop", "shop1@example.com", "parser_a", false).await;
+        insert_shop_setting(&pool, "target_shop", "shop2@example.com", "parser_b", false).await;
+        insert_shop_setting(&pool, "other_shop", "other@example.com", "parser_c", false).await;
 
         // Capture is_enabled for target_shop rows before toggle
         let before = fetch_shop_settings_by_name(&pool, "target_shop").await;
