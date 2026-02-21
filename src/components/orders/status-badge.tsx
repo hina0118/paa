@@ -60,7 +60,10 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
         className
       )}
     >
-      <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
+      <span
+        className="h-1.5 w-1.5 rounded-full bg-current"
+        aria-hidden="true"
+      />
       {config.label}
     </span>
   );

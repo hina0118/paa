@@ -17,7 +17,9 @@ export function StatusBadge({ status, config }: StatusBadgeProps) {
   return (
     <div className="flex items-center gap-2">
       <span className="text-sm font-medium">ステータス:</span>
-      <span className={`px-2 py-0.5 rounded-md text-xs font-medium ${className}`}>
+      <span
+        className={`px-2 py-0.5 rounded-md text-xs font-medium ${className}`}
+      >
         {label}
       </span>
     </div>
@@ -42,7 +44,8 @@ export const SYNC_STATUS_CONFIG: StatusConfig = {
   },
   error: {
     label: 'エラー',
-    className: 'bg-destructive/10 text-destructive border border-destructive/20',
+    className:
+      'bg-destructive/10 text-destructive border border-destructive/20',
   },
 };
 
@@ -64,6 +67,7 @@ export const PARSE_STATUS_CONFIG: StatusConfig = {
   },
   error: {
     label: 'エラー',
-    className: 'bg-destructive/10 text-destructive border border-destructive/20',
+    className:
+      'bg-destructive/10 text-destructive border border-destructive/20',
   },
 };

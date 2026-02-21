@@ -37,10 +37,7 @@ export function Dashboard() {
 
   return (
     <div className="container mx-auto py-10 px-6 space-y-6">
-      <PageHeader
-        title="ダッシュボード"
-        icon={LayoutDashboard}
-      >
+      <PageHeader title="ダッシュボード" icon={LayoutDashboard}>
         <Button onClick={loadStats} disabled={loading}>
           {loading ? '読み込み中...' : '更新'}
         </Button>
