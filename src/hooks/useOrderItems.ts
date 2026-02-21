@@ -49,7 +49,14 @@ export function useOrderItems({
   const loadItemsRequestId = useRef(0);
 
   // フィルタを個別フィールドに展開（useEffect の依存配列で使用）
-  const { shopDomain, year, priceMin, priceMax } = filters;
+  const {
+    shopDomain,
+    year,
+    priceMin,
+    priceMax,
+    deliveryStatus,
+    elapsedMonths,
+  } = filters;
 
   const loadItems = useCallback(async (): Promise<
     OrderItemRow[] | undefined
@@ -64,6 +71,12 @@ export function useOrderItems({
         year: parseNumericFilter(year),
         priceMin: parseNumericFilter(priceMin),
         priceMax: parseNumericFilter(priceMax),
+        deliveryStatus:
+          (deliveryStatus as 'not_shipped' | 'shipped') || undefined,
+        elapsedMonths:
+          deliveryStatus === 'not_shipped'
+            ? parseNumericFilter(elapsedMonths)
+            : undefined,
         sortBy: sort.sortBy,
         sortOrder: sort.sortOrder,
       });
@@ -91,6 +104,8 @@ export function useOrderItems({
     year,
     priceMin,
     priceMax,
+    deliveryStatus,
+    elapsedMonths,
     sort.sortBy,
     sort.sortOrder,
   ]);

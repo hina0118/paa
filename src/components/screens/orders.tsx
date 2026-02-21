@@ -141,6 +141,45 @@ export function Orders() {
           </div>
           <div className="flex items-center gap-2">
             <label
+              htmlFor="filter-delivery-status"
+              className="text-sm text-muted-foreground whitespace-nowrap"
+            >
+              発送状態:
+            </label>
+            <select
+              id="filter-delivery-status"
+              value={filters.deliveryStatus}
+              onChange={(e) => setFilter('deliveryStatus', e.target.value)}
+              className="h-9 rounded-md border border-input bg-background px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+            >
+              <option value="">すべて</option>
+              <option value="not_shipped">未発送のみ</option>
+              <option value="shipped">発送済みのみ</option>
+            </select>
+          </div>
+          {filters.deliveryStatus === 'not_shipped' && (
+            <div className="flex items-center gap-2">
+              <label
+                htmlFor="filter-elapsed-months"
+                className="text-sm text-muted-foreground whitespace-nowrap"
+              >
+                経過期間:
+              </label>
+              <select
+                id="filter-elapsed-months"
+                value={filters.elapsedMonths}
+                onChange={(e) => setFilter('elapsedMonths', e.target.value)}
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+              >
+                <option value="3">3ヶ月以上</option>
+                <option value="6">6ヶ月以上</option>
+                <option value="12">1年以上</option>
+                <option value="24">2年以上</option>
+              </select>
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <label
               htmlFor="sort"
               className="text-sm text-muted-foreground whitespace-nowrap"
             >
