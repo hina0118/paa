@@ -28,9 +28,9 @@ export function Logs() {
   const [searchQuery, setSearchQuery] = useState('');
   const [autoRefresh, setAutoRefresh] = useState(false);
 
-  const loadLogs = async (level?: string) => {
+  const loadLogs = async (level?: string, isManual = false) => {
     try {
-      setLoading(true);
+      if (isManual) setLoading(true);
       const result = await invoke<LogEntry[]>('get_logs', {
         levelFilter: level || null,
         limit: 500,
@@ -40,7 +40,7 @@ export function Logs() {
       toastError(`ログの読み込みに失敗しました: ${formatError(err)}`);
       console.error('Failed to load logs:', err);
     } finally {
-      setLoading(false);
+      if (isManual) setLoading(false);
     }
   };
 
@@ -105,7 +105,7 @@ export function Logs() {
             {autoRefresh ? '自動更新中' : '自動更新'}
           </Button>
           <Button
-            onClick={() => loadLogs(filterLevel || undefined)}
+            onClick={() => loadLogs(filterLevel || undefined, true)}
             disabled={loading}
             aria-label="ログを手動で更新"
           >
