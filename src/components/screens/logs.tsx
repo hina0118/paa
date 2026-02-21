@@ -94,7 +94,7 @@ export function Logs() {
 
   return (
     <div className="flex flex-col h-screen">
-      <div className="container mx-auto py-10 px-6 space-y-4 flex-shrink-0">
+      <div className="container mx-auto pt-0 pb-10 px-6 space-y-4 flex-shrink-0">
         <PageHeader title="ログビューアー" icon={ScrollText}>
           <Button
             variant={autoRefresh ? 'default' : 'outline'}
