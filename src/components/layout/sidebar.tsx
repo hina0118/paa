@@ -171,7 +171,7 @@ export function Sidebar() {
               'overflow-hidden transition-all duration-200',
               isTableSectionOpen
                 ? 'max-h-[600px] opacity-100'
-                : 'max-h-0 opacity-0'
+                : 'max-h-0 opacity-0 invisible'
             )}
           >
             <ul className="mt-1 ml-4 space-y-0.5 border-l border-border/50 pl-2">

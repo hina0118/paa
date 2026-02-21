@@ -100,7 +100,6 @@ describe('ナビゲーション (Tauri)', () => {
     const tablesBtn = await $('[data-testid="tables-section-toggle"]');
     await tablesBtn.click();
     // 閉じた後は table-emails が非表示になる（折りたたみ状態）
-    const emailsBtn = await $('[data-testid="table-emails"]');
     await emailsBtn.waitForDisplayed({ reverse: true, timeout: 3000 });
   });
 });
