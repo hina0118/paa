@@ -104,6 +104,40 @@ describe('ShopSettings', () => {
     expect(screen.getByText('無効')).toBeInTheDocument();
   });
 
+  it('renders region role and aria-labelledby when a group is expanded', async () => {
+    const user = userEvent.setup();
+
+    mockInvoke.mockImplementation((cmd: string) => {
+      if (cmd === 'get_all_shop_settings') {
+        return Promise.resolve([mockShop]);
+      }
+      return Promise.resolve(null);
+    });
+
+    renderComponent();
+
+    // Wait for shop group heading to appear
+    await waitFor(() => {
+      expect(screen.getByText('テスト店舗')).toBeInTheDocument();
+    });
+
+    // Expand the group (aria-expanded=false -> true)
+    const expandButton = screen.getByRole('button', {
+      name: /編集/,
+      expanded: false,
+    });
+    await user.click(expandButton);
+
+    // After expansion, a region should be rendered and labeled by the shop name heading
+    const heading = screen.getByText('テスト店舗');
+    expect(heading).toBeInTheDocument();
+    expect(heading).toHaveAttribute('id');
+    const headingId = heading.getAttribute('id') as string;
+
+    const region = screen.getByRole('region');
+    expect(region).toBeInTheDocument();
+    expect(region).toHaveAttribute('aria-labelledby', headingId);
+  });
   describe('is_enabled checkbox in edit mode', () => {
     it('calls update_shop_setting with isEnabled: false when checkbox is unchecked and saved', async () => {
       const user = userEvent.setup();
