@@ -252,6 +252,55 @@ describe('ShopSettings', () => {
   });
 
   describe('shop group enable/disable buttons', () => {
+    it('clears edit form when toggle_shop_enabled is triggered while editing a parser', async () => {
+      const user = userEvent.setup();
+
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_all_shop_settings') {
+          return Promise.resolve([mockShop]);
+        }
+        if (cmd === 'toggle_shop_enabled') {
+          return Promise.resolve(undefined);
+        }
+        return Promise.resolve(null);
+      });
+
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByText('テスト店舗')).toBeInTheDocument();
+      });
+
+      // Expand the group to show row-level edit button
+      const expandButton = screen.getByRole('button', {
+        name: /編集/,
+        expanded: false,
+      });
+      await user.click(expandButton);
+
+      await waitFor(() => {
+        expect(
+          screen.getAllByRole('button', { name: '編集' }).length
+        ).toBeGreaterThan(0);
+      });
+      const rowEditButtons = screen.getAllByRole('button', { name: '編集' });
+      await user.click(rowEditButtons[rowEditButtons.length - 1]);
+
+      // Verify the edit form (checkbox) is visible
+      await waitFor(() => {
+        expect(screen.getByRole('checkbox')).toBeInTheDocument();
+      });
+
+      // Click the shop-level disable button while the edit form is open
+      const disableButton = screen.getByRole('button', { name: '無効化' });
+      await user.click(disableButton);
+
+      // The edit form (checkbox) should no longer be visible
+      await waitFor(() => {
+        expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+      });
+    });
+
     it('calls toggle_shop_enabled with isEnabled: false when clicking the disable button for an enabled shop', async () => {
       const user = userEvent.setup();
 
