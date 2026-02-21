@@ -45,16 +45,147 @@ type SchemaColumn = {
   pk: number;
 };
 
-const IMAGES_COLUMN_LABELS: Record<string, string> = {
-  id: 'ID',
-  item_name_normalized: '正規化商品名',
-  file_name: 'ファイル名',
-  created_at: '作成日時',
+const COLUMN_LABELS: Record<string, Record<string, string>> = {
+  emails: {
+    id: 'ID',
+    message_id: 'メッセージID',
+    body_plain: '本文（プレーン）',
+    body_html: '本文（HTML）',
+    analysis_status: '解析ステータス',
+    internal_date: '内部日時',
+    from_address: '送信元アドレス',
+    subject: '件名',
+    created_at: '作成日時',
+    updated_at: '更新日時',
+  },
+  orders: {
+    id: 'ID',
+    shop_domain: 'ショップドメイン',
+    shop_name: 'ショップ名',
+    order_number: '注文番号',
+    order_date: '注文日',
+    created_at: '作成日時',
+    updated_at: '更新日時',
+  },
+  items: {
+    id: 'ID',
+    order_id: '注文ID',
+    item_name: '商品名',
+    item_name_normalized: '正規化商品名',
+    price: '価格',
+    quantity: '数量',
+    category: 'カテゴリ',
+    brand: 'ブランド',
+    created_at: '作成日時',
+    updated_at: '更新日時',
+  },
+  images: {
+    id: 'ID',
+    item_name_normalized: '正規化商品名',
+    file_name: 'ファイル名',
+    created_at: '作成日時',
+  },
+  deliveries: {
+    id: 'ID',
+    order_id: '注文ID',
+    tracking_number: '追跡番号',
+    carrier: '配送業者',
+    delivery_status: '配送ステータス',
+    estimated_delivery: '配送予定日',
+    actual_delivery: '実際の配送日',
+    last_checked_at: '最終確認日時',
+    created_at: '作成日時',
+    updated_at: '更新日時',
+  },
+  htmls: {
+    id: 'ID',
+    url: 'URL',
+    html_content: 'HTML内容',
+    analysis_status: '解析ステータス',
+    created_at: '作成日時',
+    updated_at: '更新日時',
+  },
+  order_emails: {
+    id: 'ID',
+    order_id: '注文ID',
+    email_id: 'メールID',
+    created_at: '作成日時',
+  },
+  order_htmls: {
+    id: 'ID',
+    order_id: '注文ID',
+    html_id: 'HTML ID',
+    created_at: '作成日時',
+  },
+  shop_settings: {
+    id: 'ID',
+    shop_name: 'ショップ名',
+    sender_address: '送信元アドレス',
+    parser_type: 'パーサー種別',
+    is_enabled: '有効フラグ',
+    subject_filters: '件名フィルター',
+    created_at: '作成日時',
+    updated_at: '更新日時',
+  },
+  product_master: {
+    id: 'ID',
+    raw_name: '元の名称',
+    normalized_name: '正規化名称',
+    maker: 'メーカー',
+    series: 'シリーズ',
+    product_name: '商品名',
+    scale: 'スケール',
+    is_reissue: '再版フラグ',
+    platform_hint: 'プラットフォームヒント',
+    created_at: '作成日時',
+    updated_at: '更新日時',
+  },
+  item_overrides: {
+    id: 'ID',
+    shop_domain: 'ショップドメイン',
+    order_number: '注文番号',
+    original_item_name: '元の商品名',
+    original_brand: '元のブランド',
+    item_name: '商品名',
+    price: '価格',
+    quantity: '数量',
+    brand: 'ブランド',
+    category: 'カテゴリ',
+    created_at: '作成日時',
+    updated_at: '更新日時',
+  },
+  order_overrides: {
+    id: 'ID',
+    shop_domain: 'ショップドメイン',
+    order_number: '注文番号',
+    new_order_number: '新注文番号',
+    order_date: '注文日',
+    shop_name: 'ショップ名',
+    created_at: '作成日時',
+    updated_at: '更新日時',
+  },
+  excluded_items: {
+    id: 'ID',
+    shop_domain: 'ショップドメイン',
+    order_number: '注文番号',
+    item_name: '商品名',
+    brand: 'ブランド',
+    reason: '除外理由',
+    created_at: '作成日時',
+  },
+  excluded_orders: {
+    id: 'ID',
+    shop_domain: 'ショップドメイン',
+    order_number: '注文番号',
+    reason: '除外理由',
+    created_at: '作成日時',
+  },
 };
 
 function getColumnLabel(tableName: string, column: string): string {
-  if (tableName === 'images' && column in IMAGES_COLUMN_LABELS) {
-    return IMAGES_COLUMN_LABELS[column];
+  const labels = COLUMN_LABELS[tableName];
+  if (labels && column in labels) {
+    return labels[column];
   }
   return column;
 }
