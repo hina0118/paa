@@ -101,11 +101,11 @@ fn extract_order_sections(lines: &[&str]) -> Vec<(String, Vec<OrderItem>)> {
         Ok(p) => p,
         Err(_) => return Vec::new(),
     };
-    let price_pattern =
-        match Regex::new(r"単価：([\d,]+)円\s*×\s*個数：(\d+)\s*=\s*([\d,]+)円") {
-            Ok(p) => p,
-            Err(_) => return Vec::new(),
-        };
+    let price_pattern = match Regex::new(r"単価：([\d,]+)円\s*×\s*個数：(\d+)\s*=\s*([\d,]+)円")
+    {
+        Ok(p) => p,
+        Err(_) => return Vec::new(),
+    };
 
     let mut sections: Vec<(String, Vec<OrderItem>)> = Vec::new();
     let mut in_purchase_section = false;
@@ -142,8 +142,7 @@ fn extract_order_sections(lines: &[&str]) -> Vec<(String, Vec<OrderItem>)> {
             if let Some(num) = current_order_number.take() {
                 sections.push((num, std::mem::take(&mut current_items)));
             }
-            current_order_number =
-                Some(caps.get(1).unwrap().as_str().to_string());
+            current_order_number = Some(caps.get(1).unwrap().as_str().to_string());
             i += 1;
             continue;
         }
@@ -435,7 +434,10 @@ http://k2k.sagawa-exp.co.jp/p/sagawa/web/okurijoinput.jsp
 
         // 配送情報は両注文で共有される
         for order in &orders {
-            let delivery = order.delivery_info.as_ref().expect("delivery_info should be present");
+            let delivery = order
+                .delivery_info
+                .as_ref()
+                .expect("delivery_info should be present");
             assert_eq!(delivery.carrier, "佐川急便");
             assert_eq!(delivery.tracking_number, "999000111222");
         }
