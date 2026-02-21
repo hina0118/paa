@@ -9,8 +9,8 @@ describe('Tables (Tauri)', () => {
   it('Orders テーブルに遷移して表示される', async () => {
     await expectSidebarVisible();
     await navigateToTable('table-orders');
-    // TableViewer の title は "Orders テーブル"。h1 で表示される
-    const heading = await $('h1*=Orders テーブル');
+    // TableViewer の title は "注文テーブル"。h1 で表示される
+    const heading = await $('h1*=注文テーブル');
     await expect(heading).toBeDisplayed({ wait: 10000 });
   });
 });
