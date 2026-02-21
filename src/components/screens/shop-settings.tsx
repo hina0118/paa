@@ -220,6 +220,8 @@ export function ShopSettings() {
         shopName,
         isEnabled: !currentEnabled,
       });
+      setEditingId(null);
+      setEditForm({});
       await loadShops();
       toastSuccess('店舗設定を更新しました');
     } catch (err) {
