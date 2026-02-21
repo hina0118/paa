@@ -91,7 +91,7 @@ function AppContent() {
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar />
-      <main className="flex-1 overflow-auto">{renderScreen()}</main>
+      <main className="flex-1 min-w-0 overflow-auto">{renderScreen()}</main>
       <Toaster position="top-right" richColors />
     </div>
   );
