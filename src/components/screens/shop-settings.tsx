@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Store } from 'lucide-react';
+import { Store, ChevronDown, ChevronUp } from 'lucide-react';
 import {
   Card,
   CardContent,
@@ -28,6 +28,34 @@ interface ShopSettingDisplay extends Omit<ShopSetting, 'subject_filters'> {
   subject_filters_array: string[]; // Parsed array for display
 }
 
+interface ShopGroup {
+  shop_name: string;
+  is_enabled: boolean; // true if all parsers in the group are enabled
+  parsers: ShopSettingDisplay[];
+}
+
+function groupShops(shops: ShopSettingDisplay[]): ShopGroup[] {
+  const map = new Map<string, ShopSettingDisplay[]>();
+  for (const shop of shops) {
+    const group = map.get(shop.shop_name) ?? [];
+    group.push(shop);
+    map.set(shop.shop_name, group);
+  }
+  return Array.from(map.entries()).map(([name, parsers]) => ({
+    shop_name: name,
+    is_enabled: parsers.every((p) => p.is_enabled),
+    parsers,
+  }));
+}
+
+function toPanelId(shopName: string): string {
+  return `parsers-${encodeURIComponent(shopName)}`;
+}
+
+function toLabelId(shopName: string): string {
+  return `shop-group-label-${encodeURIComponent(shopName)}`;
+}
+
 export function ShopSettings() {
   const [shops, setShops] = useState<ShopSettingDisplay[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -42,6 +70,9 @@ export function ShopSettings() {
   // Edit state
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<Partial<ShopSettingDisplay>>({});
+
+  // Expanded group state
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     loadShops();
@@ -180,21 +211,37 @@ export function ShopSettings() {
     }
   };
 
-  const handleToggleEnabled = async (shop: ShopSettingDisplay) => {
+  const handleToggleShopEnabled = async (
+    shopName: string,
+    currentEnabled: boolean
+  ) => {
     try {
-      await invoke('update_shop_setting', {
-        id: shop.id,
-        shopName: null,
-        senderAddress: null,
-        parserType: null,
-        isEnabled: !shop.is_enabled,
-        subjectFilters: null,
+      await invoke('toggle_shop_enabled', {
+        shopName,
+        isEnabled: !currentEnabled,
       });
+      setEditingId(null);
+      setEditForm({});
       await loadShops();
+      toastSuccess('店舗設定を更新しました');
     } catch (err) {
       toastError(`更新に失敗しました: ${formatError(err)}`);
     }
   };
+
+  const toggleExpand = (shopName: string) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(shopName)) {
+        next.delete(shopName);
+      } else {
+        next.add(shopName);
+      }
+      return next;
+    });
+  };
+
+  const groups = groupShops(shops);
 
   return (
     <div className="container mx-auto py-10 px-6 space-y-6">
@@ -319,225 +366,316 @@ export function ShopSettings() {
         <CardHeader>
           <CardTitle>登録済み店舗</CardTitle>
           <CardDescription>
-            {shops.length}件の店舗が登録されています
+            {groups.length}件の店舗が登録されています
           </CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (
             <p className="text-sm text-muted-foreground">読み込み中...</p>
-          ) : shops.length === 0 ? (
+          ) : groups.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               店舗が登録されていません
             </p>
           ) : (
             <div className="space-y-4">
-              {shops.map((shop) => (
-                <div key={shop.id} className="p-4 border rounded-lg space-y-3">
-                  {editingId === shop.id ? (
-                    // Edit mode
-                    <div className="space-y-3">
-                      <div className="grid grid-cols-3 gap-4">
-                        <div className="space-y-2">
-                          <label className="text-sm font-medium">店舗名</label>
-                          <Input
-                            value={editForm.shop_name || ''}
-                            onChange={(e) =>
-                              setEditForm({
-                                ...editForm,
-                                shop_name: e.target.value,
-                              })
-                            }
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-sm font-medium">
-                            送信元アドレス
-                          </label>
-                          <Input
-                            type="email"
-                            value={editForm.sender_address || ''}
-                            onChange={(e) =>
-                              setEditForm({
-                                ...editForm,
-                                sender_address: e.target.value,
-                              })
-                            }
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-sm font-medium">
-                            パーサータイプ
-                          </label>
-                          <Input
-                            value={editForm.parser_type || ''}
-                            onChange={(e) =>
-                              setEditForm({
-                                ...editForm,
-                                parser_type: e.target.value,
-                              })
-                            }
-                          />
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium">
-                          件名フィルター（オプション）
-                        </label>
-                        <div className="space-y-2">
-                          {(editForm.subject_filters_array || ['']).map(
-                            (filter, index) => (
-                              <div key={index} className="flex gap-2">
-                                <Input
-                                  placeholder="例: 【ホビーサーチ】ご注文の発送が完了しました"
-                                  value={filter}
-                                  onChange={(e) => {
-                                    const updated = [
-                                      ...(editForm.subject_filters_array || [
-                                        '',
-                                      ]),
-                                    ];
-                                    updated[index] = e.target.value;
-                                    setEditForm({
-                                      ...editForm,
-                                      subject_filters_array: updated,
-                                    });
-                                  }}
-                                />
-                                {(editForm.subject_filters_array || [''])
-                                  .length > 1 && (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => {
-                                      const updated = (
-                                        editForm.subject_filters_array || ['']
-                                      ).filter((_, i) => i !== index);
-                                      setEditForm({
-                                        ...editForm,
-                                        subject_filters_array: updated,
-                                      });
-                                    }}
-                                  >
-                                    削除
-                                  </Button>
-                                )}
-                              </div>
-                            )
-                          )}
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              setEditForm({
-                                ...editForm,
-                                subject_filters_array: [
-                                  ...(editForm.subject_filters_array || ['']),
-                                  '',
-                                ],
-                              });
-                            }}
-                          >
-                            + 件名パターンを追加
-                          </Button>
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                          設定した場合、いずれかの件名パターンを含むメールのみを取り込みます
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Checkbox
-                          id={`enabled-${shop.id}`}
-                          checked={editForm.is_enabled ?? false}
-                          onCheckedChange={(checked) =>
-                            setEditForm({
-                              ...editForm,
-                              is_enabled: checked as boolean,
-                            })
-                          }
-                        />
-                        <label
-                          htmlFor={`enabled-${shop.id}`}
-                          className="text-sm font-medium"
-                        >
-                          有効
-                        </label>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button onClick={() => handleSaveEdit(shop.id)}>
-                          保存
-                        </Button>
-                        <Button variant="outline" onClick={handleCancelEdit}>
-                          キャンセル
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    // View mode
-                    <div className="space-y-2">
+              {groups.map((group) => {
+                const isExpanded = expandedGroups.has(group.shop_name);
+                // Collect unique sender addresses for display
+                const senderAddresses = [
+                  ...new Set(group.parsers.map((p) => p.sender_address)),
+                ];
+                const parserTypes = group.parsers.map((p) => p.parser_type);
+
+                return (
+                  <div
+                    key={group.shop_name}
+                    className="border rounded-lg overflow-hidden"
+                  >
+                    {/* Group header */}
+                    <div className="p-4 space-y-2">
                       <div className="flex items-start justify-between">
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
-                            <h3 className="font-semibold">{shop.shop_name}</h3>
+                            <h3
+                              id={toLabelId(group.shop_name)}
+                              className="font-semibold"
+                            >
+                              {group.shop_name}
+                            </h3>
                             <span
                               className={`text-xs px-2 py-1 rounded ${
-                                shop.is_enabled
+                                group.is_enabled
                                   ? 'bg-green-100 text-green-800'
                                   : 'bg-gray-100 text-gray-800'
                               }`}
                             >
-                              {shop.is_enabled ? '有効' : '無効'}
+                              {group.is_enabled ? '有効' : '無効'}
                             </span>
                           </div>
                           <p className="text-sm text-muted-foreground">
-                            {shop.sender_address}
+                            {senderAddresses.join(', ')}
                           </p>
                           <p className="text-sm text-muted-foreground">
-                            パーサー: {shop.parser_type}
+                            パーサー: {parserTypes.join(', ')}
                           </p>
-                          {shop.subject_filters_array &&
-                            shop.subject_filters_array.length > 0 && (
-                              <div className="text-sm text-muted-foreground">
-                                <div className="font-medium">
-                                  件名フィルター:
-                                </div>
-                                <ul className="list-disc list-inside pl-2">
-                                  {shop.subject_filters_array.map(
-                                    (filter, index) => (
-                                      <li key={index}>{filter}</li>
-                                    )
-                                  )}
-                                </ul>
-                              </div>
-                            )}
                         </div>
                         <div className="flex gap-2">
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => handleToggleEnabled(shop)}
+                            onClick={() =>
+                              handleToggleShopEnabled(
+                                group.shop_name,
+                                group.is_enabled
+                              )
+                            }
                           >
-                            {shop.is_enabled ? '無効化' : '有効化'}
+                            {group.is_enabled ? '無効化' : '有効化'}
                           </Button>
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => handleEdit(shop)}
+                            aria-expanded={isExpanded}
+                            aria-controls={
+                              isExpanded
+                                ? toPanelId(group.shop_name)
+                                : undefined
+                            }
+                            onClick={() => toggleExpand(group.shop_name)}
                           >
-                            編集
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleDelete(shop.id)}
-                          >
-                            削除
+                            {isExpanded ? (
+                              <>
+                                <ChevronUp className="h-4 w-4 mr-1" />
+                                閉じる
+                              </>
+                            ) : (
+                              <>
+                                <ChevronDown className="h-4 w-4 mr-1" />
+                                編集
+                              </>
+                            )}
                           </Button>
                         </div>
                       </div>
                     </div>
-                  )}
-                </div>
-              ))}
+
+                    {/* Expanded parser rows */}
+                    {isExpanded && (
+                      <div
+                        id={toPanelId(group.shop_name)}
+                        role="region"
+                        aria-labelledby={toLabelId(group.shop_name)}
+                        className="border-t bg-muted/30"
+                      >
+                        <div className="p-3 space-y-3">
+                          {group.parsers.map((shop) => (
+                            <div
+                              key={shop.id}
+                              className="p-3 bg-background border rounded-md space-y-3"
+                            >
+                              {editingId === shop.id ? (
+                                // Edit mode
+                                <div className="space-y-3">
+                                  <div className="grid grid-cols-3 gap-4">
+                                    <div className="space-y-2">
+                                      <label className="text-sm font-medium">
+                                        店舗名
+                                      </label>
+                                      <Input
+                                        value={editForm.shop_name || ''}
+                                        onChange={(e) =>
+                                          setEditForm({
+                                            ...editForm,
+                                            shop_name: e.target.value,
+                                          })
+                                        }
+                                      />
+                                    </div>
+                                    <div className="space-y-2">
+                                      <label className="text-sm font-medium">
+                                        送信元アドレス
+                                      </label>
+                                      <Input
+                                        type="email"
+                                        value={editForm.sender_address || ''}
+                                        onChange={(e) =>
+                                          setEditForm({
+                                            ...editForm,
+                                            sender_address: e.target.value,
+                                          })
+                                        }
+                                      />
+                                    </div>
+                                    <div className="space-y-2">
+                                      <label className="text-sm font-medium">
+                                        パーサータイプ
+                                      </label>
+                                      <Input
+                                        value={editForm.parser_type || ''}
+                                        onChange={(e) =>
+                                          setEditForm({
+                                            ...editForm,
+                                            parser_type: e.target.value,
+                                          })
+                                        }
+                                      />
+                                    </div>
+                                  </div>
+                                  <div className="space-y-2">
+                                    <label className="text-sm font-medium">
+                                      件名フィルター（オプション）
+                                    </label>
+                                    <div className="space-y-2">
+                                      {(
+                                        editForm.subject_filters_array || ['']
+                                      ).map((filter, index) => (
+                                        <div key={index} className="flex gap-2">
+                                          <Input
+                                            placeholder="例: 【ホビーサーチ】ご注文の発送が完了しました"
+                                            value={filter}
+                                            onChange={(e) => {
+                                              const updated = [
+                                                ...(editForm.subject_filters_array || [
+                                                  '',
+                                                ]),
+                                              ];
+                                              updated[index] = e.target.value;
+                                              setEditForm({
+                                                ...editForm,
+                                                subject_filters_array: updated,
+                                              });
+                                            }}
+                                          />
+                                          {(
+                                            editForm.subject_filters_array || [
+                                              '',
+                                            ]
+                                          ).length > 1 && (
+                                            <Button
+                                              variant="outline"
+                                              size="sm"
+                                              onClick={() => {
+                                                const updated = (
+                                                  editForm.subject_filters_array || [
+                                                    '',
+                                                  ]
+                                                ).filter((_, i) => i !== index);
+                                                setEditForm({
+                                                  ...editForm,
+                                                  subject_filters_array:
+                                                    updated,
+                                                });
+                                              }}
+                                            >
+                                              削除
+                                            </Button>
+                                          )}
+                                        </div>
+                                      ))}
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => {
+                                          setEditForm({
+                                            ...editForm,
+                                            subject_filters_array: [
+                                              ...(editForm.subject_filters_array || [
+                                                '',
+                                              ]),
+                                              '',
+                                            ],
+                                          });
+                                        }}
+                                      >
+                                        + 件名パターンを追加
+                                      </Button>
+                                    </div>
+                                    <p className="text-xs text-muted-foreground">
+                                      設定した場合、いずれかの件名パターンを含むメールのみを取り込みます
+                                    </p>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <Checkbox
+                                      id={`is-enabled-${shop.id}`}
+                                      checked={
+                                        editForm.is_enabled ?? shop.is_enabled
+                                      }
+                                      onCheckedChange={(checked) =>
+                                        setEditForm({
+                                          ...editForm,
+                                          is_enabled: checked === true,
+                                        })
+                                      }
+                                    />
+                                    <label
+                                      htmlFor={`is-enabled-${shop.id}`}
+                                      className="text-sm font-medium cursor-pointer"
+                                    >
+                                      有効
+                                    </label>
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <Button
+                                      onClick={() => handleSaveEdit(shop.id)}
+                                    >
+                                      保存
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      onClick={handleCancelEdit}
+                                    >
+                                      キャンセル
+                                    </Button>
+                                  </div>
+                                </div>
+                              ) : (
+                                // View mode
+                                <div className="flex items-start justify-between">
+                                  <div className="space-y-1">
+                                    <p className="text-sm font-medium">
+                                      {shop.parser_type}
+                                    </p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {shop.sender_address}
+                                    </p>
+                                    {shop.subject_filters_array &&
+                                      shop.subject_filters_array.length > 0 && (
+                                        <div className="text-xs text-muted-foreground">
+                                          <span className="font-medium">
+                                            件名フィルター:{' '}
+                                          </span>
+                                          {shop.subject_filters_array.join(
+                                            ', '
+                                          )}
+                                        </div>
+                                      )}
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => handleEdit(shop)}
+                                    >
+                                      編集
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => handleDelete(shop.id)}
+                                    >
+                                      削除
+                                    </Button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </CardContent>

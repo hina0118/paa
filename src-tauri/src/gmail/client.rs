@@ -993,6 +993,192 @@ pub async fn get_enabled_shop_settings(pool: &SqlitePool) -> Result<Vec<ShopSett
     .map_err(|e| format!("Failed to fetch enabled shop settings: {e}"))
 }
 
+/// Toggle is_enabled for all rows with the given shop_name
+pub async fn toggle_shop_enabled(
+    pool: &SqlitePool,
+    shop_name: &str,
+    is_enabled: bool,
+) -> Result<(), String> {
+    sqlx::query(
+        "UPDATE shop_settings SET is_enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE shop_name = ?",
+    )
+    .bind(is_enabled)
+    .bind(shop_name)
+    .execute(pool)
+    .await
+    .map_err(|e| format!("Failed to toggle shop enabled: {e}"))?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod shop_settings_tests {
+    use super::*;
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+    use std::collections::HashMap;
+    use std::str::FromStr;
+
+    async fn setup_test_db() -> SqlitePool {
+        // Use an in-memory SQLite database for isolation
+        // Note: We must use SqliteConnectOptions + SqlitePoolOptions with max_connections=1
+        // to ensure all queries see the same in-memory database.
+        let connect_options = SqliteConnectOptions::from_str("sqlite::memory:")
+            .expect("failed to parse sqlite::memory: connect options")
+            .create_if_missing(true);
+
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(connect_options)
+            .await
+            .expect("failed to create in-memory sqlite pool");
+
+        // Minimal schema needed for the tested queries
+        sqlx::query(
+            r#"
+            CREATE TABLE shop_settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                shop_name TEXT NOT NULL,
+                sender_address TEXT NOT NULL,
+                parser_type TEXT NOT NULL,
+                subject_filters TEXT,
+                is_enabled INTEGER NOT NULL DEFAULT 1,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("failed to create shop_settings table");
+
+        pool
+    }
+
+    async fn insert_shop_setting(
+        pool: &SqlitePool,
+        shop_name: &str,
+        sender_address: &str,
+        parser_type: &str,
+        is_enabled: bool,
+    ) {
+        let settings = CreateShopSettings {
+            shop_name: shop_name.to_string(),
+            sender_address: sender_address.to_string(),
+            parser_type: parser_type.to_string(),
+            subject_filters: None,
+        };
+
+        // Use the existing create_shop_setting API to stay consistent
+        let id = create_shop_setting(pool, settings)
+            .await
+            .expect("failed to insert shop_setting");
+
+        // Optionally adjust is_enabled if needed
+        if !is_enabled {
+            sqlx::query("UPDATE shop_settings SET is_enabled = 0 WHERE id = ?")
+                .bind(id)
+                .execute(pool)
+                .await
+                .expect("failed to update is_enabled for inserted row");
+        }
+    }
+
+    async fn fetch_shop_settings_by_name(pool: &SqlitePool, shop_name: &str) -> Vec<ShopSettings> {
+        sqlx::query_as::<_, ShopSettings>(
+            r#"
+            SELECT id, shop_name, sender_address, parser_type, is_enabled,
+                   subject_filters, created_at, updated_at
+            FROM shop_settings
+            WHERE shop_name = ?
+            ORDER BY id ASC
+            "#,
+        )
+        .bind(shop_name)
+        .fetch_all(pool)
+        .await
+        .expect("failed to fetch shop_settings by name")
+    }
+
+    #[tokio::test]
+    async fn toggle_shop_enabled_no_matching_rows_does_not_error_or_change_other_rows() {
+        let pool = setup_test_db().await;
+
+        // Insert a row for a different shop_name
+        insert_shop_setting(
+            &pool,
+            "existing_shop",
+            "no-reply@example.com",
+            "parser_a",
+            true,
+        )
+        .await;
+
+        // Capture state before toggle
+        let before = fetch_shop_settings_by_name(&pool, "existing_shop").await;
+        assert_eq!(before.len(), 1);
+        let before_enabled = before[0].is_enabled;
+
+        // Toggle for a shop_name that does not exist
+        let result = toggle_shop_enabled(&pool, "non_existing_shop", false).await;
+        assert!(
+            result.is_ok(),
+            "toggle_shop_enabled should not fail when no rows match"
+        );
+
+        // Ensure existing rows were not modified
+        let after = fetch_shop_settings_by_name(&pool, "existing_shop").await;
+        assert_eq!(after.len(), 1);
+        assert_eq!(after[0].is_enabled, before_enabled);
+    }
+
+    #[tokio::test]
+    async fn toggle_shop_enabled_updates_all_matching_rows() {
+        let pool = setup_test_db().await;
+
+        // Insert multiple rows with the same shop_name and one with a different name
+        insert_shop_setting(&pool, "target_shop", "shop1@example.com", "parser_a", false).await;
+        insert_shop_setting(&pool, "target_shop", "shop2@example.com", "parser_b", false).await;
+        insert_shop_setting(&pool, "other_shop", "other@example.com", "parser_c", false).await;
+
+        // Capture is_enabled for target_shop rows before toggle
+        let before = fetch_shop_settings_by_name(&pool, "target_shop").await;
+        assert_eq!(before.len(), 2);
+
+        let mut before_map: HashMap<i64, bool> = HashMap::new();
+        for row in &before {
+            before_map.insert(row.id, row.is_enabled);
+        }
+
+        // Perform the toggle
+        toggle_shop_enabled(&pool, "target_shop", true)
+            .await
+            .expect("toggle_shop_enabled failed");
+
+        // Verify all matching rows updated
+        let after = fetch_shop_settings_by_name(&pool, "target_shop").await;
+        assert_eq!(after.len(), 2);
+        for row in &after {
+            assert!(
+                row.is_enabled,
+                "expected is_enabled to be true for shop_name=target_shop"
+            );
+            let before_enabled = before_map.get(&row.id).expect("missing row in before_map");
+            // is_enabled should change from the initial false value
+            assert_ne!(
+                *before_enabled, row.is_enabled,
+                "is_enabled should be toggled for row id={}",
+                row.id
+            );
+        }
+
+        // Ensure rows for other_shop are untouched
+        let other = fetch_shop_settings_by_name(&pool, "other_shop").await;
+        assert_eq!(other.len(), 1);
+        assert!(
+            !other[0].is_enabled,
+            "rows for other_shop should not be affected"
+        );
+    }
+}
 /// Create a new shop setting
 pub async fn create_shop_setting(
     pool: &SqlitePool,

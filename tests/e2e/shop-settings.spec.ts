@@ -36,4 +36,8 @@ test.describe('Shop Settings画面', () => {
       page.getByText('すべての項目を入力してください')
     ).toBeVisible();
   });
+
+  test('登録済み店舗セクションが表示される', async ({ page }) => {
+    await expect(page.getByText('登録済み店舗')).toBeVisible();
+  });
 });
