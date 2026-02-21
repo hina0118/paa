@@ -53,7 +53,7 @@ export function Orders() {
   };
 
   return (
-    <div className="container mx-auto py-10 px-6">
+    <div className="container mx-auto pt-0 pb-10 px-6">
       <PageHeader
         title="商品一覧"
         description={loading ? '読み込み中...' : `${items.length}件の商品`}

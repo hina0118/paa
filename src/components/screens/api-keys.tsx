@@ -221,7 +221,7 @@ export function ApiKeys() {
   };
 
   return (
-    <div className="container mx-auto py-10 px-6 space-y-6">
+    <div className="container mx-auto pt-0 pb-10 px-6 space-y-6">
       <PageHeader title="APIキー設定" icon={Key} />
 
       <Card>

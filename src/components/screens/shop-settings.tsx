@@ -245,7 +245,7 @@ export function ShopSettings() {
   const groups = groupShops(shops);
 
   return (
-    <div className="container mx-auto py-10 px-6 space-y-6">
+    <div className="container mx-auto pt-0 pb-10 px-6 space-y-6">
       <PageHeader title="店舗設定" icon={Store} />
 
       {/* Add new shop */}
