@@ -101,6 +101,49 @@ describe('loadOrderItems', () => {
     const [sql] = (mockDb.select as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(sql).toContain('DESC');
   });
+
+  it('applies not_shipped delivery status filter', async () => {
+    const mockDb = { select: vi.fn().mockResolvedValue([]) };
+    await loadOrderItems(mockDb as never, { deliveryStatus: 'not_shipped' });
+    const [sql] = (mockDb.select as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(sql).toContain('delivery_status IS NULL OR ld.delivery_status');
+    expect(sql).toContain("'not_shipped'");
+  });
+
+  it('applies not_shipped with elapsedMonths filter', async () => {
+    const mockDb = { select: vi.fn().mockResolvedValue([]) };
+    await loadOrderItems(mockDb as never, {
+      deliveryStatus: 'not_shipped',
+      elapsedMonths: 12,
+    });
+    const [sql, args] = (mockDb.select as ReturnType<typeof vi.fn>).mock
+      .calls[0];
+    expect(sql).toContain("datetime('now', ?)");
+    expect(args).toContain('-12 months');
+  });
+
+  it('applies shipped delivery status filter', async () => {
+    const mockDb = { select: vi.fn().mockResolvedValue([]) };
+    await loadOrderItems(mockDb as never, { deliveryStatus: 'shipped' });
+    const [sql, args] = (mockDb.select as ReturnType<typeof vi.fn>).mock
+      .calls[0];
+    expect(sql).toContain('in_transit');
+    expect(sql).toContain('out_for_delivery');
+    expect(sql).toContain('delivered');
+    expect(args).not.toContain('-12 months');
+  });
+
+  it('ignores elapsedMonths when deliveryStatus is not not_shipped', async () => {
+    const mockDb = { select: vi.fn().mockResolvedValue([]) };
+    await loadOrderItems(mockDb as never, {
+      deliveryStatus: 'shipped',
+      elapsedMonths: 12,
+    });
+    const [sql, args] = (mockDb.select as ReturnType<typeof vi.fn>).mock
+      .calls[0];
+    expect(sql).not.toContain("datetime('now', ?)");
+    expect(args).not.toContain('-12 months');
+  });
 });
 
 describe('getOrderItemFilterOptions', () => {

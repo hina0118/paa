@@ -30,6 +30,8 @@ describe('useOrderFilters', () => {
       year: '',
       priceMin: '',
       priceMax: '',
+      deliveryStatus: '',
+      elapsedMonths: '12',
     });
   });
 
@@ -108,7 +110,32 @@ describe('useOrderFilters', () => {
       year: '2024',
       priceMin: '100',
       priceMax: '5000',
+      deliveryStatus: '',
+      elapsedMonths: '12',
     });
+  });
+
+  it('setFilter updates deliveryStatus without affecting other fields', () => {
+    const { result } = renderHook(() => useOrderFilters());
+
+    act(() => {
+      result.current.setFilter('deliveryStatus', 'not_shipped');
+    });
+
+    expect(result.current.filters.deliveryStatus).toBe('not_shipped');
+    expect(result.current.filters.elapsedMonths).toBe('12');
+    expect(result.current.filters.shopDomain).toBe('');
+  });
+
+  it('setFilter updates elapsedMonths independently', () => {
+    const { result } = renderHook(() => useOrderFilters());
+
+    act(() => {
+      result.current.setFilter('elapsedMonths', '6');
+    });
+
+    expect(result.current.filters.elapsedMonths).toBe('6');
+    expect(result.current.filters.deliveryStatus).toBe('');
   });
 
   it('clearFilters resets all filter values to empty strings', () => {
@@ -130,6 +157,8 @@ describe('useOrderFilters', () => {
       year: '',
       priceMin: '',
       priceMax: '',
+      deliveryStatus: '',
+      elapsedMonths: '12',
     });
   });
 
