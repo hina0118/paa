@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Table,
   TableBody,
   TableCell,
   TableHead,
@@ -388,8 +387,8 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
 
   if (loading && data.length === 0) {
     return (
-      <>
-        <div className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b">
+      <div className="h-full flex flex-col">
+        <div className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b flex-shrink-0">
           <div className="container mx-auto px-6 py-4 flex items-center gap-3">
             <div className="p-2 rounded-lg bg-primary/10">
               <Database className="h-6 w-6 text-primary" />
@@ -397,18 +396,16 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
             <h1 className="text-3xl font-bold tracking-tight">{title}</h1>
           </div>
         </div>
-        <div className="container mx-auto pb-10 px-6">
-          <div className="flex items-center justify-center h-64">
-            <div className="text-muted-foreground">読み込み中...</div>
-          </div>
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-muted-foreground">読み込み中...</div>
         </div>
-      </>
+      </div>
     );
   }
 
   return (
-    <>
-      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b">
+    <div className="h-full flex flex-col">
+      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b flex-shrink-0">
         <div className="container mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-primary/10">
@@ -443,106 +440,107 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
         </div>
       </div>
 
-      <div className="container mx-auto pb-16 px-6">
-        <div className="rounded-lg border shadow-sm bg-card">
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  {columns.map((column) => (
-                    <TableHead key={column} className="font-semibold p-1">
-                      <button
-                        type="button"
-                        onClick={() => handleSort(column)}
-                        className="flex items-center gap-1 w-full text-left hover:bg-muted/50 rounded px-1 py-0.5 min-w-0"
-                        title="クリックでソート"
+      <div className="flex-1 min-h-0 container mx-auto px-6 py-4">
+        <div className="h-full rounded-lg border shadow-sm bg-card overflow-auto">
+          <table className="w-full caption-bottom text-sm">
+            <TableHeader className="sticky top-0 z-10 bg-card">
+              <TableRow>
+                {columns.map((column) => (
+                  <TableHead
+                    key={column}
+                    className="font-semibold p-1 whitespace-nowrap"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => handleSort(column)}
+                      className="flex items-center gap-1 w-full text-left hover:bg-muted/50 rounded px-1 py-0.5 min-w-0"
+                      title="クリックでソート"
+                    >
+                      {getColumnLabel(tableName, column)}
+                      {sortColumn === column ? (
+                        sortDirection === 'asc' ? (
+                          <ChevronUp className="h-4 w-4 shrink-0" />
+                        ) : (
+                          <ChevronDown className="h-4 w-4 shrink-0" />
+                        )
+                      ) : null}
+                    </button>
+                  </TableHead>
+                ))}
+              </TableRow>
+              <TableRow className="border-b bg-muted/30">
+                {columns.map((column) => (
+                  <TableCell key={column} className="p-1">
+                    <Input
+                      placeholder={`${getColumnLabel(tableName, column)}で絞り込み`}
+                      value={filters[column] ?? ''}
+                      onChange={(e) => updateFilter(column, e.target.value)}
+                      className="h-8 text-sm"
+                      type="text"
+                    />
+                  </TableCell>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {data.length > 0 ? (
+                data.map((row, index) => (
+                  <TableRow
+                    key={
+                      columns.includes('id') && row.id != null
+                        ? String(row.id)
+                        : index
+                    }
+                  >
+                    {columns.map((column) => (
+                      <TableCell
+                        key={column}
+                        className="max-w-xs truncate cursor-pointer hover:bg-muted/50"
+                        onClick={() => handleCellClick(column, row[column])}
+                        title="クリックして全文表示"
                       >
-                        {getColumnLabel(tableName, column)}
-                        {sortColumn === column ? (
-                          sortDirection === 'asc' ? (
-                            <ChevronUp className="h-4 w-4 shrink-0" />
-                          ) : (
-                            <ChevronDown className="h-4 w-4 shrink-0" />
-                          )
-                        ) : null}
-                      </button>
-                    </TableHead>
-                  ))}
-                </TableRow>
-                <TableRow className="border-b bg-muted/30">
-                  {columns.map((column) => (
-                    <TableCell key={column} className="p-1">
-                      <Input
-                        placeholder={`${getColumnLabel(tableName, column)}で絞り込み`}
-                        value={filters[column] ?? ''}
-                        onChange={(e) => updateFilter(column, e.target.value)}
-                        className="h-8 text-sm"
-                        type="text"
-                      />
-                    </TableCell>
-                  ))}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data.length > 0 ? (
-                  data.map((row, index) => (
-                    <TableRow
-                      key={
-                        columns.includes('id') && row.id != null
-                          ? String(row.id)
-                          : index
-                      }
-                    >
-                      {columns.map((column) => (
-                        <TableCell
-                          key={column}
-                          className="max-w-xs truncate cursor-pointer hover:bg-muted/50"
-                          onClick={() => handleCellClick(column, row[column])}
-                          title="クリックして全文表示"
-                        >
-                          {formatValue(row[column])}
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell
-                      colSpan={columns.length}
-                      className="h-24 text-center text-muted-foreground"
-                    >
-                      データがありません
-                    </TableCell>
+                        {formatValue(row[column])}
+                      </TableCell>
+                    ))}
                   </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell
+                    colSpan={columns.length}
+                    className="h-24 text-center text-muted-foreground"
+                  >
+                    データがありません
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </table>
         </div>
-
-        {/* Cell content dialog */}
-        <Dialog
-          open={selectedCell !== null}
-          onOpenChange={() => setSelectedCell(null)}
-        >
-          <DialogContent className="max-w-3xl max-h-[80vh]">
-            <DialogHeader>
-              <DialogTitle>
-                {selectedCell && getColumnLabel(tableName, selectedCell.column)}
-              </DialogTitle>
-              <DialogDescription>セルの全内容</DialogDescription>
-            </DialogHeader>
-            <div className="mt-4 overflow-auto max-h-[60vh]">
-              <pre className="whitespace-pre-wrap break-words text-sm font-mono bg-muted p-4 rounded-md">
-                {selectedCell && formatFullValue(selectedCell.value)}
-              </pre>
-            </div>
-          </DialogContent>
-        </Dialog>
       </div>
 
+      {/* Cell content dialog */}
+      <Dialog
+        open={selectedCell !== null}
+        onOpenChange={() => setSelectedCell(null)}
+      >
+        <DialogContent className="max-w-3xl max-h-[80vh]">
+          <DialogHeader>
+            <DialogTitle>
+              {selectedCell && getColumnLabel(tableName, selectedCell.column)}
+            </DialogTitle>
+            <DialogDescription>セルの全内容</DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 overflow-auto max-h-[60vh]">
+            <pre className="whitespace-pre-wrap break-words text-sm font-mono bg-muted p-4 rounded-md">
+              {selectedCell && formatFullValue(selectedCell.value)}
+            </pre>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Sticky pagination footer */}
-      <div className="sticky bottom-0 z-10 bg-background/95 backdrop-blur border-t">
+      <div className="sticky bottom-0 z-10 bg-background/95 backdrop-blur border-t flex-shrink-0">
         <div className="container mx-auto px-6 py-3 flex items-center justify-between">
           <div className="text-sm text-muted-foreground">
             {totalCount > 0
@@ -576,6 +574,6 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
           </div>
         </div>
       </div>
-    </>
+    </div>
   );
 }
