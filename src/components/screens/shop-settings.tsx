@@ -52,6 +52,10 @@ function toPanelId(shopName: string): string {
   return `parsers-${encodeURIComponent(shopName)}`;
 }
 
+function toLabelId(shopName: string): string {
+  return `shop-group-label-${encodeURIComponent(shopName)}`;
+}
+
 export function ShopSettings() {
   const [shops, setShops] = useState<ShopSettingDisplay[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -390,7 +394,12 @@ export function ShopSettings() {
                       <div className="flex items-start justify-between">
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
-                            <h3 className="font-semibold">{group.shop_name}</h3>
+                            <h3
+                              id={toLabelId(group.shop_name)}
+                              className="font-semibold"
+                            >
+                              {group.shop_name}
+                            </h3>
                             <span
                               className={`text-xs px-2 py-1 rounded ${
                                 group.is_enabled
@@ -452,6 +461,8 @@ export function ShopSettings() {
                     {isExpanded && (
                       <div
                         id={toPanelId(group.shop_name)}
+                        role="region"
+                        aria-labelledby={toLabelId(group.shop_name)}
                         className="border-t bg-muted/30"
                       >
                         <div className="p-3 space-y-3">
