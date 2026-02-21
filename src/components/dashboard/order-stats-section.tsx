@@ -52,7 +52,9 @@ export function OrderStatsSection({ orderStats }: Props) {
           <div className="text-3xl font-bold tracking-tight">
             {formatCurrency(orderStats.total_amount)}
           </div>
-          <p className="text-xs text-muted-foreground mt-1">商品合計（税込想定）</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            商品合計（税込想定）
+          </p>
         </CardContent>
       </Card>
     </div>
