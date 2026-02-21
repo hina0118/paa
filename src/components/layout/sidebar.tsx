@@ -61,7 +61,7 @@ type TableItem = {
 
 const navigationItems: NavigationItem[] = [
   { name: 'ダッシュボード', icon: LayoutDashboard, id: 'dashboard' },
-  { name: '注文一覧', icon: ShoppingCart, id: 'orders' },
+  { name: '商品一覧', icon: ShoppingCart, id: 'orders' },
   { name: 'バッチ処理', icon: Layers, id: 'batch' },
   { name: 'ログ', icon: ScrollText, id: 'logs' },
   { name: '店舗設定', icon: Store, id: 'shop-settings' },
