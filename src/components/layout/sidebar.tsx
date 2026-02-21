@@ -97,9 +97,7 @@ export function Sidebar() {
         <div className="h-7 w-7 rounded-lg bg-primary flex items-center justify-center shrink-0">
           <span className="text-xs font-bold text-primary-foreground">P</span>
         </div>
-        <span className="font-semibold text-sm tracking-wide">
-          PAA Dashboard
-        </span>
+        <h2 className="font-semibold text-sm tracking-wide">PAA Dashboard</h2>
       </div>
 
       <nav className="flex-1 p-3 overflow-y-auto space-y-6">
