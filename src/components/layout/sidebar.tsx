@@ -148,6 +148,7 @@ export function Sidebar() {
             データ
           </p>
           <button
+            id="tables-section-label"
             className="group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-all duration-150"
             data-testid="tables-section-toggle"
             aria-expanded={isTableSectionOpen}
@@ -167,6 +168,7 @@ export function Sidebar() {
           <div
             id="tables-section-content"
             role="region"
+            aria-labelledby="tables-section-label"
             className={cn(
               'overflow-hidden transition-all duration-200',
               isTableSectionOpen
