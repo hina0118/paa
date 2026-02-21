@@ -125,7 +125,8 @@ describe('Dashboard', () => {
     const div = container.querySelector('.container');
     expect(div).toBeInTheDocument();
     expect(div).toHaveClass('mx-auto');
-    expect(div).toHaveClass('py-10');
+    expect(div).toHaveClass('pt-0');
+    expect(div).toHaveClass('pb-10');
   });
 
   it('applies heading styling', () => {
