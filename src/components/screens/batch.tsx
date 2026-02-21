@@ -165,7 +165,9 @@ export function Batch() {
           title: 'パース処理の確認',
           description: (
             <div className="space-y-3 pt-2">
-              <p className="font-semibold text-yellow-800">⚠️ 重要な確認事項</p>
+              <p className="font-semibold text-amber-700 dark:text-amber-400">
+                ⚠️ 重要な確認事項
+              </p>
               <p>
                 パース処理を開始すると、以下のテーブルの全データが削除されます：
               </p>
@@ -303,11 +305,11 @@ export function Batch() {
             Gmail APIを使用するには、事前にGoogle Cloud
             Consoleでの設定が必要です。詳細は README.md を参照してください。
           </p>
-          <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded">
-            <p className="font-semibold text-yellow-800 mb-1">
+          <div className="mt-3 p-3 bg-amber-500/10 border border-amber-500/20 rounded">
+            <p className="font-semibold text-amber-700 dark:text-amber-400 mb-1">
               初回認証について
             </p>
-            <p className="text-xs text-yellow-700">
+            <p className="text-xs text-amber-700 dark:text-amber-400">
               初回実行時は、ブラウザで認証画面が自動的に開きます。
             </p>
           </div>

@@ -63,4 +63,33 @@ describe('Button', () => {
     const button = screen.getByRole('button');
     expect(button).toHaveClass('custom-class');
   });
+
+  it('is disabled when isLoading is true', () => {
+    render(<Button isLoading>Loading</Button>);
+    const button = screen.getByRole('button');
+    expect(button).toBeDisabled();
+  });
+
+  it('shows spinner when isLoading is true', () => {
+    const { container } = render(<Button isLoading>Loading</Button>);
+    const spinner = container.querySelector('svg');
+    expect(spinner).toBeInTheDocument();
+    expect(spinner).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('is disabled when both isLoading and disabled are true', () => {
+    render(
+      <Button isLoading disabled>
+        Loading
+      </Button>
+    );
+    const button = screen.getByRole('button');
+    expect(button).toBeDisabled();
+  });
+
+  it('does not show spinner when isLoading is false', () => {
+    const { container } = render(<Button>Normal</Button>);
+    const spinner = container.querySelector('svg.animate-spin');
+    expect(spinner).toBeNull();
+  });
 });
