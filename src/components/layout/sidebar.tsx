@@ -97,7 +97,9 @@ export function Sidebar() {
         <div className="h-7 w-7 rounded-lg bg-primary flex items-center justify-center shrink-0">
           <span className="text-xs font-bold text-primary-foreground">P</span>
         </div>
-        <span className="font-semibold text-sm tracking-wide">PAA Dashboard</span>
+        <span className="font-semibold text-sm tracking-wide">
+          PAA Dashboard
+        </span>
       </div>
 
       <nav className="flex-1 p-3 overflow-y-auto space-y-6">
@@ -146,8 +148,11 @@ export function Sidebar() {
             データ
           </p>
           <button
+            id="tables-section-label"
             className="group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-all duration-150"
             data-testid="tables-section-toggle"
+            aria-expanded={isTableSectionOpen}
+            aria-controls="tables-section-content"
             onClick={() => setIsTableSectionOpen(!isTableSectionOpen)}
           >
             <Database className="h-4 w-4 shrink-0 text-muted-foreground group-hover:text-foreground" />
@@ -161,9 +166,14 @@ export function Sidebar() {
           </button>
 
           <div
+            id="tables-section-content"
+            role="region"
+            aria-labelledby="tables-section-label"
             className={cn(
               'overflow-hidden transition-all duration-200',
-              isTableSectionOpen ? 'max-h-[600px] opacity-100' : 'max-h-0 opacity-0'
+              isTableSectionOpen
+                ? 'max-h-[600px] opacity-100'
+                : 'max-h-0 opacity-0'
             )}
           >
             <ul className="mt-1 ml-4 space-y-0.5 border-l border-border/50 pl-2">
