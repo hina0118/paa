@@ -52,6 +52,10 @@ function toPanelId(shopName: string): string {
   return `parsers-${encodeURIComponent(shopName)}`;
 }
 
+function toLabelId(shopName: string): string {
+  return `shop-group-label-${encodeURIComponent(shopName)}`;
+}
+
 export function ShopSettings() {
   const [shops, setShops] = useState<ShopSettingDisplay[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -391,7 +395,7 @@ export function ShopSettings() {
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
                             <h3
-                              id={`shop-group-label-${encodeURIComponent(group.shop_name)}`}
+                              id={toLabelId(group.shop_name)}
                               className="font-semibold"
                             >
                               {group.shop_name}
@@ -458,7 +462,7 @@ export function ShopSettings() {
                       <div
                         id={toPanelId(group.shop_name)}
                         role="region"
-                        aria-labelledby={`shop-group-label-${encodeURIComponent(group.shop_name)}`}
+                        aria-labelledby={toLabelId(group.shop_name)}
                         className="border-t bg-muted/30"
                       >
                         <div className="p-3 space-y-3">

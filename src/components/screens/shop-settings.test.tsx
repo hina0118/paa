@@ -133,8 +133,13 @@ describe('ShopSettings', () => {
     expect(heading).toBeInTheDocument();
     expect(heading).toHaveAttribute('id');
     const headingId = heading.getAttribute('id') as string;
+    expect(headingId).toBe(
+      `shop-group-label-${encodeURIComponent('テスト店舗')}`
+    );
 
-    const region = screen.getByRole('region');
+    const region = screen.getByRole('region', {
+      name: 'テスト店舗',
+    });
     expect(region).toBeInTheDocument();
     expect(region).toHaveAttribute('aria-labelledby', headingId);
   });
