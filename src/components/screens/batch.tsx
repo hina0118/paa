@@ -11,6 +11,7 @@ import {
   PARSE_STATUS_CONFIG,
 } from '@/components/ui/status-badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { PageHeader } from '@/components/ui/page-header';
 import { Layers } from 'lucide-react';
 
 export function Batch() {
@@ -85,14 +86,7 @@ export function Batch() {
 
   return (
     <div className="container mx-auto py-10 px-6 space-y-6">
-      <div className="mb-8 space-y-2">
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-primary/10">
-            <Layers className="h-6 w-6 text-primary" />
-          </div>
-          <h1 className="text-3xl font-bold tracking-tight">バッチ処理</h1>
-        </div>
-      </div>
+      <PageHeader title="バッチ処理" icon={Layers} />
 
       {/* 1. Gmail同期 */}
       <BatchSection
@@ -184,7 +178,7 @@ export function Batch() {
               <p className="text-sm">
                 この操作は、パーサーの更新時にデータを再作成するために必要です。
               </p>
-              <p className="font-semibold text-red-700">
+              <p className="font-semibold text-destructive">
                 削除されたデータは復元できません。本当に実行しますか？
               </p>
             </div>
@@ -252,12 +246,12 @@ export function Batch() {
         extraContent={
           <>
             {geminiApiKeyStatus !== 'available' && (
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded text-sm text-amber-800">
+              <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded text-sm text-amber-700 dark:text-amber-400">
                 初回利用時は設定画面でGemini
                 APIキーを設定してください。keyring（OSのセキュアストレージ）に保存されます。
                 <Button
                   variant="link"
-                  className="p-0 h-auto ml-1 text-amber-800 underline"
+                  className="p-0 h-auto ml-1 underline"
                   onClick={() => setCurrentScreen('api-keys')}
                 >
                   APIキー設定へ →
@@ -276,15 +270,15 @@ export function Batch() {
         parseProgress?.error ||
         parseMetadata?.last_error_message) && (
         <Card
-          className="border-red-200 bg-red-50"
+          className="border-destructive/30 bg-destructive/5"
           data-testid="error-message"
           role="alert"
         >
           <CardHeader>
-            <CardTitle className="text-red-800">エラー</CardTitle>
+            <CardTitle className="text-destructive">エラー</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-red-700">
+            <p className="text-sm text-destructive">
               {syncProgress?.error ||
                 parseProgress?.error ||
                 parseMetadata?.last_error_message}
@@ -294,11 +288,11 @@ export function Batch() {
       )}
 
       {/* Setup Instructions */}
-      <Card className="bg-blue-50 border-blue-200">
+      <Card className="bg-primary/5 border-primary/20">
         <CardHeader>
-          <CardTitle className="text-blue-900">使い方</CardTitle>
+          <CardTitle className="text-primary">使い方</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-2 text-sm text-blue-800">
+        <CardContent className="space-y-2 text-sm text-foreground/80">
           <p>バッチ処理は以下の順序で実行します：</p>
           <ol className="list-decimal list-inside space-y-1 ml-2">
             <li>Gmail同期でメールを取得</li>

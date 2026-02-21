@@ -11,6 +11,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { PageHeader } from '@/components/ui/page-header';
 import { toastSuccess, toastError, formatError } from '@/lib/toast';
 
 interface ShopSetting {
@@ -245,14 +246,7 @@ export function ShopSettings() {
 
   return (
     <div className="container mx-auto py-10 px-6 space-y-6">
-      <div className="mb-8 space-y-2">
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-primary/10">
-            <Store className="h-6 w-6 text-primary" />
-          </div>
-          <h1 className="text-3xl font-bold tracking-tight">店舗設定</h1>
-        </div>
-      </div>
+      <PageHeader title="店舗設定" icon={Store} />
 
       {/* Add new shop */}
       <Card>
@@ -403,10 +397,10 @@ export function ShopSettings() {
                               {group.shop_name}
                             </h3>
                             <span
-                              className={`text-xs px-2 py-1 rounded ${
+                              className={`text-xs px-2 py-0.5 rounded-md font-medium ${
                                 group.is_enabled
-                                  ? 'bg-green-100 text-green-800'
-                                  : 'bg-gray-100 text-gray-800'
+                                  ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'
+                                  : 'bg-muted text-muted-foreground border border-border'
                               }`}
                             >
                               {group.is_enabled ? '有効' : '無効'}

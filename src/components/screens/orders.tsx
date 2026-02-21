@@ -3,6 +3,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { ShoppingCart, Search, LayoutGrid, List } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/ui/page-header';
 import { useDebouncedSearch } from '@/hooks/useDebouncedSearch';
 import { useOrderFilters } from '@/hooks/useOrderFilters';
 import { useOrderItems } from '@/hooks/useOrderItems';
@@ -53,19 +54,11 @@ export function Orders() {
 
   return (
     <div className="container mx-auto py-10 px-6">
-      <div className="mb-8 space-y-2">
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-primary/10">
-            <ShoppingCart className="h-6 w-6 text-primary" />
-          </div>
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">商品一覧</h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              {loading ? '読み込み中...' : `${items.length}件の商品`}
-            </p>
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        title="商品一覧"
+        description={loading ? '読み込み中...' : `${items.length}件の商品`}
+        icon={ShoppingCart}
+      />
 
       <div className="mb-6 space-y-4">
         <div className="flex gap-2">
@@ -115,7 +108,7 @@ export function Orders() {
               id="filter-shop"
               value={filters.shopDomain}
               onChange={(e) => setFilter('shopDomain', e.target.value)}
-              className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+              className="h-9 rounded-md border border-input bg-background px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
             >
               <option value="">すべて</option>
               {filterOptions.shopDomains.map((s) => (
@@ -136,7 +129,7 @@ export function Orders() {
               id="filter-year"
               value={filters.year}
               onChange={(e) => setFilter('year', e.target.value)}
-              className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+              className="h-9 rounded-md border border-input bg-background px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
             >
               <option value="">すべて</option>
               {filterOptions.years.map((y) => (
@@ -163,7 +156,7 @@ export function Orders() {
                 ];
                 setSort({ sortBy: by, sortOrder: order });
               }}
-              className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+              className="h-9 rounded-md border border-input bg-background px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
             >
               <option value="order_date-desc">購入日が新しい順</option>
               <option value="order_date-asc">購入日が古い順</option>

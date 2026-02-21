@@ -1,3 +1,4 @@
+import { ShoppingBag, Package, CircleDollarSign } from 'lucide-react';
 import { formatNumber, formatCurrency } from '@/lib/formatters';
 import type { OrderStats } from '@/hooks/useDashboardStats';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
@@ -9,75 +10,49 @@ type Props = {
 export function OrderStatsSection({ orderStats }: Props) {
   return (
     <div className="grid gap-4 md:grid-cols-3">
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+      <Card className="relative overflow-hidden">
+        <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary to-violet-500" />
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 pt-4">
           <CardTitle className="text-sm font-medium">注文数</CardTitle>
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth="2"
-            className="h-4 w-4 text-muted-foreground"
-          >
-            <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />
-            <line x1="3" y1="6" x2="21" y2="6" />
-          </svg>
+          <div className="rounded-lg bg-primary/10 p-2">
+            <ShoppingBag className="h-4 w-4 text-primary" />
+          </div>
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold">
+          <div className="text-3xl font-bold tracking-tight">
             {formatNumber(orderStats.total_orders)}
           </div>
-          <p className="text-xs text-muted-foreground">パース済み注文</p>
+          <p className="text-xs text-muted-foreground mt-1">パース済み注文</p>
         </CardContent>
       </Card>
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+      <Card className="relative overflow-hidden">
+        <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-violet-500 to-emerald-500" />
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 pt-4">
           <CardTitle className="text-sm font-medium">商品数</CardTitle>
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth="2"
-            className="h-4 w-4 text-muted-foreground"
-          >
-            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-          </svg>
+          <div className="rounded-lg bg-violet-500/10 p-2">
+            <Package className="h-4 w-4 text-violet-500" />
+          </div>
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold">
+          <div className="text-3xl font-bold tracking-tight">
             {formatNumber(orderStats.total_items)}
           </div>
-          <p className="text-xs text-muted-foreground">登録商品アイテム</p>
+          <p className="text-xs text-muted-foreground mt-1">登録商品アイテム</p>
         </CardContent>
       </Card>
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+      <Card className="relative overflow-hidden">
+        <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-emerald-500 to-cyan-500" />
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 pt-4">
           <CardTitle className="text-sm font-medium">合計金額</CardTitle>
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth="2"
-            className="h-4 w-4 text-muted-foreground"
-          >
-            <line x1="12" y1="1" x2="12" y2="23" />
-            <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-          </svg>
+          <div className="rounded-lg bg-emerald-500/10 p-2">
+            <CircleDollarSign className="h-4 w-4 text-emerald-600" />
+          </div>
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold">
+          <div className="text-3xl font-bold tracking-tight">
             {formatCurrency(orderStats.total_amount)}
           </div>
-          <p className="text-xs text-muted-foreground">商品合計（税込想定）</p>
+          <p className="text-xs text-muted-foreground mt-1">商品合計（税込想定）</p>
         </CardContent>
       </Card>
     </div>

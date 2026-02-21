@@ -5,6 +5,8 @@ import { useSync } from '@/contexts/use-sync';
 import { useDashboardStats } from '@/hooks/useDashboardStats';
 import { Card, CardContent } from '../ui/card';
 import { Button } from '../ui/button';
+import { PageHeader } from '../ui/page-header';
+import { Skeleton } from '../ui/skeleton';
 import { OrderStatsSection } from '../dashboard/order-stats-section';
 import { DeliveryStatsSection } from '../dashboard/delivery-stats-section';
 import { ProductMasterSection } from '../dashboard/product-master-section';
@@ -35,17 +37,14 @@ export function Dashboard() {
 
   return (
     <div className="container mx-auto py-10 px-6 space-y-6">
-      <div className="mb-8 flex justify-between items-start">
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-primary/10">
-            <LayoutDashboard className="h-6 w-6 text-primary" />
-          </div>
-          <h1 className="text-3xl font-bold tracking-tight">ダッシュボード</h1>
-        </div>
+      <PageHeader
+        title="ダッシュボード"
+        icon={LayoutDashboard}
+      >
         <Button onClick={loadStats} disabled={loading}>
           {loading ? '読み込み中...' : '更新'}
         </Button>
-      </div>
+      </PageHeader>
 
       {emailStats && (
         <>
@@ -78,11 +77,30 @@ export function Dashboard() {
       )}
 
       {loading && !emailStats && (
-        <Card>
-          <CardContent className="flex items-center justify-center py-10">
-            <p className="text-muted-foreground">読み込み中...</p>
-          </CardContent>
-        </Card>
+        <div className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-3">
+            {[...Array(3)].map((_, i) => (
+              <Card key={i}>
+                <div className="p-6 space-y-3">
+                  <Skeleton className="h-4 w-24" />
+                  <Skeleton className="h-8 w-32" />
+                  <Skeleton className="h-3 w-20" />
+                </div>
+              </Card>
+            ))}
+          </div>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            {[...Array(4)].map((_, i) => (
+              <Card key={i}>
+                <div className="p-6 space-y-3">
+                  <Skeleton className="h-4 w-20" />
+                  <Skeleton className="h-6 w-16" />
+                  <Skeleton className="h-3 w-24" />
+                </div>
+              </Card>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );

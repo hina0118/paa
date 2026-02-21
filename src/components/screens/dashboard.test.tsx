@@ -131,7 +131,7 @@ describe('Dashboard', () => {
   it('applies heading styling', () => {
     renderWithProviders(<Dashboard />);
     const heading = screen.getByRole('heading', { name: /ダッシュボード/i });
-    expect(heading).toHaveClass('text-3xl');
+    expect(heading).toHaveClass('text-2xl');
     expect(heading).toHaveClass('font-bold');
   });
 
@@ -420,7 +420,7 @@ describe('Dashboard', () => {
     renderWithProviders(<Dashboard />);
 
     await waitFor(() => {
-      expect(screen.getByText('パース中')).toBeInTheDocument();
+      expect(screen.getByText('処理中')).toBeInTheDocument();
     });
   });
 
