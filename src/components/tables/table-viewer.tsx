@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Table,
   TableBody,
   TableCell,
   TableHead,
@@ -388,14 +387,16 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
 
   if (loading && data.length === 0) {
     return (
-      <div className="container mx-auto py-10 px-6">
-        <div className="mb-8 flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-primary/10">
-            <Database className="h-6 w-6 text-primary" />
+      <div className="h-full flex flex-col">
+        <div className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b flex-shrink-0">
+          <div className="container mx-auto px-6 py-4 flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-primary/10">
+              <Database className="h-6 w-6 text-primary" />
+            </div>
+            <h1 className="text-3xl font-bold tracking-tight">{title}</h1>
           </div>
-          <h1 className="text-3xl font-bold tracking-tight">{title}</h1>
         </div>
-        <div className="flex items-center justify-center h-64">
+        <div className="flex-1 flex items-center justify-center">
           <div className="text-muted-foreground">読み込み中...</div>
         </div>
       </div>
@@ -403,47 +404,52 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
   }
 
   return (
-    <div className="container mx-auto py-10 px-6">
-      <div className="mb-8 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-primary/10">
-            <Database className="h-6 w-6 text-primary" />
+    <div className="h-full flex flex-col">
+      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b flex-shrink-0">
+        <div className="container mx-auto px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-primary/10">
+              <Database className="h-6 w-6 text-primary" />
+            </div>
+            <h1 className="text-3xl font-bold tracking-tight">{title}</h1>
           </div>
-          <h1 className="text-3xl font-bold tracking-tight">{title}</h1>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={clearFiltersAndSort}
-            disabled={
-              loading ||
-              (Object.keys(filters).length === 0 && sortColumn === null)
-            }
-          >
-            フィルター・ソートをクリア
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={loadData}
-            disabled={loading}
-          >
-            <RefreshCw
-              className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`}
-            />
-            更新
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={clearFiltersAndSort}
+              disabled={
+                loading ||
+                (Object.keys(filters).length === 0 && sortColumn === null)
+              }
+            >
+              フィルター・ソートをクリア
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={loadData}
+              disabled={loading}
+            >
+              <RefreshCw
+                className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`}
+              />
+              更新
+            </Button>
+          </div>
         </div>
       </div>
 
-      <div className="rounded-lg border shadow-sm bg-card">
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
+      <div className="flex-1 min-h-0 container mx-auto px-6 py-4">
+        <div className="h-full rounded-lg border shadow-sm bg-card overflow-auto">
+          <table className="w-full caption-bottom text-sm">
+            <TableHeader className="sticky top-0 z-10 bg-card">
               <TableRow>
                 {columns.map((column) => (
-                  <TableHead key={column} className="font-semibold p-1">
+                  <TableHead
+                    key={column}
+                    className="font-semibold p-1 whitespace-nowrap"
+                  >
                     <button
                       type="button"
                       onClick={() => handleSort(column)}
@@ -509,40 +515,7 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
                 </TableRow>
               )}
             </TableBody>
-          </Table>
-        </div>
-      </div>
-
-      <div className="flex items-center justify-between mt-4">
-        <div className="text-sm text-muted-foreground">
-          {totalCount > 0
-            ? `${page * pageSize + 1}〜${page * pageSize + data.length}件を表示 / 全${totalCount}件`
-            : '0件'}
-        </div>
-        <div className="flex items-center space-x-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handlePreviousPage}
-            disabled={page === 0 || loading}
-            className="gap-1"
-          >
-            <ChevronLeft className="h-4 w-4" />
-            前へ
-          </Button>
-          <div className="text-sm text-muted-foreground px-2">
-            ページ {page + 1} / {totalPages}
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleNextPage}
-            disabled={!hasNextPage || loading}
-            className="gap-1"
-          >
-            次へ
-            <ChevronRight className="h-4 w-4" />
-          </Button>
+          </table>
         </div>
       </div>
 
@@ -565,6 +538,42 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Sticky pagination footer */}
+      <div className="sticky bottom-0 z-10 bg-background/95 backdrop-blur border-t flex-shrink-0">
+        <div className="container mx-auto px-6 py-3 flex items-center justify-between">
+          <div className="text-sm text-muted-foreground">
+            {totalCount > 0
+              ? `${page * pageSize + 1}〜${page * pageSize + data.length}件を表示 / 全${totalCount}件`
+              : '0件'}
+          </div>
+          <div className="flex items-center space-x-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handlePreviousPage}
+              disabled={page === 0 || loading}
+              className="gap-1"
+            >
+              <ChevronLeft className="h-4 w-4" />
+              前へ
+            </Button>
+            <div className="text-sm text-muted-foreground px-2">
+              ページ {page + 1} / {totalPages}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleNextPage}
+              disabled={!hasNextPage || loading}
+              className="gap-1"
+            >
+              次へ
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

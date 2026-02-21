@@ -54,6 +54,6 @@ describe('PageHeader', () => {
     );
     const root = container.firstChild as HTMLElement;
     expect(root).toHaveClass('custom-class');
-    expect(root).toHaveClass('mb-8');
+    expect(root).toHaveClass('sticky');
   });
 });

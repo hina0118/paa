@@ -85,7 +85,7 @@ export function Batch() {
   };
 
   return (
-    <div className="container mx-auto py-10 px-6 space-y-6">
+    <div className="container mx-auto pt-0 pb-10 px-6 space-y-6">
       <PageHeader title="バッチ処理" icon={Layers} />
 
       {/* 1. Gmail同期 */}

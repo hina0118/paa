@@ -53,14 +53,14 @@ export function Orders() {
   };
 
   return (
-    <div className="container mx-auto py-10 px-6">
+    <div className="container mx-auto h-full flex flex-col px-6">
       <PageHeader
         title="商品一覧"
         description={loading ? '読み込み中...' : `${items.length}件の商品`}
         icon={ShoppingCart}
       />
 
-      <div className="mb-6 space-y-4">
+      <div className="mb-6 space-y-4 flex-shrink-0">
         <div className="flex gap-2">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -233,11 +233,11 @@ export function Orders() {
       </div>
 
       {loading ? (
-        <div className="text-muted-foreground py-12 text-center">
+        <div className="flex-1 flex items-center justify-center text-muted-foreground">
           読み込み中...
         </div>
       ) : items.length === 0 ? (
-        <div className="text-muted-foreground py-12 text-center">
+        <div className="flex-1 flex items-center justify-center text-muted-foreground">
           データがありません
         </div>
       ) : (
@@ -317,7 +317,7 @@ function OrderItemGrid({
   return (
     <div
       ref={scrollContainerRef}
-      className="h-[calc(100vh-20rem)] overflow-auto rounded-lg border"
+      className="flex-1 min-h-0 overflow-auto rounded-lg border"
       style={{ contain: 'strict' }}
     >
       <div

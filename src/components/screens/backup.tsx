@@ -221,7 +221,7 @@ export function Backup() {
   };
 
   return (
-    <div className="container mx-auto py-10 px-6 space-y-6">
+    <div className="container mx-auto pt-0 pb-10 px-6 space-y-6">
       <PageHeader
         title="データのバックアップ"
         description="AI解析済みの商品データや店舗設定、取得済みメールなどのメタデータと画像ファイル（キャッシュ）をバックアップ・復元します。DBをリセットしても重要なデータを維持できます。"
