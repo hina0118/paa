@@ -443,7 +443,7 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
         </div>
       </div>
 
-      <div className="container mx-auto pb-10 px-6">
+      <div className="container mx-auto pb-16 px-6">
         <div className="rounded-lg border shadow-sm bg-card">
           <div className="overflow-x-auto">
             <Table>
@@ -520,7 +520,30 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
           </div>
         </div>
 
-        <div className="flex items-center justify-between mt-4">
+        {/* Cell content dialog */}
+        <Dialog
+          open={selectedCell !== null}
+          onOpenChange={() => setSelectedCell(null)}
+        >
+          <DialogContent className="max-w-3xl max-h-[80vh]">
+            <DialogHeader>
+              <DialogTitle>
+                {selectedCell && getColumnLabel(tableName, selectedCell.column)}
+              </DialogTitle>
+              <DialogDescription>セルの全内容</DialogDescription>
+            </DialogHeader>
+            <div className="mt-4 overflow-auto max-h-[60vh]">
+              <pre className="whitespace-pre-wrap break-words text-sm font-mono bg-muted p-4 rounded-md">
+                {selectedCell && formatFullValue(selectedCell.value)}
+              </pre>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      {/* Sticky pagination footer */}
+      <div className="sticky bottom-0 z-10 bg-background/95 backdrop-blur border-t">
+        <div className="container mx-auto px-6 py-3 flex items-center justify-between">
           <div className="text-sm text-muted-foreground">
             {totalCount > 0
               ? `${page * pageSize + 1}〜${page * pageSize + data.length}件を表示 / 全${totalCount}件`
@@ -552,26 +575,6 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
             </Button>
           </div>
         </div>
-
-        {/* Cell content dialog */}
-        <Dialog
-          open={selectedCell !== null}
-          onOpenChange={() => setSelectedCell(null)}
-        >
-          <DialogContent className="max-w-3xl max-h-[80vh]">
-            <DialogHeader>
-              <DialogTitle>
-                {selectedCell && getColumnLabel(tableName, selectedCell.column)}
-              </DialogTitle>
-              <DialogDescription>セルの全内容</DialogDescription>
-            </DialogHeader>
-            <div className="mt-4 overflow-auto max-h-[60vh]">
-              <pre className="whitespace-pre-wrap break-words text-sm font-mono bg-muted p-4 rounded-md">
-                {selectedCell && formatFullValue(selectedCell.value)}
-              </pre>
-            </div>
-          </DialogContent>
-        </Dialog>
       </div>
     </>
   );
