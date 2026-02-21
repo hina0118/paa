@@ -19,7 +19,7 @@ describe('Card Components', () => {
     it('applies default styling', () => {
       const { container } = render(<Card>Content</Card>);
       const card = container.firstChild as HTMLElement;
-      expect(card).toHaveClass('rounded-lg');
+      expect(card).toHaveClass('rounded-xl');
       expect(card).toHaveClass('border');
       expect(card).toHaveClass('bg-card');
       expect(card).toHaveClass('shadow-sm');
@@ -31,7 +31,7 @@ describe('Card Components', () => {
       );
       const card = container.firstChild as HTMLElement;
       expect(card).toHaveClass('custom-class');
-      expect(card).toHaveClass('rounded-lg'); // デフォルトのクラスも保持
+      expect(card).toHaveClass('rounded-xl'); // デフォルトのクラスも保持
     });
 
     it('forwards ref', () => {

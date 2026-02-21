@@ -26,7 +26,7 @@ export async function expectScreenTitle(title: string) {
 
 /**
  * サイドバーが表示されていることを確認する
- * 注意: *=PAA は partial link text で <a> のみ対象。PAA は <h2> 内にあるため h2=PAA を使用
+ * PAA Dashboard ブランディングは <h2> 内にある
  */
 export async function expectSidebarVisible() {
   const sidebar = await $('aside');
@@ -41,11 +41,12 @@ export async function expectSidebarVisible() {
 export async function expandTablesSection() {
   const tablesBtn = await $('[data-testid="tables-section-toggle"]');
   await tablesBtn.waitForDisplayed({ timeout: 5000 });
-  const text = await tablesBtn.getText();
-  if (text.includes('▶')) {
+  // セクションが閉じているか（table-emails が非表示）かを確認して展開する
+  const emailsBtn = await $('[data-testid="table-emails"]');
+  const isExpanded = await emailsBtn.isDisplayed();
+  if (!isExpanded) {
     await tablesBtn.click();
     // 展開アニメーション待ち
-    const emailsBtn = await $('[data-testid="table-emails"]');
     await emailsBtn.waitForDisplayed({ timeout: 3000 });
   }
 }

@@ -81,7 +81,7 @@ describe('Settings', () => {
   it('applies heading styling', () => {
     renderWithProviders(<Settings />);
     const heading = screen.getByRole('heading', { name: /設定/i, level: 1 });
-    expect(heading).toHaveClass('text-3xl');
+    expect(heading).toHaveClass('text-2xl');
     expect(heading).toHaveClass('font-bold');
   });
 
