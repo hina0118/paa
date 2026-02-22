@@ -337,10 +337,9 @@ impl SqliteOrderRepository {
                    ORDER BY i.order_id, i.id"#,
                 placeholders_str
             );
-            let mut q =
-                sqlx::query_as::<_, (i64, i64, String, Option<String>, Option<String>, i64)>(
-                    &query_str,
-                );
+            let mut q = sqlx::query_as::<_, (i64, i64, String, Option<String>, Option<String>, i64)>(
+                &query_str,
+            );
             for id in chunk {
                 q = q.bind(id);
             }
@@ -413,11 +412,9 @@ impl SqliteOrderRepository {
                         .map(|v| v.as_slice())
                         .unwrap_or(&[]);
 
-                    let product_master_name =
-                        incoming_pm_map.get(product_name).map(|s| s.as_str());
-                    let found = items
-                        .iter()
-                        .find(|(_, item_name, item_name_normalized, item_pm_name, _)| {
+                    let product_master_name = incoming_pm_map.get(product_name).map(|s| s.as_str());
+                    let found = items.iter().find(
+                        |(_, item_name, item_name_normalized, item_pm_name, _)| {
                             item_names_match(
                                 product_name,
                                 product_master_name,
@@ -425,7 +422,8 @@ impl SqliteOrderRepository {
                                 item_name_normalized.as_deref(),
                                 item_pm_name.as_deref(),
                             )
-                        });
+                        },
+                    );
 
                     if let Some((item_id, _, _, _, current_qty)) = found {
                         matched_any = true;
@@ -871,17 +869,18 @@ impl OrderRepository for SqliteOrderRepository {
                 order_id
             );
         } else {
-            let matched = items
-                .iter()
-                .find(|(_, item_name, item_name_normalized, item_pm_name, _)| {
-                    item_names_match(
-                        product_name,
-                        cancel_product_master_name.as_deref(),
-                        item_name,
-                        item_name_normalized.as_deref(),
-                        item_pm_name.as_deref(),
-                    )
-                });
+            let matched =
+                items
+                    .iter()
+                    .find(|(_, item_name, item_name_normalized, item_pm_name, _)| {
+                        item_names_match(
+                            product_name,
+                            cancel_product_master_name.as_deref(),
+                            item_name,
+                            item_name_normalized.as_deref(),
+                            item_pm_name.as_deref(),
+                        )
+                    });
 
             match matched {
                 Some((item_id, _, _, _, current_qty)) => {
@@ -3376,13 +3375,7 @@ mod tests {
 
     #[test]
     fn test_item_names_match_exact() {
-        assert!(item_names_match(
-            "商品A",
-            None,
-            "商品A",
-            None,
-            None,
-        ));
+        assert!(item_names_match("商品A", None, "商品A", None, None,));
     }
 
     #[test]
@@ -3503,7 +3496,11 @@ mod tests {
         let result = repo
             .apply_change_items(&order_info, Some("annulus.co.jp".to_string()), None)
             .await;
-        assert!(result.is_ok(), "apply_change_items failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "apply_change_items failed: {:?}",
+            result.err()
+        );
 
         // 元注文から商品が削除されていること
         let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items WHERE order_id = ?")
@@ -3511,6 +3508,9 @@ mod tests {
             .fetch_one(&pool)
             .await
             .expect("count items");
-        assert_eq!(count.0, 0, "item should be removed from old order via product_master match");
+        assert_eq!(
+            count.0, 0,
+            "item should be removed from old order via product_master match"
+        );
     }
 }
