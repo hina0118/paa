@@ -29,6 +29,7 @@ import { NavigationProvider } from '@/contexts/navigation-provider';
 import { useNavigation } from '@/contexts/use-navigation';
 import { SyncProvider } from '@/contexts/sync-provider';
 import { ParseProvider } from '@/contexts/parse-provider';
+import { ThemeProvider } from '@/contexts/theme-provider';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -192,13 +193,15 @@ function App() {
   }, []);
 
   return (
-    <NavigationProvider>
-      <SyncProvider>
-        <ParseProvider>
-          <AppContent />
-        </ParseProvider>
-      </SyncProvider>
-    </NavigationProvider>
+    <ThemeProvider>
+      <NavigationProvider>
+        <SyncProvider>
+          <ParseProvider>
+            <AppContent />
+          </ParseProvider>
+        </SyncProvider>
+      </NavigationProvider>
+    </ThemeProvider>
   );
 }
 
