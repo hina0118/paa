@@ -5,6 +5,17 @@ use mockall::automock;
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqlitePool;
 
+/// 商品マスタ一覧・検索用フィルター
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct ProductMasterFilter {
+    pub raw_name: Option<String>,
+    pub maker: Option<String>,
+    pub series: Option<String>,
+    pub product_name: Option<String>,
+    pub scale: Option<String>,
+    pub is_reissue: Option<bool>,
+}
+
 /// ProductMaster エンティティ
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ProductMaster {
@@ -70,6 +81,17 @@ pub trait ProductMasterRepository: Send + Sync {
 
     /// 更新
     async fn update(&self, id: i64, parsed: &ParsedProduct) -> Result<(), String>;
+
+    /// フィルター付き一覧取得（ページネーション）
+    async fn find_filtered(
+        &self,
+        filter: &ProductMasterFilter,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<ProductMaster>, String>;
+
+    /// フィルター付き件数取得
+    async fn count_filtered(&self, filter: &ProductMasterFilter) -> Result<i64, String>;
 }
 
 /// SQLiteを使用したProductMasterRepositoryの実装
@@ -313,6 +335,98 @@ impl ProductMasterRepository for SqliteProductMasterRepository {
 
         Ok(())
     }
+
+    async fn find_filtered(
+        &self,
+        filter: &ProductMasterFilter,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<ProductMaster>, String> {
+        let (where_clause, binds) = build_filter_where(filter);
+        let sql = format!(
+            r#"
+            SELECT
+                id, raw_name, normalized_name, maker, series,
+                product_name, scale, is_reissue, platform_hint,
+                created_at, updated_at
+            FROM product_master
+            {where_clause}
+            ORDER BY id DESC
+            LIMIT ? OFFSET ?
+            "#
+        );
+        let mut query = sqlx::query_as::<_, ProductMaster>(&sql);
+        for b in &binds {
+            query = query.bind(b.as_str());
+        }
+        if let Some(reissue) = filter.is_reissue {
+            query = query.bind(reissue);
+        }
+        query
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| format!("Failed to find filtered product masters: {e}"))
+    }
+
+    async fn count_filtered(&self, filter: &ProductMasterFilter) -> Result<i64, String> {
+        let (where_clause, binds) = build_filter_where(filter);
+        let sql = format!(
+            "SELECT COUNT(*) FROM product_master {where_clause}"
+        );
+        let mut query = sqlx::query_scalar::<_, i64>(&sql);
+        for b in &binds {
+            query = query.bind(b.as_str());
+        }
+        if let Some(reissue) = filter.is_reissue {
+            query = query.bind(reissue);
+        }
+        query
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| format!("Failed to count filtered product masters: {e}"))
+    }
+}
+
+/// フィルター条件から WHERE 句と LIKE バインド値を生成する。
+/// is_reissue は bool 型のため別途バインドする必要があり、呼び出し元でバインドする。
+fn build_filter_where(filter: &ProductMasterFilter) -> (String, Vec<String>) {
+    let mut conditions: Vec<String> = Vec::new();
+    let mut binds: Vec<String> = Vec::new();
+
+    if let Some(v) = &filter.raw_name {
+        conditions.push("raw_name LIKE ?".to_string());
+        binds.push(format!("%{v}%"));
+    }
+    if let Some(v) = &filter.maker {
+        conditions.push("maker LIKE ?".to_string());
+        binds.push(format!("%{v}%"));
+    }
+    if let Some(v) = &filter.series {
+        conditions.push("series LIKE ?".to_string());
+        binds.push(format!("%{v}%"));
+    }
+    if let Some(v) = &filter.product_name {
+        conditions.push("product_name LIKE ?".to_string());
+        binds.push(format!("%{v}%"));
+    }
+    if let Some(v) = &filter.scale {
+        conditions.push("scale LIKE ?".to_string());
+        binds.push(format!("%{v}%"));
+    }
+    if filter.is_reissue.is_some() {
+        conditions.push("is_reissue = ?".to_string());
+        // 値自体は bool 型なので呼び出し元でバインド
+    }
+
+    let where_clause = if conditions.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {}", conditions.join(" AND "))
+    };
+
+    (where_clause, binds)
 }
 
 #[cfg(test)]
@@ -570,5 +684,109 @@ mod tests {
         assert_eq!(pm.product_name, Some("商品名B".to_string()));
         assert_eq!(pm.scale, Some("1/144".to_string()));
         assert!(pm.is_reissue);
+    }
+
+    async fn seed_three_items(repo: &SqliteProductMasterRepository) {
+        let items = vec![
+            (
+                "バンダイ RG 1/144 ガンダム",
+                "bandairg",
+                make_parsed_product(Some("バンダイ"), Some("ガンダム"), "RG ガンダム", Some("1/144"), false),
+            ),
+            (
+                "コトブキヤ フレームアームズ",
+                "kotobukiyafa",
+                make_parsed_product(Some("コトブキヤ"), Some("フレームアームズ"), "FA シリーズ", Some("1/100"), false),
+            ),
+            (
+                "バンダイ HG 再販",
+                "bandaihg",
+                make_parsed_product(Some("バンダイ"), None, "HG ザク", Some("1/144"), true),
+            ),
+        ];
+        for (raw, norm, parsed) in &items {
+            repo.save(raw, norm, parsed, None).await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn test_find_filtered_no_filter_returns_all() {
+        let pool = setup_test_db().await;
+        let repo = SqliteProductMasterRepository::new(pool.clone());
+        seed_three_items(&repo).await;
+
+        let filter = ProductMasterFilter::default();
+        let results = repo.find_filtered(&filter, 10, 0).await.unwrap();
+        assert_eq!(results.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_find_filtered_by_maker() {
+        let pool = setup_test_db().await;
+        let repo = SqliteProductMasterRepository::new(pool.clone());
+        seed_three_items(&repo).await;
+
+        let filter = ProductMasterFilter {
+            maker: Some("バンダイ".to_string()),
+            ..Default::default()
+        };
+        let results = repo.find_filtered(&filter, 10, 0).await.unwrap();
+        assert_eq!(results.len(), 2);
+        for r in &results {
+            assert_eq!(r.maker, Some("バンダイ".to_string()));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_find_filtered_by_is_reissue() {
+        let pool = setup_test_db().await;
+        let repo = SqliteProductMasterRepository::new(pool.clone());
+        seed_three_items(&repo).await;
+
+        let filter = ProductMasterFilter {
+            is_reissue: Some(true),
+            ..Default::default()
+        };
+        let results = repo.find_filtered(&filter, 10, 0).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert!(results[0].is_reissue);
+    }
+
+    #[tokio::test]
+    async fn test_find_filtered_pagination() {
+        let pool = setup_test_db().await;
+        let repo = SqliteProductMasterRepository::new(pool.clone());
+        seed_three_items(&repo).await;
+
+        let filter = ProductMasterFilter::default();
+        let page1 = repo.find_filtered(&filter, 2, 0).await.unwrap();
+        let page2 = repo.find_filtered(&filter, 2, 2).await.unwrap();
+        assert_eq!(page1.len(), 2);
+        assert_eq!(page2.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_count_filtered_no_filter() {
+        let pool = setup_test_db().await;
+        let repo = SqliteProductMasterRepository::new(pool.clone());
+        seed_three_items(&repo).await;
+
+        let filter = ProductMasterFilter::default();
+        let count = repo.count_filtered(&filter).await.unwrap();
+        assert_eq!(count, 3);
+    }
+
+    #[tokio::test]
+    async fn test_count_filtered_with_maker() {
+        let pool = setup_test_db().await;
+        let repo = SqliteProductMasterRepository::new(pool.clone());
+        seed_three_items(&repo).await;
+
+        let filter = ProductMasterFilter {
+            maker: Some("バンダイ".to_string()),
+            ..Default::default()
+        };
+        let count = repo.count_filtered(&filter).await.unwrap();
+        assert_eq!(count, 2);
     }
 }
