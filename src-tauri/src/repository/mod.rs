@@ -49,7 +49,9 @@ pub use shop_settings::{ShopSettingsRepository, SqliteShopSettingsRepository};
 // product_master
 #[cfg(test)]
 pub use product_master::MockProductMasterRepository;
-pub use product_master::{ProductMaster, ProductMasterRepository, SqliteProductMasterRepository};
+pub use product_master::{
+    ProductMaster, ProductMasterFilter, ProductMasterRepository, SqliteProductMasterRepository,
+};
 
 // overrides
 pub use overrides::{
