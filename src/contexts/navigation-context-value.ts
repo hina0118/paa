@@ -9,6 +9,7 @@ export type Screen =
   | 'backup'
   | 'api-keys'
   | 'settings'
+  | 'product-master'
   | 'table-emails'
   | 'table-orders'
   | 'table-items'

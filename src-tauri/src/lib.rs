@@ -483,6 +483,8 @@ pub fn run() {
             commands::restore_excluded_order,
             commands::get_all_excluded_items,
             commands::get_all_excluded_orders,
+            commands::get_product_master_list,
+            commands::update_product_master,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

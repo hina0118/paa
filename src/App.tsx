@@ -9,6 +9,7 @@ import { ApiKeys } from '@/components/screens/api-keys';
 import { Settings } from '@/components/screens/settings';
 import { Backup } from '@/components/screens/backup';
 import { ShopSettings } from '@/components/screens/shop-settings';
+import { ProductMasterEdit } from '@/components/screens/product-master';
 import {
   EmailsTable,
   OrdersTable,
@@ -56,6 +57,8 @@ function AppContent() {
         return <ApiKeys />;
       case 'settings':
         return <Settings />;
+      case 'product-master':
+        return <ProductMasterEdit />;
       case 'table-emails':
         return <EmailsTable />;
       case 'table-orders':
