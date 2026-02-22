@@ -11,6 +11,8 @@ use regex::Regex;
 use sqlx::sqlite::{Sqlite, SqlitePool};
 use std::collections::{HashMap, HashSet};
 
+type ItemRow = (i64, i64, String, Option<String>, Option<String>, i64);
+
 /// 注文関連のDB操作を抽象化するトレイト
 #[cfg_attr(test, automock)]
 #[async_trait]
@@ -165,13 +167,13 @@ fn item_names_match(
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string())
         .unwrap_or_else(|| normalize_product_name(item_name));
-    if !product_normalized.is_empty() && !db_normalized.is_empty() {
-        if product_normalized == db_normalized
+    if !product_normalized.is_empty()
+        && !db_normalized.is_empty()
+        && (product_normalized == db_normalized
             || product_normalized.contains(db_normalized.as_str())
-            || db_normalized.contains(product_normalized.as_str())
-        {
-            return true;
-        }
+            || db_normalized.contains(product_normalized.as_str()))
+    {
+        return true;
     }
     // パターン4: product_master による突合せ（商品コード差異等を吸収）
     // 両方の product_master.product_name が非空で一致すれば同一商品とみなす
@@ -337,13 +339,11 @@ impl SqliteOrderRepository {
                    ORDER BY i.order_id, i.id"#,
                 placeholders_str
             );
-            let mut q = sqlx::query_as::<_, (i64, i64, String, Option<String>, Option<String>, i64)>(
-                &query_str,
-            );
+            let mut q = sqlx::query_as::<_, ItemRow>(&query_str);
             for id in chunk {
                 q = q.bind(id);
             }
-            let rows: Vec<(i64, i64, String, Option<String>, Option<String>, i64)> = q
+            let rows: Vec<ItemRow> = q
                 .fetch_all(tx.as_mut())
                 .await
                 .map_err(|e| format!("Failed to fetch items: {e}"))?;
