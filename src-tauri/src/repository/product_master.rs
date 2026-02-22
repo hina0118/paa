@@ -372,9 +372,7 @@ impl ProductMasterRepository for SqliteProductMasterRepository {
 
     async fn count_filtered(&self, filter: &ProductMasterFilter) -> Result<i64, String> {
         let (where_clause, binds) = build_filter_where(filter);
-        let sql = format!(
-            "SELECT COUNT(*) FROM product_master {where_clause}"
-        );
+        let sql = format!("SELECT COUNT(*) FROM product_master {where_clause}");
         let mut query = sqlx::query_scalar::<_, i64>(&sql);
         for b in &binds {
             query = query.bind(b.as_str());
@@ -691,12 +689,24 @@ mod tests {
             (
                 "バンダイ RG 1/144 ガンダム",
                 "bandairg",
-                make_parsed_product(Some("バンダイ"), Some("ガンダム"), "RG ガンダム", Some("1/144"), false),
+                make_parsed_product(
+                    Some("バンダイ"),
+                    Some("ガンダム"),
+                    "RG ガンダム",
+                    Some("1/144"),
+                    false,
+                ),
             ),
             (
                 "コトブキヤ フレームアームズ",
                 "kotobukiyafa",
-                make_parsed_product(Some("コトブキヤ"), Some("フレームアームズ"), "FA シリーズ", Some("1/100"), false),
+                make_parsed_product(
+                    Some("コトブキヤ"),
+                    Some("フレームアームズ"),
+                    "FA シリーズ",
+                    Some("1/100"),
+                    false,
+                ),
             ),
             (
                 "バンダイ HG 再販",
