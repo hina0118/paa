@@ -11,6 +11,8 @@ use regex::Regex;
 use sqlx::sqlite::{Sqlite, SqlitePool};
 use std::collections::{HashMap, HashSet};
 
+type ItemRow = (i64, i64, String, Option<String>, Option<String>, i64);
+
 /// 注文関連のDB操作を抽象化するトレイト
 #[cfg_attr(test, automock)]
 #[async_trait]
@@ -114,10 +116,19 @@ fn strip_bracketed_content(s: &str) -> String {
 }
 
 /// 商品名がマッチするか判定（apply_cancel / apply_change_items で共通利用）
+///
+/// # 引数
+/// - `product_name`: 受信メール由来のアイテム名
+/// - `product_master_name`: `product_master.product_name`（受信アイテム側。未登録の場合は None）
+/// - `item_name`: DB に保存済みのアイテム名
+/// - `item_name_normalized`: DB に保存済みの正規化名
+/// - `item_product_master_name`: `product_master.product_name`（DB アイテム側。未登録の場合は None）
 fn item_names_match(
     product_name: &str,
+    product_master_name: Option<&str>,
     item_name: &str,
     item_name_normalized: Option<&str>,
+    item_product_master_name: Option<&str>,
 ) -> bool {
     let product_name_core = product_name
         .trim_end_matches(" (プラモデル)")
@@ -129,9 +140,11 @@ fn item_names_match(
     let item_trimmed = item_name.trim();
     let item_stripped = strip_bracketed_content(item_trimmed);
 
+    // パターン1: 完全一致
     if item_trimmed == product_name || item_trimmed == product_name_core {
         return true;
     }
+    // パターン2: 包含関係・括弧除去後の部分一致
     if item_trimmed.contains(product_name)
         || product_name.contains(item_trimmed)
         || item_trimmed.contains(product_name_core)
@@ -149,23 +162,32 @@ fn item_names_match(
     {
         return true;
     }
+    // パターン3: 正規化名の部分一致（空同士は誤マッチ防止のため除外）
     let db_normalized = item_name_normalized
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string())
         .unwrap_or_else(|| normalize_product_name(item_name));
-    // 空正規化同士の一致は誤マッチ（別商品の削除）につながるため、両方が非空のときだけ有効
-    if !product_normalized.is_empty() && !db_normalized.is_empty() {
-        product_normalized == db_normalized
+    if !product_normalized.is_empty()
+        && !db_normalized.is_empty()
+        && (product_normalized == db_normalized
             || product_normalized.contains(db_normalized.as_str())
-            || db_normalized.contains(product_normalized.as_str())
-    } else {
-        false
+            || db_normalized.contains(product_normalized.as_str()))
+    {
+        return true;
     }
+    // パターン4: product_master による突合せ（商品コード差異等を吸収）
+    // 両方の product_master.product_name が非空で一致すれば同一商品とみなす
+    if let (Some(pm_in), Some(pm_db)) = (product_master_name, item_product_master_name) {
+        if !pm_in.is_empty() && !pm_db.is_empty() && pm_in == pm_db {
+            return true;
+        }
+    }
+    false
 }
 
 /// apply_change_items で order_id ごとの items を保持する型
-/// (item_id, item_name, item_name_normalized, quantity)
-type ItemsByOrderMap = HashMap<i64, Vec<(i64, String, Option<String>, i64)>>;
+/// (item_id, item_name, item_name_normalized, product_master_name, quantity)
+type ItemsByOrderMap = HashMap<i64, Vec<(i64, String, Option<String>, Option<String>, i64)>>;
 
 /// SQLiteを使用したOrderRepositoryの実装
 pub struct SqliteOrderRepository {
@@ -310,24 +332,56 @@ impl SqliteOrderRepository {
             let placeholders: Vec<String> = chunk.iter().map(|_| "?".to_string()).collect();
             let placeholders_str = placeholders.join(", ");
             let query_str = format!(
-                r#"SELECT order_id, id, item_name, item_name_normalized, quantity FROM items WHERE order_id IN ({}) ORDER BY order_id, id"#,
+                r#"SELECT i.order_id, i.id, i.item_name, i.item_name_normalized, pm.product_name, i.quantity
+                   FROM items i
+                   LEFT JOIN product_master pm ON TRIM(i.item_name) = pm.raw_name
+                   WHERE i.order_id IN ({})
+                   ORDER BY i.order_id, i.id"#,
                 placeholders_str
             );
-            let mut q = sqlx::query_as::<_, (i64, i64, String, Option<String>, i64)>(&query_str);
+            let mut q = sqlx::query_as::<_, ItemRow>(&query_str);
             for id in chunk {
                 q = q.bind(id);
             }
-            let rows: Vec<(i64, i64, String, Option<String>, i64)> = q
+            let rows: Vec<ItemRow> = q
                 .fetch_all(tx.as_mut())
                 .await
                 .map_err(|e| format!("Failed to fetch items: {e}"))?;
-            for (order_id, id, item_name, item_name_normalized, quantity) in rows {
+            for (order_id, id, item_name, item_name_normalized, pm_name, quantity) in rows {
                 items_by_order.entry(order_id).or_default().push((
                     id,
                     item_name,
                     item_name_normalized,
+                    pm_name,
                     quantity,
                 ));
+            }
+        }
+
+        // 受信アイテムの product_master を一括先引き（商品コード差異等の吸収用）
+        let incoming_raw_names: Vec<String> = order_info
+            .items
+            .iter()
+            .filter(|item| !item.name.trim().is_empty())
+            .map(|item| item.name.trim().to_string())
+            .collect();
+        let mut incoming_pm_map: HashMap<String, String> = HashMap::new();
+        for chunk in incoming_raw_names.chunks(BIND_LIMIT) {
+            let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+            let sql = format!(
+                "SELECT raw_name, product_name FROM product_master WHERE raw_name IN ({}) AND product_name IS NOT NULL",
+                placeholders
+            );
+            let mut query = sqlx::query_as::<_, (String, String)>(&sql);
+            for name in chunk {
+                query = query.bind(name);
+            }
+            let rows: Vec<(String, String)> = query
+                .fetch_all(tx.as_mut())
+                .await
+                .map_err(|e| format!("Failed to fetch product_master for incoming items: {e}"))?;
+            for (raw_name, product_name) in rows {
+                incoming_pm_map.insert(raw_name, product_name);
             }
         }
 
@@ -358,17 +412,20 @@ impl SqliteOrderRepository {
                         .map(|v| v.as_slice())
                         .unwrap_or(&[]);
 
-                    let found = items
-                        .iter()
-                        .find(|(_, item_name, item_name_normalized, _)| {
+                    let product_master_name = incoming_pm_map.get(product_name).map(|s| s.as_str());
+                    let found = items.iter().find(
+                        |(_, item_name, item_name_normalized, item_pm_name, _)| {
                             item_names_match(
                                 product_name,
+                                product_master_name,
                                 item_name,
                                 item_name_normalized.as_deref(),
+                                item_pm_name.as_deref(),
                             )
-                        });
+                        },
+                    );
 
-                    if let Some((item_id, _, _, current_qty)) = found {
+                    if let Some((item_id, _, _, _, current_qty)) = found {
                         matched_any = true;
                         let item_id = *item_id;
                         let current_qty = *current_qty;
@@ -388,7 +445,7 @@ impl SqliteOrderRepository {
                                 order_id
                             );
                             if let Some(vec) = items_by_order.get_mut(&order_id) {
-                                vec.retain(|(id, _, _, _)| *id != item_id);
+                                vec.retain(|(id, _, _, _, _)| *id != item_id);
                             }
                             orders_to_delete.insert(order_id);
                         } else {
@@ -406,9 +463,9 @@ impl SqliteOrderRepository {
                             );
                             if let Some(vec) = items_by_order.get_mut(&order_id) {
                                 if let Some(entry) =
-                                    vec.iter_mut().find(|(id, _, _, _)| *id == item_id)
+                                    vec.iter_mut().find(|(id, _, _, _, _)| *id == item_id)
                                 {
-                                    entry.3 = new_qty;
+                                    entry.4 = new_qty;
                                 }
                             }
                         }
@@ -764,12 +821,14 @@ impl OrderRepository for SqliteOrderRepository {
             }
         };
 
-        // 2. 該当注文の商品を検索（完全一致 → 包含 → item_name_normalized 部分一致の順でマッチ）
-        let items: Vec<(i64, String, Option<String>, i64)> = sqlx::query_as(
+        // 2. 該当注文の商品を検索（完全一致 → 包含 → item_name_normalized 部分一致 → product_master の順でマッチ）
+        let items: Vec<(i64, String, Option<String>, Option<String>, i64)> = sqlx::query_as(
             r#"
-            SELECT id, item_name, item_name_normalized, quantity FROM items
-            WHERE order_id = ?
-            ORDER BY id
+            SELECT i.id, i.item_name, i.item_name_normalized, pm.product_name, i.quantity
+            FROM items i
+            LEFT JOIN product_master pm ON TRIM(i.item_name) = pm.raw_name
+            WHERE i.order_id = ?
+            ORDER BY i.id
             "#,
         )
         .bind(order_id)
@@ -778,6 +837,24 @@ impl OrderRepository for SqliteOrderRepository {
         .map_err(|e| format!("Failed to fetch items: {e}"))?;
 
         let product_name = cancel_info.product_name.trim();
+
+        // キャンセルアイテムの product_master 先引き（商品コード差異等の吸収用）
+        let cancel_product_master_name: Option<String> = if !product_name.is_empty() {
+            sqlx::query_scalar(
+                r#"
+                SELECT product_name FROM product_master
+                WHERE raw_name = TRIM(?) AND product_name IS NOT NULL
+                LIMIT 1
+                "#,
+            )
+            .bind(product_name)
+            .fetch_optional(tx.as_mut())
+            .await
+            .map_err(|e| format!("Failed to fetch product_master for cancel item: {e}"))?
+            .flatten()
+        } else {
+            None
+        };
 
         if product_name.is_empty() {
             // 商品名未記載 = 注文全体キャンセル → 全商品を一括削除
@@ -792,14 +869,21 @@ impl OrderRepository for SqliteOrderRepository {
                 order_id
             );
         } else {
-            let matched = items
-                .iter()
-                .find(|(_, item_name, item_name_normalized, _)| {
-                    item_names_match(product_name, item_name, item_name_normalized.as_deref())
-                });
+            let matched =
+                items
+                    .iter()
+                    .find(|(_, item_name, item_name_normalized, item_pm_name, _)| {
+                        item_names_match(
+                            product_name,
+                            cancel_product_master_name.as_deref(),
+                            item_name,
+                            item_name_normalized.as_deref(),
+                            item_pm_name.as_deref(),
+                        )
+                    });
 
             match matched {
-                Some((item_id, _, _, current_qty)) => {
+                Some((item_id, _, _, _, current_qty)) => {
                     let item_id = *item_id;
                     let current_qty = *current_qty;
 
@@ -1550,6 +1634,28 @@ mod tests {
         .execute(&pool)
         .await
         .expect("Failed to create order_emails table");
+
+        // product_master テーブル（apply_change_items / apply_cancel の LEFT JOIN で使用）
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS product_master (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                raw_name TEXT UNIQUE NOT NULL,
+                normalized_name TEXT NOT NULL,
+                maker TEXT,
+                series TEXT,
+                product_name TEXT,
+                scale TEXT,
+                is_reissue INTEGER NOT NULL DEFAULT 0 CHECK(is_reissue IN (0, 1)),
+                platform_hint TEXT,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("Failed to create product_master table");
 
         // 外部キー制約を有効化（ロールバックテストで使用）
         sqlx::query("PRAGMA foreign_keys = ON")
@@ -3263,5 +3369,148 @@ mod tests {
                 .await
                 .expect("count deliveries");
         assert_eq!(deliveries.0, 1);
+    }
+
+    // --- item_names_match 単体テスト ---
+
+    #[test]
+    fn test_item_names_match_exact() {
+        assert!(item_names_match("商品A", None, "商品A", None, None,));
+    }
+
+    #[test]
+    fn test_item_names_match_via_product_master() {
+        // 商品コード差がある場合でも product_master.product_name が一致すればマッチすること
+        // "アニュラス 267064 新条アカネ(ニューオーダー)" vs "アニュラス 67064 新条アカネ(ニューオーダー)"
+        assert!(item_names_match(
+            "アニュラス 267064 新条アカネ(ニューオーダー)",
+            Some("新条アカネ(ニューオーダー)"),
+            "アニュラス 67064 新条アカネ(ニューオーダー)",
+            Some("アニュラス67064新条アカネニューオーダー"),
+            Some("新条アカネ(ニューオーダー)"),
+        ));
+    }
+
+    #[test]
+    fn test_item_names_match_no_match_without_product_master() {
+        // product_master なしでは商品コード差がある場合にマッチしないこと
+        assert!(!item_names_match(
+            "アニュラス 267064 新条アカネ(ニューオーダー)",
+            None,
+            "アニュラス 67064 新条アカネ(ニューオーダー)",
+            Some("アニュラス67064新条アカネニューオーダー"),
+            None,
+        ));
+    }
+
+    #[test]
+    fn test_item_names_match_product_master_empty_strings_do_not_match() {
+        // product_master_name が空文字の場合はマッチしないこと（誤マッチ防止）
+        assert!(!item_names_match(
+            "アニュラス 267064 新条アカネ(ニューオーダー)",
+            Some(""),
+            "アニュラス 67064 新条アカネ(ニューオーダー)",
+            None,
+            Some(""),
+        ));
+    }
+
+    #[test]
+    fn test_item_names_match_different_product_master_names_do_not_match() {
+        // product_master_name が異なる場合はマッチしないこと
+        assert!(!item_names_match(
+            "商品X コード111",
+            Some("商品X"),
+            "商品Y コード222",
+            None,
+            Some("商品Y"),
+        ));
+    }
+
+    // --- apply_change_items + product_master 統合テスト ---
+
+    #[tokio::test]
+    async fn test_apply_change_items_via_product_master_match() {
+        // product_master に両方の商品名が同一 product_name で登録されている場合、
+        // 商品コード差があっても組み換えが成功すること
+        let pool = setup_test_db().await;
+        let repo = SqliteOrderRepository::new(pool.clone());
+
+        // 元注文に旧商品コード付き商品名を登録
+        sqlx::query(
+            r#"INSERT INTO orders (order_number, shop_domain) VALUES ('99-OLD-001', 'annulus.co.jp')"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert old order");
+        let old_order_id: (i64,) =
+            sqlx::query_as("SELECT id FROM orders WHERE order_number = '99-OLD-001'")
+                .fetch_one(&pool)
+                .await
+                .expect("get old order id");
+        sqlx::query(
+            r#"INSERT INTO items (order_id, item_name, item_name_normalized, quantity)
+               VALUES (?, 'アニュラス 67064 新条アカネ(ニューオーダー)', 'アニュラス67064新条アカネニューオーダー', 1)"#,
+        )
+        .bind(old_order_id.0)
+        .execute(&pool)
+        .await
+        .expect("insert old item");
+
+        // product_master に両方の商品名を同一 product_name で登録
+        sqlx::query(
+            r#"INSERT INTO product_master (raw_name, normalized_name, product_name)
+               VALUES ('アニュラス 67064 新条アカネ(ニューオーダー)', 'アニュラス67064新条アカネニューオーダー', '新条アカネ(ニューオーダー)')"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert product_master old");
+        sqlx::query(
+            r#"INSERT INTO product_master (raw_name, normalized_name, product_name)
+               VALUES ('アニュラス 267064 新条アカネ(ニューオーダー)', 'アニュラス267064新条アカネニューオーダー', '新条アカネ(ニューオーダー)')"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert product_master new");
+
+        // 新商品コード付き商品名で組み換えメールを受信
+        let order_info = crate::parsers::OrderInfo {
+            order_number: "25-NEW-9999".to_string(),
+            order_date: None,
+            delivery_address: None,
+            delivery_info: None,
+            items: vec![crate::parsers::OrderItem {
+                name: "アニュラス 267064 新条アカネ(ニューオーダー)".to_string(),
+                manufacturer: None,
+                model_number: None,
+                unit_price: 5049,
+                quantity: 1,
+                subtotal: 5049,
+                image_url: None,
+            }],
+            subtotal: Some(5049),
+            shipping_fee: None,
+            total_amount: Some(5049),
+        };
+
+        let result = repo
+            .apply_change_items(&order_info, Some("annulus.co.jp".to_string()), None)
+            .await;
+        assert!(
+            result.is_ok(),
+            "apply_change_items failed: {:?}",
+            result.err()
+        );
+
+        // 元注文から商品が削除されていること
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items WHERE order_id = ?")
+            .bind(old_order_id.0)
+            .fetch_one(&pool)
+            .await
+            .expect("count items");
+        assert_eq!(
+            count.0, 0,
+            "item should be removed from old order via product_master match"
+        );
     }
 }
