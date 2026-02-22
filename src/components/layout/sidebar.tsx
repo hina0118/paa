@@ -9,6 +9,7 @@ import {
   Store,
   Archive,
   ChevronDown,
+  BookOpen,
 } from 'lucide-react';
 import { useNavigation } from '@/contexts/use-navigation';
 import type { Screen } from '@/contexts/navigation-context-value';
@@ -28,6 +29,7 @@ type NavigationScreen = Extract<
   | 'backup'
   | 'api-keys'
   | 'settings'
+  | 'product-master'
 >;
 
 type NavigationItem = {
@@ -69,6 +71,7 @@ const navigationItems: NavigationItem[] = [
   { name: 'データのバックアップ', icon: Archive, id: 'backup' },
   { name: 'APIキー設定', icon: Key, id: 'api-keys' },
   { name: '設定', icon: Settings, id: 'settings' },
+  { name: '商品マスタ編集', icon: BookOpen, id: 'product-master' },
 ];
 
 const tableItems: TableItem[] = [
