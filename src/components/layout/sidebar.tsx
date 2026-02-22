@@ -15,6 +15,7 @@ import type { Screen } from '@/contexts/navigation-context-value';
 import type { ComponentType } from 'react';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
+import { ThemeToggle } from '@/components/ui/theme-toggle';
 
 /** サイドバーナビゲーションで表示する画面（Screen のサブセット） */
 type NavigationScreen = Extract<
@@ -199,6 +200,9 @@ export function Sidebar() {
           </div>
         </div>
       </nav>
+      <div className="p-3 border-t">
+        <ThemeToggle />
+      </div>
     </aside>
   );
 }
