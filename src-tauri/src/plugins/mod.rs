@@ -1,19 +1,52 @@
 //! VendorPlugin トレイト定義
 //!
 //! 店舗ごとのメールパース処理をプラグインとして抽象化するトレイト。
-//! 新しい店舗を追加する場合は `VendorPlugin` を実装し、`registry.rs` に登録するだけでよい。
+//! 新しい店舗を追加する場合は `VendorPlugin` を実装し、`inventory::submit!` で自動登録する。
 //!
 //! # 設計方針
 //! - `dispatch()` がパース + 保存を一括処理し、呼び出し元（`email_parse_task.rs`）をシンプルに保つ
 //! - `DispatchError::ParseFailed` は「次のパーサーを試す」、`DispatchError::SaveFailed` は「このメールをリトライ」
 //! - `alternate_domains()` はプラグイン側で管理（DMM の mail/mono 二重チェック等）
 
-pub mod registry;
+// pub mod にすることでリンカーがモジュールを保持し、inventory::submit! の静的初期化が LTO でも除外されない
+pub mod dmm;
+pub mod hobbysearch;
 
-mod dmm;
-mod hobbysearch;
+// ─────────────────────────────────────────────────────────────────────────────
+// inventory による自動登録
+// ─────────────────────────────────────────────────────────────────────────────
 
-pub use registry::{build_registry, find_plugin};
+/// 自動登録用ラッパー型
+///
+/// 各プラグインファイルの末尾で `inventory::submit!` を呼び出すことで
+/// グローバルレジストリに自動登録される。
+pub struct PluginRegistration {
+    pub factory: fn() -> Box<dyn VendorPlugin>,
+}
+
+inventory::collect!(PluginRegistration);
+
+/// 全登録済みプラグインを収集してレジストリを構築する
+pub fn build_registry() -> Vec<Box<dyn VendorPlugin>> {
+    inventory::iter::<PluginRegistration>
+        .into_iter()
+        .map(|r| (r.factory)())
+        .collect()
+}
+
+/// `parser_type` に対応するプラグインを返す
+///
+/// 複数のプラグインが同一の `parser_type` に対応する場合は `priority()` が最大のものを返す。
+pub fn find_plugin<'a>(
+    registry: &'a [Box<dyn VendorPlugin>],
+    parser_type: &str,
+) -> Option<&'a dyn VendorPlugin> {
+    registry
+        .iter()
+        .filter(|p| p.parser_types().contains(&parser_type))
+        .max_by_key(|p| p.priority())
+        .map(|p| p.as_ref())
+}
 
 use async_trait::async_trait;
 use chrono::DateTime;
@@ -228,6 +261,123 @@ pub(crate) async fn save_images_for_order(
                 item.name,
                 e
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_registry_is_not_empty() {
+        let registry = build_registry();
+        assert!(!registry.is_empty());
+    }
+
+    #[test]
+    fn test_find_plugin_dmm_confirm() {
+        let registry = build_registry();
+        let plugin = find_plugin(&registry, "dmm_confirm");
+        assert!(plugin.is_some());
+    }
+
+    #[test]
+    fn test_find_plugin_dmm_cancel() {
+        let registry = build_registry();
+        let plugin = find_plugin(&registry, "dmm_cancel");
+        assert!(plugin.is_some());
+    }
+
+    #[test]
+    fn test_find_plugin_dmm_send() {
+        let registry = build_registry();
+        let plugin = find_plugin(&registry, "dmm_send");
+        assert!(plugin.is_some());
+    }
+
+    #[test]
+    fn test_find_plugin_dmm_split_complete() {
+        let registry = build_registry();
+        let plugin = find_plugin(&registry, "dmm_split_complete");
+        assert!(plugin.is_some());
+    }
+
+    #[test]
+    fn test_find_plugin_dmm_order_number_change() {
+        let registry = build_registry();
+        let plugin = find_plugin(&registry, "dmm_order_number_change");
+        assert!(plugin.is_some());
+    }
+
+    #[test]
+    fn test_find_plugin_dmm_merge_complete() {
+        let registry = build_registry();
+        let plugin = find_plugin(&registry, "dmm_merge_complete");
+        assert!(plugin.is_some());
+    }
+
+    #[test]
+    fn test_find_plugin_hobbysearch_confirm() {
+        let registry = build_registry();
+        let plugin = find_plugin(&registry, "hobbysearch_confirm");
+        assert!(plugin.is_some());
+    }
+
+    #[test]
+    fn test_find_plugin_hobbysearch_cancel() {
+        let registry = build_registry();
+        let plugin = find_plugin(&registry, "hobbysearch_cancel");
+        assert!(plugin.is_some());
+    }
+
+    #[test]
+    fn test_find_plugin_unknown_returns_none() {
+        let registry = build_registry();
+        let plugin = find_plugin(&registry, "unknown_parser");
+        assert!(plugin.is_none());
+    }
+
+    #[test]
+    fn test_find_plugin_priority_resolution() {
+        // 同一 parser_type に複数プラグインが対応する場合、priority 最大が選ばれること
+        // 現在の実装では DmmPlugin priority=10、HobbySearchPlugin priority=10 で重複なし
+        let registry = build_registry();
+        // DmmPlugin のみが対応する型では DmmPlugin が返る
+        let plugin = find_plugin(&registry, "dmm_merge_complete");
+        assert!(plugin.is_some());
+        assert_eq!(plugin.unwrap().priority(), 10);
+    }
+
+    #[test]
+    fn test_all_dmm_parser_types_have_plugin() {
+        let registry = build_registry();
+        let dmm_types = [
+            "dmm_confirm",
+            "dmm_send",
+            "dmm_cancel",
+            "dmm_order_number_change",
+            "dmm_split_complete",
+            "dmm_merge_complete",
+        ];
+        for pt in &dmm_types {
+            assert!(find_plugin(&registry, pt).is_some(), "No plugin for {}", pt);
+        }
+    }
+
+    #[test]
+    fn test_all_hobbysearch_parser_types_have_plugin() {
+        let registry = build_registry();
+        let hs_types = [
+            "hobbysearch_confirm",
+            "hobbysearch_confirm_yoyaku",
+            "hobbysearch_change",
+            "hobbysearch_change_yoyaku",
+            "hobbysearch_send",
+            "hobbysearch_cancel",
+        ];
+        for pt in &hs_types {
+            assert!(find_plugin(&registry, pt).is_some(), "No plugin for {}", pt);
         }
     }
 }

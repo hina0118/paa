@@ -444,3 +444,9 @@ mod tests {
         assert!(parser_types.contains(&"dmm_send"));
     }
 }
+
+inventory::submit! {
+    crate::plugins::PluginRegistration {
+        factory: || Box::new(DmmPlugin),
+    }
+}
