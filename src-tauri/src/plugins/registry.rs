@@ -122,11 +122,7 @@ mod tests {
             "dmm_merge_complete",
         ];
         for pt in &dmm_types {
-            assert!(
-                find_plugin(&registry, pt).is_some(),
-                "No plugin for {}",
-                pt
-            );
+            assert!(find_plugin(&registry, pt).is_some(), "No plugin for {}", pt);
         }
     }
 
@@ -142,11 +138,7 @@ mod tests {
             "hobbysearch_cancel",
         ];
         for pt in &hs_types {
-            assert!(
-                find_plugin(&registry, pt).is_some(),
-                "No plugin for {}",
-                pt
-            );
+            assert!(find_plugin(&registry, pt).is_some(), "No plugin for {}", pt);
         }
     }
 }
