@@ -139,7 +139,8 @@ C:\Users\<ユーザー名>\AppData\Roaming\jp.github.hina0118.paa\client_secret.
 
 ## 新しい店舗（EC サイト）を追加する
 
-Phase 2 以降のプラグイン設計により、**変更箇所は最小限**で新店舗に対応できます。
+Phase 3 以降のプラグイン設計により、**変更箇所は最小限**で新店舗に対応できます。
+`registry.rs` への手動追加は不要で、プラグインファイル自身が `inventory::submit!` で自動登録されます。
 
 ### 手順
 
@@ -157,9 +158,10 @@ src-tauri/src/parsers/<店舗名>/
   （必要に応じて追加）
 ```
 
-**2. プラグインを実装する**
+**2. プラグインを実装し、`inventory::submit!` で自動登録する**
 
 `src-tauri/src/plugins/<店舗名>.rs` を作成し、`VendorPlugin` トレイトを実装します。
+ファイルの末尾に `inventory::submit!` を追加するだけで自動登録されます。
 
 ```rust
 pub struct NewShopPlugin;
@@ -183,19 +185,20 @@ impl VendorPlugin for NewShopPlugin {
 
     async fn dispatch(&self, parser_type: &str, ...) -> Result<DispatchOutcome, DispatchError> { ... }
 }
+
+// ファイル末尾に追加するだけで自動登録される
+inventory::submit! {
+    crate::plugins::PluginRegistration {
+        factory: || Box::new(NewShopPlugin),
+    }
+}
 ```
 
-**3. `registry.rs` に 1 行追加する**
+**3. `plugins/mod.rs` に `pub mod` を追加する**
 
 ```rust
-// src-tauri/src/plugins/registry.rs
-pub fn build_registry() -> Vec<Box<dyn VendorPlugin>> {
-    vec![
-        Box::new(DmmPlugin),
-        Box::new(HobbySearchPlugin),
-        Box::new(NewShopPlugin),  // ← ここだけ追加
-    ]
-}
+// src-tauri/src/plugins/mod.rs
+pub mod newshop;  // ← 追加（pub mod にすることで LTO でも自動登録が除外されない）
 ```
 
 **4. 動作確認する**
