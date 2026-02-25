@@ -3,15 +3,15 @@
 ## 概要
 
 メール解析プラグインは `src-tauri/src/plugins/` に集約されており、
-新規店舗の追加は **`registry.rs` の 1 箇所** と **新しいプラグインファイルの作成** のみで完結する。
+新規店舗の追加は **新しいプラグインファイルの作成** と
+**`inventory::submit!` による自動登録** のみで完結する。
 `shop_settings` テーブルへのデフォルト設定投入やトランザクション管理はフレームワーク側が自動で行う。
 
 ## ファイル構成
 
 ```
 src-tauri/src/plugins/
-├── mod.rs          VendorPlugin トレイト定義・ensure_default_settings()
-├── registry.rs     build_registry() — 全プラグインをここで登録
+├── mod.rs          VendorPlugin トレイト定義・PluginRegistration・build_registry()・ensure_default_settings()
 ├── dmm.rs          DmmPlugin 実装例
 └── hobbysearch.rs  HobbySearchPlugin 実装例
 ```
@@ -21,6 +21,7 @@ src-tauri/src/plugins/
 ### Step 1 — プラグインファイルを作成する
 
 `src-tauri/src/plugins/<shop>.rs` を新規作成し、`VendorPlugin` トレイトを実装する。
+ファイルの末尾に `inventory::submit!` を追加することで、起動時に自動登録される。
 
 ```rust
 // src-tauri/src/plugins/myshop.rs
@@ -97,7 +98,6 @@ impl VendorPlugin for MyShopPlugin {
         internal_date: Option<i64>,
         body: &str,
         tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
-        _image_save_ctx: &Option<(Arc<sqlx::SqlitePool>, std::path::PathBuf)>,
     ) -> Result<DispatchOutcome, DispatchError> {
         match parser_type {
             "myshop_confirm" => {
@@ -112,32 +112,20 @@ impl VendorPlugin for MyShopPlugin {
         }
     }
 }
+
+// ファイル末尾に追加するだけで自動登録される
+inventory::submit! {
+    crate::plugins::PluginRegistration {
+        factory: || Box::new(MyShopPlugin),
+    }
+}
 ```
 
 > **注意**: `dispatch()` 内では `SqliteOrderRepository::save_order_in_tx(tx, ...)` など
 > `_in_tx` サフィックスの静的メソッドを使用する。`tx.commit()` / `tx.rollback()` は
 > `EmailParseTask::process_batch()` が管理するため、プラグイン内では呼ばない。
 
-### Step 2 — registry.rs にエントリを追加する
-
-```rust
-// src-tauri/src/plugins/registry.rs
-
-use super::dmm::DmmPlugin;
-use super::hobbysearch::HobbySearchPlugin;
-use super::myshop::MyShopPlugin;   // ← 追加
-use super::VendorPlugin;
-
-pub fn build_registry() -> Vec<Box<dyn VendorPlugin>> {
-    vec![
-        Box::new(DmmPlugin),
-        Box::new(HobbySearchPlugin),
-        Box::new(MyShopPlugin),   // ← 追加
-    ]
-}
-```
-
-### Step 3 — mod.rs でサブモジュールを宣言する
+### Step 2 — mod.rs に `pub mod` を追加する
 
 ```rust
 // src-tauri/src/plugins/mod.rs（既存の pub mod 宣言の近くに追加）
@@ -145,7 +133,11 @@ pub fn build_registry() -> Vec<Box<dyn VendorPlugin>> {
 pub mod myshop;   // ← 追加
 ```
 
-### Step 4 — ビルド・テストを実行する
+> **LTO 対策**: `pub mod` にすることでリンカーがモジュールを「参照あり」と判断し、
+> `inventory::submit!` の静的初期化コードが release ビルドの LTO でも除外されない。
+> `mod`（pub なし）でも動作することが多いが、`pub mod` が安全。
+
+### Step 3 — ビルド・テストを実行する
 
 ```bash
 cd src-tauri
@@ -159,6 +151,20 @@ cargo test
 ---
 
 ## 仕組みの概要
+
+### プラグインの自動登録（inventory クレート）
+
+各プラグインファイル末尾の `inventory::submit!` がコンパイル時にグローバルレジストリへ登録し、
+`build_registry()` が起動時に全エントリを収集する。
+
+```
+inventory::submit! (各プラグインファイル)
+  → inventory::collect! (plugins/mod.rs)
+  → build_registry() が起動時に収集
+```
+
+- `registry.rs` は不要。登録箇所とプラグイン実装が同一ファイルに収まるため追加し忘れが起きない。
+- `pub mod` 宣言は LTO 対策として引き続き必要。
 
 ### デフォルト設定の自動投入
 
@@ -185,18 +191,18 @@ build_registry()
 
 プラグインは `tx` を受け取り、DB 操作を全て同一トランザクション内で行う。
 
-### _in_tx ヘルパー
+### \_in_tx ヘルパー
 
 `SqliteOrderRepository` には `pub(crate)` な静的メソッドが用意されている:
 
-| ヘルパー | 用途 |
-|---|---|
-| `save_order_in_tx(tx, ...)` | 注文の新規保存・更新 |
-| `apply_cancel_in_tx(tx, ...)` | キャンセル処理 |
-| `apply_order_number_change_in_tx(tx, ...)` | 注文番号変更 |
-| `apply_consolidation_in_tx(tx, ...)` | 注文まとめ |
-| `apply_split_first_order_in_tx(tx, ...)` | 注文分割 |
-| `apply_send_and_replace_items_in_tx(tx, ...)` | 発送・商品差替え |
-| `apply_change_items_in_tx(tx, ...)` | 商品変更 |
+| ヘルパー                                      | 用途                 |
+| --------------------------------------------- | -------------------- |
+| `save_order_in_tx(tx, ...)`                   | 注文の新規保存・更新 |
+| `apply_cancel_in_tx(tx, ...)`                 | キャンセル処理       |
+| `apply_order_number_change_in_tx(tx, ...)`    | 注文番号変更         |
+| `apply_consolidation_in_tx(tx, ...)`          | 注文まとめ           |
+| `apply_split_first_order_in_tx(tx, ...)`      | 注文分割             |
+| `apply_send_and_replace_items_in_tx(tx, ...)` | 発送・商品差替え     |
+| `apply_change_items_in_tx(tx, ...)`           | 商品変更             |
 
 詳細なシグネチャは `src-tauri/src/repository/order.rs` を参照。

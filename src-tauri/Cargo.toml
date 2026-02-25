@@ -57,6 +57,7 @@ url = "2"
 image = { version = "0.24", default-features = false, features = ["jpeg", "png", "webp"] }
 zip = "2"
 arboard = "3.6.1"
+inventory = "0.3"
 
 [dev-dependencies]
 mockall = "0.13"
