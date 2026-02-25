@@ -150,10 +150,17 @@ pub fn run() {
                 use std::str::FromStr;
 
                 // DB接続オプション（create_if_missing 有効化、foreign_keys でテストと挙動を統一）
+                // WAL モードで tauri-plugin-sql（フロントエンド）との lock 競合を解消。
+                // DELETE ジャーナルモード（デフォルト）では、フロントエンドの SHARED LOCK が
+                // バックエンドの INSERT を即時ブロックして "database is locked" (code 5) が発生する。
+                // WAL モードでは reader が writer をブロックしないため競合が解消される。
+                // busy_timeout: tauri-plugin-sql 側の接続が書き込み中の場合に最大 10 秒待機してリトライ。
                 let options = SqliteConnectOptions::from_str(&db_url)
                     .expect("Failed to parse database URL")
                     .create_if_missing(true)
-                    .foreign_keys(true);
+                    .foreign_keys(true)
+                    .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
+                    .busy_timeout(std::time::Duration::from_secs(10));
 
                 // DB接続プール作成
                 let pool = SqlitePoolOptions::new()

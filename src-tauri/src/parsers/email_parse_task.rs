@@ -20,7 +20,9 @@ use crate::batch_runner::BatchTask;
 use crate::logic::email_parser::extract_domain;
 use crate::logic::sync_logic::extract_email_address;
 use crate::parsers::{EmailRow, OrderInfo, ParseState};
-use crate::plugins::{build_registry, find_plugin, DispatchError, DispatchOutcome};
+use crate::plugins::{
+    build_registry, find_plugin, save_images_for_order, DispatchError, DispatchOutcome,
+};
 use crate::repository::{ParseRepository, ShopSettingsRepository};
 use async_trait::async_trait;
 use std::marker::PhantomData;
@@ -210,6 +212,31 @@ fn get_candidate_parsers(
         })
         .map(|(_, parser_type, _, shop_name)| (parser_type.clone(), shop_name.clone()))
         .collect()
+}
+
+/// `DispatchOutcome` に含まれるすべての `OrderInfo` に対して画像保存を実行する
+///
+/// `tx.commit()` 後に呼び出すことで、トランザクションの RESERVED LOCK と
+/// 画像 INSERT の競合（SQLITE_BUSY / "database is locked"）を回避する。
+///
+/// - `OrderSaved` → 1件分の画像を登録
+/// - `MultiOrderSaved` → 全注文の画像を登録（先頭だけでなく全件）
+/// - `CancelApplied` / `OrderNumberChanged` / `ConsolidationApplied` → 画像なしのためスキップ
+async fn save_images_for_dispatch_outcome(
+    outcome: &DispatchOutcome,
+    image_save_ctx: &Option<(std::sync::Arc<sqlx::SqlitePool>, std::path::PathBuf)>,
+) {
+    match outcome {
+        DispatchOutcome::OrderSaved(order_info) => {
+            save_images_for_order(order_info, image_save_ctx).await;
+        }
+        DispatchOutcome::MultiOrderSaved(orders) => {
+            for order_info in orders {
+                save_images_for_order(order_info, image_save_ctx).await;
+            }
+        }
+        _ => {}
+    }
 }
 
 /// `DispatchOutcome` を `EmailParseOutput` 組み立てに必要な `(OrderInfo, cancel_applied)` に変換する
@@ -414,7 +441,6 @@ where
                         input.internal_date,
                         &input.body_plain,
                         &mut tx,
-                        &context.image_save_ctx,
                     )
                     .await
                 {
@@ -470,6 +496,12 @@ where
 
             match dispatch_outcome {
                 Some((outcome, shop_name)) => {
+                    // tx.commit() 後に画像登録を実行する。
+                    // dispatch() 内ではトランザクションの RESERVED LOCK が保持されており、
+                    // 別コネクションからの INSERT が SQLITE_BUSY になるため、
+                    // コミット完了後のここで行う必要がある。
+                    save_images_for_dispatch_outcome(&outcome, &context.image_save_ctx).await;
+
                     let (order_info, cancel_applied) =
                         outcome_to_order_info(outcome, input.email_id);
                     results.push(Ok(EmailParseOutput {
