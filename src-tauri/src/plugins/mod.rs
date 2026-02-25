@@ -21,7 +21,38 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::parsers::{EmailParser, OrderInfo};
-use crate::repository::OrderRepository;
+use crate::repository::ShopSettingsRepository;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DefaultShopSetting
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// プラグインが DB に自動挿入するデフォルト shop_settings レコード
+pub struct DefaultShopSetting {
+    pub shop_name: String,
+    pub sender_address: String,
+    pub parser_type: String,
+    pub subject_filters: Option<Vec<String>>,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ensure_default_settings
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// 登録済みプラグインの `default_shop_settings()` を走査し、DB に存在しないレコードを挿入する。
+///
+/// 冪等（`INSERT OR IGNORE` ベース）。アプリ起動時に呼び出す。
+pub async fn ensure_default_settings(
+    registry: &[Box<dyn VendorPlugin>],
+    repo: &dyn ShopSettingsRepository,
+) -> Result<(), String> {
+    for plugin in registry {
+        for setting in plugin.default_shop_settings() {
+            repo.insert_if_not_exists(&setting).await?;
+        }
+    }
+    Ok(())
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DispatchOutcome / DispatchError
@@ -88,7 +119,7 @@ pub trait VendorPlugin: Send + Sync {
     /// - `shop_name`: ショップ名
     /// - `internal_date`: メール受信日時（Unix ミリ秒）
     /// - `body`: メール本文
-    /// - `order_repo`: 注文リポジトリ
+    /// - `tx`: 外部から渡されたトランザクション（コミットは呼び出し元で行う）
     /// - `image_save_ctx`: 画像保存用コンテキスト（`None` の場合は画像登録をスキップ）
     ///
     /// # エラー
@@ -103,7 +134,7 @@ pub trait VendorPlugin: Send + Sync {
         shop_name: &str,
         internal_date: Option<i64>,
         body: &str,
-        order_repo: &dyn OrderRepository,
+        tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
         image_save_ctx: &Option<(Arc<sqlx::SqlitePool>, PathBuf)>,
     ) -> Result<DispatchOutcome, DispatchError>;
 
@@ -117,6 +148,14 @@ pub trait VendorPlugin: Send + Sync {
     fn priority(&self) -> i32 {
         0
     }
+
+    /// 店舗の表示名
+    fn shop_name(&self) -> &str;
+
+    /// このプラグインが必要とするデフォルト shop_settings レコード一覧
+    ///
+    /// DB に同レコードが存在しない場合に自動挿入される（`ensure_default_settings` で利用）。
+    fn default_shop_settings(&self) -> Vec<DefaultShopSetting>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

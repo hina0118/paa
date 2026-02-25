@@ -21,7 +21,7 @@ use crate::logic::email_parser::extract_domain;
 use crate::logic::sync_logic::extract_email_address;
 use crate::parsers::{EmailRow, OrderInfo, ParseState};
 use crate::plugins::{build_registry, find_plugin, DispatchError, DispatchOutcome};
-use crate::repository::{OrderRepository, ParseRepository, ShopSettingsRepository};
+use crate::repository::{ParseRepository, ShopSettingsRepository};
 use async_trait::async_trait;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -90,14 +90,13 @@ pub struct ShopSettingsCache {
 }
 
 /// メールパースのコンテキスト
-pub struct EmailParseContext<O, P, S>
+pub struct EmailParseContext<P, S>
 where
-    O: OrderRepository + 'static,
     P: ParseRepository + 'static,
     S: ShopSettingsRepository + 'static,
 {
-    /// Order リポジトリ
-    pub order_repo: Arc<O>,
+    /// SQLite 接続プール（dispatch() 用トランザクション生成に使用）
+    pub pool: Arc<sqlx::SqlitePool>,
     /// Parse リポジトリ
     pub parse_repo: Arc<P>,
     /// ShopSettings リポジトリ
@@ -113,16 +112,14 @@ where
 /// メールパースタスク
 ///
 /// 型パラメータ:
-/// - `O`: Order リポジトリ
 /// - `P`: Parse リポジトリ
 /// - `S`: ShopSettings リポジトリ
-pub struct EmailParseTask<O, P, S>
+pub struct EmailParseTask<P, S>
 where
-    O: OrderRepository + 'static,
     P: ParseRepository + 'static,
     S: ShopSettingsRepository + 'static,
 {
-    _phantom: PhantomData<(O, P, S)>,
+    _phantom: PhantomData<(P, S)>,
 }
 
 /// タスク名
@@ -132,9 +129,8 @@ pub const EMAIL_PARSE_EVENT_NAME: &str = "batch-progress";
 /// パーサー非マッチエラーの固定プレフィックス（batch_runner でスキップ判定に使用）
 pub const NO_MATCHING_PARSER_PREFIX: &str = "No matching parser";
 
-impl<O, P, S> EmailParseTask<O, P, S>
+impl<P, S> EmailParseTask<P, S>
 where
-    O: OrderRepository + 'static,
     P: ParseRepository + 'static,
     S: ShopSettingsRepository + 'static,
 {
@@ -145,9 +141,8 @@ where
     }
 }
 
-impl<O, P, S> Default for EmailParseTask<O, P, S>
+impl<P, S> Default for EmailParseTask<P, S>
 where
-    O: OrderRepository + 'static,
     P: ParseRepository + 'static,
     S: ShopSettingsRepository + 'static,
 {
@@ -286,15 +281,14 @@ fn outcome_to_order_info(outcome: DispatchOutcome, email_id: i64) -> (OrderInfo,
 }
 
 #[async_trait]
-impl<O, P, S> BatchTask for EmailParseTask<O, P, S>
+impl<P, S> BatchTask for EmailParseTask<P, S>
 where
-    O: OrderRepository + 'static,
     P: ParseRepository + 'static,
     S: ShopSettingsRepository + 'static,
 {
     type Input = EmailParseInput;
     type Output = EmailParseOutput;
-    type Context = EmailParseContext<O, P, S>;
+    type Context = EmailParseContext<P, S>;
 
     fn name(&self) -> &str {
         EMAIL_PARSE_TASK_NAME
@@ -397,7 +391,20 @@ where
                     }
                 };
 
-                let order_repo: &dyn OrderRepository = context.order_repo.as_ref();
+                // パーサー試行ごとにトランザクションを開始。
+                // ParseFailed 時は tx を drop してロールバック（通常は DB 未書き込みだが安全のため）。
+                // SaveFailed 時も tx を drop してロールバック（部分書き込みを破棄）。
+                let mut tx = match context.pool.begin().await {
+                    Ok(tx) => tx,
+                    Err(e) => {
+                        results.push(Err(format!(
+                            "Failed to begin transaction for email {}: {}",
+                            input.email_id, e
+                        )));
+                        continue 'input_loop;
+                    }
+                };
+
                 match plugin
                     .dispatch(
                         parser_type,
@@ -406,12 +413,20 @@ where
                         shop_name,
                         input.internal_date,
                         &input.body_plain,
-                        order_repo,
+                        &mut tx,
                         &context.image_save_ctx,
                     )
                     .await
                 {
                     Ok(outcome) => {
+                        // コミット。失敗時は保存エラーとして扱いリトライ対象にする。
+                        if let Err(e) = tx.commit().await {
+                            results.push(Err(format!(
+                                "Failed to commit transaction for email {}: {}",
+                                input.email_id, e
+                            )));
+                            continue 'input_loop;
+                        }
                         log::debug!(
                             "dispatch succeeded: parser_type={} email_id={}",
                             parser_type,
@@ -421,7 +436,7 @@ where
                         break 'parser_loop;
                     }
                     Err(DispatchError::ParseFailed(e)) => {
-                        // パース失敗 → 次のパーサーを試す
+                        // パース失敗 → tx を drop（自動ロールバック）して次のパーサーを試す
                         log::debug!(
                             "Parser {} failed (email_id={}): {}",
                             parser_type,
@@ -432,7 +447,7 @@ where
                         continue 'parser_loop;
                     }
                     Err(DispatchError::SaveFailed(e)) => {
-                        // 保存 / 適用失敗 → このメールをリトライ対象にする（他のパーサーは試さない）
+                        // 保存 / 適用失敗 → tx を drop（自動ロールバック）してリトライ対象にする
                         log::error!(
                             "Save/apply failed for email {} (parser_type={}): {}",
                             input.email_id,
@@ -546,9 +561,18 @@ where
 mod tests {
     use super::*;
     use crate::gmail::ShopSettings;
-    use crate::repository::{MockOrderRepository, MockParseRepository, MockShopSettingsRepository};
+    use crate::repository::{MockParseRepository, MockShopSettingsRepository};
+    use sqlx::sqlite::SqlitePoolOptions;
     use std::sync::Arc;
     use tokio::sync::Mutex;
+
+    async fn setup_test_pool() -> sqlx::SqlitePool {
+        SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("Failed to create test pool")
+    }
 
     #[test]
     fn test_get_candidate_parsers_no_match() {
@@ -710,7 +734,7 @@ mod tests {
             .returning(|| Ok(vec![]));
 
         let context = EmailParseContext {
-            order_repo: Arc::new(MockOrderRepository::new()),
+            pool: Arc::new(setup_test_pool().await),
             parse_repo: Arc::new(MockParseRepository::new()),
             shop_settings_repo: Arc::new(shop_repo),
             shop_settings_cache: Arc::new(Mutex::new(ShopSettingsCache::default())),
@@ -718,11 +742,8 @@ mod tests {
             image_save_ctx: None,
         };
 
-        let task: EmailParseTask<
-            MockOrderRepository,
-            MockParseRepository,
-            MockShopSettingsRepository,
-        > = EmailParseTask::new();
+        let task: EmailParseTask<MockParseRepository, MockShopSettingsRepository> =
+            EmailParseTask::new();
 
         let err = task.before_batch(&[], &context).await.unwrap_err();
         assert_eq!(err, "No enabled shop settings found");
@@ -744,7 +765,7 @@ mod tests {
         });
 
         let context = EmailParseContext {
-            order_repo: Arc::new(MockOrderRepository::new()),
+            pool: Arc::new(setup_test_pool().await),
             parse_repo: Arc::new(MockParseRepository::new()),
             shop_settings_repo: Arc::new(shop_repo),
             shop_settings_cache: Arc::new(Mutex::new(ShopSettingsCache::default())),
@@ -752,11 +773,8 @@ mod tests {
             image_save_ctx: None,
         };
 
-        let task: EmailParseTask<
-            MockOrderRepository,
-            MockParseRepository,
-            MockShopSettingsRepository,
-        > = EmailParseTask::new();
+        let task: EmailParseTask<MockParseRepository, MockShopSettingsRepository> =
+            EmailParseTask::new();
 
         task.before_batch(&[], &context).await.unwrap();
 
@@ -770,7 +788,7 @@ mod tests {
     #[tokio::test]
     async fn process_batch_returns_no_matching_parser_error_when_from_address_missing() {
         let context = EmailParseContext {
-            order_repo: Arc::new(MockOrderRepository::new()),
+            pool: Arc::new(setup_test_pool().await),
             parse_repo: Arc::new(MockParseRepository::new()),
             shop_settings_repo: Arc::new(MockShopSettingsRepository::new()),
             shop_settings_cache: Arc::new(Mutex::new(ShopSettingsCache {
@@ -785,11 +803,8 @@ mod tests {
             image_save_ctx: None,
         };
 
-        let task: EmailParseTask<
-            MockOrderRepository,
-            MockParseRepository,
-            MockShopSettingsRepository,
-        > = EmailParseTask::new();
+        let task: EmailParseTask<MockParseRepository, MockShopSettingsRepository> =
+            EmailParseTask::new();
 
         let results = task
             .process_batch(

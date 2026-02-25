@@ -200,7 +200,7 @@ impl SqliteOrderRepository {
     }
 
     /// 注文番号＋ドメインで注文IDを検索。alternate_domains が渡された場合、検索失敗時に追加ドメインで再試行。
-    async fn find_order_by_number_and_domain(
+    pub(crate) async fn find_order_by_number_and_domain(
         tx: &mut sqlx::Transaction<'_, Sqlite>,
         order_number: &str,
         shop_domain: &Option<String>,
@@ -253,7 +253,7 @@ impl SqliteOrderRepository {
     }
 
     /// apply_change_items のトランザクション内ロジック（tx は呼び出し元で commit）
-    async fn apply_change_items_in_tx(
+    pub(crate) async fn apply_change_items_in_tx(
         tx: &mut sqlx::Transaction<'_, Sqlite>,
         order_info: &OrderInfo,
         shop_domain: Option<String>,
@@ -514,7 +514,7 @@ impl SqliteOrderRepository {
     }
 
     /// save_order のトランザクション内ロジック（tx は呼び出し元で commit）
-    async fn save_order_in_tx(
+    pub(crate) async fn save_order_in_tx(
         tx: &mut sqlx::Transaction<'_, Sqlite>,
         order_info: &OrderInfo,
         email_id: Option<i64>,
@@ -711,7 +711,7 @@ impl SqliteOrderRepository {
     }
 
     /// 指定注文の商品を削除し、order_info の商品で置き換える（分割完了の元注文更新用）
-    async fn replace_items_for_order_in_tx(
+    pub(crate) async fn replace_items_for_order_in_tx(
         tx: &mut sqlx::Transaction<'_, Sqlite>,
         order_id: i64,
         order_info: &OrderInfo,
@@ -750,52 +750,17 @@ impl SqliteOrderRepository {
         }
         Ok(())
     }
-}
 
-#[async_trait]
-impl OrderRepository for SqliteOrderRepository {
-    async fn save_order(
-        &self,
-        order_info: &OrderInfo,
-        email_id: Option<i64>,
-        shop_domain: Option<String>,
-        shop_name: Option<String>,
-    ) -> Result<i64, String> {
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|e| format!("Failed to start transaction: {e}"))?;
-
-        let order_id =
-            Self::save_order_in_tx(&mut tx, order_info, email_id, shop_domain, shop_name).await?;
-
-        tx.commit()
-            .await
-            .map_err(|e| format!("Failed to commit transaction: {e}"))?;
-
-        Ok(order_id)
-    }
-
-    async fn apply_cancel(
-        &self,
+    /// apply_cancel のトランザクション内ロジック（tx は呼び出し元で commit）
+    pub(crate) async fn apply_cancel_in_tx(
+        tx: &mut sqlx::Transaction<'_, Sqlite>,
         cancel_info: &CancelInfo,
         email_id: i64,
         shop_domain: Option<String>,
-        _shop_name: Option<String>,
         alternate_domains: Option<Vec<String>>,
     ) -> Result<i64, String> {
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|e| format!("Failed to start transaction: {e}"))?;
-
-        // 1. 既存の注文を検索（order_number + shop_domain）
-        // 注文番号は大文字小文字を区別せずマッチ（メールからそのまま保存するため表記が揺れる場合あり）
-        // alternate_domains が渡された場合、検索失敗時に追加ドメインで再試行（店舗固有ロジックは呼び出し元で設定）
         let order_id = match Self::find_order_by_number_and_domain(
-            &mut tx,
+            tx,
             &cancel_info.order_number,
             &shop_domain,
             alternate_domains.as_deref(),
@@ -811,9 +776,6 @@ impl OrderRepository for SqliteOrderRepository {
                     shop_domain,
                     alternate_domains
                 );
-                tx.rollback()
-                    .await
-                    .map_err(|e| format!("Failed to rollback: {e}"))?;
                 return Err(format!(
                     "Order {} not found for cancel",
                     cancel_info.order_number
@@ -821,8 +783,8 @@ impl OrderRepository for SqliteOrderRepository {
             }
         };
 
-        // 2. 該当注文の商品を検索（完全一致 → 包含 → item_name_normalized 部分一致 → product_master の順でマッチ）
-        let items: Vec<(i64, String, Option<String>, Option<String>, i64)> = sqlx::query_as(
+        type ItemRow = (i64, String, Option<String>, Option<String>, i64);
+        let items: Vec<ItemRow> = sqlx::query_as(
             r#"
             SELECT i.id, i.item_name, i.item_name_normalized, pm.product_name, i.quantity
             FROM items i
@@ -838,7 +800,6 @@ impl OrderRepository for SqliteOrderRepository {
 
         let product_name = cancel_info.product_name.trim();
 
-        // キャンセルアイテムの product_master 先引き（商品コード差異等の吸収用）
         let cancel_product_master_name: Option<String> = if !product_name.is_empty() {
             sqlx::query_scalar(
                 r#"
@@ -857,10 +818,9 @@ impl OrderRepository for SqliteOrderRepository {
         };
 
         if product_name.is_empty() {
-            // 商品名未記載 = 注文全体キャンセル → 全商品を一括削除
             sqlx::query("DELETE FROM items WHERE order_id = ?")
                 .bind(order_id)
-                .execute(&mut *tx)
+                .execute(tx.as_mut())
                 .await
                 .map_err(|e| format!("Failed to delete items: {e}"))?;
             log::info!(
@@ -894,9 +854,6 @@ impl OrderRepository for SqliteOrderRepository {
                             product_name,
                             order_id
                         );
-                        tx.rollback()
-                            .await
-                            .map_err(|e| format!("Failed to rollback: {e}"))?;
                         return Err(format!(
                             "Invalid cancel quantity {} for product '{}'",
                             cancel_info.cancel_quantity, product_name
@@ -908,7 +865,7 @@ impl OrderRepository for SqliteOrderRepository {
                     if new_qty <= 0 {
                         sqlx::query("DELETE FROM items WHERE id = ?")
                             .bind(item_id)
-                            .execute(&mut *tx)
+                            .execute(tx.as_mut())
                             .await
                             .map_err(|e| format!("Failed to delete item: {e}"))?;
                         log::info!(
@@ -920,7 +877,7 @@ impl OrderRepository for SqliteOrderRepository {
                         sqlx::query("UPDATE items SET quantity = ? WHERE id = ?")
                             .bind(new_qty)
                             .bind(item_id)
-                            .execute(&mut *tx)
+                            .execute(tx.as_mut())
                             .await
                             .map_err(|e| format!("Failed to update item quantity: {e}"))?;
                         log::info!(
@@ -937,15 +894,11 @@ impl OrderRepository for SqliteOrderRepository {
                         product_name,
                         order_id
                     );
-                    tx.rollback()
-                        .await
-                        .map_err(|e| format!("Failed to rollback: {e}"))?;
                     return Err(format!("Product '{}' not found in order", product_name));
                 }
             }
         }
 
-        // 3. order_emails にメールとの関連を保存
         let existing_link: Option<(i64,)> = sqlx::query_as(
             r#"
             SELECT order_id FROM order_emails
@@ -955,7 +908,7 @@ impl OrderRepository for SqliteOrderRepository {
         )
         .bind(order_id)
         .bind(email_id)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(tx.as_mut())
         .await
         .map_err(|e| format!("Failed to check order_email link: {e}"))?;
 
@@ -968,20 +921,17 @@ impl OrderRepository for SqliteOrderRepository {
             )
             .bind(order_id)
             .bind(email_id)
-            .execute(&mut *tx)
+            .execute(tx.as_mut())
             .await
             .map_err(|e| format!("Failed to link order to email: {e}"))?;
         }
 
-        tx.commit()
-            .await
-            .map_err(|e| format!("Failed to commit transaction: {e}"))?;
-
         Ok(order_id)
     }
 
-    async fn apply_order_number_change(
-        &self,
+    /// apply_order_number_change のトランザクション内ロジック（tx は呼び出し元で commit）
+    pub(crate) async fn apply_order_number_change_in_tx(
+        tx: &mut sqlx::Transaction<'_, Sqlite>,
         change_info: &OrderNumberChangeInfo,
         email_id: i64,
         change_email_internal_date: Option<i64>,
@@ -989,17 +939,8 @@ impl OrderRepository for SqliteOrderRepository {
         shop_name: Option<String>,
         alternate_domains: Option<Vec<String>>,
     ) -> Result<i64, String> {
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|e| format!("Failed to start transaction: {e}"))?;
-
-        // 1. 既存の注文を検索（旧注文番号 + shop_domain）
-        // 注文番号は大文字小文字を区別せずマッチ（メールからそのまま保存するため表記が揺れる場合あり）
-        // alternate_domains が渡された場合、検索失敗時に追加ドメインで再試行（店舗固有ロジックは呼び出し元で設定）
         let existing_order_id = Self::find_order_by_number_and_domain(
-            &mut tx,
+            tx,
             &change_info.old_order_number,
             &shop_domain,
             alternate_domains.as_deref(),
@@ -1010,8 +951,6 @@ impl OrderRepository for SqliteOrderRepository {
         let order_id = if let Some(id) = existing_order_id {
             id
         } else {
-            // 旧注文が見つからない場合は、新注文番号で新規注文を作成する。
-            // （元メール不足などで旧注文が作られていないケースを許容）
             log::warn!(
                 "Order number change: old order {} not found (shop_domain={:?}, alternate_domains={:?}); creating new order with {}",
                 change_info.old_order_number,
@@ -1020,7 +959,6 @@ impl OrderRepository for SqliteOrderRepository {
                 change_info.new_order_number
             );
 
-            // internal_date があれば受信日時を order_date に使用
             let order_date_str = change_email_internal_date.and_then(|ts| {
                 chrono::DateTime::from_timestamp_millis(ts)
                     .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
@@ -1036,7 +974,7 @@ impl OrderRepository for SqliteOrderRepository {
             .bind(&order_date_str)
             .bind(shop_domain.as_deref())
             .bind(shop_name.as_deref())
-            .execute(&mut *tx)
+            .execute(tx.as_mut())
             .await
             .map_err(|e| format!("Failed to insert order for number change fallback: {e}"))?
             .last_insert_rowid();
@@ -1049,11 +987,10 @@ impl OrderRepository for SqliteOrderRepository {
             new_order_id
         };
 
-        // 2. 注文番号を更新
         sqlx::query("UPDATE orders SET order_number = ? WHERE id = ?")
             .bind(&change_info.new_order_number)
             .bind(order_id)
-            .execute(&mut *tx)
+            .execute(tx.as_mut())
             .await
             .map_err(|e| format!("Failed to update order number: {e}"))?;
         log::info!(
@@ -1063,7 +1000,6 @@ impl OrderRepository for SqliteOrderRepository {
             order_id
         );
 
-        // 3. order_emails にメールとの関連を保存
         let existing_link: Option<(i64,)> = sqlx::query_as(
             r#"
             SELECT order_id FROM order_emails
@@ -1073,7 +1009,7 @@ impl OrderRepository for SqliteOrderRepository {
         )
         .bind(order_id)
         .bind(email_id)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(tx.as_mut())
         .await
         .map_err(|e| format!("Failed to check order_email link: {e}"))?;
 
@@ -1086,38 +1022,27 @@ impl OrderRepository for SqliteOrderRepository {
             )
             .bind(order_id)
             .bind(email_id)
-            .execute(&mut *tx)
+            .execute(tx.as_mut())
             .await
             .map_err(|e| format!("Failed to link order to email: {e}"))?;
         }
 
-        tx.commit()
-            .await
-            .map_err(|e| format!("Failed to commit transaction: {e}"))?;
-
         Ok(order_id)
     }
 
-    async fn apply_consolidation(
-        &self,
+    /// apply_consolidation のトランザクション内ロジック（tx は呼び出し元で commit）
+    pub(crate) async fn apply_consolidation_in_tx(
+        tx: &mut sqlx::Transaction<'_, Sqlite>,
         consolidation_info: &ConsolidationInfo,
         email_id: i64,
         shop_domain: Option<String>,
-        _shop_name: Option<String>,
         alternate_domains: Option<Vec<String>>,
     ) -> Result<i64, String> {
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|e| format!("Failed to start transaction: {e}"))?;
-
-        // まとめる前の注文番号で注文IDを検索（重複除く、order_id 昇順）
         let mut order_ids: Vec<i64> = Vec::new();
         let mut seen = HashSet::new();
         for old_num in &consolidation_info.old_order_numbers {
             if let Some(id) = Self::find_order_by_number_and_domain(
-                &mut tx,
+                tx,
                 old_num,
                 &shop_domain,
                 alternate_domains.as_deref(),
@@ -1134,18 +1059,14 @@ impl OrderRepository for SqliteOrderRepository {
         let first_order_id = match order_ids.first() {
             Some(&id) => id,
             None => {
-                tx.rollback()
-                    .await
-                    .map_err(|e| format!("Failed to rollback: {e}"))?;
                 return Err("No orders found for consolidation".to_string());
             }
         };
 
-        // 先頭の注文を新番号に更新
         sqlx::query("UPDATE orders SET order_number = ? WHERE id = ?")
             .bind(&consolidation_info.new_order_number)
             .bind(first_order_id)
-            .execute(&mut *tx)
+            .execute(tx.as_mut())
             .await
             .map_err(|e| format!("Failed to update order number: {e}"))?;
         log::info!(
@@ -1154,36 +1075,34 @@ impl OrderRepository for SqliteOrderRepository {
             consolidation_info.new_order_number
         );
 
-        // 先頭注文にメールを紐づけ
         let existing_link: Option<(i64,)> = sqlx::query_as(
             r#"SELECT order_id FROM order_emails WHERE order_id = ? AND email_id = ? LIMIT 1"#,
         )
         .bind(first_order_id)
         .bind(email_id)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(tx.as_mut())
         .await
         .map_err(|e| format!("Failed to check order_email link: {e}"))?;
         if existing_link.is_none() {
             sqlx::query("INSERT INTO order_emails (order_id, email_id) VALUES (?, ?)")
                 .bind(first_order_id)
                 .bind(email_id)
-                .execute(&mut *tx)
+                .execute(tx.as_mut())
                 .await
                 .map_err(|e| format!("Failed to link order to email: {e}"))?;
         }
 
-        // 2件目以降の注文は商品を削除（注文・order_emails は保持して再パース防止）
         for &order_id in &order_ids[1..] {
             sqlx::query("DELETE FROM items WHERE order_id = ?")
                 .bind(order_id)
-                .execute(&mut *tx)
+                .execute(tx.as_mut())
                 .await
                 .map_err(|e| {
                     format!("Failed to delete items for consolidated order {order_id}: {e}")
                 })?;
             sqlx::query("DELETE FROM deliveries WHERE order_id = ?")
                 .bind(order_id)
-                .execute(&mut *tx)
+                .execute(tx.as_mut())
                 .await
                 .map_err(|e| {
                     format!("Failed to delete deliveries for consolidated order {order_id}: {e}")
@@ -1194,29 +1113,20 @@ impl OrderRepository for SqliteOrderRepository {
             );
         }
 
-        tx.commit()
-            .await
-            .map_err(|e| format!("Failed to commit transaction: {e}"))?;
         Ok(first_order_id)
     }
 
-    async fn apply_send_and_replace_items(
-        &self,
+    /// apply_send_and_replace_items のトランザクション内ロジック（tx は呼び出し元で commit）
+    pub(crate) async fn apply_send_and_replace_items_in_tx(
+        tx: &mut sqlx::Transaction<'_, Sqlite>,
         order_info: &OrderInfo,
         email_id: Option<i64>,
         shop_domain: Option<String>,
         shop_name: Option<String>,
         alternate_domains: Option<Vec<String>>,
     ) -> Result<i64, String> {
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|e| format!("Failed to start transaction: {e}"))?;
-
-        // 1. 既存の注文を検索（注文番号 + shop_domain、alternate_domains を含めて検索）
         let existing_order_id = Self::find_order_by_number_and_domain(
-            &mut tx,
+            tx,
             &order_info.order_number,
             &shop_domain,
             alternate_domains.as_deref(),
@@ -1224,7 +1134,6 @@ impl OrderRepository for SqliteOrderRepository {
         .await
         .map_err(|e| format!("Failed to find order: {e}"))?;
 
-        // 既存注文がある場合は items を丸ごと差し替え。なければ発送メールから新規注文を作成。
         let order_id = if let Some(id) = existing_order_id {
             log::debug!(
                 "[dmm_send] found existing order id={} for number {} (shop_domain={:?}, alternate_domains={:?})",
@@ -1233,9 +1142,8 @@ impl OrderRepository for SqliteOrderRepository {
                 shop_domain,
                 alternate_domains
             );
-            // 2. 既存注文: 商品を発送メールの内容で置き換え（items が空の場合は配送情報のみ更新）
             if !order_info.items.is_empty() {
-                Self::replace_items_for_order_in_tx(&mut tx, id, order_info).await?;
+                Self::replace_items_for_order_in_tx(tx, id, order_info).await?;
                 log::info!(
                     "[dmm_send] replaced items for existing order {} with {} items from send mail",
                     id,
@@ -1255,28 +1163,18 @@ impl OrderRepository for SqliteOrderRepository {
                 shop_domain,
                 alternate_domains
             );
-            // save_order_in_tx で注文・商品・deliveries・order_emails まで一括作成
-            let new_id = Self::save_order_in_tx(
-                &mut tx,
-                order_info,
-                email_id,
-                shop_domain.clone(),
-                shop_name.clone(),
-            )
-            .await?;
+            let new_id =
+                Self::save_order_in_tx(tx, order_info, email_id, shop_domain.clone(), shop_name)
+                    .await?;
             log::info!(
                 "[dmm_send] created new order {} from send mail (items={})",
                 new_id,
                 order_info.items.len()
             );
-            // save_order_in_tx 内で deliveries / order_emails も処理済みなので、以降の deliveries/order_emails 更新はスキップして commit
-            tx.commit()
-                .await
-                .map_err(|e| format!("Failed to commit transaction: {e}"))?;
+            // save_order_in_tx 内で deliveries / order_emails も処理済み
             return Ok(new_id);
         };
 
-        // 3. 発送情報を deliveries に反映
         if let Some(delivery_info) = &order_info.delivery_info {
             let existing_delivery: Option<(i64,)> = sqlx::query_as(
                 r#"
@@ -1287,7 +1185,7 @@ impl OrderRepository for SqliteOrderRepository {
             )
             .bind(order_id)
             .bind(&delivery_info.tracking_number)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(tx.as_mut())
             .await
             .map_err(|e| format!("Failed to check existing delivery: {e}"))?;
 
@@ -1301,10 +1199,9 @@ impl OrderRepository for SqliteOrderRepository {
                 .bind(order_id)
                 .bind(&delivery_info.tracking_number)
                 .bind(&delivery_info.carrier)
-                .execute(&mut *tx)
+                .execute(tx.as_mut())
                 .await
                 .map_err(|e| format!("Failed to insert delivery: {e}"))?;
-
                 log::debug!("Added new delivery info for order {} (send mail)", order_id);
             } else {
                 sqlx::query(
@@ -1318,15 +1215,13 @@ impl OrderRepository for SqliteOrderRepository {
                 .bind(&delivery_info.carrier)
                 .bind(order_id)
                 .bind(&delivery_info.tracking_number)
-                .execute(&mut *tx)
+                .execute(tx.as_mut())
                 .await
                 .map_err(|e| format!("Failed to update delivery: {e}"))?;
-
                 log::debug!("Updated delivery info for order {} (send mail)", order_id);
             }
         }
 
-        // 4. order_emails にメールとの関連を保存
         if let Some(email_id_val) = email_id {
             let existing_link: Option<(i64,)> = sqlx::query_as(
                 r#"
@@ -1337,7 +1232,7 @@ impl OrderRepository for SqliteOrderRepository {
             )
             .bind(order_id)
             .bind(email_id_val)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(tx.as_mut())
             .await
             .map_err(|e| format!("Failed to check order_email link: {e}"))?;
 
@@ -1350,10 +1245,9 @@ impl OrderRepository for SqliteOrderRepository {
                 )
                 .bind(order_id)
                 .bind(email_id_val)
-                .execute(&mut *tx)
+                .execute(tx.as_mut())
                 .await
                 .map_err(|e| format!("Failed to link order to email: {e}"))?;
-
                 log::debug!(
                     "Linked order {} to email {} (send mail)",
                     order_id,
@@ -1362,88 +1256,20 @@ impl OrderRepository for SqliteOrderRepository {
             }
         }
 
-        tx.commit()
-            .await
-            .map_err(|e| format!("Failed to commit transaction: {e}"))?;
-
         Ok(order_id)
     }
 
-    async fn apply_change_items(
-        &self,
-        order_info: &OrderInfo,
-        shop_domain: Option<String>,
-        change_email_internal_date: Option<i64>,
-    ) -> Result<(), String> {
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|e| format!("Failed to start transaction: {e}"))?;
-
-        Self::apply_change_items_in_tx(
-            &mut tx,
-            order_info,
-            shop_domain,
-            change_email_internal_date,
-        )
-        .await?;
-
-        tx.commit()
-            .await
-            .map_err(|e| format!("Failed to commit transaction: {e}"))?;
-
-        Ok(())
-    }
-
-    async fn apply_change_items_and_save_order(
-        &self,
-        order_info: &OrderInfo,
-        email_id: Option<i64>,
-        shop_domain: Option<String>,
-        shop_name: Option<String>,
-        change_email_internal_date: Option<i64>,
-    ) -> Result<i64, String> {
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|e| format!("Failed to start transaction: {e}"))?;
-
-        Self::apply_change_items_in_tx(
-            &mut tx,
-            order_info,
-            shop_domain.clone(),
-            change_email_internal_date,
-        )
-        .await?;
-
-        let order_id =
-            Self::save_order_in_tx(&mut tx, order_info, email_id, shop_domain, shop_name).await?;
-
-        tx.commit()
-            .await
-            .map_err(|e| format!("Failed to commit transaction: {e}"))?;
-
-        Ok(order_id)
-    }
-
-    async fn apply_split_first_order(
-        &self,
+    /// apply_split_first_order のトランザクション内ロジック（tx は呼び出し元で commit）
+    pub(crate) async fn apply_split_first_order_in_tx(
+        tx: &mut sqlx::Transaction<'_, Sqlite>,
         order_info: &OrderInfo,
         email_id: Option<i64>,
         shop_domain: Option<String>,
         shop_name: Option<String>,
         alternate_domains: Option<Vec<String>>,
     ) -> Result<i64, String> {
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|e| format!("Failed to start transaction: {e}"))?;
-
         let order_id = match Self::find_order_by_number_and_domain(
-            &mut tx,
+            tx,
             &order_info.order_number,
             &shop_domain,
             alternate_domains.as_deref(),
@@ -1452,7 +1278,7 @@ impl OrderRepository for SqliteOrderRepository {
         .map_err(|e| format!("Failed to find order: {e}"))?
         {
             Some(existing_id) => {
-                Self::replace_items_for_order_in_tx(&mut tx, existing_id, order_info).await?;
+                Self::replace_items_for_order_in_tx(tx, existing_id, order_info).await?;
                 if order_info.order_date.is_some() {
                     sqlx::query(
                         r#"
@@ -1495,14 +1321,8 @@ impl OrderRepository for SqliteOrderRepository {
                 existing_id
             }
             None => {
-                let id = Self::save_order_in_tx(
-                    &mut tx,
-                    order_info,
-                    email_id,
-                    shop_domain.clone(),
-                    shop_name,
-                )
-                .await?;
+                let id = Self::save_order_in_tx(tx, order_info, email_id, shop_domain, shop_name)
+                    .await?;
                 log::debug!(
                     "Split first order: created new order {} (order_number={})",
                     id,
@@ -1512,10 +1332,280 @@ impl OrderRepository for SqliteOrderRepository {
             }
         };
 
+        Ok(order_id)
+    }
+}
+
+#[async_trait]
+impl OrderRepository for SqliteOrderRepository {
+    async fn save_order(
+        &self,
+        order_info: &OrderInfo,
+        email_id: Option<i64>,
+        shop_domain: Option<String>,
+        shop_name: Option<String>,
+    ) -> Result<i64, String> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| format!("Failed to start transaction: {e}"))?;
+        let order_id =
+            Self::save_order_in_tx(&mut tx, order_info, email_id, shop_domain, shop_name).await?;
         tx.commit()
             .await
             .map_err(|e| format!("Failed to commit transaction: {e}"))?;
         Ok(order_id)
+    }
+
+    async fn apply_cancel(
+        &self,
+        cancel_info: &CancelInfo,
+        email_id: i64,
+        shop_domain: Option<String>,
+        _shop_name: Option<String>,
+        alternate_domains: Option<Vec<String>>,
+    ) -> Result<i64, String> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| format!("Failed to start transaction: {e}"))?;
+        let result = Self::apply_cancel_in_tx(
+            &mut tx,
+            cancel_info,
+            email_id,
+            shop_domain,
+            alternate_domains,
+        )
+        .await;
+        match result {
+            Ok(order_id) => {
+                tx.commit()
+                    .await
+                    .map_err(|e| format!("Failed to commit transaction: {e}"))?;
+                Ok(order_id)
+            }
+            Err(e) => {
+                let _ = tx.rollback().await;
+                Err(e)
+            }
+        }
+    }
+
+    async fn apply_order_number_change(
+        &self,
+        change_info: &OrderNumberChangeInfo,
+        email_id: i64,
+        change_email_internal_date: Option<i64>,
+        shop_domain: Option<String>,
+        shop_name: Option<String>,
+        alternate_domains: Option<Vec<String>>,
+    ) -> Result<i64, String> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| format!("Failed to start transaction: {e}"))?;
+        let result = Self::apply_order_number_change_in_tx(
+            &mut tx,
+            change_info,
+            email_id,
+            change_email_internal_date,
+            shop_domain,
+            shop_name,
+            alternate_domains,
+        )
+        .await;
+        match result {
+            Ok(order_id) => {
+                tx.commit()
+                    .await
+                    .map_err(|e| format!("Failed to commit transaction: {e}"))?;
+                Ok(order_id)
+            }
+            Err(e) => {
+                let _ = tx.rollback().await;
+                Err(e)
+            }
+        }
+    }
+
+    async fn apply_consolidation(
+        &self,
+        consolidation_info: &ConsolidationInfo,
+        email_id: i64,
+        shop_domain: Option<String>,
+        _shop_name: Option<String>,
+        alternate_domains: Option<Vec<String>>,
+    ) -> Result<i64, String> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| format!("Failed to start transaction: {e}"))?;
+        let result = Self::apply_consolidation_in_tx(
+            &mut tx,
+            consolidation_info,
+            email_id,
+            shop_domain,
+            alternate_domains,
+        )
+        .await;
+        match result {
+            Ok(order_id) => {
+                tx.commit()
+                    .await
+                    .map_err(|e| format!("Failed to commit transaction: {e}"))?;
+                Ok(order_id)
+            }
+            Err(e) => {
+                let _ = tx.rollback().await;
+                Err(e)
+            }
+        }
+    }
+
+    async fn apply_send_and_replace_items(
+        &self,
+        order_info: &OrderInfo,
+        email_id: Option<i64>,
+        shop_domain: Option<String>,
+        shop_name: Option<String>,
+        alternate_domains: Option<Vec<String>>,
+    ) -> Result<i64, String> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| format!("Failed to start transaction: {e}"))?;
+        let result = Self::apply_send_and_replace_items_in_tx(
+            &mut tx,
+            order_info,
+            email_id,
+            shop_domain,
+            shop_name,
+            alternate_domains,
+        )
+        .await;
+        match result {
+            Ok(order_id) => {
+                tx.commit()
+                    .await
+                    .map_err(|e| format!("Failed to commit transaction: {e}"))?;
+                Ok(order_id)
+            }
+            Err(e) => {
+                let _ = tx.rollback().await;
+                Err(e)
+            }
+        }
+    }
+
+    async fn apply_change_items(
+        &self,
+        order_info: &OrderInfo,
+        shop_domain: Option<String>,
+        change_email_internal_date: Option<i64>,
+    ) -> Result<(), String> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| format!("Failed to start transaction: {e}"))?;
+        let result = Self::apply_change_items_in_tx(
+            &mut tx,
+            order_info,
+            shop_domain,
+            change_email_internal_date,
+        )
+        .await;
+        match result {
+            Ok(()) => {
+                tx.commit()
+                    .await
+                    .map_err(|e| format!("Failed to commit transaction: {e}"))?;
+                Ok(())
+            }
+            Err(e) => {
+                let _ = tx.rollback().await;
+                Err(e)
+            }
+        }
+    }
+
+    async fn apply_change_items_and_save_order(
+        &self,
+        order_info: &OrderInfo,
+        email_id: Option<i64>,
+        shop_domain: Option<String>,
+        shop_name: Option<String>,
+        change_email_internal_date: Option<i64>,
+    ) -> Result<i64, String> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| format!("Failed to start transaction: {e}"))?;
+        let result = async {
+            Self::apply_change_items_in_tx(
+                &mut tx,
+                order_info,
+                shop_domain.clone(),
+                change_email_internal_date,
+            )
+            .await?;
+            Self::save_order_in_tx(&mut tx, order_info, email_id, shop_domain, shop_name).await
+        }
+        .await;
+        match result {
+            Ok(order_id) => {
+                tx.commit()
+                    .await
+                    .map_err(|e| format!("Failed to commit transaction: {e}"))?;
+                Ok(order_id)
+            }
+            Err(e) => {
+                let _ = tx.rollback().await;
+                Err(e)
+            }
+        }
+    }
+
+    async fn apply_split_first_order(
+        &self,
+        order_info: &OrderInfo,
+        email_id: Option<i64>,
+        shop_domain: Option<String>,
+        shop_name: Option<String>,
+        alternate_domains: Option<Vec<String>>,
+    ) -> Result<i64, String> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| format!("Failed to start transaction: {e}"))?;
+        let result = Self::apply_split_first_order_in_tx(
+            &mut tx,
+            order_info,
+            email_id,
+            shop_domain,
+            shop_name,
+            alternate_domains,
+        )
+        .await;
+        match result {
+            Ok(order_id) => {
+                tx.commit()
+                    .await
+                    .map_err(|e| format!("Failed to commit transaction: {e}"))?;
+                Ok(order_id)
+            }
+            Err(e) => {
+                let _ = tx.rollback().await;
+                Err(e)
+            }
+        }
     }
 }
 
