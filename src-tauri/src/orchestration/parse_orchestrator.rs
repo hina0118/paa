@@ -14,8 +14,7 @@ use crate::parsers::{
     EMAIL_PARSE_TASK_NAME,
 };
 use crate::repository::{
-    ParseRepository, ShopSettingsRepository, SqliteOrderRepository, SqliteParseRepository,
-    SqliteShopSettingsRepository,
+    ParseRepository, ShopSettingsRepository, SqliteParseRepository, SqliteShopSettingsRepository,
 };
 
 /// メールパースタスクの本体。コマンド・トレイ両方から呼ぶ。
@@ -54,7 +53,6 @@ async fn run_batch_parse_task_with<A: BatchCommandsApp>(
     }
 
     let parse_repo = SqliteParseRepository::new(pool.clone());
-    let order_repo = SqliteOrderRepository::new(pool.clone());
     let shop_settings_repo = SqliteShopSettingsRepository::new(pool.clone());
 
     log::info!("Clearing order_emails, deliveries, items, and orders tables for fresh parse...");
@@ -154,11 +152,8 @@ async fn run_batch_parse_task_with<A: BatchCommandsApp>(
         }
     }
 
-    let task: EmailParseTask<
-        SqliteOrderRepository,
-        SqliteParseRepository,
-        SqliteShopSettingsRepository,
-    > = EmailParseTask::new();
+    let task: EmailParseTask<SqliteParseRepository, SqliteShopSettingsRepository> =
+        EmailParseTask::new();
 
     let image_save_ctx = app
         .app_data_dir()
@@ -166,7 +161,7 @@ async fn run_batch_parse_task_with<A: BatchCommandsApp>(
         .map(|dir| (std::sync::Arc::new(pool.clone()), dir.join("images")));
 
     let context = EmailParseContext {
-        order_repo: Arc::new(order_repo),
+        pool: Arc::new(pool.clone()),
         parse_repo: Arc::new(parse_repo),
         shop_settings_repo: Arc::new(shop_settings_repo),
         shop_settings_cache: Arc::new(Mutex::new(ShopSettingsCache::default())),

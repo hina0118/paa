@@ -111,6 +111,8 @@ function App() {
         const manager = DatabaseManager.getInstance();
         const db = await manager.getDatabase();
         await db.select('SELECT 1');
+        // デフォルト店舗設定を投入（INSERT OR IGNORE なので冪等）
+        await invoke('init_default_shop_settings').catch(() => {});
         // E2E モード時はテスト用シードを投入（マイグレーション完了後）
         await invoke('seed_e2e_db').catch(() => {});
       } catch (error) {
