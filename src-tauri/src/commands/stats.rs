@@ -7,11 +7,6 @@ use crate::repository::{
     SqliteMiscStatsRepository, SqliteOrderStatsRepository, SqliteProductMasterStatsRepository,
 };
 
-#[tauri::command]
-pub fn greet(name: &str) -> String {
-    format!("Hello, {name}! You've been greeted from Rust!")
-}
-
 /// E2E モード時に DB シードを実行。フロントエンドのマウント後に呼ぶ（マイグレーション完了後）
 #[tauri::command]
 pub async fn seed_e2e_db(pool: tauri::State<'_, SqlitePool>) -> Result<(), String> {
@@ -72,24 +67,6 @@ pub async fn get_misc_stats(pool: tauri::State<'_, SqlitePool>) -> Result<MiscSt
 mod tests {
     use super::*;
     use serial_test::serial;
-
-    #[test]
-    fn test_greet() {
-        let result = greet("World");
-        assert_eq!(result, "Hello, World! You've been greeted from Rust!");
-    }
-
-    #[test]
-    fn test_greet_empty() {
-        let result = greet("");
-        assert_eq!(result, "Hello, ! You've been greeted from Rust!");
-    }
-
-    #[test]
-    fn test_greet_special_characters() {
-        let result = greet("世界");
-        assert_eq!(result, "Hello, 世界! You've been greeted from Rust!");
-    }
 
     #[test]
     #[serial]
