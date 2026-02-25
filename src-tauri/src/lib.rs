@@ -429,7 +429,6 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            commands::greet,
             commands::seed_e2e_db,
             commands::get_db_filename,
             commands::fetch_gmail_emails,
@@ -442,7 +441,6 @@ pub fn run() {
             commands::update_timeout_minutes,
             commands::reset_sync_status,
             commands::reset_sync_date,
-            commands::get_window_settings,
             commands::save_window_settings,
             commands::get_email_stats,
             commands::get_order_stats,

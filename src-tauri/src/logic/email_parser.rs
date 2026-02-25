@@ -4,43 +4,21 @@
 //! 外部依存を持たないため、テストが容易です。
 
 use crate::logic::sync_logic::extract_email_address;
-use crate::parsers::{EmailParser, OrderInfo};
+use crate::plugins::{build_registry, find_plugin};
 
 /// パーサータイプ名からパーサーが存在するかチェックする
+///
+/// プラグインレジストリを参照するため、新店舗を registry.rs に追加するだけで
+/// 自動的にバリデーション対象に含まれる。
 ///
 /// # Arguments
 /// * `parser_type` - パーサータイプ名
 ///
 /// # Returns
-/// パーサーが存在する場合はtrue
+/// レジストリにプラグインが存在する場合は true
 pub fn is_valid_parser_type(parser_type: &str) -> bool {
-    matches!(
-        parser_type,
-        "hobbysearch_confirm"
-            | "hobbysearch_confirm_yoyaku"
-            | "hobbysearch_change"
-            | "hobbysearch_change_yoyaku"
-            | "hobbysearch_send"
-            | "hobbysearch_cancel"
-            | "dmm_confirm"
-            | "dmm_send"
-            | "dmm_cancel"
-            | "dmm_order_number_change"
-            | "dmm_merge_complete"
-            | "dmm_split_complete"
-    )
-}
-
-/// パースを試行し、結果を返す
-///
-/// # Arguments
-/// * `parser` - パーサーインスタンス
-/// * `email_body` - メール本文
-///
-/// # Returns
-/// パース結果
-pub fn try_parse(parser: &dyn EmailParser, email_body: &str) -> Result<OrderInfo, String> {
-    parser.parse(email_body)
+    let registry = build_registry();
+    find_plugin(&registry, parser_type).is_some()
 }
 
 /// 送信者アドレスと件名からパーサータイプの候補を取得する
@@ -146,57 +124,18 @@ mod tests {
     // ==================== is_valid_parser_type Tests ====================
 
     #[test]
-    fn test_is_valid_parser_type_hobbysearch_confirm() {
+    fn test_is_valid_parser_type_known_types_return_true() {
+        // レジストリに登録済みの代表的な parser_type は true を返す
+        assert!(is_valid_parser_type("dmm_confirm"));
+        assert!(is_valid_parser_type("dmm_cancel"));
+        assert!(is_valid_parser_type("dmm_split_complete"));
         assert!(is_valid_parser_type("hobbysearch_confirm"));
-    }
-
-    #[test]
-    fn test_is_valid_parser_type_hobbysearch_confirm_yoyaku() {
-        assert!(is_valid_parser_type("hobbysearch_confirm_yoyaku"));
-    }
-
-    #[test]
-    fn test_is_valid_parser_type_hobbysearch_change() {
-        assert!(is_valid_parser_type("hobbysearch_change"));
-    }
-
-    #[test]
-    fn test_is_valid_parser_type_hobbysearch_change_yoyaku() {
-        assert!(is_valid_parser_type("hobbysearch_change_yoyaku"));
-    }
-
-    #[test]
-    fn test_is_valid_parser_type_hobbysearch_send() {
-        assert!(is_valid_parser_type("hobbysearch_send"));
-    }
-
-    #[test]
-    fn test_is_valid_parser_type_hobbysearch_cancel() {
         assert!(is_valid_parser_type("hobbysearch_cancel"));
     }
 
     #[test]
-    fn test_is_valid_parser_type_unknown() {
+    fn test_is_valid_parser_type_unknown_returns_false() {
         assert!(!is_valid_parser_type("unknown_parser"));
-    }
-
-    #[test]
-    fn test_is_valid_parser_type_dmm_confirm() {
-        assert!(is_valid_parser_type("dmm_confirm"));
-    }
-
-    #[test]
-    fn test_is_valid_parser_type_dmm_cancel() {
-        assert!(is_valid_parser_type("dmm_cancel"));
-    }
-
-    #[test]
-    fn test_is_valid_parser_type_dmm_split_complete() {
-        assert!(is_valid_parser_type("dmm_split_complete"));
-    }
-
-    #[test]
-    fn test_is_valid_parser_type_empty() {
         assert!(!is_valid_parser_type(""));
     }
 

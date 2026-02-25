@@ -20,18 +20,6 @@ pub fn validate_window_size(width: i64, height: i64) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn get_window_settings(
-    app_handle: tauri::AppHandle,
-) -> Result<config::WindowConfig, String> {
-    let app_config_dir = app_handle
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("Failed to get app config dir: {e}"))?;
-    let config = config::load(&app_config_dir)?;
-    Ok(config.window)
-}
-
-#[tauri::command]
 pub async fn save_window_settings(
     app_handle: tauri::AppHandle,
     width: i64,
