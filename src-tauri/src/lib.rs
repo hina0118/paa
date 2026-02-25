@@ -22,6 +22,7 @@ pub mod logic;
 pub mod metadata;
 pub mod orchestration;
 pub mod parsers;
+pub mod plugins;
 pub mod repository;
 
 /// items_fts の trigram トークナイザーは SQLite 3.43 で追加。3.43 以降であることを確認する。
