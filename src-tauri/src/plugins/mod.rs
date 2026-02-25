@@ -120,11 +120,15 @@ pub trait VendorPlugin: Send + Sync {
     /// - `internal_date`: メール受信日時（Unix ミリ秒）
     /// - `body`: メール本文
     /// - `tx`: 外部から渡されたトランザクション（コミットは呼び出し元で行う）
-    /// - `image_save_ctx`: 画像保存用コンテキスト（`None` の場合は画像登録をスキップ）
     ///
     /// # エラー
     /// - `DispatchError::ParseFailed` → 呼び出し元は次のパーサーを試す
     /// - `DispatchError::SaveFailed` → 呼び出し元はこのメールをリトライ対象にする
+    ///
+    /// # 画像登録
+    /// 画像登録は呼び出し元（`email_parse_task.rs`）が `tx.commit()` 後に行う。
+    /// `dispatch()` 内では行わない（`tx` の RESERVED LOCK と画像 INSERT が競合して
+    /// SQLITE_BUSY になるため）。
     #[allow(clippy::too_many_arguments)]
     async fn dispatch(
         &self,
@@ -135,7 +139,6 @@ pub trait VendorPlugin: Send + Sync {
         internal_date: Option<i64>,
         body: &str,
         tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
-        image_save_ctx: &Option<(Arc<sqlx::SqlitePool>, PathBuf)>,
     ) -> Result<DispatchOutcome, DispatchError>;
 
     /// 別ドメイン検索（DMM の mail/mono 二重チェック等）

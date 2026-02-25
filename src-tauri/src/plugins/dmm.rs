@@ -6,9 +6,6 @@
 //! DMM の注文確認メールは `mail.dmm.com` / `mono.dmm.com` のどちらかから届く。
 //! キャンセル・注文番号変更メールは `mail.dmm.com` から届くが、注文検索では両方を試す。
 
-use std::path::PathBuf;
-use std::sync::Arc;
-
 use async_trait::async_trait;
 
 use crate::parsers::dmm;
@@ -16,8 +13,8 @@ use crate::parsers::EmailParser;
 use crate::repository::SqliteOrderRepository;
 
 use super::{
-    apply_internal_date, derive_shop_domain, save_images_for_order, DefaultShopSetting,
-    DispatchError, DispatchOutcome, VendorPlugin,
+    apply_internal_date, derive_shop_domain, DefaultShopSetting, DispatchError, DispatchOutcome,
+    VendorPlugin,
 };
 
 pub struct DmmPlugin;
@@ -141,7 +138,6 @@ impl VendorPlugin for DmmPlugin {
         internal_date: Option<i64>,
         body: &str,
         tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
-        image_save_ctx: &Option<(Arc<sqlx::SqlitePool>, PathBuf)>,
     ) -> Result<DispatchOutcome, DispatchError> {
         let shop_domain = derive_shop_domain(from_address);
         let alt_domains = self.alternate_domains(shop_domain.as_deref().unwrap_or(""));
@@ -287,7 +283,6 @@ impl VendorPlugin for DmmPlugin {
                                 total_orders,
                                 email_id
                             );
-                            save_images_for_order(&order_info, image_save_ctx).await;
                             saved_orders.push(order_info);
                         }
                         Err(e) => {
@@ -347,8 +342,6 @@ impl VendorPlugin for DmmPlugin {
                 };
 
                 save_result.map_err(DispatchError::SaveFailed)?;
-
-                save_images_for_order(&order_info, image_save_ctx).await;
 
                 Ok(DispatchOutcome::OrderSaved(Box::new(order_info)))
             }
