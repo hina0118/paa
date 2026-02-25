@@ -1,6 +1,8 @@
 use sqlx::sqlite::SqlitePool;
 
 use crate::gmail;
+use crate::plugins::{build_registry, ensure_default_settings};
+use crate::repository::SqliteShopSettingsRepository;
 
 #[tauri::command]
 pub async fn get_all_shop_settings(
@@ -61,4 +63,13 @@ pub async fn toggle_shop_enabled(
     is_enabled: bool,
 ) -> Result<(), String> {
     gmail::toggle_shop_enabled(pool.inner(), &shop_name, is_enabled).await
+}
+
+/// アプリ起動時（フロントエンドの DB init 完了後）に呼び出す。
+/// 各プラグインのデフォルト shop_settings を INSERT OR IGNORE で投入する（冪等）。
+#[tauri::command]
+pub async fn init_default_shop_settings(pool: tauri::State<'_, SqlitePool>) -> Result<(), String> {
+    let registry = build_registry();
+    let repo = SqliteShopSettingsRepository::new(pool.inner().clone());
+    ensure_default_settings(&registry, &repo).await
 }

@@ -448,6 +448,7 @@ pub fn run() {
             commands::update_shop_setting,
             commands::delete_shop_setting,
             commands::toggle_shop_enabled,
+            commands::init_default_shop_settings,
             commands::parse_email,
             commands::parse_and_save_email,
             commands::start_batch_parse,

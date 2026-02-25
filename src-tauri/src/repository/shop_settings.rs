@@ -1,4 +1,5 @@
 use crate::gmail::{CreateShopSettings, ShopSettings, UpdateShopSettings};
+use crate::plugins::DefaultShopSetting;
 use async_trait::async_trait;
 #[cfg(test)]
 use mockall::automock;
@@ -22,6 +23,11 @@ pub trait ShopSettingsRepository: Send + Sync {
 
     /// ショップ設定を削除
     async fn delete(&self, id: i64) -> Result<(), String>;
+
+    /// (sender_address, parser_type) が未登録の場合のみ挿入する（冪等）
+    ///
+    /// `ensure_default_settings()` から呼び出され、アプリ起動時にデフォルト設定を自動登録する。
+    async fn insert_if_not_exists(&self, setting: &DefaultShopSetting) -> Result<(), String>;
 }
 
 /// SQLiteを使用したShopSettingsRepositoryの実装
@@ -180,6 +186,32 @@ impl ShopSettingsRepository for SqliteShopSettingsRepository {
             .execute(&self.pool)
             .await
             .map_err(|e| format!("Failed to delete shop setting: {e}"))?;
+
+        Ok(())
+    }
+
+    async fn insert_if_not_exists(&self, setting: &DefaultShopSetting) -> Result<(), String> {
+        let subject_filters_json = setting
+            .subject_filters
+            .as_ref()
+            .map(|filters| serde_json::to_string(filters))
+            .transpose()
+            .map_err(|e| format!("Failed to serialize subject filters: {e}"))?;
+
+        sqlx::query(
+            r#"
+            INSERT OR IGNORE INTO shop_settings
+                (shop_name, sender_address, parser_type, subject_filters, is_enabled)
+            VALUES (?, ?, ?, ?, 1)
+            "#,
+        )
+        .bind(&setting.shop_name)
+        .bind(&setting.sender_address)
+        .bind(&setting.parser_type)
+        .bind(&subject_filters_json)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to insert shop setting: {e}"))?;
 
         Ok(())
     }

@@ -13,11 +13,11 @@ use async_trait::async_trait;
 
 use crate::parsers::dmm;
 use crate::parsers::EmailParser;
-use crate::repository::OrderRepository;
+use crate::repository::SqliteOrderRepository;
 
 use super::{
-    apply_internal_date, derive_shop_domain, save_images_for_order, DispatchError, DispatchOutcome,
-    VendorPlugin,
+    apply_internal_date, derive_shop_domain, save_images_for_order, DefaultShopSetting,
+    DispatchError, DispatchOutcome, VendorPlugin,
 };
 
 pub struct DmmPlugin;
@@ -58,6 +58,79 @@ impl VendorPlugin for DmmPlugin {
         }
     }
 
+    fn shop_name(&self) -> &str {
+        "DMM通販"
+    }
+
+    fn default_shop_settings(&self) -> Vec<DefaultShopSetting> {
+        vec![
+            DefaultShopSetting {
+                shop_name: "DMM通販".to_string(),
+                sender_address: "info@mail.dmm.com".to_string(),
+                parser_type: "dmm_confirm".to_string(),
+                subject_filters: Some(vec![
+                    "DMM通販：ご注文手続き完了のお知らせ".to_string(),
+                    "DMM通販:ご注文手続き完了のお知らせ".to_string(),
+                    "ご注文手続き完了のお知らせ".to_string(),
+                ]),
+            },
+            DefaultShopSetting {
+                shop_name: "DMM通販".to_string(),
+                sender_address: "info@mono.dmm.com".to_string(),
+                parser_type: "dmm_confirm".to_string(),
+                subject_filters: Some(vec![
+                    "DMM通販：ご注文手続き完了のお知らせ".to_string(),
+                    "DMM通販:ご注文手続き完了のお知らせ".to_string(),
+                    "ご注文手続き完了のお知らせ".to_string(),
+                ]),
+            },
+            DefaultShopSetting {
+                shop_name: "DMM通販".to_string(),
+                sender_address: "info@mail.dmm.com".to_string(),
+                parser_type: "dmm_cancel".to_string(),
+                subject_filters: Some(vec!["DMM通販：ご注文キャンセルのお知らせ".to_string()]),
+            },
+            DefaultShopSetting {
+                shop_name: "DMM通販".to_string(),
+                sender_address: "info@mail.dmm.com".to_string(),
+                parser_type: "dmm_order_number_change".to_string(),
+                subject_filters: Some(vec![
+                    "DMM通販：配送センター変更に伴うご注文番号変更のお知らせ".to_string(),
+                ]),
+            },
+            DefaultShopSetting {
+                shop_name: "DMM通販".to_string(),
+                sender_address: "info@mail.dmm.com".to_string(),
+                parser_type: "dmm_split_complete".to_string(),
+                subject_filters: Some(vec!["DMM通販：ご注文分割完了のお知らせ".to_string()]),
+            },
+            DefaultShopSetting {
+                shop_name: "DMM通販".to_string(),
+                sender_address: "info@mail.dmm.com".to_string(),
+                parser_type: "dmm_merge_complete".to_string(),
+                subject_filters: Some(vec!["DMM通販：ご注文まとめ完了のお知らせ".to_string()]),
+            },
+            DefaultShopSetting {
+                shop_name: "DMM通販".to_string(),
+                sender_address: "info@mail.dmm.com".to_string(),
+                parser_type: "dmm_send".to_string(),
+                subject_filters: Some(vec![
+                    "DMM通販：ご注文商品を発送いたしました".to_string(),
+                    "ご注文商品を発送いたしました".to_string(),
+                ]),
+            },
+            DefaultShopSetting {
+                shop_name: "DMM通販".to_string(),
+                sender_address: "info@mono.dmm.com".to_string(),
+                parser_type: "dmm_send".to_string(),
+                subject_filters: Some(vec![
+                    "DMM通販：ご注文商品を発送いたしました".to_string(),
+                    "ご注文商品を発送いたしました".to_string(),
+                ]),
+            },
+        ]
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn dispatch(
         &self,
@@ -67,7 +140,7 @@ impl VendorPlugin for DmmPlugin {
         shop_name: &str,
         internal_date: Option<i64>,
         body: &str,
-        order_repo: &dyn OrderRepository,
+        tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
         image_save_ctx: &Option<(Arc<sqlx::SqlitePool>, PathBuf)>,
     ) -> Result<DispatchOutcome, DispatchError> {
         let shop_domain = derive_shop_domain(from_address);
@@ -87,16 +160,15 @@ impl VendorPlugin for DmmPlugin {
                     cancel_info.order_number
                 );
 
-                order_repo
-                    .apply_cancel(
-                        &cancel_info,
-                        email_id,
-                        shop_domain,
-                        Some(shop_name.to_string()),
-                        alt_domains,
-                    )
-                    .await
-                    .map_err(DispatchError::SaveFailed)?;
+                SqliteOrderRepository::apply_cancel_in_tx(
+                    tx,
+                    &cancel_info,
+                    email_id,
+                    shop_domain,
+                    alt_domains,
+                )
+                .await
+                .map_err(DispatchError::SaveFailed)?;
 
                 Ok(DispatchOutcome::CancelApplied {
                     order_number: cancel_info.order_number,
@@ -116,17 +188,17 @@ impl VendorPlugin for DmmPlugin {
                     change_info.new_order_number
                 );
 
-                order_repo
-                    .apply_order_number_change(
-                        &change_info,
-                        email_id,
-                        internal_date,
-                        shop_domain,
-                        Some(shop_name.to_string()),
-                        alt_domains,
-                    )
-                    .await
-                    .map_err(DispatchError::SaveFailed)?;
+                SqliteOrderRepository::apply_order_number_change_in_tx(
+                    tx,
+                    &change_info,
+                    email_id,
+                    internal_date,
+                    shop_domain,
+                    Some(shop_name.to_string()),
+                    alt_domains,
+                )
+                .await
+                .map_err(DispatchError::SaveFailed)?;
 
                 Ok(DispatchOutcome::OrderNumberChanged {
                     new_order_number: change_info.new_order_number,
@@ -146,16 +218,15 @@ impl VendorPlugin for DmmPlugin {
                     consolidation_info.new_order_number
                 );
 
-                order_repo
-                    .apply_consolidation(
-                        &consolidation_info,
-                        email_id,
-                        shop_domain,
-                        Some(shop_name.to_string()),
-                        alt_domains,
-                    )
-                    .await
-                    .map_err(DispatchError::SaveFailed)?;
+                SqliteOrderRepository::apply_consolidation_in_tx(
+                    tx,
+                    &consolidation_info,
+                    email_id,
+                    shop_domain,
+                    alt_domains,
+                )
+                .await
+                .map_err(DispatchError::SaveFailed)?;
 
                 Ok(DispatchOutcome::ConsolidationApplied {
                     new_order_number: consolidation_info.new_order_number,
@@ -187,24 +258,24 @@ impl VendorPlugin for DmmPlugin {
                     apply_internal_date(&mut order_info, internal_date);
 
                     let save_result = if idx == 0 {
-                        order_repo
-                            .apply_split_first_order(
-                                &order_info,
-                                Some(email_id),
-                                shop_domain.clone(),
-                                Some(shop_name.to_string()),
-                                alt_domains.clone(),
-                            )
-                            .await
+                        SqliteOrderRepository::apply_split_first_order_in_tx(
+                            tx,
+                            &order_info,
+                            Some(email_id),
+                            shop_domain.clone(),
+                            Some(shop_name.to_string()),
+                            alt_domains.clone(),
+                        )
+                        .await
                     } else {
-                        order_repo
-                            .save_order(
-                                &order_info,
-                                Some(email_id),
-                                shop_domain.clone(),
-                                Some(shop_name.to_string()),
-                            )
-                            .await
+                        SqliteOrderRepository::save_order_in_tx(
+                            tx,
+                            &order_info,
+                            Some(email_id),
+                            shop_domain.clone(),
+                            Some(shop_name.to_string()),
+                        )
+                        .await
                     };
 
                     match save_result {
@@ -255,24 +326,24 @@ impl VendorPlugin for DmmPlugin {
 
                 let save_result = if parser_type == "dmm_send" {
                     // 発送完了: 発送メール時点の items + 金額で元注文を更新しつつ delivery を shipped に変更
-                    order_repo
-                        .apply_send_and_replace_items(
-                            &order_info,
-                            Some(email_id),
-                            shop_domain,
-                            Some(shop_name.to_string()),
-                            alt_domains,
-                        )
-                        .await
+                    SqliteOrderRepository::apply_send_and_replace_items_in_tx(
+                        tx,
+                        &order_info,
+                        Some(email_id),
+                        shop_domain,
+                        Some(shop_name.to_string()),
+                        alt_domains,
+                    )
+                    .await
                 } else {
-                    order_repo
-                        .save_order(
-                            &order_info,
-                            Some(email_id),
-                            shop_domain,
-                            Some(shop_name.to_string()),
-                        )
-                        .await
+                    SqliteOrderRepository::save_order_in_tx(
+                        tx,
+                        &order_info,
+                        Some(email_id),
+                        shop_domain,
+                        Some(shop_name.to_string()),
+                    )
+                    .await
                 };
 
                 save_result.map_err(DispatchError::SaveFailed)?;
@@ -356,5 +427,27 @@ mod tests {
         let plugin = DmmPlugin;
         assert_eq!(plugin.alternate_domains("example.com"), None);
         assert_eq!(plugin.alternate_domains(""), None);
+    }
+
+    #[test]
+    fn test_dmm_shop_name() {
+        assert_eq!(DmmPlugin.shop_name(), "DMM通販");
+    }
+
+    #[test]
+    fn test_dmm_default_shop_settings_count() {
+        assert_eq!(DmmPlugin.default_shop_settings().len(), 8);
+    }
+
+    #[test]
+    fn test_dmm_default_shop_settings_parser_types() {
+        let settings = DmmPlugin.default_shop_settings();
+        let parser_types: Vec<&str> = settings.iter().map(|s| s.parser_type.as_str()).collect();
+        assert!(parser_types.contains(&"dmm_confirm"));
+        assert!(parser_types.contains(&"dmm_cancel"));
+        assert!(parser_types.contains(&"dmm_order_number_change"));
+        assert!(parser_types.contains(&"dmm_split_complete"));
+        assert!(parser_types.contains(&"dmm_merge_complete"));
+        assert!(parser_types.contains(&"dmm_send"));
     }
 }

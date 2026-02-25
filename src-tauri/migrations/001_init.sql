@@ -191,25 +191,8 @@ CREATE TABLE IF NOT EXISTS shop_settings (
 CREATE INDEX IF NOT EXISTS idx_shop_settings_sender_address ON shop_settings(sender_address);
 CREATE INDEX IF NOT EXISTS idx_shop_settings_is_enabled ON shop_settings(is_enabled);
 
-INSERT OR IGNORE INTO shop_settings (shop_name, sender_address, parser_type, subject_filters, is_enabled) VALUES
-    -- DMM通販
-    ('DMM通販', 'info@mail.dmm.com', 'dmm_confirm', '["DMM通販：ご注文手続き完了のお知らせ", "DMM通販:ご注文手続き完了のお知らせ", "ご注文手続き完了のお知らせ"]', 1),
-    ('DMM通販', 'info@mono.dmm.com', 'dmm_confirm', '["DMM通販：ご注文手続き完了のお知らせ", "DMM通販:ご注文手続き完了のお知らせ", "ご注文手続き完了のお知らせ"]', 1),
-    ('DMM通販', 'info@mail.dmm.com', 'dmm_cancel', '["DMM通販：ご注文キャンセルのお知らせ"]', 1),
-    ('DMM通販', 'info@mail.dmm.com', 'dmm_order_number_change', '["DMM通販：配送センター変更に伴うご注文番号変更のお知らせ"]', 1),
-    ('DMM通販', 'info@mail.dmm.com', 'dmm_split_complete', '["DMM通販：ご注文分割完了のお知らせ"]', 1),
-    ('DMM通販', 'info@mail.dmm.com', 'dmm_merge_complete', '["DMM通販：ご注文まとめ完了のお知らせ"]', 1),
-    ('DMM通販', 'info@mail.dmm.com', 'dmm_send', '["DMM通販：ご注文商品を発送いたしました", "ご注文商品を発送いたしました"]', 1),
-    ('DMM通販', 'info@mono.dmm.com', 'dmm_send', '["DMM通販：ご注文商品を発送いたしました", "ご注文商品を発送いたしました"]', 1),
-
-    ('ホビーサーチ', 'hs-support@1999.co.jp', 'hobbysearch_cancel', '["【ホビーサーチ】ご注文のキャンセルが完了致しました"]', 1),
-    ('ホビーサーチ', 'hs-support@1999.co.jp', 'hobbysearch_send', '["【ホビーサーチ】ご注文の発送が完了しました"]', 1),
-    ('ホビーサーチ', 'hs-support@1999.co.jp', 'hobbysearch_change', '["【ホビーサーチ】ご注文が組み替えられました"]', 1),
-    ('ホビーサーチ', 'hs-support@1999.co.jp', 'hobbysearch_change_yoyaku', '["【ホビーサーチ】ご注文が組み替えられました"]', 1),
-    ('ホビーサーチ', 'hs-order@1999.co.jp', 'hobbysearch_change', '["【ホビーサーチ】ご注文が組み替えられました"]', 1),
-    ('ホビーサーチ', 'hs-order@1999.co.jp', 'hobbysearch_change_yoyaku', '["【ホビーサーチ】ご注文が組み替えられました"]', 1),
-    ('ホビーサーチ', 'hs-order@1999.co.jp', 'hobbysearch_confirm_yoyaku', '["【ホビーサーチ】注文確認メール"]', 1),
-    ('ホビーサーチ', 'hs-order@1999.co.jp', 'hobbysearch_confirm', '["【ホビーサーチ】注文確認メール"]', 1);
+-- デフォルト設定行は起動時に plugins::ensure_default_settings() が INSERT OR IGNORE で投入するため、
+-- ここには記載しない。新規店舗の追加は src-tauri/src/plugins/registry.rs を参照。
 
 -- -----------------------------------------------------------------------------
 -- product_master (Gemini AI による商品名解析結果のキャッシュ)
