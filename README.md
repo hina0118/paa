@@ -137,6 +137,77 @@ C:\Users\<ユーザー名>\AppData\Roaming\jp.github.hina0118.paa\client_secret.
 
 3. 認証を完了すると、トークンが自動的に保存され、次回以降は認証不要になります。
 
+## 新しい店舗（EC サイト）を追加する
+
+Phase 2 以降のプラグイン設計により、**変更箇所は最小限**で新店舗に対応できます。
+
+### 手順
+
+**1. パーサーモジュールを作成する**
+
+`src-tauri/src/parsers/<店舗名>/` ディレクトリを作成し、各メール種別のパーサーを実装します。
+各パーサーは `EmailParser` トレイトを実装してください。
+
+```
+src-tauri/src/parsers/<店舗名>/
+  mod.rs
+  confirm.rs         ← 注文確認メール
+  send.rs            ← 発送完了メール
+  cancel.rs          ← キャンセルメール
+  （必要に応じて追加）
+```
+
+**2. プラグインを実装する**
+
+`src-tauri/src/plugins/<店舗名>.rs` を作成し、`VendorPlugin` トレイトを実装します。
+
+```rust
+pub struct NewShopPlugin;
+
+impl VendorPlugin for NewShopPlugin {
+    fn parser_types(&self) -> &[&str] {
+        &["newshop_confirm", "newshop_send", "newshop_cancel"]
+    }
+
+    fn priority(&self) -> i32 { 10 }
+
+    fn shop_name(&self) -> &str { "新店舗名" }
+
+    fn get_parser(&self, parser_type: &str) -> Option<Box<dyn EmailParser>> { ... }
+
+    fn default_shop_settings(&self) -> Vec<DefaultShopSetting> {
+        // 送信元アドレス・件名フィルター・parser_type のデフォルト設定を返す
+        // アプリ起動時に DB へ自動挿入される（INSERT OR IGNORE）
+        vec![ ... ]
+    }
+
+    async fn dispatch(&self, parser_type: &str, ...) -> Result<DispatchOutcome, DispatchError> { ... }
+}
+```
+
+**3. `registry.rs` に 1 行追加する**
+
+```rust
+// src-tauri/src/plugins/registry.rs
+pub fn build_registry() -> Vec<Box<dyn VendorPlugin>> {
+    vec![
+        Box::new(DmmPlugin),
+        Box::new(HobbySearchPlugin),
+        Box::new(NewShopPlugin),  // ← ここだけ追加
+    ]
+}
+```
+
+**4. 動作確認する**
+
+```bash
+cargo test
+```
+
+アプリを起動すると `ensure_default_settings()` が自動実行され、`default_shop_settings()` で定義したレコードが `shop_settings` テーブルへ挿入されます。SQL ファイルの編集は不要です。
+
+---
+
 ## 開発用コマンド
 
 ### アプリケーションの起動
