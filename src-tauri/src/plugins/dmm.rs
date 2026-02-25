@@ -1,0 +1,360 @@
+//! DMM 通販プラグイン
+//!
+//! `parsers/dmm/` の各パーサーを使用して DMM 固有の処理を実装する。
+//!
+//! # alternate_domains
+//! DMM の注文確認メールは `mail.dmm.com` / `mono.dmm.com` のどちらかから届く。
+//! キャンセル・注文番号変更メールは `mail.dmm.com` から届くが、注文検索では両方を試す。
+
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use async_trait::async_trait;
+
+use crate::parsers::dmm;
+use crate::parsers::EmailParser;
+use crate::repository::OrderRepository;
+
+use super::{
+    apply_internal_date, derive_shop_domain, save_images_for_order, DispatchError, DispatchOutcome,
+    VendorPlugin,
+};
+
+pub struct DmmPlugin;
+
+#[async_trait]
+impl VendorPlugin for DmmPlugin {
+    fn parser_types(&self) -> &[&str] {
+        &[
+            "dmm_confirm",
+            "dmm_send",
+            "dmm_cancel",
+            "dmm_order_number_change",
+            "dmm_split_complete",
+            "dmm_merge_complete",
+        ]
+    }
+
+    fn priority(&self) -> i32 {
+        10
+    }
+
+    /// `OrderInfo` を返すパーサーのみ。
+    /// cancel / order_number_change / merge_complete は `dispatch()` 内で直接処理する。
+    fn get_parser(&self, parser_type: &str) -> Option<Box<dyn EmailParser>> {
+        match parser_type {
+            "dmm_confirm" => Some(Box::new(dmm::confirm::DmmConfirmParser)),
+            "dmm_send" => Some(Box::new(dmm::send::DmmSendParser)),
+            "dmm_split_complete" => Some(Box::new(dmm::split_complete::DmmSplitCompleteParser)),
+            _ => None,
+        }
+    }
+
+    fn alternate_domains(&self, domain: &str) -> Option<Vec<String>> {
+        match domain {
+            "mail.dmm.com" => Some(vec!["mono.dmm.com".into()]),
+            "mono.dmm.com" => Some(vec!["mail.dmm.com".into()]),
+            _ => None,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn dispatch(
+        &self,
+        parser_type: &str,
+        email_id: i64,
+        from_address: Option<&str>,
+        shop_name: &str,
+        internal_date: Option<i64>,
+        body: &str,
+        order_repo: &dyn OrderRepository,
+        image_save_ctx: &Option<(Arc<sqlx::SqlitePool>, PathBuf)>,
+    ) -> Result<DispatchOutcome, DispatchError> {
+        let shop_domain = derive_shop_domain(from_address);
+        let alt_domains = self.alternate_domains(shop_domain.as_deref().unwrap_or(""));
+
+        match parser_type {
+            // ── キャンセル ─────────────────────────────────────────────────────
+            "dmm_cancel" => {
+                let cancel_info = dmm::cancel::DmmCancelParser
+                    .parse_cancel(body)
+                    .map_err(DispatchError::ParseFailed)?;
+
+                log::debug!(
+                    "[dmm_cancel] email_id={} internal_date={:?} order_number={}",
+                    email_id,
+                    internal_date,
+                    cancel_info.order_number
+                );
+
+                order_repo
+                    .apply_cancel(
+                        &cancel_info,
+                        email_id,
+                        shop_domain,
+                        Some(shop_name.to_string()),
+                        alt_domains,
+                    )
+                    .await
+                    .map_err(DispatchError::SaveFailed)?;
+
+                Ok(DispatchOutcome::CancelApplied {
+                    order_number: cancel_info.order_number,
+                })
+            }
+
+            // ── 注文番号変更 ────────────────────────────────────────────────────
+            "dmm_order_number_change" => {
+                let change_info = dmm::order_number_change::DmmOrderNumberChangeParser
+                    .parse_order_number_change(body)
+                    .map_err(DispatchError::ParseFailed)?;
+
+                log::debug!(
+                    "[dmm_order_number_change] email_id={} {} -> {}",
+                    email_id,
+                    change_info.old_order_number,
+                    change_info.new_order_number
+                );
+
+                order_repo
+                    .apply_order_number_change(
+                        &change_info,
+                        email_id,
+                        internal_date,
+                        shop_domain,
+                        Some(shop_name.to_string()),
+                        alt_domains,
+                    )
+                    .await
+                    .map_err(DispatchError::SaveFailed)?;
+
+                Ok(DispatchOutcome::OrderNumberChanged {
+                    new_order_number: change_info.new_order_number,
+                })
+            }
+
+            // ── まとめ完了 ───────────────────────────────────────────────────────
+            "dmm_merge_complete" => {
+                let consolidation_info = dmm::merge_complete::DmmMergeCompleteParser
+                    .parse_consolidation(body)
+                    .map_err(DispatchError::ParseFailed)?;
+
+                log::debug!(
+                    "[dmm_merge_complete] email_id={} {:?} -> {}",
+                    email_id,
+                    consolidation_info.old_order_numbers,
+                    consolidation_info.new_order_number
+                );
+
+                order_repo
+                    .apply_consolidation(
+                        &consolidation_info,
+                        email_id,
+                        shop_domain,
+                        Some(shop_name.to_string()),
+                        alt_domains,
+                    )
+                    .await
+                    .map_err(DispatchError::SaveFailed)?;
+
+                Ok(DispatchOutcome::ConsolidationApplied {
+                    new_order_number: consolidation_info.new_order_number,
+                })
+            }
+
+            // ── 分割完了（複数注文）────────────────────────────────────────────
+            "dmm_split_complete" => {
+                let parser = dmm::split_complete::DmmSplitCompleteParser;
+
+                let orders = parser
+                    .parse_multi(body)
+                    .ok_or_else(|| {
+                        DispatchError::ParseFailed("parse_multi returned None".to_string())
+                    })?
+                    .map_err(DispatchError::ParseFailed)?;
+
+                if orders.is_empty() {
+                    return Err(DispatchError::ParseFailed(
+                        "Parser returned empty orders".to_string(),
+                    ));
+                }
+
+                let total_orders = orders.len();
+                let mut saved_orders = Vec::with_capacity(total_orders);
+
+                for (idx, mut order_info) in orders.into_iter().enumerate() {
+                    // dmm_split_complete: order_date が None の場合は internal_date を補完
+                    apply_internal_date(&mut order_info, internal_date);
+
+                    let save_result = if idx == 0 {
+                        order_repo
+                            .apply_split_first_order(
+                                &order_info,
+                                Some(email_id),
+                                shop_domain.clone(),
+                                Some(shop_name.to_string()),
+                                alt_domains.clone(),
+                            )
+                            .await
+                    } else {
+                        order_repo
+                            .save_order(
+                                &order_info,
+                                Some(email_id),
+                                shop_domain.clone(),
+                                Some(shop_name.to_string()),
+                            )
+                            .await
+                    };
+
+                    match save_result {
+                        Ok(order_id) => {
+                            log::debug!(
+                                "[dmm_split_complete] Saved order {} ({}/{}) for email {}",
+                                order_id,
+                                idx + 1,
+                                total_orders,
+                                email_id
+                            );
+                            save_images_for_order(&order_info, image_save_ctx).await;
+                            saved_orders.push(order_info);
+                        }
+                        Err(e) => {
+                            log::error!(
+                                "[dmm_split_complete] Failed to save order {}/{} for email {}: {}",
+                                idx + 1,
+                                total_orders,
+                                email_id,
+                                e
+                            );
+                            return Err(DispatchError::SaveFailed(format!(
+                                "Split order save failed for email {}: {}",
+                                email_id, e
+                            )));
+                        }
+                    }
+                }
+
+                Ok(DispatchOutcome::MultiOrderSaved(saved_orders))
+            }
+
+            // ── 通常注文（confirm / send）──────────────────────────────────────
+            _ => {
+                // parser は同期処理のみ。await をまたがないようブロックで即 drop する。
+                let mut order_info = {
+                    let parser = self.get_parser(parser_type).ok_or_else(|| {
+                        DispatchError::ParseFailed(format!("No parser for type: {}", parser_type))
+                    })?;
+                    parser.parse(body).map_err(DispatchError::ParseFailed)?
+                };
+
+                // dmm_confirm: internal_date を order_date に使用
+                if parser_type == "dmm_confirm" {
+                    apply_internal_date(&mut order_info, internal_date);
+                }
+
+                let save_result = if parser_type == "dmm_send" {
+                    // 発送完了: 発送メール時点の items + 金額で元注文を更新しつつ delivery を shipped に変更
+                    order_repo
+                        .apply_send_and_replace_items(
+                            &order_info,
+                            Some(email_id),
+                            shop_domain,
+                            Some(shop_name.to_string()),
+                            alt_domains,
+                        )
+                        .await
+                } else {
+                    order_repo
+                        .save_order(
+                            &order_info,
+                            Some(email_id),
+                            shop_domain,
+                            Some(shop_name.to_string()),
+                        )
+                        .await
+                };
+
+                save_result.map_err(DispatchError::SaveFailed)?;
+
+                save_images_for_order(&order_info, image_save_ctx).await;
+
+                Ok(DispatchOutcome::OrderSaved(Box::new(order_info)))
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_dmm_plugin_parser_types() {
+        let plugin = DmmPlugin;
+        let types = plugin.parser_types();
+        assert!(types.contains(&"dmm_confirm"));
+        assert!(types.contains(&"dmm_send"));
+        assert!(types.contains(&"dmm_cancel"));
+        assert!(types.contains(&"dmm_order_number_change"));
+        assert!(types.contains(&"dmm_split_complete"));
+        assert!(types.contains(&"dmm_merge_complete"));
+    }
+
+    #[test]
+    fn test_dmm_plugin_priority() {
+        assert_eq!(DmmPlugin.priority(), 10);
+    }
+
+    #[test]
+    fn test_dmm_plugin_get_parser_confirm() {
+        let plugin = DmmPlugin;
+        assert!(plugin.get_parser("dmm_confirm").is_some());
+    }
+
+    #[test]
+    fn test_dmm_plugin_get_parser_send() {
+        let plugin = DmmPlugin;
+        assert!(plugin.get_parser("dmm_send").is_some());
+    }
+
+    #[test]
+    fn test_dmm_plugin_get_parser_split_complete() {
+        let plugin = DmmPlugin;
+        assert!(plugin.get_parser("dmm_split_complete").is_some());
+    }
+
+    #[test]
+    fn test_dmm_plugin_get_parser_cancel_returns_none() {
+        // cancel / order_number_change / merge_complete は dispatch() 内で直接処理
+        let plugin = DmmPlugin;
+        assert!(plugin.get_parser("dmm_cancel").is_none());
+        assert!(plugin.get_parser("dmm_order_number_change").is_none());
+        assert!(plugin.get_parser("dmm_merge_complete").is_none());
+    }
+
+    #[test]
+    fn test_dmm_alternate_domains_mail() {
+        let plugin = DmmPlugin;
+        assert_eq!(
+            plugin.alternate_domains("mail.dmm.com"),
+            Some(vec!["mono.dmm.com".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_dmm_alternate_domains_mono() {
+        let plugin = DmmPlugin;
+        assert_eq!(
+            plugin.alternate_domains("mono.dmm.com"),
+            Some(vec!["mail.dmm.com".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_dmm_alternate_domains_other() {
+        let plugin = DmmPlugin;
+        assert_eq!(plugin.alternate_domains("example.com"), None);
+        assert_eq!(plugin.alternate_domains(""), None);
+    }
+}

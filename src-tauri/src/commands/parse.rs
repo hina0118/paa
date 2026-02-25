@@ -5,15 +5,19 @@ use crate::config;
 use crate::logic::email_parser::get_candidate_parsers;
 use crate::orchestration;
 use crate::parsers;
+use crate::plugins::{build_registry, find_plugin};
 use crate::repository::{
     OrderRepository, ShopSettingsRepository, SqliteOrderRepository, SqliteShopSettingsRepository,
 };
 
 #[tauri::command]
 pub fn parse_email(parser_type: String, email_body: String) -> Result<parsers::OrderInfo, String> {
-    let parser = parsers::get_parser(&parser_type)
+    let registry = build_registry();
+    let plugin = find_plugin(&registry, &parser_type)
         .ok_or_else(|| format!("Unknown parser type: {}", parser_type))?;
-
+    let parser = plugin
+        .get_parser(&parser_type)
+        .ok_or_else(|| format!("No parser for parser_type: {}", parser_type))?;
     parser.parse(&email_body)
 }
 
@@ -48,14 +52,22 @@ pub async fn parse_and_save_email(
     // 複数のパーサーを順番に試す（最初に成功したものを使用）
     // パーサーの参照をawaitの前で解放するため、同期ブロック内で完了させる
     let order_info = {
+        let registry = build_registry();
         let mut last_error = String::new();
         let mut result = None;
 
         for parser_type in &candidate_parsers {
-            let parser = match parsers::get_parser(parser_type) {
+            let plugin = match find_plugin(&registry, parser_type) {
                 Some(p) => p,
                 None => {
                     log::warn!("Unknown parser type: {}", parser_type);
+                    continue;
+                }
+            };
+            let parser = match plugin.get_parser(parser_type) {
+                Some(p) => p,
+                None => {
+                    log::warn!("No parser for parser_type: {}", parser_type);
                     continue;
                 }
             };
