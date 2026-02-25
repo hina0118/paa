@@ -194,7 +194,7 @@ impl ShopSettingsRepository for SqliteShopSettingsRepository {
         let subject_filters_json = setting
             .subject_filters
             .as_ref()
-            .map(|filters| serde_json::to_string(filters))
+            .map(serde_json::to_string)
             .transpose()
             .map_err(|e| format!("Failed to serialize subject filters: {e}"))?;
 

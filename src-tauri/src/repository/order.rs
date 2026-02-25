@@ -783,7 +783,8 @@ impl SqliteOrderRepository {
             }
         };
 
-        let items: Vec<(i64, String, Option<String>, Option<String>, i64)> = sqlx::query_as(
+        type ItemRow = (i64, String, Option<String>, Option<String>, i64);
+        let items: Vec<ItemRow> = sqlx::query_as(
             r#"
             SELECT i.id, i.item_name, i.item_name_normalized, pm.product_name, i.quantity
             FROM items i
