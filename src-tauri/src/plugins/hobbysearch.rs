@@ -2,9 +2,6 @@
 //!
 //! `parsers/hobbysearch/` の各パーサーを使用してホビーサーチ固有の処理を実装する。
 
-use std::path::PathBuf;
-use std::sync::Arc;
-
 use async_trait::async_trait;
 use chrono::DateTime;
 
@@ -13,8 +10,8 @@ use crate::parsers::EmailParser;
 use crate::repository::SqliteOrderRepository;
 
 use super::{
-    apply_internal_date, derive_shop_domain, save_images_for_order, DefaultShopSetting,
-    DispatchError, DispatchOutcome, VendorPlugin,
+    apply_internal_date, derive_shop_domain, DefaultShopSetting, DispatchError, DispatchOutcome,
+    VendorPlugin,
 };
 
 pub struct HobbySearchPlugin;
@@ -132,7 +129,6 @@ impl VendorPlugin for HobbySearchPlugin {
         internal_date: Option<i64>,
         body: &str,
         tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
-        image_save_ctx: &Option<(Arc<sqlx::SqlitePool>, PathBuf)>,
     ) -> Result<DispatchOutcome, DispatchError> {
         let shop_domain = derive_shop_domain(from_address);
 
@@ -221,8 +217,6 @@ impl VendorPlugin for HobbySearchPlugin {
 
                 save_result.map_err(DispatchError::SaveFailed)?;
 
-                save_images_for_order(&order_info, image_save_ctx).await;
-
                 Ok(DispatchOutcome::OrderSaved(Box::new(order_info)))
             }
 
@@ -284,7 +278,6 @@ impl VendorPlugin for HobbySearchPlugin {
                             total_orders,
                             email_id
                         );
-                        save_images_for_order(&order_info, image_save_ctx).await;
                         saved_orders.push(order_info);
                     }
 
@@ -312,8 +305,6 @@ impl VendorPlugin for HobbySearchPlugin {
                 )
                 .await
                 .map_err(DispatchError::SaveFailed)?;
-
-                save_images_for_order(&order_info, image_save_ctx).await;
 
                 Ok(DispatchOutcome::OrderSaved(Box::new(order_info)))
             }
