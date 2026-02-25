@@ -223,7 +223,7 @@ fn get_candidate_parsers(
 /// - `CancelApplied` / `OrderNumberChanged` / `ConsolidationApplied` → cancel_applied = true（特殊適用済み）
 fn outcome_to_order_info(outcome: DispatchOutcome, email_id: i64) -> (OrderInfo, bool) {
     match outcome {
-        DispatchOutcome::OrderSaved(order_info) => (order_info, false),
+        DispatchOutcome::OrderSaved(order_info) => (*order_info, false),
         DispatchOutcome::CancelApplied { order_number } => {
             let info = OrderInfo {
                 order_number,
@@ -422,7 +422,12 @@ where
                     }
                     Err(DispatchError::ParseFailed(e)) => {
                         // パース失敗 → 次のパーサーを試す
-                        log::debug!("Parser {} failed (email_id={}): {}", parser_type, input.email_id, e);
+                        log::debug!(
+                            "Parser {} failed (email_id={}): {}",
+                            parser_type,
+                            input.email_id,
+                            e
+                        );
                         last_error = e;
                         continue 'parser_loop;
                     }
