@@ -13,8 +13,8 @@ use crate::parsers::EmailParser;
 use crate::repository::OrderRepository;
 
 use super::{
-    apply_internal_date, derive_shop_domain, save_images_for_order, DispatchError,
-    DispatchOutcome, VendorPlugin,
+    apply_internal_date, derive_shop_domain, save_images_for_order, DispatchError, DispatchOutcome,
+    VendorPlugin,
 };
 
 pub struct HobbySearchPlugin;
@@ -40,15 +40,11 @@ impl VendorPlugin for HobbySearchPlugin {
     /// cancel は `dispatch()` 内で直接処理する。
     fn get_parser(&self, parser_type: &str) -> Option<Box<dyn EmailParser>> {
         match parser_type {
-            "hobbysearch_confirm" => {
-                Some(Box::new(hobbysearch::confirm::HobbySearchConfirmParser))
-            }
+            "hobbysearch_confirm" => Some(Box::new(hobbysearch::confirm::HobbySearchConfirmParser)),
             "hobbysearch_confirm_yoyaku" => Some(Box::new(
                 hobbysearch::confirm_yoyaku::HobbySearchConfirmYoyakuParser,
             )),
-            "hobbysearch_change" => {
-                Some(Box::new(hobbysearch::change::HobbySearchChangeParser))
-            }
+            "hobbysearch_change" => Some(Box::new(hobbysearch::change::HobbySearchChangeParser)),
             "hobbysearch_change_yoyaku" => Some(Box::new(
                 hobbysearch::change_yoyaku::HobbySearchChangeYoyakuParser,
             )),
@@ -57,6 +53,7 @@ impl VendorPlugin for HobbySearchPlugin {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn dispatch(
         &self,
         parser_type: &str,
@@ -114,8 +111,8 @@ impl VendorPlugin for HobbySearchPlugin {
 
                 // internal_date が無効値の場合、apply_change_items_and_save_order をスキップして
                 // save_order にフォールバックする（データ欠損よりは安全）
-                let change_email_internal_date = internal_date
-                    .and_then(|ts| DateTime::from_timestamp_millis(ts).map(|_| ts));
+                let change_email_internal_date =
+                    internal_date.and_then(|ts| DateTime::from_timestamp_millis(ts).map(|_| ts));
 
                 let save_result = if let Some(ts) = change_email_internal_date {
                     order_repo
@@ -146,7 +143,7 @@ impl VendorPlugin for HobbySearchPlugin {
 
                 save_images_for_order(&order_info, image_save_ctx).await;
 
-                Ok(DispatchOutcome::OrderSaved(order_info))
+                Ok(DispatchOutcome::OrderSaved(Box::new(order_info)))
             }
 
             // ── 通常注文（confirm / confirm_yoyaku / send）────────────────────
@@ -238,7 +235,7 @@ impl VendorPlugin for HobbySearchPlugin {
 
                 save_images_for_order(&order_info, image_save_ctx).await;
 
-                Ok(DispatchOutcome::OrderSaved(order_info))
+                Ok(DispatchOutcome::OrderSaved(Box::new(order_info)))
             }
         }
     }

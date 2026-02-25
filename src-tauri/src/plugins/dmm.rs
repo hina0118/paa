@@ -16,8 +16,8 @@ use crate::parsers::EmailParser;
 use crate::repository::OrderRepository;
 
 use super::{
-    apply_internal_date, derive_shop_domain, save_images_for_order, DispatchError,
-    DispatchOutcome, VendorPlugin,
+    apply_internal_date, derive_shop_domain, save_images_for_order, DispatchError, DispatchOutcome,
+    VendorPlugin,
 };
 
 pub struct DmmPlugin;
@@ -58,6 +58,7 @@ impl VendorPlugin for DmmPlugin {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn dispatch(
         &self,
         parser_type: &str,
@@ -278,7 +279,7 @@ impl VendorPlugin for DmmPlugin {
 
                 save_images_for_order(&order_info, image_save_ctx).await;
 
-                Ok(DispatchOutcome::OrderSaved(order_info))
+                Ok(DispatchOutcome::OrderSaved(Box::new(order_info)))
             }
         }
     }

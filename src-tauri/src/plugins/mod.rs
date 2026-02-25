@@ -32,7 +32,7 @@ use crate::repository::OrderRepository;
 /// `email_parse_task.rs` が `EmailParseOutput` を組み立てるために使用する。
 pub enum DispatchOutcome {
     /// 通常注文を保存した（confirm / send など）
-    OrderSaved(OrderInfo),
+    OrderSaved(Box<OrderInfo>),
     /// キャンセルを適用した
     CancelApplied { order_number: String },
     /// 注文番号変更を適用した
@@ -94,6 +94,7 @@ pub trait VendorPlugin: Send + Sync {
     /// # エラー
     /// - `DispatchError::ParseFailed` → 呼び出し元は次のパーサーを試す
     /// - `DispatchError::SaveFailed` → 呼び出し元はこのメールをリトライ対象にする
+    #[allow(clippy::too_many_arguments)]
     async fn dispatch(
         &self,
         parser_type: &str,
@@ -127,7 +128,7 @@ pub(crate) fn derive_shop_domain(from_address: Option<&str>) -> Option<String> {
     use crate::logic::email_parser::extract_domain;
     use crate::logic::sync_logic::extract_email_address;
     from_address
-        .and_then(|addr| extract_email_address(addr))
+        .and_then(extract_email_address)
         .and_then(|email| extract_domain(&email).map(|s| s.to_string()))
 }
 
