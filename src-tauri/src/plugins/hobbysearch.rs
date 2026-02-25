@@ -10,11 +10,11 @@ use chrono::DateTime;
 
 use crate::parsers::hobbysearch;
 use crate::parsers::EmailParser;
-use crate::repository::OrderRepository;
+use crate::repository::SqliteOrderRepository;
 
 use super::{
-    apply_internal_date, derive_shop_domain, save_images_for_order, DispatchError, DispatchOutcome,
-    VendorPlugin,
+    apply_internal_date, derive_shop_domain, save_images_for_order, DefaultShopSetting,
+    DispatchError, DispatchOutcome, VendorPlugin,
 };
 
 pub struct HobbySearchPlugin;
@@ -53,6 +53,75 @@ impl VendorPlugin for HobbySearchPlugin {
         }
     }
 
+    fn shop_name(&self) -> &str {
+        "ホビーサーチ"
+    }
+
+    fn default_shop_settings(&self) -> Vec<DefaultShopSetting> {
+        vec![
+            DefaultShopSetting {
+                shop_name: "ホビーサーチ".to_string(),
+                sender_address: "hs-support@1999.co.jp".to_string(),
+                parser_type: "hobbysearch_cancel".to_string(),
+                subject_filters: Some(vec![
+                    "【ホビーサーチ】ご注文のキャンセルが完了致しました".to_string()
+                ]),
+            },
+            DefaultShopSetting {
+                shop_name: "ホビーサーチ".to_string(),
+                sender_address: "hs-support@1999.co.jp".to_string(),
+                parser_type: "hobbysearch_send".to_string(),
+                subject_filters: Some(vec![
+                    "【ホビーサーチ】ご注文の発送が完了しました".to_string()
+                ]),
+            },
+            DefaultShopSetting {
+                shop_name: "ホビーサーチ".to_string(),
+                sender_address: "hs-support@1999.co.jp".to_string(),
+                parser_type: "hobbysearch_change".to_string(),
+                subject_filters: Some(vec![
+                    "【ホビーサーチ】ご注文が組み替えられました".to_string()
+                ]),
+            },
+            DefaultShopSetting {
+                shop_name: "ホビーサーチ".to_string(),
+                sender_address: "hs-support@1999.co.jp".to_string(),
+                parser_type: "hobbysearch_change_yoyaku".to_string(),
+                subject_filters: Some(vec![
+                    "【ホビーサーチ】ご注文が組み替えられました".to_string()
+                ]),
+            },
+            DefaultShopSetting {
+                shop_name: "ホビーサーチ".to_string(),
+                sender_address: "hs-order@1999.co.jp".to_string(),
+                parser_type: "hobbysearch_change".to_string(),
+                subject_filters: Some(vec![
+                    "【ホビーサーチ】ご注文が組み替えられました".to_string()
+                ]),
+            },
+            DefaultShopSetting {
+                shop_name: "ホビーサーチ".to_string(),
+                sender_address: "hs-order@1999.co.jp".to_string(),
+                parser_type: "hobbysearch_change_yoyaku".to_string(),
+                subject_filters: Some(vec![
+                    "【ホビーサーチ】ご注文が組み替えられました".to_string()
+                ]),
+            },
+            DefaultShopSetting {
+                shop_name: "ホビーサーチ".to_string(),
+                sender_address: "hs-order@1999.co.jp".to_string(),
+                parser_type: "hobbysearch_confirm_yoyaku".to_string(),
+                subject_filters: Some(vec!["【ホビーサーチ】注文確認メール".to_string()]),
+            },
+            DefaultShopSetting {
+                shop_name: "ホビーサーチ".to_string(),
+                sender_address: "hs-order@1999.co.jp".to_string(),
+                parser_type: "hobbysearch_confirm".to_string(),
+                subject_filters: Some(vec!["【ホビーサーチ】注文確認メール".to_string()]),
+            },
+        ]
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn dispatch(
         &self,
@@ -62,7 +131,7 @@ impl VendorPlugin for HobbySearchPlugin {
         shop_name: &str,
         internal_date: Option<i64>,
         body: &str,
-        order_repo: &dyn OrderRepository,
+        tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
         image_save_ctx: &Option<(Arc<sqlx::SqlitePool>, PathBuf)>,
     ) -> Result<DispatchOutcome, DispatchError> {
         let shop_domain = derive_shop_domain(from_address);
@@ -80,16 +149,15 @@ impl VendorPlugin for HobbySearchPlugin {
                     cancel_info.order_number
                 );
 
-                order_repo
-                    .apply_cancel(
-                        &cancel_info,
-                        email_id,
-                        shop_domain,
-                        Some(shop_name.to_string()),
-                        None, // ホビーサーチは追加ドメインなし
-                    )
-                    .await
-                    .map_err(DispatchError::SaveFailed)?;
+                SqliteOrderRepository::apply_cancel_in_tx(
+                    tx,
+                    &cancel_info,
+                    email_id,
+                    shop_domain,
+                    None, // ホビーサーチは追加ドメインなし
+                )
+                .await
+                .map_err(DispatchError::SaveFailed)?;
 
                 Ok(DispatchOutcome::CancelApplied {
                     order_number: cancel_info.order_number,
@@ -109,34 +177,46 @@ impl VendorPlugin for HobbySearchPlugin {
                 // hobbysearch_change / change_yoyaku: internal_date を order_date に使用
                 apply_internal_date(&mut order_info, internal_date);
 
-                // internal_date が無効値の場合、apply_change_items_and_save_order をスキップして
-                // save_order にフォールバックする（データ欠損よりは安全）
+                // internal_date が無効値の場合、apply_change_items_in_tx をスキップして
+                // save_order_in_tx にフォールバックする（データ欠損よりは安全）
                 let change_email_internal_date =
                     internal_date.and_then(|ts| DateTime::from_timestamp_millis(ts).map(|_| ts));
 
-                let save_result = if let Some(ts) = change_email_internal_date {
-                    order_repo
-                        .apply_change_items_and_save_order(
-                            &order_info,
-                            Some(email_id),
-                            shop_domain,
-                            Some(shop_name.to_string()),
-                            Some(ts),
-                        )
-                        .await
+                let save_result: Result<i64, String> = if let Some(ts) = change_email_internal_date
+                {
+                    match SqliteOrderRepository::apply_change_items_in_tx(
+                        tx,
+                        &order_info,
+                        shop_domain.clone(),
+                        Some(ts),
+                    )
+                    .await
+                    {
+                        Ok(()) => {
+                            SqliteOrderRepository::save_order_in_tx(
+                                tx,
+                                &order_info,
+                                Some(email_id),
+                                shop_domain,
+                                Some(shop_name.to_string()),
+                            )
+                            .await
+                        }
+                        Err(e) => Err(e),
+                    }
                 } else {
                     log::warn!(
-                        "[hobbysearch_change] Invalid internal_date for email {}, fallback to save_order",
-                        email_id
-                    );
-                    order_repo
-                        .save_order(
-                            &order_info,
-                            Some(email_id),
-                            shop_domain,
-                            Some(shop_name.to_string()),
-                        )
-                        .await
+                            "[hobbysearch_change] Invalid internal_date for email {}, fallback to save_order",
+                            email_id
+                        );
+                    SqliteOrderRepository::save_order_in_tx(
+                        tx,
+                        &order_info,
+                        Some(email_id),
+                        shop_domain,
+                        Some(shop_name.to_string()),
+                    )
+                    .await
                 };
 
                 save_result.map_err(DispatchError::SaveFailed)?;
@@ -179,23 +259,23 @@ impl VendorPlugin for HobbySearchPlugin {
                     let mut saved_orders = Vec::with_capacity(total_orders);
 
                     for (idx, order_info) in orders.into_iter().enumerate() {
-                        order_repo
-                            .save_order(
-                                &order_info,
-                                Some(email_id),
-                                shop_domain.clone(),
-                                Some(shop_name.to_string()),
-                            )
-                            .await
-                            .map_err(|e| {
-                                DispatchError::SaveFailed(format!(
-                                    "Multi-order save failed ({}/{}) for email {}: {}",
-                                    idx + 1,
-                                    total_orders,
-                                    email_id,
-                                    e
-                                ))
-                            })?;
+                        SqliteOrderRepository::save_order_in_tx(
+                            tx,
+                            &order_info,
+                            Some(email_id),
+                            shop_domain.clone(),
+                            Some(shop_name.to_string()),
+                        )
+                        .await
+                        .map_err(|e| {
+                            DispatchError::SaveFailed(format!(
+                                "Multi-order save failed ({}/{}) for email {}: {}",
+                                idx + 1,
+                                total_orders,
+                                email_id,
+                                e
+                            ))
+                        })?;
 
                         log::debug!(
                             "[{}] Saved order ({}/{}) for email {}",
@@ -223,15 +303,15 @@ impl VendorPlugin for HobbySearchPlugin {
                     apply_internal_date(&mut order_info, internal_date);
                 }
 
-                order_repo
-                    .save_order(
-                        &order_info,
-                        Some(email_id),
-                        shop_domain,
-                        Some(shop_name.to_string()),
-                    )
-                    .await
-                    .map_err(DispatchError::SaveFailed)?;
+                SqliteOrderRepository::save_order_in_tx(
+                    tx,
+                    &order_info,
+                    Some(email_id),
+                    shop_domain,
+                    Some(shop_name.to_string()),
+                )
+                .await
+                .map_err(DispatchError::SaveFailed)?;
 
                 save_images_for_order(&order_info, image_save_ctx).await;
 
@@ -304,5 +384,27 @@ mod tests {
         let plugin = HobbySearchPlugin;
         assert_eq!(plugin.alternate_domains("order.hobbysearch.co.jp"), None);
         assert_eq!(plugin.alternate_domains(""), None);
+    }
+
+    #[test]
+    fn test_hobbysearch_shop_name() {
+        assert_eq!(HobbySearchPlugin.shop_name(), "ホビーサーチ");
+    }
+
+    #[test]
+    fn test_hobbysearch_default_shop_settings_count() {
+        assert_eq!(HobbySearchPlugin.default_shop_settings().len(), 8);
+    }
+
+    #[test]
+    fn test_hobbysearch_default_shop_settings_parser_types() {
+        let settings = HobbySearchPlugin.default_shop_settings();
+        let parser_types: Vec<&str> = settings.iter().map(|s| s.parser_type.as_str()).collect();
+        assert!(parser_types.contains(&"hobbysearch_cancel"));
+        assert!(parser_types.contains(&"hobbysearch_send"));
+        assert!(parser_types.contains(&"hobbysearch_change"));
+        assert!(parser_types.contains(&"hobbysearch_change_yoyaku"));
+        assert!(parser_types.contains(&"hobbysearch_confirm_yoyaku"));
+        assert!(parser_types.contains(&"hobbysearch_confirm"));
     }
 }
