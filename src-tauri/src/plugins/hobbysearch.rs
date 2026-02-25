@@ -399,3 +399,9 @@ mod tests {
         assert!(parser_types.contains(&"hobbysearch_confirm"));
     }
 }
+
+inventory::submit! {
+    crate::plugins::PluginRegistration {
+        factory: || Box::new(HobbySearchPlugin),
+    }
+}
