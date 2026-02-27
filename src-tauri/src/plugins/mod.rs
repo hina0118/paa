@@ -10,6 +10,7 @@
 
 // pub mod にすることでリンカーがモジュールを保持し、inventory::submit! の静的初期化が LTO でも除外されない
 pub mod dmm;
+pub mod goodsmile;
 pub mod hobbysearch;
 pub mod kids_dragon;
 
