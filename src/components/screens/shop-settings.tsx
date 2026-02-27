@@ -35,6 +35,15 @@ interface ShopGroup {
   parsers: ShopSettingDisplay[];
 }
 
+function isValidRegex(filter: string): boolean {
+  try {
+    new RegExp(filter);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function groupShops(shops: ShopSettingDisplay[]): ShopGroup[] {
   const map = new Map<string, ShopSettingDisplay[]>();
   for (const shop of shops) {
@@ -303,31 +312,38 @@ export function ShopSettings() {
               </label>
               <div className="space-y-2">
                 {newSubjectFilters.map((filter, index) => (
-                  <div key={index} className="flex gap-2">
-                    <Input
-                      placeholder="例: 【ホビーサーチ】ご注文の発送が完了しました"
-                      value={filter}
-                      onChange={(e) => {
-                        const updated = [...newSubjectFilters];
-                        updated[index] = e.target.value;
-                        setNewSubjectFilters(updated);
-                      }}
-                      disabled={isAdding}
-                    />
-                    {newSubjectFilters.length > 1 && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          const updated = newSubjectFilters.filter(
-                            (_, i) => i !== index
-                          );
+                  <div key={index} className="flex flex-col gap-1">
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="例: キッズドラゴン または正規表現: ご注文完了.*"
+                        value={filter}
+                        onChange={(e) => {
+                          const updated = [...newSubjectFilters];
+                          updated[index] = e.target.value;
                           setNewSubjectFilters(updated);
                         }}
                         disabled={isAdding}
-                      >
-                        削除
-                      </Button>
+                      />
+                      {newSubjectFilters.length > 1 && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            const updated = newSubjectFilters.filter(
+                              (_, i) => i !== index
+                            );
+                            setNewSubjectFilters(updated);
+                          }}
+                          disabled={isAdding}
+                        >
+                          削除
+                        </Button>
+                      )}
+                    </div>
+                    {filter && !isValidRegex(filter) && (
+                      <p className="text-xs text-yellow-600">
+                        ⚠ 無効な正規表現（部分一致として扱われます）
+                      </p>
                     )}
                   </div>
                 ))}
@@ -343,7 +359,7 @@ export function ShopSettings() {
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                設定した場合、いずれかの件名パターンを含むメールのみを取り込みます
+                部分一致または正規表現で件名を絞り込みます（正規表現が無効な場合は部分一致として扱います）
               </p>
             </div>
             <div>
@@ -523,46 +539,60 @@ export function ShopSettings() {
                                       {(
                                         editForm.subject_filters_array || ['']
                                       ).map((filter, index) => (
-                                        <div key={index} className="flex gap-2">
-                                          <Input
-                                            placeholder="例: 【ホビーサーチ】ご注文の発送が完了しました"
-                                            value={filter}
-                                            onChange={(e) => {
-                                              const updated = [
-                                                ...(editForm.subject_filters_array || [
-                                                  '',
-                                                ]),
-                                              ];
-                                              updated[index] = e.target.value;
-                                              setEditForm({
-                                                ...editForm,
-                                                subject_filters_array: updated,
-                                              });
-                                            }}
-                                          />
-                                          {(
-                                            editForm.subject_filters_array || [
-                                              '',
-                                            ]
-                                          ).length > 1 && (
-                                            <Button
-                                              variant="outline"
-                                              size="sm"
-                                              onClick={() => {
-                                                const updated = (
-                                                  editForm.subject_filters_array || [
+                                        <div
+                                          key={index}
+                                          className="flex flex-col gap-1"
+                                        >
+                                          <div className="flex gap-2">
+                                            <Input
+                                              placeholder="例: キッズドラゴン または正規表現: ご注文完了.*"
+                                              value={filter}
+                                              onChange={(e) => {
+                                                const updated = [
+                                                  ...(editForm.subject_filters_array || [
                                                     '',
-                                                  ]
-                                                ).filter((_, i) => i !== index);
+                                                  ]),
+                                                ];
+                                                updated[index] = e.target.value;
                                                 setEditForm({
                                                   ...editForm,
                                                   subject_filters_array:
                                                     updated,
                                                 });
                                               }}
-                                            >
-                                              削除
-                                            </Button>
+                                            />
+                                            {(
+                                              editForm.subject_filters_array || [
+                                                '',
+                                              ]
+                                            ).length > 1 && (
+                                              <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => {
+                                                  const updated = (
+                                                    editForm.subject_filters_array || [
+                                                      '',
+                                                    ]
+                                                  ).filter(
+                                                    (_, i) => i !== index
+                                                  );
+                                                  setEditForm({
+                                                    ...editForm,
+                                                    subject_filters_array:
+                                                      updated,
+                                                  });
+                                                }}
+                                              >
+                                                削除
+                                              </Button>
+                                            )}
+                                          </div>
+                                          {filter && !isValidRegex(filter) && (
+                                            <p className="text-xs text-yellow-600">
+                                              ⚠
+                                              無効な正規表現（部分一致として扱われます）
+                                            </p>
                                           )}
                                         </div>
                                       ))}
@@ -585,7 +615,7 @@ export function ShopSettings() {
                                       </Button>
                                     </div>
                                     <p className="text-xs text-muted-foreground">
-                                      設定した場合、いずれかの件名パターンを含むメールのみを取り込みます
+                                      部分一致または正規表現で件名を絞り込みます（正規表現が無効な場合は部分一致として扱います）
                                     </p>
                                   </div>
                                   <div className="flex items-center gap-2">
