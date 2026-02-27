@@ -1,6 +1,6 @@
 use super::{
-    body_to_lines, extract_items, extract_order_date, extract_order_number,
-    extract_shipping_fee, extract_total_amount,
+    body_to_lines, extract_items, extract_order_date, extract_order_number, extract_shipping_fee,
+    extract_total_amount,
 };
 use crate::parsers::{EmailParser, OrderInfo};
 
@@ -182,25 +182,19 @@ MODEROID バーンドラゴン<br>
 
     #[test]
     fn test_parse_confirm_html_order_number() {
-        let order = GoodSmileConfirmParser
-            .parse(sample_confirm_html())
-            .unwrap();
+        let order = GoodSmileConfirmParser.parse(sample_confirm_html()).unwrap();
         assert_eq!(order.order_number, "CpBk4quaORPw");
     }
 
     #[test]
     fn test_parse_confirm_html_order_date() {
-        let order = GoodSmileConfirmParser
-            .parse(sample_confirm_html())
-            .unwrap();
+        let order = GoodSmileConfirmParser.parse(sample_confirm_html()).unwrap();
         assert_eq!(order.order_date, Some("2025-02-01 16:48".to_string()));
     }
 
     #[test]
     fn test_parse_confirm_html_item_name_and_quantity() {
-        let order = GoodSmileConfirmParser
-            .parse(sample_confirm_html())
-            .unwrap();
+        let order = GoodSmileConfirmParser.parse(sample_confirm_html()).unwrap();
         assert_eq!(order.items.len(), 1);
         assert_eq!(order.items[0].name, "MODEROID バーンドラゴン");
         assert_eq!(order.items[0].quantity, 1);
@@ -210,9 +204,7 @@ MODEROID バーンドラゴン<br>
     /// HTML では `配送料  ￥0`（スペース 2 つ）が使われるため、正しく抽出できることを確認する
     #[test]
     fn test_parse_confirm_html_amounts_with_double_space() {
-        let order = GoodSmileConfirmParser
-            .parse(sample_confirm_html())
-            .unwrap();
+        let order = GoodSmileConfirmParser.parse(sample_confirm_html()).unwrap();
         assert_eq!(order.subtotal, Some(5900));
         assert_eq!(order.shipping_fee, Some(0));
         assert_eq!(order.total_amount, Some(5900));
