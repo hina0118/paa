@@ -797,11 +797,8 @@ mod tests {
         assert_eq!(result.len(), 1);
 
         // フォールバックで部分一致しない場合は除外される
-        let result = get_candidate_parsers(
-            &settings,
-            Some("shop@example.com"),
-            Some("一致しない件名"),
-        );
+        let result =
+            get_candidate_parsers(&settings, Some("shop@example.com"), Some("一致しない件名"));
         assert!(result.is_empty());
     }
 
