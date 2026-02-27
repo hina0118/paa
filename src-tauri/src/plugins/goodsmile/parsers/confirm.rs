@@ -1,6 +1,6 @@
 use super::{
-    extract_items, extract_order_date, extract_order_number, extract_shipping_fee,
-    extract_total_amount,
+    body_to_lines, extract_items, extract_order_date, extract_order_number,
+    extract_shipping_fee, extract_total_amount,
 };
 use crate::parsers::{EmailParser, OrderInfo};
 
@@ -9,13 +9,15 @@ use crate::parsers::{EmailParser, OrderInfo};
 /// 件名：`ご注文完了のお知らせ (ご注文番号_XXXX)`
 /// 送信元：`shop@goodsmile.jp`（SendGrid 経由）
 ///
-/// テキストパートから注文番号・日時・商品情報・金額を抽出する。
+/// HTML / プレーンテキストどちらにも対応する。
+/// HTML の場合は `<br>` を改行に変換後、タグを除去してから各フィールドを抽出する。
 /// 注文日時は英語形式（`Feb 01, 2025 4:48:07 PM`）のため chrono でパースする。
 pub struct GoodSmileConfirmParser;
 
 impl EmailParser for GoodSmileConfirmParser {
     fn parse(&self, email_body: &str) -> Result<OrderInfo, String> {
-        let lines: Vec<&str> = email_body.lines().collect();
+        let body_lines = body_to_lines(email_body);
+        let lines: Vec<&str> = body_lines.iter().map(|s| s.as_str()).collect();
 
         let order_number =
             extract_order_number(&lines).ok_or_else(|| "Order number not found".to_string())?;
@@ -51,7 +53,8 @@ impl EmailParser for GoodSmileConfirmParser {
 mod tests {
     use super::*;
 
-    fn sample_confirm_email() -> &'static str {
+    /// プレーンテキスト形式のサンプル（plain text パートの内容）
+    fn sample_confirm_plain() -> &'static str {
         r#"※このメールはシステムより自動送信されています。
 原田 裕基様
 この度は、グッドスマイルカンパニー公式ショップをご利用頂き誠にありがとうございます。
@@ -63,16 +66,6 @@ mod tests {
 ご注文番号: CpBk4quaORPw
 ご注文日時: Feb 01, 2025 4:48:07 PM
 お支払方法:クレジットカード
-※コンビニ決済でご注文のお客様は、本メールの送信日を含む７日以内にお支払いをお願いいたします。
-メールアドレス: hina0118.yuzu1224@gmail.com
-発送先情報:
-8120044
-福岡県
-福岡市博多区
-千代1-7-1
-リアンシエルブルー東公園505号
-原田 裕基 様
-電話: 09016717298
 配送方法:　佐川急便_送料無料
 商品:MODEROID バーンドラゴン
 発売時期：2025/9
@@ -87,10 +80,40 @@ mod tests {
 "#
     }
 
+    /// HTML 形式のサンプル（body_html パートの内容・実メールの構造に準拠）
+    ///
+    /// 実メールでは `配送料  ￥0`（スペース 2 つ）・`合計  ￥5,900`（スペース 2 つ）の
+    /// フォーマットが使われるため、それを再現する。
+    fn sample_confirm_html() -> &'static str {
+        r#"<html><body>
+※このメールはシステムより自動送信されています。<br><br>
+原田 裕基様<br>
+<br>
+この度は、グッドスマイルカンパニー公式ショップをご利用頂き誠にありがとうございます。<br>
+---------------------------------<br>
+ご注文番号: CpBk4quaORPw<br>
+ご注文日時: Feb 01, 2025 4:48:07 PM<br>
+お支払方法:クレジットカード<br>
+配送方法:　佐川急便_送料無料<br>
+<br>
+商品:<br>
+MODEROID バーンドラゴン<br>
+発売時期：2025/9<br>
+数量：1<br>
+小計：￥5,900<br>
+<br>
+     配送料  ￥0<br>
+     クーポン割引額  ￥0<br>
+ 合計  ￥5,900<br>
+</body></html>"#
+    }
+
+    // ─── プレーンテキストによるテスト ───
+
     #[test]
     fn test_parse_confirm_order_number() {
         let order = GoodSmileConfirmParser
-            .parse(sample_confirm_email())
+            .parse(sample_confirm_plain())
             .unwrap();
         assert_eq!(order.order_number, "CpBk4quaORPw");
     }
@@ -98,7 +121,7 @@ mod tests {
     #[test]
     fn test_parse_confirm_order_date() {
         let order = GoodSmileConfirmParser
-            .parse(sample_confirm_email())
+            .parse(sample_confirm_plain())
             .unwrap();
         // Feb 01, 2025 4:48:07 PM → 2025-02-01 16:48
         assert_eq!(order.order_date, Some("2025-02-01 16:48".to_string()));
@@ -107,7 +130,7 @@ mod tests {
     #[test]
     fn test_parse_confirm_item_count() {
         let order = GoodSmileConfirmParser
-            .parse(sample_confirm_email())
+            .parse(sample_confirm_plain())
             .unwrap();
         assert_eq!(order.items.len(), 1);
     }
@@ -115,7 +138,7 @@ mod tests {
     #[test]
     fn test_parse_confirm_item_name() {
         let order = GoodSmileConfirmParser
-            .parse(sample_confirm_email())
+            .parse(sample_confirm_plain())
             .unwrap();
         assert_eq!(order.items[0].name, "MODEROID バーンドラゴン");
     }
@@ -123,7 +146,7 @@ mod tests {
     #[test]
     fn test_parse_confirm_item_quantity() {
         let order = GoodSmileConfirmParser
-            .parse(sample_confirm_email())
+            .parse(sample_confirm_plain())
             .unwrap();
         assert_eq!(order.items[0].quantity, 1);
     }
@@ -131,7 +154,7 @@ mod tests {
     #[test]
     fn test_parse_confirm_item_subtotal_and_unit_price() {
         let order = GoodSmileConfirmParser
-            .parse(sample_confirm_email())
+            .parse(sample_confirm_plain())
             .unwrap();
         assert_eq!(order.items[0].subtotal, 5900);
         assert_eq!(order.items[0].unit_price, 5900);
@@ -140,7 +163,7 @@ mod tests {
     #[test]
     fn test_parse_confirm_amounts() {
         let order = GoodSmileConfirmParser
-            .parse(sample_confirm_email())
+            .parse(sample_confirm_plain())
             .unwrap();
         assert_eq!(order.subtotal, Some(5900));
         assert_eq!(order.shipping_fee, Some(0));
@@ -150,10 +173,52 @@ mod tests {
     #[test]
     fn test_parse_confirm_no_delivery_info() {
         let order = GoodSmileConfirmParser
-            .parse(sample_confirm_email())
+            .parse(sample_confirm_plain())
             .unwrap();
         assert!(order.delivery_info.is_none());
     }
+
+    // ─── HTML によるテスト（実メールに近い形式） ───
+
+    #[test]
+    fn test_parse_confirm_html_order_number() {
+        let order = GoodSmileConfirmParser
+            .parse(sample_confirm_html())
+            .unwrap();
+        assert_eq!(order.order_number, "CpBk4quaORPw");
+    }
+
+    #[test]
+    fn test_parse_confirm_html_order_date() {
+        let order = GoodSmileConfirmParser
+            .parse(sample_confirm_html())
+            .unwrap();
+        assert_eq!(order.order_date, Some("2025-02-01 16:48".to_string()));
+    }
+
+    #[test]
+    fn test_parse_confirm_html_item_name_and_quantity() {
+        let order = GoodSmileConfirmParser
+            .parse(sample_confirm_html())
+            .unwrap();
+        assert_eq!(order.items.len(), 1);
+        assert_eq!(order.items[0].name, "MODEROID バーンドラゴン");
+        assert_eq!(order.items[0].quantity, 1);
+        assert_eq!(order.items[0].subtotal, 5900);
+    }
+
+    /// HTML では `配送料  ￥0`（スペース 2 つ）が使われるため、正しく抽出できることを確認する
+    #[test]
+    fn test_parse_confirm_html_amounts_with_double_space() {
+        let order = GoodSmileConfirmParser
+            .parse(sample_confirm_html())
+            .unwrap();
+        assert_eq!(order.subtotal, Some(5900));
+        assert_eq!(order.shipping_fee, Some(0));
+        assert_eq!(order.total_amount, Some(5900));
+    }
+
+    // ─── エラーケース ───
 
     #[test]
     fn test_parse_confirm_no_order_number_returns_error() {
