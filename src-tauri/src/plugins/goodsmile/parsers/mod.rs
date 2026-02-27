@@ -5,6 +5,13 @@ use regex::Regex;
 pub mod confirm;
 pub mod send;
 
+/// `<br>` / `<br/>` / `<br />` タグを改行に置換するパターン
+static BR_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)<br\s*/?>").expect("Invalid BR_RE"));
+
+/// HTML タグ全体を除去するパターン
+static HTML_TAG_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"<[^>]+>").expect("Invalid HTML_TAG_RE"));
+
 /// `ご注文番号: CpBk4quaORPw` / `注文番号: CpBk4quaORPw` パターン
 ///
 /// confirm メールは `ご注文番号:`、send メールは `注文番号:` とプレフィックスが異なるため
@@ -45,8 +52,35 @@ static CARRIER_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"配送元[：:]\s*([^(（\n]+)").expect("Invalid CARRIER_RE"));
 
 /// `配送時間：指定なし` パターン
+///
+/// HTML メールでは `配送元：XXX 配送時間：XXX 追跡番号：...` が 1 行に並ぶため、
+/// `\S+`（非空白文字列）でキャプチャし、後続フィールドを取り込まないようにする。
 static DELIVERY_TIME_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"配送時間[：:]\s*(.+)").expect("Invalid DELIVERY_TIME_RE"));
+    Lazy::new(|| Regex::new(r"配送時間[：:]\s*(\S+)").expect("Invalid DELIVERY_TIME_RE"));
+
+/// HTML ボディをテキスト行のリストに変換する
+///
+/// 1. `<br>` / `<br/>` / `<br />` を改行に置換
+/// 2. HTML タグを除去
+/// 3. 改行で分割し、各行をトリム
+fn html_to_lines(html: &str) -> Vec<String> {
+    let with_newlines = BR_RE.replace_all(html, "\n");
+    let without_tags = HTML_TAG_RE.replace_all(&with_newlines, "");
+    without_tags.lines().map(|l| l.trim().to_string()).collect()
+}
+
+/// メール本文をテキスト行のリストに変換する
+///
+/// HTML が含まれる場合は `html_to_lines()` を使用し、
+/// プレーンテキストの場合はそのまま分割する。
+/// いずれも各行をトリムして返す。
+pub fn body_to_lines(body: &str) -> Vec<String> {
+    if body.contains("<br") || body.contains("<BR") {
+        html_to_lines(body)
+    } else {
+        body.lines().map(|l| l.trim().to_string()).collect()
+    }
+}
 
 /// 注文番号を抽出する
 ///
@@ -367,6 +401,39 @@ mod tests {
             extract_delivery_time(&lines),
             Some("14時〜16時".to_string())
         );
+    }
+
+    /// HTML メールでは「配送元 配送時間 追跡番号」が 1 行に並ぶ。
+    /// `\S+` キャプチャにより後続フィールドを取り込まないことを確認する。
+    #[test]
+    fn test_extract_delivery_time_inline_with_other_fields() {
+        let lines =
+            vec!["配送元：佐川急便(送料無料) 配送時間：指定なし 追跡番号：http://example.com"];
+        assert_eq!(extract_delivery_time(&lines), None);
+    }
+
+    #[test]
+    fn test_body_to_lines_plain_text() {
+        let body = "注文番号: ABC\n数量：1\n合計 ￥1,000";
+        let lines = body_to_lines(body);
+        assert_eq!(lines[0], "注文番号: ABC");
+        assert_eq!(lines[1], "数量：1");
+    }
+
+    #[test]
+    fn test_body_to_lines_html_strips_tags() {
+        let body = "<p>注文番号: ABC<br>数量：1</p>";
+        let lines = body_to_lines(body);
+        assert!(lines.iter().any(|l| l == "注文番号: ABC"));
+        assert!(lines.iter().any(|l| l == "数量：1"));
+    }
+
+    #[test]
+    fn test_body_to_lines_html_trims_whitespace() {
+        let body = "  <br>   配送料  ￥0<br>   合計  ￥5,900<br>";
+        let lines = body_to_lines(body);
+        assert!(lines.iter().any(|l| l == "配送料  ￥0"));
+        assert!(lines.iter().any(|l| l == "合計  ￥5,900"));
     }
 
     #[test]
