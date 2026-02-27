@@ -6,8 +6,7 @@ pub mod confirm;
 pub mod send;
 
 /// `<br>` / `<br/>` / `<br />` タグを改行に置換するパターン
-static BR_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)<br\s*/?>").expect("Invalid BR_RE"));
+static BR_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)<br\s*/?>").expect("Invalid BR_RE"));
 
 /// HTML タグ全体を除去するパターン
 static HTML_TAG_RE: Lazy<Regex> =
@@ -67,10 +66,7 @@ static DELIVERY_TIME_RE: Lazy<Regex> =
 fn html_to_lines(html: &str) -> Vec<String> {
     let with_newlines = BR_RE.replace_all(html, "\n");
     let without_tags = HTML_TAG_RE.replace_all(&with_newlines, "");
-    without_tags
-        .lines()
-        .map(|l| l.trim().to_string())
-        .collect()
+    without_tags.lines().map(|l| l.trim().to_string()).collect()
 }
 
 /// メール本文をテキスト行のリストに変換する
