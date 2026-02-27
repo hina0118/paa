@@ -1,11 +1,12 @@
 //! ホビーサーチプラグイン
 //!
-//! `parsers/hobbysearch/` の各パーサーを使用してホビーサーチ固有の処理を実装する。
+//! `parsers/` の各パーサーを使用してホビーサーチ固有の処理を実装する。
+
+pub mod parsers;
 
 use async_trait::async_trait;
 use chrono::DateTime;
 
-use crate::parsers::hobbysearch;
 use crate::parsers::EmailParser;
 use crate::repository::SqliteOrderRepository;
 
@@ -37,15 +38,15 @@ impl VendorPlugin for HobbySearchPlugin {
     /// cancel は `dispatch()` 内で直接処理する。
     fn get_parser(&self, parser_type: &str) -> Option<Box<dyn EmailParser>> {
         match parser_type {
-            "hobbysearch_confirm" => Some(Box::new(hobbysearch::confirm::HobbySearchConfirmParser)),
+            "hobbysearch_confirm" => Some(Box::new(parsers::confirm::HobbySearchConfirmParser)),
             "hobbysearch_confirm_yoyaku" => Some(Box::new(
-                hobbysearch::confirm_yoyaku::HobbySearchConfirmYoyakuParser,
+                parsers::confirm_yoyaku::HobbySearchConfirmYoyakuParser,
             )),
-            "hobbysearch_change" => Some(Box::new(hobbysearch::change::HobbySearchChangeParser)),
+            "hobbysearch_change" => Some(Box::new(parsers::change::HobbySearchChangeParser)),
             "hobbysearch_change_yoyaku" => Some(Box::new(
-                hobbysearch::change_yoyaku::HobbySearchChangeYoyakuParser,
+                parsers::change_yoyaku::HobbySearchChangeYoyakuParser,
             )),
-            "hobbysearch_send" => Some(Box::new(hobbysearch::send::HobbySearchSendParser)),
+            "hobbysearch_send" => Some(Box::new(parsers::send::HobbySearchSendParser)),
             _ => None,
         }
     }
@@ -135,7 +136,7 @@ impl VendorPlugin for HobbySearchPlugin {
         match parser_type {
             // ── キャンセル ─────────────────────────────────────────────────────
             "hobbysearch_cancel" => {
-                let cancel_info = hobbysearch::cancel::HobbySearchCancelParser
+                let cancel_info = parsers::cancel::HobbySearchCancelParser
                     .parse_cancel(body)
                     .map_err(DispatchError::ParseFailed)?;
 
