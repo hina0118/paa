@@ -35,10 +35,6 @@ pub mod order_number_change_info;
 // まとめ完了情報（全店舗共通）
 pub mod consolidation_info;
 
-// ベンダーごとのパーサーモジュール
-pub mod dmm;
-pub mod hobbysearch;
-
 // BatchTask 実装
 pub mod email_parse_task;
 pub use email_parse_task::{

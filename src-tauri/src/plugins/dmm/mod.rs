@@ -1,14 +1,15 @@
 //! DMM 通販プラグイン
 //!
-//! `parsers/dmm/` の各パーサーを使用して DMM 固有の処理を実装する。
+//! `parsers/` の各パーサーを使用して DMM 固有の処理を実装する。
 //!
 //! # alternate_domains
 //! DMM の注文確認メールは `mail.dmm.com` / `mono.dmm.com` のどちらかから届く。
 //! キャンセル・注文番号変更メールは `mail.dmm.com` から届くが、注文検索では両方を試す。
 
+pub mod parsers;
+
 use async_trait::async_trait;
 
-use crate::parsers::dmm;
 use crate::parsers::EmailParser;
 use crate::repository::SqliteOrderRepository;
 
@@ -40,9 +41,9 @@ impl VendorPlugin for DmmPlugin {
     /// cancel / order_number_change / merge_complete は `dispatch()` 内で直接処理する。
     fn get_parser(&self, parser_type: &str) -> Option<Box<dyn EmailParser>> {
         match parser_type {
-            "dmm_confirm" => Some(Box::new(dmm::confirm::DmmConfirmParser)),
-            "dmm_send" => Some(Box::new(dmm::send::DmmSendParser)),
-            "dmm_split_complete" => Some(Box::new(dmm::split_complete::DmmSplitCompleteParser)),
+            "dmm_confirm" => Some(Box::new(parsers::confirm::DmmConfirmParser)),
+            "dmm_send" => Some(Box::new(parsers::send::DmmSendParser)),
+            "dmm_split_complete" => Some(Box::new(parsers::split_complete::DmmSplitCompleteParser)),
             _ => None,
         }
     }
@@ -145,7 +146,7 @@ impl VendorPlugin for DmmPlugin {
         match parser_type {
             // ── キャンセル ─────────────────────────────────────────────────────
             "dmm_cancel" => {
-                let cancel_info = dmm::cancel::DmmCancelParser
+                let cancel_info = parsers::cancel::DmmCancelParser
                     .parse_cancel(body)
                     .map_err(DispatchError::ParseFailed)?;
 
@@ -173,7 +174,7 @@ impl VendorPlugin for DmmPlugin {
 
             // ── 注文番号変更 ────────────────────────────────────────────────────
             "dmm_order_number_change" => {
-                let change_info = dmm::order_number_change::DmmOrderNumberChangeParser
+                let change_info = parsers::order_number_change::DmmOrderNumberChangeParser
                     .parse_order_number_change(body)
                     .map_err(DispatchError::ParseFailed)?;
 
@@ -203,7 +204,7 @@ impl VendorPlugin for DmmPlugin {
 
             // ── まとめ完了 ───────────────────────────────────────────────────────
             "dmm_merge_complete" => {
-                let consolidation_info = dmm::merge_complete::DmmMergeCompleteParser
+                let consolidation_info = parsers::merge_complete::DmmMergeCompleteParser
                     .parse_consolidation(body)
                     .map_err(DispatchError::ParseFailed)?;
 
@@ -231,7 +232,7 @@ impl VendorPlugin for DmmPlugin {
 
             // ── 分割完了（複数注文）────────────────────────────────────────────
             "dmm_split_complete" => {
-                let parser = dmm::split_complete::DmmSplitCompleteParser;
+                let parser = parsers::split_complete::DmmSplitCompleteParser;
 
                 let orders = parser
                     .parse_multi(body)
