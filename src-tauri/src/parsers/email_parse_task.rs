@@ -202,8 +202,12 @@ fn get_candidate_parsers(
                     None => return false,
                 };
 
-                // いずれかのフィルターに一致すればOK
-                if !filter_list.iter().any(|filter| subj.contains(filter)) {
+                // いずれかのフィルターに一致すればOK（正規表現優先、失敗時は部分一致にフォールバック）
+                if !filter_list.iter().any(|filter| {
+                    regex::Regex::new(filter)
+                        .map(|re| re.is_match(subj))
+                        .unwrap_or_else(|_| subj.contains(filter))
+                }) {
                     return false;
                 }
             }
@@ -736,6 +740,65 @@ mod tests {
 
         // 件名が無い場合は除外
         let result = get_candidate_parsers(&settings, Some("shop@example.com"), None);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_get_candidate_parsers_subject_filter_regex_match() {
+        let settings = vec![(
+            "shop@example.com".to_string(),
+            "hobbysearch_confirm".to_string(),
+            Some(r#"["ご注文番号：.*"]"#.to_string()),
+            "TestShop".to_string(),
+        )];
+
+        // 正規表現パターンが件名に一致する場合
+        let result = get_candidate_parsers(
+            &settings,
+            Some("shop@example.com"),
+            Some("ご注文番号：CpBk4quaORPw）"),
+        );
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn test_get_candidate_parsers_subject_filter_regex_no_match() {
+        let settings = vec![(
+            "shop@example.com".to_string(),
+            "hobbysearch_confirm".to_string(),
+            Some(r#"["ご注文番号：.*"]"#.to_string()),
+            "TestShop".to_string(),
+        )];
+
+        // 正規表現パターンが件名に一致しない場合
+        let result = get_candidate_parsers(
+            &settings,
+            Some("shop@example.com"),
+            Some("キャンセルのお知らせ"),
+        );
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_get_candidate_parsers_subject_filter_invalid_regex_falls_back_to_contains() {
+        let settings = vec![(
+            "shop@example.com".to_string(),
+            "hobbysearch_confirm".to_string(),
+            Some(r#"["[invalid"]"#.to_string()), // 無効な正規表現
+            "TestShop".to_string(),
+        )];
+
+        // 無効な正規表現でも部分一致にフォールバックして動作する
+        let result = get_candidate_parsers(
+            &settings,
+            Some("shop@example.com"),
+            Some("注文完了 [invalid パターン]"),
+        );
+        assert_eq!(result.len(), 1);
+
+        // フォールバックで部分一致しない場合は除外される
+        let result =
+            get_candidate_parsers(&settings, Some("shop@example.com"), Some("一致しない件名"));
         assert!(result.is_empty());
     }
 
