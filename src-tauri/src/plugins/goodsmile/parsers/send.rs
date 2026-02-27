@@ -18,8 +18,8 @@ impl EmailParser for GoodSmileSendParser {
     fn parse(&self, email_body: &str) -> Result<OrderInfo, String> {
         let lines: Vec<&str> = email_body.lines().collect();
 
-        let order_number = extract_order_number(&lines)
-            .ok_or_else(|| "Order number not found".to_string())?;
+        let order_number =
+            extract_order_number(&lines).ok_or_else(|| "Order number not found".to_string())?;
 
         let items = extract_send_items(&lines);
         if items.is_empty() {
@@ -29,8 +29,7 @@ impl EmailParser for GoodSmileSendParser {
         let tracking_number = extract_tracking_number(&lines)
             .ok_or_else(|| "Tracking number not found".to_string())?;
 
-        let carrier =
-            extract_carrier(&lines).ok_or_else(|| "Carrier not found".to_string())?;
+        let carrier = extract_carrier(&lines).ok_or_else(|| "Carrier not found".to_string())?;
 
         let delivery_time = extract_delivery_time(&lines);
 
@@ -154,24 +153,22 @@ MODEROID バーンドラゴン
 
     #[test]
     fn test_parse_send_no_order_number_returns_error() {
-        let result = GoodSmileSendParser.parse(
-            "配送情報:\n配送番号：123456\nテスト商品\n4580590207912 1\n配送元：佐川急便",
-        );
+        let result = GoodSmileSendParser
+            .parse("配送情報:\n配送番号：123456\nテスト商品\n4580590207912 1\n配送元：佐川急便");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_parse_send_no_items_returns_error() {
-        let result =
-            GoodSmileSendParser.parse("注文番号: ABC123\n配送情報:\n配送番号：123456\n配送元：佐川急便");
+        let result = GoodSmileSendParser
+            .parse("注文番号: ABC123\n配送情報:\n配送番号：123456\n配送元：佐川急便");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_parse_send_no_tracking_number_returns_error() {
-        let result = GoodSmileSendParser.parse(
-            "注文番号: ABC123\n配送情報:\nテスト商品\n4580590207912 1\n配送元：佐川急便",
-        );
+        let result = GoodSmileSendParser
+            .parse("注文番号: ABC123\n配送情報:\nテスト商品\n4580590207912 1\n配送元：佐川急便");
         assert!(result.is_err());
     }
 }

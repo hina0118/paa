@@ -9,62 +9,52 @@ pub mod send;
 ///
 /// confirm メールは `ご注文番号:`、send メールは `注文番号:` とプレフィックスが異なるため
 /// `ご?` で両方に対応する。
-static ORDER_NUMBER_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"ご?注文番号:\s*([A-Za-z0-9]+)").expect("Invalid ORDER_NUMBER_RE")
-});
+static ORDER_NUMBER_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"ご?注文番号:\s*([A-Za-z0-9]+)").expect("Invalid ORDER_NUMBER_RE"));
 
 /// `ご注文日時: Feb 01, 2025 4:48:07 PM` パターン
-static ORDER_DATE_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"ご注文日時:\s*(.+)").expect("Invalid ORDER_DATE_RE")
-});
+static ORDER_DATE_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"ご注文日時:\s*(.+)").expect("Invalid ORDER_DATE_RE"));
 
 /// `数量：N` / `数量:N` パターン（全角・半角コロン両対応）
 static QUANTITY_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"数量[：:]\s*(\d+)").expect("Invalid QUANTITY_RE"));
 
 /// `小計：￥5,900` / `小計:¥5,900` パターン（全角・半角 ¥ 両対応）
-static ITEM_SUBTOTAL_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"小計[：:]\s*[¥￥]([\d,]+)").expect("Invalid ITEM_SUBTOTAL_RE")
-});
+static ITEM_SUBTOTAL_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"小計[：:]\s*[¥￥]([\d,]+)").expect("Invalid ITEM_SUBTOTAL_RE"));
 
 /// `配送料 ￥0` パターン（行頭限定）
-static SHIPPING_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^配送料\s+[¥￥]([\d,]+)").expect("Invalid SHIPPING_RE")
-});
+static SHIPPING_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^配送料\s+[¥￥]([\d,]+)").expect("Invalid SHIPPING_RE"));
 
 /// `合計 ￥5,900` パターン（行頭限定・`クーポン割引額` 等と混同しないよう限定）
 static TOTAL_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^合計\s+[¥￥]([\d,]+)").expect("Invalid TOTAL_RE"));
 
 /// `配送番号：564841939476` パターン
-static TRACKING_NUMBER_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"配送番号[：:]\s*(\d+)").expect("Invalid TRACKING_NUMBER_RE")
-});
+static TRACKING_NUMBER_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"配送番号[：:]\s*(\d+)").expect("Invalid TRACKING_NUMBER_RE"));
 
 /// `4580590207912 1` 形式の JAN コード（13 桁）+ 数量行パターン
-static JAN_QUANTITY_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^\s*(\d{13})\s+(\d+)\s*$").expect("Invalid JAN_QUANTITY_RE")
-});
+static JAN_QUANTITY_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^\s*(\d{13})\s+(\d+)\s*$").expect("Invalid JAN_QUANTITY_RE"));
 
 /// `配送元：佐川急便(送料無料)` パターン（括弧以降を除去）
-static CARRIER_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"配送元[：:]\s*([^(（\n]+)").expect("Invalid CARRIER_RE")
-});
+static CARRIER_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"配送元[：:]\s*([^(（\n]+)").expect("Invalid CARRIER_RE"));
 
 /// `配送時間：指定なし` パターン
-static DELIVERY_TIME_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"配送時間[：:]\s*(.+)").expect("Invalid DELIVERY_TIME_RE")
-});
+static DELIVERY_TIME_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"配送時間[：:]\s*(.+)").expect("Invalid DELIVERY_TIME_RE"));
 
 /// 注文番号を抽出する
 ///
 /// `ご注文番号:` / `注文番号:` どちらの形式にも対応する。
 pub fn extract_order_number(lines: &[&str]) -> Option<String> {
-    lines.iter().find_map(|line| {
-        ORDER_NUMBER_RE
-            .captures(line)
-            .map(|c| c[1].to_string())
-    })
+    lines
+        .iter()
+        .find_map(|line| ORDER_NUMBER_RE.captures(line).map(|c| c[1].to_string()))
 }
 
 /// 英語形式の注文日時 `"Feb 01, 2025 4:48:07 PM"` を `"YYYY-MM-DD HH:MM"` に変換する
@@ -145,7 +135,11 @@ pub fn extract_items(lines: &[&str]) -> Vec<OrderItem> {
             if let Some(name) = current_name.take() {
                 let quantity = current_quantity.unwrap_or(1);
                 let subtotal: i64 = caps[1].replace(',', "").parse().unwrap_or(0);
-                let unit_price = if quantity > 0 { subtotal / quantity } else { subtotal };
+                let unit_price = if quantity > 0 {
+                    subtotal / quantity
+                } else {
+                    subtotal
+                };
                 items.push(OrderItem {
                     name,
                     manufacturer: None,
@@ -184,11 +178,9 @@ pub fn extract_total_amount(lines: &[&str]) -> Option<i64> {
 
 /// `配送番号：564841939476` 行から追跡番号を抽出する
 pub fn extract_tracking_number(lines: &[&str]) -> Option<String> {
-    lines.iter().find_map(|line| {
-        TRACKING_NUMBER_RE
-            .captures(line)
-            .map(|c| c[1].to_string())
-    })
+    lines
+        .iter()
+        .find_map(|line| TRACKING_NUMBER_RE.captures(line).map(|c| c[1].to_string()))
 }
 
 /// 配送情報セクション内の商品リストを抽出する（send メール用）
@@ -252,11 +244,9 @@ pub fn extract_send_items(lines: &[&str]) -> Vec<OrderItem> {
 
 /// `配送元：佐川急便(送料無料)` から配送業者名を抽出する（括弧以降を除去）
 pub fn extract_carrier(lines: &[&str]) -> Option<String> {
-    lines.iter().find_map(|line| {
-        CARRIER_RE
-            .captures(line)
-            .map(|c| c[1].trim().to_string())
-    })
+    lines
+        .iter()
+        .find_map(|line| CARRIER_RE.captures(line).map(|c| c[1].trim().to_string()))
 }
 
 /// `配送時間：指定なし` から配送時間を抽出する

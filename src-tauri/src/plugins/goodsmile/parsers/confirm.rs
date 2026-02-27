@@ -17,8 +17,8 @@ impl EmailParser for GoodSmileConfirmParser {
     fn parse(&self, email_body: &str) -> Result<OrderInfo, String> {
         let lines: Vec<&str> = email_body.lines().collect();
 
-        let order_number = extract_order_number(&lines)
-            .ok_or_else(|| "Order number not found".to_string())?;
+        let order_number =
+            extract_order_number(&lines).ok_or_else(|| "Order number not found".to_string())?;
 
         let order_date = extract_order_date(&lines);
 
@@ -157,13 +157,15 @@ mod tests {
 
     #[test]
     fn test_parse_confirm_no_order_number_returns_error() {
-        let result = GoodSmileConfirmParser.parse("商品:テスト商品\n数量：1\n小計：￥1,000\n合計 ￥1,000");
+        let result =
+            GoodSmileConfirmParser.parse("商品:テスト商品\n数量：1\n小計：￥1,000\n合計 ￥1,000");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_parse_confirm_no_items_returns_error() {
-        let result = GoodSmileConfirmParser.parse("ご注文番号: ABC123\nご注文日時: Feb 01, 2025 4:48:07 PM");
+        let result =
+            GoodSmileConfirmParser.parse("ご注文番号: ABC123\nご注文日時: Feb 01, 2025 4:48:07 PM");
         assert!(result.is_err());
     }
 }
