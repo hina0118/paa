@@ -84,7 +84,10 @@ impl VendorPlugin for GoodSmilePlugin {
             order_info.order_number
         );
 
-        let order_id = SqliteOrderRepository::save_order_in_tx(
+        // goodsmile_send は金額情報を持たないため、既存アイテム（confirm で登録済みの価格）を
+        // 上書きしないよう save_order_in_tx のみ呼ぶ。
+        // save_order_in_tx はアイテムが既存の場合はスキップするため、価格が保持される。
+        SqliteOrderRepository::save_order_in_tx(
             tx,
             &order_info,
             Some(email_id),
@@ -93,19 +96,6 @@ impl VendorPlugin for GoodSmilePlugin {
         )
         .await
         .map_err(DispatchError::SaveFailed)?;
-
-        // 発送通知は発送時の商品リストが最終状態のため、既存アイテムを置き換える。
-        if parser_type == "goodsmile_send" {
-            SqliteOrderRepository::replace_items_for_order_in_tx(tx, order_id, &order_info)
-                .await
-                .map_err(DispatchError::SaveFailed)?;
-
-            log::debug!(
-                "[goodsmile_send] Replaced items for order_id={} (order_number={})",
-                order_id,
-                order_info.order_number
-            );
-        }
 
         Ok(DispatchOutcome::OrderSaved(Box::new(order_info)))
     }
