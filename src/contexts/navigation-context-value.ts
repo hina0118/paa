@@ -3,6 +3,7 @@ import { createContext } from 'react';
 export type Screen =
   | 'dashboard'
   | 'orders'
+  | 'deliveries'
   | 'batch'
   | 'logs'
   | 'shop-settings'

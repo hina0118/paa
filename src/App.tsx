@@ -10,6 +10,7 @@ import { Settings } from '@/components/screens/settings';
 import { Backup } from '@/components/screens/backup';
 import { ShopSettings } from '@/components/screens/shop-settings';
 import { ProductMasterEdit } from '@/components/screens/product-master';
+import { Delivery } from '@/components/screens/delivery';
 import {
   EmailsTable,
   OrdersTable,
@@ -45,6 +46,8 @@ function AppContent() {
         return <Dashboard />;
       case 'orders':
         return <Orders />;
+      case 'deliveries':
+        return <Delivery />;
       case 'batch':
         return <Batch />;
       case 'logs':
