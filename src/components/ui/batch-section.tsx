@@ -62,8 +62,6 @@ interface BatchSectionProps {
   status?: string;
   /** ステータスバッジの設定 */
   statusConfig?: StatusConfig;
-  /** 統計情報（スロット） */
-  statistics?: ReactNode;
   /** コントロールCard内の追加コンテンツ */
   extraContent?: ReactNode;
   /** 開始前に確認ダイアログを表示する設定 */
@@ -89,7 +87,6 @@ export function BatchSection({
   showCounts = true,
   status,
   statusConfig,
-  statistics,
   extraContent,
   confirmDialog,
 }: BatchSectionProps) {
@@ -137,53 +134,52 @@ export function BatchSection({
         </Dialog>
       )}
 
-      {/* コントロールCard */}
-      <Card>
-        <CardHeader>
-          <CardTitle>{controlTitle}</CardTitle>
-          <CardDescription>{controlDescription}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {extraContent}
-          <div className="flex gap-4">
-            <Button
-              onClick={handleStart}
-              disabled={isRunning || startDisabled}
-              variant={isRunning ? 'secondary' : 'default'}
-            >
-              {isRunning ? runningLabel : startLabel}
-            </Button>
-            {isRunning && onCancel && (
-              <Button onClick={onCancel} variant={cancelVariant}>
-                {cancelLabel}
-              </Button>
-            )}
-          </div>
-          {statusConfig && (
-            <StatusBadge status={status} config={statusConfig} />
-          )}
-        </CardContent>
-      </Card>
-
-      {/* 進捗Card */}
-      {progress && (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* コントロールCard */}
         <Card>
           <CardHeader>
-            <CardTitle>{progressTitle}</CardTitle>
+            <CardTitle>{controlTitle}</CardTitle>
+            <CardDescription>{controlDescription}</CardDescription>
           </CardHeader>
-          <CardContent>
-            <BatchProgressBar
-              progress={progress}
-              completeMessage={completeMessage}
-              showBatchNumber={showBatchNumber}
-              showCounts={showCounts}
-            />
+          <CardContent className="space-y-4">
+            {extraContent}
+            <div className="flex gap-4">
+              <Button
+                onClick={handleStart}
+                disabled={isRunning || startDisabled}
+                variant={isRunning ? 'secondary' : 'default'}
+              >
+                {isRunning ? runningLabel : startLabel}
+              </Button>
+              {isRunning && onCancel && (
+                <Button onClick={onCancel} variant={cancelVariant}>
+                  {cancelLabel}
+                </Button>
+              )}
+            </div>
+            {statusConfig && (
+              <StatusBadge status={status} config={statusConfig} />
+            )}
           </CardContent>
         </Card>
-      )}
 
-      {/* 統計Card */}
-      {statistics}
+        {/* 進捗Card */}
+        {progress && (
+          <Card>
+            <CardHeader>
+              <CardTitle>{progressTitle}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <BatchProgressBar
+                progress={progress}
+                completeMessage={completeMessage}
+                showBatchNumber={showBatchNumber}
+                showCounts={showCounts}
+              />
+            </CardContent>
+          </Card>
+        )}
+      </div>
     </section>
   );
 }

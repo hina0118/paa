@@ -370,7 +370,7 @@ describe('BatchSection', () => {
     });
   });
 
-  describe('extra content and statistics', () => {
+  describe('extra content', () => {
     it('renders extra content in control card', () => {
       const extraContent = <div>追加コンテンツ</div>;
 
@@ -378,28 +378,12 @@ describe('BatchSection', () => {
 
       expect(screen.getByText('追加コンテンツ')).toBeInTheDocument();
     });
-
-    it('renders statistics section', () => {
-      const statistics = <div data-testid="statistics">統計情報カード</div>;
-
-      render(<BatchSection {...defaultProps} statistics={statistics} />);
-
-      expect(screen.getByTestId('statistics')).toBeInTheDocument();
-      expect(screen.getByText('統計情報カード')).toBeInTheDocument();
-    });
-
-    it('does not render statistics when not provided', () => {
-      render(<BatchSection {...defaultProps} />);
-
-      expect(screen.queryByText('統計情報カード')).not.toBeInTheDocument();
-    });
   });
 
   describe('complete structure', () => {
     it('renders complete section with all elements', () => {
       const onCancel = vi.fn();
       const extraContent = <div>追加設定</div>;
-      const statistics = <div data-testid="stats">統計</div>;
 
       render(
         <BatchSection
@@ -410,7 +394,6 @@ describe('BatchSection', () => {
           status="syncing"
           statusConfig={SYNC_STATUS_CONFIG}
           extraContent={extraContent}
-          statistics={statistics}
           progressTitle="処理進捗"
         />
       );
@@ -435,9 +418,6 @@ describe('BatchSection', () => {
       // Progress card
       expect(screen.getByText('処理進捗')).toBeInTheDocument();
       expect(screen.getByText('150 / 300 件')).toBeInTheDocument();
-
-      // Statistics
-      expect(screen.getByTestId('stats')).toBeInTheDocument();
     });
   });
 });
