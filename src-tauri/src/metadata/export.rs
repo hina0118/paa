@@ -12,7 +12,7 @@ use super::file_safety::{copy_restore_point_zip, is_safe_file_name, RESTORE_POIN
 use super::manifest::{Manifest, MANIFEST_VERSION, MAX_IMAGE_ENTRY_SIZE, MAX_NDJSON_LINE_SIZE};
 use super::table_converters::{
     EmailRow, ExcludedItemRow, ExcludedOrderRow, ExportResult, ItemOverrideRow, OrderOverrideRow,
-    ProductMasterRow, ShopSettingsRow,
+    ProductMasterRow, ShopSettingsRow, TrackingCheckLogRow,
 };
 
 /// メタデータをZIPにエクスポート
@@ -117,6 +117,17 @@ where
     .await
     .map_err(|e| format!("Failed to fetch excluded_orders: {e}"))?;
 
+    let tracking_check_logs_rows: Vec<TrackingCheckLogRow> = sqlx::query_as(
+        r#"
+        SELECT id, delivery_id, checked_at, check_status, delivery_status,
+               description, location, error_message, created_at
+        FROM tracking_check_logs
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("Failed to fetch tracking_check_logs: {e}"))?;
+
     // 2. JSON にシリアライズ（emails は後でストリーミング出力するため除外）
     let images_json = serde_json::to_string_pretty(&images_rows)
         .map_err(|e| format!("Failed to serialize images: {e}"))?;
@@ -132,6 +143,8 @@ where
         .map_err(|e| format!("Failed to serialize excluded_items: {e}"))?;
     let excluded_orders_json = serde_json::to_string_pretty(&excluded_orders_rows)
         .map_err(|e| format!("Failed to serialize excluded_orders: {e}"))?;
+    let tracking_check_logs_json = serde_json::to_string_pretty(&tracking_check_logs_rows)
+        .map_err(|e| format!("Failed to serialize tracking_check_logs: {e}"))?;
 
     let manifest = Manifest {
         version: MANIFEST_VERSION,
@@ -204,6 +217,13 @@ where
     zip_writer
         .write_all(excluded_orders_json.as_bytes())
         .map_err(|e| format!("Failed to write excluded_orders: {e}"))?;
+
+    zip_writer
+        .start_file("tracking_check_logs.json", options)
+        .map_err(|e| format!("Failed to add tracking_check_logs.json: {e}"))?;
+    zip_writer
+        .write_all(tracking_check_logs_json.as_bytes())
+        .map_err(|e| format!("Failed to write tracking_check_logs: {e}"))?;
 
     // emails: ストリーミングで NDJSON 出力（OOM 回避）
     zip_writer
@@ -285,6 +305,7 @@ where
         order_overrides_count: order_overrides_rows.len(),
         excluded_items_count: excluded_items_rows.len(),
         excluded_orders_count: excluded_orders_rows.len(),
+        tracking_check_logs_count: tracking_check_logs_rows.len(),
         image_files_count,
         images_skipped,
         restore_point_saved: false,
@@ -448,6 +469,39 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
+        sqlx::query(
+            r"
+            CREATE TABLE IF NOT EXISTS deliveries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id INTEGER NOT NULL
+            );",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r"
+            CREATE TABLE IF NOT EXISTS tracking_check_logs (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                delivery_id     INTEGER NOT NULL,
+                checked_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                check_status    TEXT NOT NULL DEFAULT 'success'
+                                CHECK(check_status IN ('success', 'failed', 'not_found')),
+                delivery_status TEXT
+                                CHECK(delivery_status IS NULL OR delivery_status IN (
+                                    'not_shipped', 'preparing', 'shipped', 'in_transit',
+                                    'out_for_delivery', 'delivered', 'failed', 'returned', 'cancelled'
+                                )),
+                description     TEXT,
+                location        TEXT,
+                error_message   TEXT,
+                created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (delivery_id) REFERENCES deliveries(id) ON DELETE CASCADE
+            );",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
         pool
     }
 
@@ -512,6 +566,20 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
+        sqlx::query(
+            r"INSERT INTO deliveries (id, order_id) VALUES (1, 99)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r"INSERT INTO tracking_check_logs
+              (delivery_id, checked_at, check_status, delivery_status, description, location)
+              VALUES (1, '2024-01-01 12:00:00', 'success', 'in_transit', '品川営業所に到着', '品川営業所')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
 
         let tmp = TempDir::new().unwrap();
         let images_dir = tmp.path().join("images");
@@ -530,11 +598,17 @@ mod tests {
         assert_eq!(export_result.order_overrides_count, 1);
         assert_eq!(export_result.excluded_items_count, 1);
         assert_eq!(export_result.excluded_orders_count, 1);
+        assert_eq!(export_result.tracking_check_logs_count, 1);
         assert_eq!(export_result.image_files_count, 0); // img1.png は存在しない
         assert_eq!(export_result.images_skipped, 1); // img1.png が存在しないためスキップ
 
         // インポート先の新規 DB
         let pool2 = create_test_pool().await;
+        // tracking_check_logs の FK を満たすため配送レコードを事前挿入
+        sqlx::query("INSERT INTO deliveries (id, order_id) VALUES (1, 99)")
+            .execute(&pool2)
+            .await
+            .unwrap();
         buf.set_position(0);
 
         let import_result = import_metadata_from_reader(&pool2, &images_dir, buf).await;
@@ -552,6 +626,7 @@ mod tests {
         assert_eq!(import_result.order_overrides_inserted, 1);
         assert_eq!(import_result.excluded_items_inserted, 1);
         assert_eq!(import_result.excluded_orders_inserted, 1);
+        assert_eq!(import_result.tracking_check_logs_inserted, 1);
 
         // データが正しく復元されているか確認
         let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM images")
@@ -590,6 +665,11 @@ mod tests {
             .unwrap();
         assert_eq!(count.0, 1);
         let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM excluded_orders")
+            .fetch_one(&pool2)
+            .await
+            .unwrap();
+        assert_eq!(count.0, 1);
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM tracking_check_logs")
             .fetch_one(&pool2)
             .await
             .unwrap();
@@ -697,6 +777,11 @@ mod tests {
         assert!(
             names.contains(&"excluded_orders.json".to_string()),
             "excluded_orders.json should exist, got: {:?}",
+            names
+        );
+        assert!(
+            names.contains(&"tracking_check_logs.json".to_string()),
+            "tracking_check_logs.json should exist, got: {:?}",
             names
         );
     }
