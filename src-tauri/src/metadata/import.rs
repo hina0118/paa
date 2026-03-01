@@ -424,7 +424,7 @@ where
     for row in &tracking_check_logs_rows {
         let result = sqlx::query(
             r#"
-            INSERT INTO tracking_check_logs (
+            INSERT OR REPLACE INTO tracking_check_logs (
                 delivery_id, checked_at, check_status, delivery_status,
                 description, location, error_message, created_at
             )
