@@ -9,6 +9,8 @@ interface CircularProgressProps {
   strokeWidth?: number;
   /** クラス名 */
   className?: string;
+  /** progressbar のアクセシブルネーム */
+  'aria-label'?: string;
 }
 
 export function CircularProgress({
@@ -16,18 +18,20 @@ export function CircularProgress({
   size = 80,
   strokeWidth = 6,
   className,
+  'aria-label': ariaLabel,
 }: CircularProgressProps) {
+  const clampedValue = Math.min(Math.max(value, 0), 100);
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
-  const offset =
-    circumference - (Math.min(Math.max(value, 0), 100) / 100) * circumference;
+  const offset = circumference - (clampedValue / 100) * circumference;
 
   return (
     <div
       role="progressbar"
-      aria-valuenow={Math.round(value)}
+      aria-valuenow={Math.round(clampedValue)}
       aria-valuemin={0}
       aria-valuemax={100}
+      aria-label={ariaLabel}
       className={cn(
         'relative inline-flex items-center justify-center',
         className
@@ -55,7 +59,7 @@ export function CircularProgress({
         />
       </svg>
       <span className="absolute text-sm font-semibold">
-        {Math.round(value)}%
+        {Math.round(clampedValue)}%
       </span>
     </div>
   );
