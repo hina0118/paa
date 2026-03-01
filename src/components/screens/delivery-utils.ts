@@ -3,7 +3,9 @@ export function buildTrackingUrl(
   trackingNumber: string | null
 ): string | null {
   if (!carrier || !trackingNumber) return null;
-  const num = encodeURIComponent(trackingNumber.trim());
+  const trimmed = trackingNumber.trim();
+  if (!trimmed) return null;
+  const num = encodeURIComponent(trimmed);
   if (carrier.includes('佐川')) {
     return `https://k2k.sagawa-exp.co.jp/p/web/okurijosearch.do?okurijoNo=${num}`;
   }
