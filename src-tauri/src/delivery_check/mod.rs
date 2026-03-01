@@ -346,7 +346,7 @@ fn decode_body(body: &Bytes) -> Result<String, String> {
 
 async fn insert_check_log(
     pool: &SqlitePool,
-    delivery_id: i64,
+    tracking_number: &str,
     check_status: &str,
     delivery_status: Option<&str>,
     description: Option<&str>,
@@ -355,10 +355,10 @@ async fn insert_check_log(
     sqlx::query(
         r#"
         INSERT INTO tracking_check_logs
-            (delivery_id, checked_at, check_status, delivery_status, description, error_message)
+            (tracking_number, checked_at, check_status, delivery_status, description, error_message)
         VALUES
             (?, CURRENT_TIMESTAMP, ?, ?, ?, ?)
-        ON CONFLICT(delivery_id) DO UPDATE SET
+        ON CONFLICT(tracking_number) DO UPDATE SET
             checked_at      = excluded.checked_at,
             check_status    = excluded.check_status,
             delivery_status = excluded.delivery_status,
@@ -366,7 +366,7 @@ async fn insert_check_log(
             error_message   = excluded.error_message
         "#,
     )
-    .bind(delivery_id)
+    .bind(tracking_number)
     .bind(check_status)
     .bind(delivery_status)
     .bind(description)
@@ -445,7 +445,7 @@ impl BatchTask for DeliveryCheckTask {
             );
             insert_check_log(
                 &ctx.pool,
-                delivery_id,
+                &input.tracking_number,
                 "not_found",
                 Some("delivered"),
                 Some("未対応の配送業者"),
@@ -476,7 +476,7 @@ impl BatchTask for DeliveryCheckTask {
                 );
                 insert_check_log(
                     &ctx.pool,
-                    delivery_id,
+                    &input.tracking_number,
                     "failed",
                     None,
                     None,
@@ -497,7 +497,7 @@ impl BatchTask for DeliveryCheckTask {
         // ログ挿入
         insert_check_log(
             &ctx.pool,
-            delivery_id,
+            &input.tracking_number,
             parsed.check_status,
             Some(parsed.delivery_status),
             parsed.description.as_deref(),
