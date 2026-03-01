@@ -281,6 +281,8 @@ async fn fetch_html(client: &Client, url: &str, form_body: Option<&str>) -> Resu
 
     let status = resp.status().as_u16();
     if !(200..300).contains(&status) {
+        // Drain the body so the underlying connection can be reused.
+        let _ = resp.bytes().await;
         return Err(format!("HTTP error: status={status} url={url}"));
     }
 
