@@ -525,8 +525,8 @@ mod tests {
 
     #[test]
     fn test_parse_omatome_no_items_returns_error() {
-        let result = PremiumBandaiOmatomeParser
-            .parse("■ご注文番号：12345\n■ご注文日：2025年1月15日");
+        let result =
+            PremiumBandaiOmatomeParser.parse("■ご注文番号：12345\n■ご注文日：2025年1月15日");
         assert!(result.is_err());
     }
 }

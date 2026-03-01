@@ -32,14 +32,12 @@ static HTML_DETECT_RE: Lazy<Regex> = Lazy::new(|| {
 ///
 /// マッチ後、`extract_order_number` 側で長さが 5 桁かどうかを検証する。
 /// `regex` クレートは lookahead 非対応のため、コード側で長さチェックを行う。
-static ORDER_NUMBER_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"ご?注文番号[：:]\s*(\d+)").expect("Invalid ORDER_NUMBER_RE")
-});
+static ORDER_NUMBER_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"ご?注文番号[：:]\s*(\d+)").expect("Invalid ORDER_NUMBER_RE"));
 
 /// 注文番号: `【ご?注文No.】　00130` 形式（同一行、おまとめメール・HTML メール）
-static ORDER_NUMBER_NO_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"【ご?注文No\.】\s*(\d+)").expect("Invalid ORDER_NUMBER_NO_RE")
-});
+static ORDER_NUMBER_NO_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"【ご?注文No\.】\s*(\d+)").expect("Invalid ORDER_NUMBER_NO_RE"));
 
 /// 注文日（YYYY年M月D日）
 static ORDER_DATE_RE: Lazy<Regex> = Lazy::new(|| {
@@ -52,24 +50,20 @@ static ORDER_DATE_ISO_RE: Lazy<Regex> = Lazy::new(|| {
 });
 
 /// 注文番号ラベルのみの行（次行に値が来る HTML テーブル形式）: `【注文No.】`
-static ORDER_NUMBER_NO_LABEL_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^【ご?注文No\.】\s*$").expect("Invalid ORDER_NUMBER_NO_LABEL_RE")
-});
+static ORDER_NUMBER_NO_LABEL_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^【ご?注文No\.】\s*$").expect("Invalid ORDER_NUMBER_NO_LABEL_RE"));
 
 /// 注文日ラベルのみの行（次行に値が来る HTML テーブル形式）: `【注文日】`
-static ORDER_DATE_ISO_LABEL_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^【ご?注文日】\s*$").expect("Invalid ORDER_DATE_ISO_LABEL_RE")
-});
+static ORDER_DATE_ISO_LABEL_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^【ご?注文日】\s*$").expect("Invalid ORDER_DATE_ISO_LABEL_RE"));
 
 /// ISO 形式日付値行: `2025-05-14` または `2025-05-14 12:02:14`（次行パターン用）
-static ISO_DATE_VALUE_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^(\d{4})-(\d{2})-(\d{2})").expect("Invalid ISO_DATE_VALUE_RE")
-});
+static ISO_DATE_VALUE_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^(\d{4})-(\d{2})-(\d{2})").expect("Invalid ISO_DATE_VALUE_RE"));
 
 /// 送料ラベルのみの行（次行に値が来る HTML テーブル形式）: `送料：`
-static SHIPPING_LABEL_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^送料[：:]\s*$").expect("Invalid SHIPPING_LABEL_RE")
-});
+static SHIPPING_LABEL_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^送料[：:]\s*$").expect("Invalid SHIPPING_LABEL_RE"));
 
 /// 支払手数料ラベルのみの行（次行に値が来る HTML テーブル形式）
 static PAYMENT_FEE_LABEL_RE: Lazy<Regex> = Lazy::new(|| {
@@ -77,9 +71,8 @@ static PAYMENT_FEE_LABEL_RE: Lazy<Regex> = Lazy::new(|| {
 });
 
 /// `N円` 形式の金額値行（次行パターン用）: `660円`
-static YEN_AMOUNT_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^([\d,]+)円$").expect("Invalid YEN_AMOUNT_RE")
-});
+static YEN_AMOUNT_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^([\d,]+)円$").expect("Invalid YEN_AMOUNT_RE"));
 
 /// 単価行：`単価：￥5,000（税込）` または `￥5,000（税込）`
 static UNIT_PRICE_RE: Lazy<Regex> = Lazy::new(|| {
@@ -87,23 +80,20 @@ static UNIT_PRICE_RE: Lazy<Regex> = Lazy::new(|| {
 });
 
 /// 個数行：`個数：1個` または `数量：1個`
-static QUANTITY_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?:個数|数量)[：:]\s*(\d+)個?").expect("Invalid QUANTITY_RE")
-});
+static QUANTITY_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?:個数|数量)[：:]\s*(\d+)個?").expect("Invalid QUANTITY_RE"));
 
 /// 商品ごとの小計行：`小計：￥5,000`
-static ITEM_SUBTOTAL_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^小計[：:]\s*[¥￥]([\d,]+)").expect("Invalid ITEM_SUBTOTAL_RE")
-});
+static ITEM_SUBTOTAL_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^小計[：:]\s*[¥￥]([\d,]+)").expect("Invalid ITEM_SUBTOTAL_RE"));
 
 /// 送料行
 ///
 /// 対応形式:
 /// - `送料：￥660`（`¥` 前置き）
 /// - `送料：　660円`（`円` 後置き、おまとめメール形式）
-static SHIPPING_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^送料[：:]\s*[¥￥]?([\d,]+)").expect("Invalid SHIPPING_RE")
-});
+static SHIPPING_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^送料[：:]\s*[¥￥]?([\d,]+)").expect("Invalid SHIPPING_RE"));
 
 /// 支払手数料行（代引手数料・決済手数料も含む）
 ///
@@ -111,7 +101,8 @@ static SHIPPING_RE: Lazy<Regex> = Lazy::new(|| {
 /// - `支払手数料：￥330`
 /// - `決済手数料：　0円`（おまとめメール形式）
 static PAYMENT_FEE_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^(?:支払|代引|決済)[手数]*料[：:]\s*[¥￥]?([\d,]+)").expect("Invalid PAYMENT_FEE_RE")
+    Regex::new(r"^(?:支払|代引|決済)[手数]*料[：:]\s*[¥￥]?([\d,]+)")
+        .expect("Invalid PAYMENT_FEE_RE")
 });
 
 /// 合計行
@@ -140,9 +131,8 @@ static TRACKING_RE: Lazy<Regex> = Lazy::new(|| {
 });
 
 /// 配送業者：構造化行パターン `配送業者：佐川急便`
-static CARRIER_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?:配送業者|配送会社)[：:]\s*(.+)").expect("Invalid CARRIER_RE")
-});
+static CARRIER_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?:配送業者|配送会社)[：:]\s*(.+)").expect("Invalid CARRIER_RE"));
 
 /// 商品名正規化: 末尾・先頭の【】ブロックを除去
 ///
@@ -445,7 +435,10 @@ pub fn carrier_tracking_url(carrier: &str, tracking_number: &str) -> Option<Stri
             "https://jizen.kuronekoyamato.co.jp/jizen/servlet/com.nec_fielding.jizen.web.JizenServlet?id={}",
             tracking_number
         ))
-    } else if carrier.contains("ゆうパック") || carrier.contains("日本郵便") || carrier.contains("郵便") {
+    } else if carrier.contains("ゆうパック")
+        || carrier.contains("日本郵便")
+        || carrier.contains("郵便")
+    {
         Some(format!(
             "https://trackings.post.japanpost.jp/services/srv/search/direct?reqCodeNo1={}",
             tracking_number
@@ -497,9 +490,7 @@ pub fn parse_price(s: &str) -> Option<i64> {
 
 /// 行から個数を解析する
 pub fn parse_quantity(line: &str) -> Option<i64> {
-    QUANTITY_RE
-        .captures(line)
-        .and_then(|c| c[1].parse().ok())
+    QUANTITY_RE.captures(line).and_then(|c| c[1].parse().ok())
 }
 
 /// 行から商品ごとの小計を解析する
@@ -830,19 +821,14 @@ mod tests {
     fn test_body_to_lines_html_table_no_br() {
         let body = "<table>\n<tr>\n<th>注文番号</th>\n<td>12345</td>\n</tr>\n</table>";
         let lines = body_to_lines(body);
-        assert!(
-            lines.iter().any(|l| l == "注文番号"),
-            "got: {:?}",
-            lines
-        );
+        assert!(lines.iter().any(|l| l == "注文番号"), "got: {:?}", lines);
         assert!(lines.iter().any(|l| l == "12345"), "got: {:?}", lines);
     }
 
     /// `<td>` 内の価格行もタグが除去されて価格正規表現にマッチできる
     #[test]
     fn test_body_to_lines_html_table_price_line() {
-        let body =
-            "<table>\n<tr>\n<td>1,980円&times;1＝1,980円</td>\n</tr>\n</table>";
+        let body = "<table>\n<tr>\n<td>1,980円&times;1＝1,980円</td>\n</tr>\n</table>";
         let lines = body_to_lines(body);
         assert!(
             lines.iter().any(|l| l == "1,980円&times;1＝1,980円"),
