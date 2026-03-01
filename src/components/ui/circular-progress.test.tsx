@@ -9,7 +9,7 @@ describe('CircularProgress', () => {
     expect(progressbar).toBeInTheDocument();
   });
 
-  it('sets aria-valuenow to the given value', () => {
+  it('rounds and sets aria-valuenow to the given value', () => {
     const { container } = render(<CircularProgress value={75} />);
     const progressbar = container.querySelector('[role="progressbar"]');
     expect(progressbar).toHaveAttribute('aria-valuenow', '75');
