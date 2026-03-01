@@ -116,6 +116,8 @@ impl VendorPlugin for PremiumBandaiPlugin {
 
                 apply_internal_date(&mut order_info, internal_date);
 
+                // `DateTime` は生成後に捨てており、`from_timestamp_millis` が
+                // `Some` を返すかどうかでタイムスタンプの有効性のみを検証している。
                 let change_email_internal_date =
                     internal_date.and_then(|ts| DateTime::from_timestamp_millis(ts).map(|_| ts));
 
@@ -307,6 +309,80 @@ async fn cleanup_phantom_omatome_items_in_tx(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_premium_bandai_plugin_parser_types() {
+        let plugin = PremiumBandaiPlugin;
+        let types = plugin.parser_types();
+        assert_eq!(types.len(), 3);
+        assert!(types.contains(&"premium_bandai_confirm"));
+        assert!(types.contains(&"premium_bandai_omatome"));
+        assert!(types.contains(&"premium_bandai_send"));
+    }
+
+    #[test]
+    fn test_premium_bandai_plugin_priority() {
+        assert_eq!(PremiumBandaiPlugin.priority(), 10);
+    }
+
+    #[test]
+    fn test_premium_bandai_plugin_get_parser_confirm() {
+        assert!(PremiumBandaiPlugin
+            .get_parser("premium_bandai_confirm")
+            .is_some());
+    }
+
+    #[test]
+    fn test_premium_bandai_plugin_get_parser_omatome() {
+        assert!(PremiumBandaiPlugin
+            .get_parser("premium_bandai_omatome")
+            .is_some());
+    }
+
+    #[test]
+    fn test_premium_bandai_plugin_get_parser_send() {
+        assert!(PremiumBandaiPlugin
+            .get_parser("premium_bandai_send")
+            .is_some());
+    }
+
+    #[test]
+    fn test_premium_bandai_plugin_get_parser_unknown_returns_none() {
+        assert!(PremiumBandaiPlugin.get_parser("unknown").is_none());
+        assert!(PremiumBandaiPlugin.get_parser("").is_none());
+    }
+
+    #[test]
+    fn test_premium_bandai_shop_name() {
+        assert_eq!(PremiumBandaiPlugin.shop_name(), "プレミアムバンダイ");
+    }
+
+    #[test]
+    fn test_premium_bandai_default_shop_settings_count() {
+        assert_eq!(PremiumBandaiPlugin.default_shop_settings().len(), 6);
+    }
+
+    #[test]
+    fn test_premium_bandai_default_shop_settings_parser_types() {
+        let settings = PremiumBandaiPlugin.default_shop_settings();
+        let parser_types: Vec<&str> = settings.iter().map(|s| s.parser_type.as_str()).collect();
+        assert!(parser_types.contains(&"premium_bandai_confirm"));
+        assert!(parser_types.contains(&"premium_bandai_omatome"));
+        assert!(parser_types.contains(&"premium_bandai_send"));
+    }
+
+    #[test]
+    fn test_premium_bandai_default_shop_settings_sender_addresses() {
+        let settings = PremiumBandaiPlugin.default_shop_settings();
+        let senders: Vec<&str> = settings.iter().map(|s| s.sender_address.as_str()).collect();
+        assert!(senders.contains(&"evidence_bc@p-bandai.jp"));
+        assert!(senders.contains(&"evidence_info@p-bandai.jp"));
+    }
 }
 
 inventory::submit!(PluginRegistration {
