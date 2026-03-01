@@ -8,6 +8,7 @@ use tauri::{Listener, Manager};
 use tauri_plugin_sql::{Migration, MigrationKind};
 
 pub mod batch_runner;
+pub mod delivery_check;
 pub mod clipboard_watcher;
 pub mod commands;
 pub mod config;
@@ -39,12 +40,26 @@ fn is_sqlite_version_supported(version: &str) -> bool {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let migrations = || {
-        vec![Migration {
-            version: 1,
-            description: "init",
-            sql: include_str!("../migrations/001_init.sql"),
-            kind: MigrationKind::Up,
-        }]
+        vec![
+            Migration {
+                version: 1,
+                description: "init",
+                sql: include_str!("../migrations/001_init.sql"),
+                kind: MigrationKind::Up,
+            },
+            Migration {
+                version: 2,
+                description: "tracking_check_logs",
+                sql: include_str!("../migrations/002_tracking_check_logs.sql"),
+                kind: MigrationKind::Up,
+            },
+            Migration {
+                version: 3,
+                description: "tracking_check_logs_unique_delivery",
+                sql: include_str!("../migrations/003_tracking_check_logs_unique_delivery.sql"),
+                kind: MigrationKind::Up,
+            },
+        ]
     };
 
     tauri::Builder::default()
@@ -203,6 +218,10 @@ pub fn run() {
             // Initialize product name parse state (多重実行ガード用)
             app.manage(commands::ProductNameParseState::new());
             log::info!("Product name parse state initialized");
+
+            // Initialize delivery check state
+            app.manage(commands::DeliveryCheckState::new());
+            log::info!("Delivery check state initialized");
 
             // Restore window settings and setup close handler
             let window = app
@@ -492,6 +511,8 @@ pub fn run() {
             commands::get_all_excluded_orders,
             commands::get_product_master_list,
             commands::update_product_master,
+            commands::start_delivery_check,
+            commands::cancel_delivery_check,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

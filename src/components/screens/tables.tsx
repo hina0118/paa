@@ -59,3 +59,9 @@ export function ExcludedItemsTable() {
 export function ExcludedOrdersTable() {
   return <TableViewer tableName="excluded_orders" title="除外注文テーブル" />;
 }
+
+export function TrackingCheckLogsTable() {
+  return (
+    <TableViewer tableName="tracking_check_logs" title="配送確認ログテーブル" />
+  );
+}

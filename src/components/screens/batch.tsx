@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useSync } from '@/contexts/use-sync';
 import { useParse } from '@/contexts/use-parse';
+import { useDeliveryCheck } from '@/contexts/use-delivery-check';
 import { useNavigation } from '@/contexts/use-navigation';
 import { toastError, formatError } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
@@ -14,6 +15,12 @@ import { PageHeader } from '@/components/ui/page-header';
 import { Layers } from 'lucide-react';
 
 export function Batch() {
+  const {
+    isChecking,
+    progress: deliveryCheckProgress,
+    startDeliveryCheck,
+    cancelDeliveryCheck,
+  } = useDeliveryCheck();
   const {
     isSyncing,
     progress: syncProgress,
@@ -80,6 +87,22 @@ export function Batch() {
       await startProductNameParse();
     } catch (err) {
       toastError(`商品名解析の開始に失敗しました: ${formatError(err)}`);
+    }
+  };
+
+  const handleStartDeliveryCheck = async () => {
+    try {
+      await startDeliveryCheck();
+    } catch (err) {
+      toastError(`配送状況確認の開始に失敗しました: ${formatError(err)}`);
+    }
+  };
+
+  const handleCancelDeliveryCheck = async () => {
+    try {
+      await cancelDeliveryCheck();
+    } catch (err) {
+      toastError(`配送状況確認の中止に失敗しました: ${formatError(err)}`);
     }
   };
 
@@ -198,6 +221,29 @@ export function Batch() {
         }
       />
 
+      {/* 4. 配送状況確認 */}
+      <BatchSection
+        title="4. 配送状況確認"
+        controlTitle="配送状況確認コントロール"
+        controlDescription="各配送業者のHPにアクセスして追跡番号の現在状況を確認します"
+        isRunning={isChecking}
+        progress={deliveryCheckProgress}
+        onStart={handleStartDeliveryCheck}
+        onCancel={handleCancelDeliveryCheck}
+        startLabel="配送状況を確認"
+        runningLabel="確認中..."
+        startDisabled={isSyncing || isParsing || isProductNameParsing}
+        completeMessage="配送状況確認が完了しました"
+        progressTitle="確認進捗"
+        extraContent={
+          <p className="text-sm text-muted-foreground">
+            未配達の荷物の追跡番号で配送業者のHPを確認します。
+            情報が取得できない場合は配達完了として記録します。
+            バッチ間に3秒のインターバルを設けています。
+          </p>
+        }
+      />
+
       {/* Error Display */}
       {(syncProgress?.error ||
         parseProgress?.error ||
@@ -231,6 +277,7 @@ export function Batch() {
             <li>Gmail同期でメールを取得</li>
             <li>メールパースで注文情報を抽出</li>
             <li>商品名解析（AI）でメーカー情報を抽出</li>
+            <li>配送状況確認で各荷物の現在状況を記録</li>
           </ol>
           <p>
             Gmail APIを使用するには、事前にGoogle Cloud

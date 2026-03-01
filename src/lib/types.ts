@@ -64,6 +64,20 @@ export type Delivery = {
   updatedAt: Date;
 };
 
+export type CheckStatus = 'success' | 'failed' | 'not_found';
+
+export type TrackingCheckLog = {
+  id: number;
+  deliveryId: number;
+  checkedAt: Date;
+  checkStatus: CheckStatus;
+  deliveryStatus?: DeliveryStatus;
+  description?: string;
+  location?: string;
+  errorMessage?: string;
+  createdAt: Date;
+};
+
 export type OrderWithDetails = Order & {
   items: (Item & { image?: ItemImage })[];
   deliveries: Delivery[];

@@ -40,6 +40,7 @@ export const TASK_NAMES = {
   GMAIL_SYNC: 'メール同期',
   EMAIL_PARSE: 'メールパース',
   PRODUCT_NAME_PARSE: '商品名パース',
+  DELIVERY_CHECK: '配送状況確認',
 } as const;
 
 /**
