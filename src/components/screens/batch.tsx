@@ -2,7 +2,6 @@ import { useEffect } from 'react';
 import { useSync } from '@/contexts/use-sync';
 import { useParse } from '@/contexts/use-parse';
 import { useNavigation } from '@/contexts/use-navigation';
-import { formatDateTime } from '@/lib/utils';
 import { toastError, formatError } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
 import { BatchSection } from '@/components/ui/batch-section';
@@ -105,44 +104,11 @@ export function Batch() {
         runningLabel="同期中..."
         startDisabled={isParsing || isProductNameParsing}
         completeMessage="同期が完了しました"
-        progressTitle="同期進捗"
         showBatchNumber
         showCounts={false}
         status={syncMetadata?.sync_status}
         statusConfig={SYNC_STATUS_CONFIG}
-        statistics={
-          syncMetadata && (
-            <Card>
-              <CardHeader>
-                <CardTitle>同期統計</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <span className="text-muted-foreground">総取得件数:</span>
-                    <div className="text-2xl font-bold">
-                      {syncMetadata.total_synced_count}
-                    </div>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">バッチサイズ:</span>
-                    <div className="text-2xl font-bold">
-                      {syncMetadata.batch_size}件
-                    </div>
-                  </div>
-                  {syncMetadata.last_sync_completed_at && (
-                    <div className="col-span-2">
-                      <span className="text-muted-foreground">最終同期:</span>
-                      <div className="text-sm">
-                        {formatDateTime(syncMetadata.last_sync_completed_at)}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          )
-        }
+        progressTitle="同期進捗"
       />
 
       {/* 2. メールパース */}
@@ -192,41 +158,6 @@ export function Batch() {
             バッチサイズ: {parseMetadata?.batch_size || 100}件
             （設定画面で変更可能）
           </p>
-        }
-        statistics={
-          parseMetadata && (
-            <Card>
-              <CardHeader>
-                <CardTitle>パース統計</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <span className="text-muted-foreground">総パース件数:</span>
-                    <div className="text-2xl font-bold">
-                      {parseMetadata.total_parsed_count}
-                    </div>
-                  </div>
-                  {parseMetadata.last_parse_started_at && (
-                    <div>
-                      <span className="text-muted-foreground">開始日時:</span>
-                      <div className="text-sm">
-                        {formatDateTime(parseMetadata.last_parse_started_at)}
-                      </div>
-                    </div>
-                  )}
-                  {parseMetadata.last_parse_completed_at && (
-                    <div className="col-span-2">
-                      <span className="text-muted-foreground">最終完了:</span>
-                      <div className="text-sm">
-                        {formatDateTime(parseMetadata.last_parse_completed_at)}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          )
         }
       />
 
