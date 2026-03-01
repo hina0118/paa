@@ -31,6 +31,7 @@ import { NavigationProvider } from '@/contexts/navigation-provider';
 import { useNavigation } from '@/contexts/use-navigation';
 import { SyncProvider } from '@/contexts/sync-provider';
 import { ParseProvider } from '@/contexts/parse-provider';
+import { DeliveryCheckProvider } from '@/contexts/delivery-check-provider';
 import { ThemeProvider } from '@/contexts/theme-provider';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
@@ -205,7 +206,9 @@ function App() {
       <NavigationProvider>
         <SyncProvider>
           <ParseProvider>
-            <AppContent />
+            <DeliveryCheckProvider>
+              <AppContent />
+            </DeliveryCheckProvider>
           </ParseProvider>
         </SyncProvider>
       </NavigationProvider>
