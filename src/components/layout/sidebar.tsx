@@ -57,6 +57,7 @@ type TableScreen = Extract<
   | 'table-order-overrides'
   | 'table-excluded-items'
   | 'table-excluded-orders'
+  | 'table-tracking-check-logs'
 >;
 
 type TableItem = {
@@ -92,6 +93,7 @@ const tableItems: TableItem[] = [
   { name: '注文上書き', id: 'table-order-overrides' },
   { name: '除外アイテム', id: 'table-excluded-items' },
   { name: '除外注文', id: 'table-excluded-orders' },
+  { name: '配送確認ログ', id: 'table-tracking-check-logs' },
 ];
 
 export function Sidebar() {

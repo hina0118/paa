@@ -1,5 +1,6 @@
 pub mod api_keys;
 pub mod config;
+pub mod delivery_check;
 pub mod image_search;
 pub mod log;
 pub mod metadata;
@@ -14,6 +15,7 @@ pub mod window;
 
 pub use api_keys::*;
 pub use config::*;
+pub use delivery_check::*;
 pub use image_search::*;
 pub use log::*;
 pub use metadata::*;

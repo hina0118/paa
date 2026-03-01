@@ -22,6 +22,7 @@ describe('table-utils', () => {
       expect(VALID_TABLES).toContain('order_overrides');
       expect(VALID_TABLES).toContain('excluded_items');
       expect(VALID_TABLES).toContain('excluded_orders');
+      expect(VALID_TABLES).toContain('tracking_check_logs');
     });
   });
 

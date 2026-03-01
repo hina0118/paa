@@ -11,11 +11,13 @@
 //! - `product_parse_orchestrator` – 商品名解析オーケストレーション
 
 pub(crate) mod error_handler;
+mod delivery_check_orchestrator;
 mod parse_orchestrator;
 mod product_parse_orchestrator;
 mod sync_orchestrator;
 
 // — re-exports —
+pub use delivery_check_orchestrator::run_delivery_check_task;
 pub use parse_orchestrator::run_batch_parse_task;
 pub use product_parse_orchestrator::run_product_name_parse_task;
 pub use sync_orchestrator::run_sync_task;

@@ -26,6 +26,7 @@ import {
   OrderOverridesTable,
   ExcludedItemsTable,
   ExcludedOrdersTable,
+  TrackingCheckLogsTable,
 } from '@/components/screens/tables';
 import { NavigationProvider } from '@/contexts/navigation-provider';
 import { useNavigation } from '@/contexts/use-navigation';
@@ -91,6 +92,8 @@ function AppContent() {
         return <ExcludedItemsTable />;
       case 'table-excluded-orders':
         return <ExcludedOrdersTable />;
+      case 'table-tracking-check-logs':
+        return <TrackingCheckLogsTable />;
       default:
         return <Orders />;
     }
