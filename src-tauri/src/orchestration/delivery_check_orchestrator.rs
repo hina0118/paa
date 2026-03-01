@@ -41,16 +41,16 @@ async fn run_delivery_check_task_with<A: BatchCommandsApp>(
         }
     };
 
-    // 対象: 未配達かつ追跡番号あり
+    // 対象: 未配達かつ追跡番号あり（空白のみは除外）
     let rows: Vec<(i64, String, String)> = match sqlx::query_as(
         r#"
         SELECT id, tracking_number, carrier
         FROM deliveries
         WHERE delivery_status NOT IN ('delivered', 'cancelled', 'returned')
           AND tracking_number IS NOT NULL
-          AND tracking_number != ''
+          AND TRIM(tracking_number) != ''
           AND carrier IS NOT NULL
-          AND carrier != ''
+          AND TRIM(carrier) != ''
         ORDER BY updated_at ASC
         "#,
     )
