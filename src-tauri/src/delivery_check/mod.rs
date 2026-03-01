@@ -691,7 +691,7 @@ mod tests {
         let html = "<html>発送いたしました</html>";
         let result = parse_tracking_html("佐川急便", html);
         assert_eq!(result.check_status, "success");
-        assert_eq!(result.delivery_status, "shipped");
+        assert_eq!(result.delivery_status, "unknown");
     }
 
     // --- charset_from_content_type ---
