@@ -90,10 +90,10 @@ pub(super) type ExcludedItemRow = (
 pub(super) type ExcludedOrderRow = (i64, String, String, Option<String>, Option<String>);
 
 /// tracking_check_logs テーブル行
-/// (id, delivery_id, checked_at, check_status, delivery_status, description, location, error_message, created_at)
+/// (id, tracking_number, checked_at, check_status, delivery_status, description, location, error_message, created_at)
 pub(super) type TrackingCheckLogRow = (
     i64,
-    i64,
+    String,
     String,
     String,
     Option<String>,
@@ -256,7 +256,7 @@ pub(super) struct JsonExcludedOrderRow(
 #[derive(Debug, Deserialize)]
 pub(super) struct JsonTrackingCheckLogRow(
     pub(super) i64,            // id (未使用)
-    pub(super) i64,            // delivery_id
+    pub(super) String,         // tracking_number
     pub(super) String,         // checked_at
     pub(super) String,         // check_status
     pub(super) Option<String>, // delivery_status

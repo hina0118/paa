@@ -119,7 +119,7 @@ where
 
     let tracking_check_logs_rows: Vec<TrackingCheckLogRow> = sqlx::query_as(
         r#"
-        SELECT id, delivery_id, checked_at, check_status, delivery_status,
+        SELECT id, tracking_number, checked_at, check_status, delivery_status,
                description, location, error_message, created_at
         FROM tracking_check_logs
         "#,
@@ -471,19 +471,9 @@ mod tests {
         .unwrap();
         sqlx::query(
             r"
-            CREATE TABLE IF NOT EXISTS deliveries (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                order_id INTEGER NOT NULL
-            );",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            r"
             CREATE TABLE IF NOT EXISTS tracking_check_logs (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                delivery_id     INTEGER NOT NULL,
+                tracking_number TEXT NOT NULL,
                 checked_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 check_status    TEXT NOT NULL DEFAULT 'success'
                                 CHECK(check_status IN ('success', 'failed', 'not_found')),
@@ -496,7 +486,7 @@ mod tests {
                 location        TEXT,
                 error_message   TEXT,
                 created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (delivery_id) REFERENCES deliveries(id) ON DELETE CASCADE
+                UNIQUE (tracking_number)
             );",
         )
         .execute(&pool)
@@ -567,15 +557,9 @@ mod tests {
         .await
         .unwrap();
         sqlx::query(
-            r"INSERT INTO deliveries (id, order_id) VALUES (1, 99)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query(
             r"INSERT INTO tracking_check_logs
-              (delivery_id, checked_at, check_status, delivery_status, description, location)
-              VALUES (1, '2024-01-01 12:00:00', 'success', 'in_transit', '品川営業所に到着', '品川営業所')",
+              (tracking_number, checked_at, check_status, delivery_status, description, location)
+              VALUES ('1234567890', '2024-01-01 12:00:00', 'success', 'in_transit', '品川営業所に到着', '品川営業所')",
         )
         .execute(&pool)
         .await
@@ -604,11 +588,6 @@ mod tests {
 
         // インポート先の新規 DB
         let pool2 = create_test_pool().await;
-        // tracking_check_logs の FK を満たすため配送レコードを事前挿入
-        sqlx::query("INSERT INTO deliveries (id, order_id) VALUES (1, 99)")
-            .execute(&pool2)
-            .await
-            .unwrap();
         buf.set_position(0);
 
         let import_result = import_metadata_from_reader(&pool2, &images_dir, buf).await;

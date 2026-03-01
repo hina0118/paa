@@ -132,11 +132,11 @@ END;
 
 -- -----------------------------------------------------------------------------
 -- tracking_check_logs
--- 配送業者HPを確認した結果を保存する。delivery_id ごとに最新 1 件のみ保持（UPSERT 設計）。
+-- 配送業者HPを確認した結果を保存する。tracking_number ごとに最新 1 件のみ保持（UPSERT 設計）。
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS tracking_check_logs (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    delivery_id     INTEGER NOT NULL,
+    tracking_number TEXT NOT NULL,
     checked_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     -- チェック自体の結果: success=取得成功 / failed=エラー / not_found=追跡番号不明
     check_status    TEXT NOT NULL DEFAULT 'success'
@@ -153,12 +153,11 @@ CREATE TABLE IF NOT EXISTS tracking_check_logs (
     location        TEXT,
     -- check_status='failed' のときの理由・エラーメッセージ
     error_message   TEXT,
-    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (delivery_id) REFERENCES deliveries(id) ON DELETE CASCADE
+    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
--- delivery_id ごとに最新 1 件のみ保持（UPSERT の衝突キーとして使用）
-CREATE UNIQUE INDEX IF NOT EXISTS idx_tracking_check_logs_delivery_id
-    ON tracking_check_logs(delivery_id);
+-- tracking_number ごとに最新 1 件のみ保持（UPSERT の衝突キーとして使用）
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tracking_check_logs_tracking_number
+    ON tracking_check_logs(tracking_number);
 -- チェック日時の降順（全件を新しい順に表示する場合に使用）
 CREATE INDEX IF NOT EXISTS idx_tracking_check_logs_checked_at
     ON tracking_check_logs(checked_at DESC);

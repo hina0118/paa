@@ -419,20 +419,19 @@ where
         }
     }
 
-    // tracking_check_logs: delivery_id が存在しない場合はスキップ（FK違反回避のため WHERE EXISTS で制御）
+    // tracking_check_logs: tracking_number をキーに UPSERT（FK なし）
     let mut tracking_check_logs_inserted = 0usize;
     for row in &tracking_check_logs_rows {
         let result = sqlx::query(
             r#"
             INSERT OR REPLACE INTO tracking_check_logs (
-                delivery_id, checked_at, check_status, delivery_status,
+                tracking_number, checked_at, check_status, delivery_status,
                 description, location, error_message, created_at
             )
-            SELECT ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP)
-            WHERE EXISTS (SELECT 1 FROM deliveries WHERE id = ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
             "#,
         )
-        .bind(row.1)
+        .bind(&row.1)
         .bind(&row.2)
         .bind(&row.3)
         .bind(&row.4)
@@ -440,7 +439,6 @@ where
         .bind(&row.6)
         .bind(&row.7)
         .bind(&row.8)
-        .bind(row.1) // WHERE EXISTS の delivery_id
         .execute(&mut *tx)
         .await
         .map_err(|e| format!("Failed to insert tracking_check_log: {e}"))?;
@@ -673,19 +671,9 @@ mod tests {
         .unwrap();
         sqlx::query(
             r"
-            CREATE TABLE IF NOT EXISTS deliveries (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                order_id INTEGER NOT NULL
-            );",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            r"
             CREATE TABLE IF NOT EXISTS tracking_check_logs (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                delivery_id     INTEGER NOT NULL,
+                tracking_number TEXT NOT NULL,
                 checked_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 check_status    TEXT NOT NULL DEFAULT 'success'
                                 CHECK(check_status IN ('success', 'failed', 'not_found')),
@@ -698,7 +686,7 @@ mod tests {
                 location        TEXT,
                 error_message   TEXT,
                 created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (delivery_id) REFERENCES deliveries(id) ON DELETE CASCADE
+                UNIQUE (tracking_number)
             );",
         )
         .execute(&pool)
