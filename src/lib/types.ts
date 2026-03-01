@@ -68,7 +68,7 @@ export type CheckStatus = 'success' | 'failed' | 'not_found';
 
 export type TrackingCheckLog = {
   id: number;
-  deliveryId: number;
+  trackingNumber: string;
   checkedAt: Date;
   checkStatus: CheckStatus;
   deliveryStatus?: DeliveryStatus;
