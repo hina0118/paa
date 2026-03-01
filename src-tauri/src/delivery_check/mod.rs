@@ -679,4 +679,82 @@ mod tests {
         assert_eq!(result.check_status, "success");
         assert_eq!(result.delivery_status, "shipped");
     }
+
+    // --- charset_from_content_type ---
+
+    #[test]
+    fn test_charset_from_content_type_shiftjis() {
+        let enc = charset_from_content_type("text/html; charset=Shift_JIS");
+        assert_eq!(enc, Some(encoding_rs::SHIFT_JIS));
+    }
+
+    #[test]
+    fn test_charset_from_content_type_utf8() {
+        let enc = charset_from_content_type("text/html; charset=utf-8");
+        assert_eq!(enc, Some(encoding_rs::UTF_8));
+    }
+
+    #[test]
+    fn test_charset_from_content_type_quoted() {
+        let enc = charset_from_content_type("text/html; charset=\"utf-8\"");
+        assert_eq!(enc, Some(encoding_rs::UTF_8));
+    }
+
+    #[test]
+    fn test_charset_from_content_type_no_charset() {
+        let enc = charset_from_content_type("text/html");
+        assert!(enc.is_none());
+    }
+
+    #[test]
+    fn test_charset_from_content_type_unknown_label() {
+        let enc = charset_from_content_type("text/html; charset=unknown-encoding-xyz");
+        assert!(enc.is_none());
+    }
+
+    #[test]
+    fn test_charset_from_content_type_quoted_string_not_mistaken() {
+        // profile パラメータに "charset=utf-8" が含まれていても charset パラメータではない
+        let enc = charset_from_content_type(
+            "text/html; profile=\"http://example.com/?charset=utf-8\"; charset=Shift_JIS",
+        );
+        assert_eq!(enc, Some(encoding_rs::SHIFT_JIS));
+    }
+
+    // --- decode_body ---
+
+    #[test]
+    fn test_decode_body_header_charset_takes_priority_over_meta() {
+        // ヘッダが Shift_JIS、meta が UTF-8 → ヘッダ優先で Shift_JIS デコード
+        let sjis_bytes = encoding_rs::SHIFT_JIS.encode("テスト").0.into_owned();
+        let mut html_bytes =
+            b"<html><head><meta charset=\"utf-8\"></head><body>".to_vec();
+        html_bytes.extend_from_slice(&sjis_bytes);
+        html_bytes.extend_from_slice(b"</body></html>");
+        let body = Bytes::from(html_bytes);
+        let result =
+            decode_body(&body, "text/html; charset=Shift_JIS").unwrap();
+        assert!(result.contains("テスト"));
+    }
+
+    #[test]
+    fn test_decode_body_falls_back_to_meta_charset() {
+        // ヘッダに charset なし → meta charset (Shift_JIS) を使用
+        let sjis_bytes = encoding_rs::SHIFT_JIS.encode("テスト").0.into_owned();
+        let mut html_bytes =
+            b"<html><head><meta charset=\"Shift_JIS\"></head><body>".to_vec();
+        html_bytes.extend_from_slice(&sjis_bytes);
+        html_bytes.extend_from_slice(b"</body></html>");
+        let body = Bytes::from(html_bytes);
+        let result = decode_body(&body, "text/html").unwrap();
+        assert!(result.contains("テスト"));
+    }
+
+    #[test]
+    fn test_decode_body_falls_back_to_utf8() {
+        // ヘッダ・meta charset ともになし → UTF-8 フォールバック
+        let body = Bytes::from("hello world".as_bytes().to_vec());
+        let result = decode_body(&body, "text/html").unwrap();
+        assert_eq!(result, "hello world");
+    }
 }
