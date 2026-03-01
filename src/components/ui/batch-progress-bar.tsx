@@ -31,7 +31,10 @@ export function BatchProgressBar({
   return (
     <div className={`space-y-4 ${className || ''}`}>
       <div className="flex items-center gap-6">
-        <CircularProgress value={progress.progress_percent} aria-label="バッチ処理進捗" />
+        <CircularProgress
+          value={progress.progress_percent}
+          aria-label="バッチ処理進捗"
+        />
 
         <div className="flex-1 space-y-1">
           {showBatchNumber ? (
