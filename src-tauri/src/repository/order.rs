@@ -2974,11 +2974,7 @@ mod tests {
         };
 
         let result = repo
-            .apply_change_items(
-                &order_info,
-                Some("1999.co.jp".to_string()),
-                Some(cutoff_ts),
-            )
+            .apply_change_items(&order_info, Some("1999.co.jp".to_string()), Some(cutoff_ts))
             .await;
         assert!(result.is_ok(), "apply_change_items failed: {:?}", result);
 
