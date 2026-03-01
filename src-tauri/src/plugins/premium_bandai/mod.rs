@@ -379,10 +379,7 @@ mod tests {
     #[test]
     fn test_premium_bandai_default_shop_settings_sender_addresses() {
         let settings = PremiumBandaiPlugin.default_shop_settings();
-        let senders: Vec<&str> = settings
-            .iter()
-            .map(|s| s.sender_address.as_str())
-            .collect();
+        let senders: Vec<&str> = settings.iter().map(|s| s.sender_address.as_str()).collect();
         assert!(senders.contains(&"evidence_bc@p-bandai.jp"));
         assert!(senders.contains(&"evidence_info@p-bandai.jp"));
     }
