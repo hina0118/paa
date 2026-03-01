@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Delivery, buildTrackingUrl } from './delivery';
 
@@ -183,13 +183,12 @@ describe('Delivery component filters', () => {
     expect(screen.getByText(/^2 \/ 3 件表示$/)).toBeInTheDocument();
 
     // Click すべて for carrier filters
-    const allButtons = screen.getAllByRole('button', { name: 'すべて' });
-    const [defaultAllButton] = allButtons;
-    const carrierAllButton =
-      allButtons.find((button) =>
-        button.closest('section')?.textContent?.includes('キャリア')
-      ) ?? defaultAllButton;
-    await user.click(carrierAllButton);
+    const carrierContainer = screen
+      .getByText('配送業者:')
+      .closest('div') as HTMLElement;
+    await user.click(
+      within(carrierContainer).getByRole('button', { name: 'すべて' })
+    );
 
     expect(screen.getByText(/^3 \/ 3 件表示$/)).toBeInTheDocument();
   });
