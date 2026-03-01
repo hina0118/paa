@@ -182,9 +182,14 @@ describe('Delivery component filters', () => {
     await user.click(screen.getByRole('button', { name: '佐川急便' }));
     expect(screen.getByText(/^2 \/ 3 件表示$/)).toBeInTheDocument();
 
-    // Click すべて for carrier filters (first すべて button)
+    // Click すべて for carrier filters
     const allButtons = screen.getAllByRole('button', { name: 'すべて' });
-    await user.click(allButtons[0]);
+    const [defaultAllButton] = allButtons;
+    const carrierAllButton =
+      allButtons.find((button) =>
+        button.closest('section')?.textContent?.includes('キャリア')
+      ) ?? defaultAllButton;
+    await user.click(carrierAllButton);
 
     expect(screen.getByText(/^3 \/ 3 件表示$/)).toBeInTheDocument();
   });
