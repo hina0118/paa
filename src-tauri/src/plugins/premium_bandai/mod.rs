@@ -248,6 +248,7 @@ async fn cleanup_phantom_omatome_items_in_tx(
     .bind(&order_info.order_number)
     .bind(shop_domain)
     .bind(cutoff_ts)
+    .bind(cutoff_ts)
     .fetch_all(tx.as_mut())
     .await
     .map_err(|e| format!("Failed to fetch phantom omatome orders: {e}"))?;
