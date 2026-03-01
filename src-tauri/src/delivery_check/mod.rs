@@ -298,7 +298,7 @@ async fn fetch_html(client: &Client, url: &str, form_body: Option<&str>) -> Resu
         .await
         .map_err(|e| format!("Body read error: {e}"))?;
 
-    let html = decode_body(&body)?;
+    let html = decode_body(&body, &content_type)?;
 
     log::debug!(
         "[DeliveryCheck] Response url={url} status={status} \
@@ -327,10 +327,26 @@ fn detect_charset(body: &[u8]) -> Option<String> {
     }
 }
 
-/// バイト列を <meta charset> / Content-Type charset に従ってデコードする。
+/// HTTP `Content-Type` ヘッダ文字列から charset ラベルに対応する Encoding を返す。
+/// 例: `"text/html; charset=Shift_JIS"` → `Some(&SHIFT_JIS)`
+fn charset_from_content_type(content_type: &str) -> Option<&'static encoding_rs::Encoding> {
+    let lower = content_type.to_ascii_lowercase();
+    let pos = lower.find("charset=")?;
+    let rest = lower[pos + 8..].trim_start_matches(['"', '\'']);
+    let end = rest.find(['"', '\'', ';', ' ']).unwrap_or(rest.len());
+    encoding_rs::Encoding::for_label(rest[..end].trim().as_bytes())
+}
+
+/// バイト列を Content-Type charset / `<meta charset>` に従ってデコードする。
+/// HTTP レスポンスヘッダの charset を優先し、なければ HTML 内の `<meta charset>` を参照する。
 /// 不明な場合は UTF-8 を試し、FFFD が出たら Shift-JIS にフォールバック。
-fn decode_body(body: &Bytes) -> Result<String, String> {
-    // HTML から charset ラベルを検出して encoding_rs に渡す
+fn decode_body(body: &Bytes, content_type: &str) -> Result<String, String> {
+    // 1. HTTP Content-Type ヘッダの charset を優先
+    if let Some(enc) = charset_from_content_type(content_type) {
+        let (decoded, _, _) = enc.decode(body);
+        return Ok(decoded.into_owned());
+    }
+    // 2. HTML の <meta charset> を参照
     if let Some(label) = detect_charset(body) {
         if let Some(enc) = encoding_rs::Encoding::for_label(label.as_bytes()) {
             let (decoded, _, _) = enc.decode(body);
