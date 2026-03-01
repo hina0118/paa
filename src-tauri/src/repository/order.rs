@@ -268,22 +268,21 @@ impl SqliteOrderRepository {
                 sqlx::query_scalar(
                     r#"
                     SELECT o.id FROM orders o
-                    WHERE o.order_number COLLATE NOCASE != ?
-                    AND o.shop_domain = ?
+                    WHERE o.order_number COLLATE NOCASE != ?1
+                    AND o.shop_domain = ?2
                     AND o.id NOT IN (
                         SELECT d.order_id FROM deliveries d
                         WHERE d.delivery_status IN ('shipped', 'in_transit', 'out_for_delivery', 'delivered')
                     )
                     AND (
-                        (o.order_date IS NOT NULL AND o.order_date < datetime(? / 1000, 'unixepoch', '+9 hours'))
-                        OR (o.order_date IS NULL AND o.created_at < datetime(? / 1000, 'unixepoch'))
+                        (o.order_date IS NOT NULL AND o.order_date < datetime(?3 / 1000, 'unixepoch', '+9 hours'))
+                        OR (o.order_date IS NULL AND o.created_at < datetime(?3 / 1000, 'unixepoch'))
                     )
                     ORDER BY o.order_date IS NULL, o.order_date DESC, o.id DESC
                     "#,
                 )
                 .bind(new_order_number)
                 .bind(d)
-                .bind(cutoff_ts)
                 .bind(cutoff_ts)
                 .fetch_all(tx.as_mut())
                 .await
@@ -292,21 +291,20 @@ impl SqliteOrderRepository {
                 sqlx::query_scalar(
                     r#"
                     SELECT o.id FROM orders o
-                    WHERE o.order_number COLLATE NOCASE != ?
+                    WHERE o.order_number COLLATE NOCASE != ?1
                     AND (o.shop_domain IS NULL OR o.shop_domain = '')
                     AND o.id NOT IN (
                         SELECT d.order_id FROM deliveries d
                         WHERE d.delivery_status IN ('shipped', 'in_transit', 'out_for_delivery', 'delivered')
                     )
                     AND (
-                        (o.order_date IS NOT NULL AND o.order_date < datetime(? / 1000, 'unixepoch', '+9 hours'))
-                        OR (o.order_date IS NULL AND o.created_at < datetime(? / 1000, 'unixepoch'))
+                        (o.order_date IS NOT NULL AND o.order_date < datetime(?2 / 1000, 'unixepoch', '+9 hours'))
+                        OR (o.order_date IS NULL AND o.created_at < datetime(?2 / 1000, 'unixepoch'))
                     )
                     ORDER BY o.order_date IS NULL, o.order_date DESC, o.id DESC
                     "#,
                 )
                 .bind(new_order_number)
-                .bind(cutoff_ts)
                 .bind(cutoff_ts)
                 .fetch_all(tx.as_mut())
                 .await
@@ -316,21 +314,20 @@ impl SqliteOrderRepository {
             sqlx::query_scalar(
                 r#"
                 SELECT o.id FROM orders o
-                WHERE o.order_number COLLATE NOCASE != ?
+                WHERE o.order_number COLLATE NOCASE != ?1
                 AND (o.shop_domain IS NULL OR o.shop_domain = '')
                 AND o.id NOT IN (
                     SELECT d.order_id FROM deliveries d
                     WHERE d.delivery_status IN ('shipped', 'in_transit', 'out_for_delivery', 'delivered')
                 )
                 AND (
-                    (o.order_date IS NOT NULL AND o.order_date < datetime(? / 1000, 'unixepoch', '+9 hours'))
-                    OR (o.order_date IS NULL AND o.created_at < datetime(? / 1000, 'unixepoch'))
+                    (o.order_date IS NOT NULL AND o.order_date < datetime(?2 / 1000, 'unixepoch', '+9 hours'))
+                    OR (o.order_date IS NULL AND o.created_at < datetime(?2 / 1000, 'unixepoch'))
                 )
                 ORDER BY o.order_date IS NULL, o.order_date DESC, o.id DESC
                 "#,
             )
             .bind(new_order_number)
-            .bind(cutoff_ts)
             .bind(cutoff_ts)
             .fetch_all(tx.as_mut())
             .await
