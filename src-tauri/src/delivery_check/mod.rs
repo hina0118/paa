@@ -16,8 +16,7 @@ pub const DELIVERY_CHECK_EVENT_NAME: &str = "batch-progress";
 /// リクエストタイムアウト（秒）
 const REQUEST_TIMEOUT_SECS: u64 = 20;
 /// ブラウザとして振る舞うための User-Agent
-const USER_AGENT: &str =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
+const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
      (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
 // ---------------------------------------------------------------------------
@@ -108,7 +107,7 @@ fn decode_numeric_entities(s: &str) -> String {
     while let Some(amp_pos) = rest.find("&#") {
         result.push_str(&rest[..amp_pos]);
         rest = &rest[amp_pos + 2..]; // "&#" の次から
-        // 16進 &#xNNNN; か 10進 &#NNNNN; か判別
+                                     // 16進 &#xNNNN; か 10進 &#NNNNN; か判別
         let (is_hex, rest2) = if rest.starts_with('x') || rest.starts_with('X') {
             (true, &rest[1..])
         } else {
@@ -140,8 +139,8 @@ fn decode_numeric_entities(s: &str) -> String {
 
 /// チェック結果
 struct ParsedStatus {
-    check_status: &'static str,     // "success" | "not_found"
-    delivery_status: &'static str,  // deliveries.delivery_status 値
+    check_status: &'static str,    // "success" | "not_found"
+    delivery_status: &'static str, // deliveries.delivery_status 値
     description: Option<String>,
 }
 
@@ -194,7 +193,7 @@ fn parse_tracking_html(carrier: &str, html: &str) -> ParsedStatus {
         "ご不在連絡票をお届け済み",
         "配達しました",
         "お届けしました",
-        "お届けが済んでおります",         // ヤマト: "このお品物はお届けが済んでおります。"
+        "お届けが済んでおります", // ヤマト: "このお品物はお届けが済んでおります。"
         "お荷物のお届けが完了いたしました", // 佐川急便
     ];
     for kw in delivered_keywords {
@@ -313,11 +312,13 @@ fn detect_charset(body: &[u8]) -> Option<String> {
     // charset= の直後を取り出す
     let pos = lower.find("charset=")?;
     let rest = preview[pos + 8..].trim_start_matches(['"', '\'']);
-    let end = rest
-        .find(['"', '\'', ';', ' ', '>'])
-        .unwrap_or(rest.len());
+    let end = rest.find(['"', '\'', ';', ' ', '>']).unwrap_or(rest.len());
     let label = rest[..end].trim().to_string();
-    if label.is_empty() { None } else { Some(label) }
+    if label.is_empty() {
+        None
+    } else {
+        Some(label)
+    }
 }
 
 /// バイト列を <meta charset> / Content-Type charset に従ってデコードする。
@@ -460,7 +461,8 @@ impl BatchTask for DeliveryCheckTask {
         };
 
         // ヤマト運輸はフォーム POST（number00=1 が必須）、それ以外は GET
-        let form_body = if input.carrier.contains("ヤマト") || input.carrier.contains("クロネコ") {
+        let form_body = if input.carrier.contains("ヤマト") || input.carrier.contains("クロネコ")
+        {
             Some(build_yamato_post_body(&input.tracking_number))
         } else {
             None

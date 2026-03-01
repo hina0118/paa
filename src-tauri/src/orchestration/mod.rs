@@ -10,8 +10,8 @@
 //! - `parse_orchestrator` – メール解析オーケストレーション
 //! - `product_parse_orchestrator` – 商品名解析オーケストレーション
 
-pub(crate) mod error_handler;
 mod delivery_check_orchestrator;
+pub(crate) mod error_handler;
 mod parse_orchestrator;
 mod product_parse_orchestrator;
 mod sync_orchestrator;

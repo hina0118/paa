@@ -95,7 +95,9 @@ async fn run_delivery_check_task_with<A: BatchCommandsApp>(
     let check_state_for_cancel = check_state.clone();
 
     match runner
-        .run(app, inputs, &ctx, move || check_state_for_cancel.should_cancel())
+        .run(app, inputs, &ctx, move || {
+            check_state_for_cancel.should_cancel()
+        })
         .await
     {
         Ok(result) => {
