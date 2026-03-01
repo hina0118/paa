@@ -274,7 +274,7 @@ impl SqliteOrderRepository {
                         SELECT d.order_id FROM deliveries d
                         WHERE d.delivery_status IN ('shipped', 'in_transit', 'out_for_delivery', 'delivered')
                     )
-                    AND COALESCE(o.order_date, o.created_at) < datetime(? / 1000, 'unixepoch')
+                    AND COALESCE(o.order_date, o.created_at) < datetime(? / 1000, 'unixepoch', '+9 hours')
                     ORDER BY o.order_date IS NULL, o.order_date DESC, o.id DESC
                     "#,
                 )
@@ -294,7 +294,7 @@ impl SqliteOrderRepository {
                         SELECT d.order_id FROM deliveries d
                         WHERE d.delivery_status IN ('shipped', 'in_transit', 'out_for_delivery', 'delivered')
                     )
-                    AND COALESCE(o.order_date, o.created_at) < datetime(? / 1000, 'unixepoch')
+                    AND COALESCE(o.order_date, o.created_at) < datetime(? / 1000, 'unixepoch', '+9 hours')
                     ORDER BY o.order_date IS NULL, o.order_date DESC, o.id DESC
                     "#,
                 )
@@ -314,7 +314,7 @@ impl SqliteOrderRepository {
                     SELECT d.order_id FROM deliveries d
                     WHERE d.delivery_status IN ('shipped', 'in_transit', 'out_for_delivery', 'delivered')
                 )
-                AND COALESCE(o.order_date, o.created_at) < datetime(? / 1000, 'unixepoch')
+                AND COALESCE(o.order_date, o.created_at) < datetime(? / 1000, 'unixepoch', '+9 hours')
                 ORDER BY o.order_date IS NULL, o.order_date DESC, o.id DESC
                 "#,
             )
@@ -387,6 +387,12 @@ impl SqliteOrderRepository {
 
         let mut orders_to_delete: HashSet<i64> = HashSet::new();
 
+        log::info!(
+            "apply_change_items: order_number={} candidate_order_ids={:?}",
+            order_info.order_number,
+            order_ids
+        );
+
         for item in &order_info.items {
             let product_name = item.name.trim();
             let cancel_qty = item.quantity.max(0);
@@ -397,6 +403,12 @@ impl SqliteOrderRepository {
 
             let mut remaining_qty = cancel_qty;
             let mut matched_any = false;
+
+            log::info!(
+                "apply_change_items: processing item {:?} qty={}",
+                product_name,
+                cancel_qty
+            );
 
             for &order_id in &order_ids {
                 if remaining_qty <= 0 {
@@ -411,6 +423,12 @@ impl SqliteOrderRepository {
                         .get(&order_id)
                         .map(|v| v.as_slice())
                         .unwrap_or(&[]);
+
+                    log::info!(
+                        "apply_change_items:   checking order_id={} items={:?}",
+                        order_id,
+                        items.iter().map(|(id, name, _, _, qty)| (id, name.as_str(), qty)).collect::<Vec<_>>()
+                    );
 
                     let product_master_name = incoming_pm_map.get(product_name).map(|s| s.as_str());
                     let found = items.iter().find(
@@ -2838,6 +2856,80 @@ mod tests {
             .await
             .expect("check order 3");
         assert_eq!(order3_exists.0, 1, "order 3 is retained");
+    }
+
+    #[tokio::test]
+    // order_date は JST 日付文字列（例: '2022-06-05'）で保存されるが、cutoff は UTC タイムスタンプ。
+    // UTC に変換すると '2022-06-04 17:59:04' となり、'2022-06-05' > '2022-06-04...' で対象外になるバグの再現・回帰テスト。
+    // '+9 hours' で JST 変換することで '2022-06-05 02:59:04' となり、'2022-06-05' < '2022-06-05 02:59:04' = TRUE になる。
+    async fn test_apply_change_items_jst_order_date_included_in_utc_cutoff() {
+        let pool = setup_test_db().await;
+        let repo = SqliteOrderRepository::new(pool.clone());
+
+        // cutoff = email 186 の internal_date: 2022-06-04 17:59:04 UTC = 2022-06-05 02:59:04 JST
+        let cutoff_ts = 1654365544000i64;
+
+        // 注文: order_date = '2022-06-05'（JST 日付）で、おまとめメール受信時刻より前（JST では同日だが早い時刻）
+        // → JST 変換後の cutoff '2022-06-05 02:59:04' より前なので対象になるべき
+        sqlx::query(
+            r#"INSERT INTO orders (order_number, shop_domain, shop_name, order_date, created_at) VALUES ('00006', 'p-bandai.jp', 'プレミアムバンダイ', '2022-06-05', '2022-06-04 15:00:00')"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert order");
+        let order_id: (i64,) =
+            sqlx::query_as("SELECT id FROM orders WHERE order_number = '00006'")
+                .fetch_one(&pool)
+                .await
+                .expect("get order id");
+        sqlx::query(
+            r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, 'Figure-rise Standard Amplified メタルガルルモン（ブラックＶｅｒ．）', 1)"#,
+        )
+        .bind(order_id.0)
+        .execute(&pool)
+        .await
+        .expect("insert item");
+
+        let order_info = crate::parsers::OrderInfo {
+            order_number: "00007".to_string(),
+            order_date: None,
+            delivery_address: None,
+            delivery_info: None,
+            items: vec![crate::parsers::OrderItem {
+                name: "Figure-rise Standard Amplified メタルガルルモン（ブラックＶｅｒ．）"
+                    .to_string(),
+                manufacturer: None,
+                model_number: None,
+                unit_price: 4950,
+                quantity: 1,
+                subtotal: 4950,
+                image_url: None,
+            }],
+            subtotal: Some(4950),
+            shipping_fee: None,
+            total_amount: Some(4950),
+        };
+
+        let result = repo
+            .apply_change_items(
+                &order_info,
+                Some("p-bandai.jp".to_string()),
+                Some(cutoff_ts),
+            )
+            .await;
+        assert!(result.is_ok(), "apply_change_items failed: {:?}", result);
+
+        // JST 変換なしでは order_date '2022-06-05' > UTC '2022-06-04 17:59:04' となり対象外になる（バグ）
+        // JST 変換後は '2022-06-05' < '2022-06-05 02:59:04' となり対象になる（修正後）
+        let item_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items WHERE order_id = ?")
+            .bind(order_id.0)
+            .fetch_one(&pool)
+            .await
+            .expect("count items");
+        assert_eq!(
+            item_count.0, 0,
+            "JST 変換により order_date '2022-06-05' が UTC cutoff '2022-06-04 17:59:04' より前と判定され、商品が削除されるべき"
+        );
     }
 
     // --- apply_change_items_and_save_order 統合テスト ---

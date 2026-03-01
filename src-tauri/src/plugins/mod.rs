@@ -13,6 +13,7 @@ pub mod dmm;
 pub mod goodsmile;
 pub mod hobbysearch;
 pub mod kids_dragon;
+pub mod premium_bandai;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // inventory による自動登録
