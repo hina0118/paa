@@ -280,6 +280,12 @@ async fn fetch_html(client: &Client, url: &str, form_body: Option<&str>) -> Resu
         .map_err(|e| format!("HTTP request error: {e}"))?;
 
     let status = resp.status().as_u16();
+    if !(200..300).contains(&status) {
+        // Drain the body so the underlying connection can be reused.
+        let _ = resp.bytes().await;
+        return Err(format!("HTTP error: status={status} url={url}"));
+    }
+
     let content_type = resp
         .headers()
         .get("content-type")
