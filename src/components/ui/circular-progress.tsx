@@ -9,7 +9,7 @@ interface CircularProgressProps {
   strokeWidth?: number;
   /** クラス名 */
   className?: string;
-  /** progressbar のアクセシブルネーム */
+  /** progressbar のアクセシブルネーム（未指定時は "処理進捗"。コンテキストに応じて具体的なラベルを指定することを推奨） */
   'aria-label'?: string;
 }
 
@@ -18,7 +18,7 @@ export function CircularProgress({
   size = 80,
   strokeWidth = 6,
   className,
-  'aria-label': ariaLabel,
+  'aria-label': ariaLabel = '処理進捗',
 }: CircularProgressProps) {
   const clampedValue = Math.min(Math.max(value, 0), 100);
   const radius = (size - strokeWidth) / 2;
