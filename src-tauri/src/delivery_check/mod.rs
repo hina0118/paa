@@ -354,7 +354,8 @@ fn charset_from_content_type(content_type: &str) -> Option<&'static encoding_rs:
         // 値の前後の引用符と空白を除去
         let value = value.trim_matches(['"', '\'']).trim();
         if value.is_empty() {
-            return None;
+            // 空の charset パラメータは無視し、後続のパラメータを探索する
+            continue;
         }
         return encoding_rs::Encoding::for_label(value.as_bytes());
     }
