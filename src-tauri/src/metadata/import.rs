@@ -16,6 +16,7 @@ use super::manifest::{
 use super::table_converters::{
     ImportResult, JsonEmailRow, JsonExcludedItemRow, JsonExcludedOrderRow, JsonImageRow,
     JsonItemOverrideRow, JsonOrderOverrideRow, JsonProductMasterRow, JsonShopSettingsRow,
+    JsonTrackingCheckLogRow,
 };
 
 /// ZIP からメタデータをインポート（INSERT OR IGNORE でマージ）
@@ -117,6 +118,17 @@ where
         let json = read_zip_entry(&mut zip_archive, "excluded_orders.json")?;
         serde_json::from_str(&json)
             .map_err(|e| format!("Failed to parse excluded_orders.json: {e}"))?
+    } else {
+        Vec::new()
+    };
+    // 旧バックアップ互換: ファイルが無ければスキップする
+    let tracking_check_logs_rows: Vec<JsonTrackingCheckLogRow> = if zip_archive
+        .file_names()
+        .any(|n| n == "tracking_check_logs.json")
+    {
+        let json = read_zip_entry(&mut zip_archive, "tracking_check_logs.json")?;
+        serde_json::from_str(&json)
+            .map_err(|e| format!("Failed to parse tracking_check_logs.json: {e}"))?
     } else {
         Vec::new()
     };
@@ -407,6 +419,36 @@ where
         }
     }
 
+    // tracking_check_logs: delivery_id が存在しない場合はスキップ（FK違反回避のため WHERE EXISTS で制御）
+    let mut tracking_check_logs_inserted = 0usize;
+    for row in &tracking_check_logs_rows {
+        let result = sqlx::query(
+            r#"
+            INSERT INTO tracking_check_logs (
+                delivery_id, checked_at, check_status, delivery_status,
+                description, location, error_message, created_at
+            )
+            SELECT ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP)
+            WHERE EXISTS (SELECT 1 FROM deliveries WHERE id = ?)
+            "#,
+        )
+        .bind(row.1)
+        .bind(&row.2)
+        .bind(&row.3)
+        .bind(&row.4)
+        .bind(&row.5)
+        .bind(&row.6)
+        .bind(&row.7)
+        .bind(&row.8)
+        .bind(row.1) // WHERE EXISTS の delivery_id
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("Failed to insert tracking_check_log: {e}"))?;
+        if result.rows_affected() > 0 {
+            tracking_check_logs_inserted += 1;
+        }
+    }
+
     tx.commit()
         .await
         .map_err(|e| format!("Failed to commit transaction: {e}"))?;
@@ -468,6 +510,7 @@ where
         order_overrides_inserted,
         excluded_items_inserted,
         excluded_orders_inserted,
+        tracking_check_logs_inserted,
         image_files_copied,
         restore_point_updated: None,
         restore_point_path: None,
@@ -623,6 +666,39 @@ mod tests {
                 reason TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE (shop_domain, order_number)
+            );",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r"
+            CREATE TABLE IF NOT EXISTS deliveries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id INTEGER NOT NULL
+            );",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r"
+            CREATE TABLE IF NOT EXISTS tracking_check_logs (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                delivery_id     INTEGER NOT NULL,
+                checked_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                check_status    TEXT NOT NULL DEFAULT 'success'
+                                CHECK(check_status IN ('success', 'failed', 'not_found')),
+                delivery_status TEXT
+                                CHECK(delivery_status IS NULL OR delivery_status IN (
+                                    'not_shipped', 'preparing', 'shipped', 'in_transit',
+                                    'out_for_delivery', 'delivered', 'failed', 'returned', 'cancelled'
+                                )),
+                description     TEXT,
+                location        TEXT,
+                error_message   TEXT,
+                created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (delivery_id) REFERENCES deliveries(id) ON DELETE CASCADE
             );",
         )
         .execute(&pool)
@@ -814,5 +890,6 @@ mod tests {
         assert_eq!(r.order_overrides_inserted, 0);
         assert_eq!(r.excluded_items_inserted, 0);
         assert_eq!(r.excluded_orders_inserted, 0);
+        assert_eq!(r.tracking_check_logs_inserted, 0);
     }
 }
