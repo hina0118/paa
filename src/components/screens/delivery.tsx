@@ -102,7 +102,7 @@ const ALL_FILTER = 'all';
 // Carrier tracking URL builder
 // ---------------------------------------------------------------------------
 
-function buildTrackingUrl(
+export function buildTrackingUrl(
   carrier: string | null,
   trackingNumber: string | null
 ): string | null {
