@@ -263,5 +263,5 @@ pub(super) struct JsonTrackingCheckLogRow(
     pub(super) Option<String>, // description
     pub(super) Option<String>, // location
     pub(super) Option<String>, // error_message
-    pub(super) Option<String>, // created_at (未使用)
+    pub(super) Option<String>, // created_at (インポート時に COALESCE(?, CURRENT_TIMESTAMP) で使用)
 );
