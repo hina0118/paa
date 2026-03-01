@@ -15,7 +15,7 @@ use crate::repository::SqliteOrderRepository;
 
 use super::{
     apply_internal_date, derive_shop_domain, DefaultShopSetting, DispatchError, DispatchOutcome,
-    VendorPlugin,
+    PluginRegistration, VendorPlugin,
 };
 
 pub struct DmmPlugin;
@@ -446,8 +446,6 @@ mod tests {
     }
 }
 
-inventory::submit! {
-    crate::plugins::PluginRegistration {
-        factory: || Box::new(DmmPlugin),
-    }
-}
+inventory::submit!(PluginRegistration {
+    factory: || Box::new(DmmPlugin),
+});
