@@ -241,12 +241,17 @@ fn parse_tracking_html(carrier: &str, html: &str) -> ParsedStatus {
 
     // --- その他（判定不能）---
     // この分岐は配送ステータスを判定できなかったことを表す。
-    // 呼び出し側では、`delivery_status == "unknown"` の場合は
-    // `tracking_check_logs.delivery_status` を NULL として保存し、
-    // deliveries 側のステータスも更新しないように扱うこと。
+    //
+    // 本来は「判定不能」を DB 上では NULL で表現するべきだが、
+    // `deliveries.delivery_status` / `tracking_check_logs.delivery_status` の CHECK 制約上
+    // `"unknown"` といったダミー値を保存することはできない。
+    // そのため、ここでは便宜的に `"in_transit"` を返しつつ、description が None の場合は
+    // 「判定不能」として扱うなど、呼び出し側で追加の分岐を入れること。
+    //
+    // TODO: ParsedStatus の delivery_status を Option に変更し、None → NULL 保存へ移行する。
     ParsedStatus {
         check_status: "success",
-        delivery_status: "unknown",
+        delivery_status: "in_transit",
         description: None,
     }
 }
