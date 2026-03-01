@@ -330,11 +330,36 @@ fn detect_charset(body: &[u8]) -> Option<String> {
 /// HTTP `Content-Type` ヘッダ文字列から charset ラベルに対応する Encoding を返す。
 /// 例: `"text/html; charset=Shift_JIS"` → `Some(&SHIFT_JIS)`
 fn charset_from_content_type(content_type: &str) -> Option<&'static encoding_rs::Encoding> {
+    // `charset=` を含む quoted-string パラメータに誤マッチしないよう、
+    // `;` 区切りのパラメータを `name=value` としてパースし、`name` が
+    // `charset` のものだけを対象とする。
     let lower = content_type.to_ascii_lowercase();
-    let pos = lower.find("charset=")?;
-    let rest = lower[pos + 8..].trim_start_matches(['"', '\'']);
-    let end = rest.find(['"', '\'', ';', ' ']).unwrap_or(rest.len());
-    encoding_rs::Encoding::for_label(rest[..end].trim().as_bytes())
+    let mut iter = lower.split(';');
+    // 先頭はメディアタイプなので読み飛ばす
+    iter.next();
+
+    for part in iter {
+        let param = part.trim();
+        if param.is_empty() {
+            continue;
+        }
+        // name=value 形式のみ対象とする
+        let (name, value) = match param.split_once('=') {
+            Some((n, v)) => (n.trim(), v.trim()),
+            None => continue,
+        };
+        if name != "charset" {
+            continue;
+        }
+        // 値の前後の引用符と空白を除去
+        let value = value.trim_matches(['"', '\'']).trim();
+        if value.is_empty() {
+            return None;
+        }
+        return encoding_rs::Encoding::for_label(value.as_bytes());
+    }
+
+    None
 }
 
 /// バイト列を Content-Type charset / `<meta charset>` に従ってデコードする。
