@@ -36,17 +36,15 @@ static ISO_DATE_OR_DATETIME_RE: Lazy<Regex> = Lazy::new(|| {
 /// - `■ご注文内容` / `ご注文内容` / `注文内容`（プレーンテキスト形式）
 /// - `【注文明細】` / `【ご注文明細】`（HTML テーブル形式）
 static ITEM_SECTION_START_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^(?:■|【)?ご?注文(?:内容|明細)(?:】\s*)?$")
-        .expect("Invalid ITEM_SECTION_START_RE")
+    Regex::new(r"^(?:■|【)?ご?注文(?:内容|明細)(?:】\s*)?$").expect("Invalid ITEM_SECTION_START_RE")
 });
 
 /// `【...】` のみの行を検出するパターン（HTML テーブル形式のセクションヘッダー）
 ///
 /// 商品名は `【再販】` 等の接尾辞を持つが、行全体が `【...】` のみになることはない。
 /// `【お支払方法】` / `【支払金額】` 等のセクションヘッダーを検出してアイテム収集を制御する。
-static BRACKET_ONLY_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^【[^【】]+】$").expect("Invalid BRACKET_ONLY_RE")
-});
+static BRACKET_ONLY_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^【[^【】]+】$").expect("Invalid BRACKET_ONLY_RE"));
 
 /// `N円×N＝N円` / `N円&times;N＝N円` 形式の価格行
 ///
@@ -54,8 +52,7 @@ static BRACKET_ONLY_RE: Lazy<Regex> = Lazy::new(|| {
 /// `×` は U+00D7 (MULTIPLICATION SIGN) または HTML エンティティ `&times;` のいずれか。
 /// `html_to_lines()` は HTML エンティティをデコードしないため両方に対応する。
 static ITEM_PRICE_QTY_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^([\d,]+)円(?:×|&times;)(\d+)[＝=]([\d,]+)円")
-        .expect("Invalid ITEM_PRICE_QTY_RE")
+    Regex::new(r"^([\d,]+)円(?:×|&times;)(\d+)[＝=]([\d,]+)円").expect("Invalid ITEM_PRICE_QTY_RE")
 });
 
 /// プレミアムバンダイ 注文確認メール用パーサー
@@ -282,7 +279,8 @@ fn extract_confirm_items(lines: &[&str], image_urls: &[String]) -> Vec<OrderItem
         // お支払方法・支払金額・配送関連のセクションが来たらアイテム収集を終了する
         if BRACKET_ONLY_RE.is_match(trimmed) {
             flush(&mut pending, &mut items, image_urls);
-            if trimmed.contains("支払") || trimmed.contains("お届") || trimmed.contains("配送") {
+            if trimmed.contains("支払") || trimmed.contains("お届") || trimmed.contains("配送")
+            {
                 break;
             }
             continue;
@@ -466,19 +464,25 @@ figma テスト【再販】
 
     #[test]
     fn test_parse_confirm_order_number() {
-        let order = PremiumBandaiConfirmParser.parse(sample_confirm_plain()).unwrap();
+        let order = PremiumBandaiConfirmParser
+            .parse(sample_confirm_plain())
+            .unwrap();
         assert_eq!(order.order_number, "12345");
     }
 
     #[test]
     fn test_parse_confirm_order_date() {
-        let order = PremiumBandaiConfirmParser.parse(sample_confirm_plain()).unwrap();
+        let order = PremiumBandaiConfirmParser
+            .parse(sample_confirm_plain())
+            .unwrap();
         assert_eq!(order.order_date, Some("2025-01-15".to_string()));
     }
 
     #[test]
     fn test_parse_confirm_single_item() {
-        let order = PremiumBandaiConfirmParser.parse(sample_confirm_plain()).unwrap();
+        let order = PremiumBandaiConfirmParser
+            .parse(sample_confirm_plain())
+            .unwrap();
         assert_eq!(order.items.len(), 1);
         assert_eq!(order.items[0].name, "figma テスト");
         assert_eq!(order.items[0].unit_price, 5000);
@@ -488,7 +492,9 @@ figma テスト【再販】
 
     #[test]
     fn test_parse_confirm_amounts() {
-        let order = PremiumBandaiConfirmParser.parse(sample_confirm_plain()).unwrap();
+        let order = PremiumBandaiConfirmParser
+            .parse(sample_confirm_plain())
+            .unwrap();
         assert_eq!(order.subtotal, Some(5000));
         assert_eq!(order.shipping_fee, Some(0)); // 送料0 + 支払手数料0
         assert_eq!(order.total_amount, Some(5000));
@@ -496,14 +502,18 @@ figma テスト【再販】
 
     #[test]
     fn test_parse_confirm_normalizes_product_name() {
-        let order = PremiumBandaiConfirmParser.parse(sample_confirm_plain()).unwrap();
+        let order = PremiumBandaiConfirmParser
+            .parse(sample_confirm_plain())
+            .unwrap();
         // 【再販】が除去されていること
         assert_eq!(order.items[0].name, "figma テスト");
     }
 
     #[test]
     fn test_parse_confirm_excludes_recommend_section() {
-        let order = PremiumBandaiConfirmParser.parse(sample_confirm_plain()).unwrap();
+        let order = PremiumBandaiConfirmParser
+            .parse(sample_confirm_plain())
+            .unwrap();
         // おすすめ商品セクションの「おすすめ商品A」が含まれないこと
         assert!(!order.items.iter().any(|i| i.name.contains("おすすめ")));
     }
@@ -559,15 +569,16 @@ figma テスト【再販】
 
     #[test]
     fn test_parse_confirm_no_order_number_returns_error() {
-        let result = PremiumBandaiConfirmParser
-            .parse("■ご注文内容\n商品A\n単価：￥5,000（税込）\n個数：1個\n小計：￥5,000\n合計：￥5,000");
+        let result = PremiumBandaiConfirmParser.parse(
+            "■ご注文内容\n商品A\n単価：￥5,000（税込）\n個数：1個\n小計：￥5,000\n合計：￥5,000",
+        );
         assert!(result.is_err());
     }
 
     #[test]
     fn test_parse_confirm_no_items_returns_error() {
-        let result = PremiumBandaiConfirmParser
-            .parse("■ご注文番号：12345\n■ご注文日：2025年1月15日");
+        let result =
+            PremiumBandaiConfirmParser.parse("■ご注文番号：12345\n■ご注文日：2025年1月15日");
         assert!(result.is_err());
     }
 
@@ -585,7 +596,12 @@ figma テスト【再販】
         let order = PremiumBandaiConfirmParser
             .parse(sample_confirm_html_table_price_qty())
             .unwrap();
-        assert_eq!(order.items.len(), 1, "商品は1件のみのはず（got: {:?}）", order.items);
+        assert_eq!(
+            order.items.len(),
+            1,
+            "商品は1件のみのはず（got: {:?}）",
+            order.items
+        );
     }
 
     #[test]
@@ -615,7 +631,10 @@ figma テスト【再販】
             .parse(sample_confirm_html_table_price_qty())
             .unwrap();
         assert!(
-            !order.items.iter().any(|i| i.name.contains("お支払") || i.name.contains("支払金額")),
+            !order
+                .items
+                .iter()
+                .any(|i| i.name.contains("お支払") || i.name.contains("支払金額")),
             "セクションヘッダーがアイテムに混入している: {:?}",
             order.items
         );
@@ -701,10 +720,14 @@ figma テスト【再販】
                 <td>2,420円×1＝2,420円</td>
             </tr></table>
         "#;
-        let items = extract_items_from_confirm_html(html, &["https://example.com/header.png".to_string()]);
+        let items =
+            extract_items_from_confirm_html(html, &["https://example.com/header.png".to_string()]);
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].name, "ＨＧ 1/144 テスト商品");
         // ヘッダー画像ではなく alt 一致の商品画像が使われること
-        assert_eq!(items[0].image_url.as_deref(), Some("https://example.com/product.jpg"));
+        assert_eq!(
+            items[0].image_url.as_deref(),
+            Some("https://example.com/product.jpg")
+        );
     }
 }

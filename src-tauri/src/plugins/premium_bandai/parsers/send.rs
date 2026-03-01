@@ -55,9 +55,8 @@ static SEND_ITEM_SECTION_START_RE: Lazy<Regex> = Lazy::new(|| {
 /// HTML パースで使用する数量正規表現
 ///
 /// scraper の `text()` は HTML エンティティをデコードするため、`&times;` → `×` に変換済みで届く。
-static SEND_HTML_QTY_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^×(\d+)$").expect("Invalid SEND_HTML_QTY_RE")
-});
+static SEND_HTML_QTY_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^×(\d+)$").expect("Invalid SEND_HTML_QTY_RE"));
 
 /// プレミアムバンダイ 発送通知メール用パーサー
 pub struct PremiumBandaiSendParser;
@@ -89,8 +88,7 @@ impl EmailParser for PremiumBandaiSendParser {
         let tracking_number = extract_tracking_number(&lines)
             .ok_or_else(|| "Tracking number not found".to_string())?;
 
-        let carrier =
-            extract_carrier(&lines).ok_or_else(|| "Carrier not found".to_string())?;
+        let carrier = extract_carrier(&lines).ok_or_else(|| "Carrier not found".to_string())?;
 
         let carrier_url = carrier_tracking_url(&carrier, &tracking_number);
 
@@ -267,14 +265,12 @@ fn extract_items_from_send_html(html: &str) -> Vec<OrderItem> {
         }
 
         // 数量マーカー（`<td align="right">×N</td>`）がない = 商品テーブルでない（追跡番号テーブル等）のでスキップ
-        let quantity = match table
-            .select(&qty_td_sel)
-            .find_map(|td| {
-                let text = td.text().collect::<String>();
-                SEND_HTML_QTY_RE
-                    .captures(text.trim())
-                    .and_then(|c| c[1].parse::<i64>().ok())
-            }) {
+        let quantity = match table.select(&qty_td_sel).find_map(|td| {
+            let text = td.text().collect::<String>();
+            SEND_HTML_QTY_RE
+                .captures(text.trim())
+                .and_then(|c| c[1].parse::<i64>().ok())
+        }) {
             Some(q) => q,
             None => continue,
         };
@@ -579,8 +575,9 @@ figma テスト【再販】
 
     #[test]
     fn test_parse_send_no_tracking_number_returns_error() {
-        let result = PremiumBandaiSendParser
-            .parse("■ご注文番号：12345\n■発送商品\n商品A\n数量：1個\n■配送情報\n配送業者：佐川急便");
+        let result = PremiumBandaiSendParser.parse(
+            "■ご注文番号：12345\n■発送商品\n商品A\n数量：1個\n■配送情報\n配送業者：佐川急便",
+        );
         assert!(result.is_err());
     }
 
@@ -633,6 +630,10 @@ figma テスト【再販】
             </tr>
         </table>"#;
         let items = extract_items_from_send_html(html);
-        assert!(items.is_empty(), "追跡番号テーブルは商品として認識されないはず: {:?}", items);
+        assert!(
+            items.is_empty(),
+            "追跡番号テーブルは商品として認識されないはず: {:?}",
+            items
+        );
     }
 }

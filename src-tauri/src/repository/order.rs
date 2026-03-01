@@ -2859,11 +2859,10 @@ mod tests {
         .execute(&pool)
         .await
         .expect("insert order");
-        let order_id: (i64,) =
-            sqlx::query_as("SELECT id FROM orders WHERE order_number = '00006'")
-                .fetch_one(&pool)
-                .await
-                .expect("get order id");
+        let order_id: (i64,) = sqlx::query_as("SELECT id FROM orders WHERE order_number = '00006'")
+            .fetch_one(&pool)
+            .await
+            .expect("get order id");
         sqlx::query(
             r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, 'Figure-rise Standard Amplified メタルガルルモン（ブラックＶｅｒ．）', 1)"#,
         )

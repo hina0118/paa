@@ -284,12 +284,11 @@ async fn cleanup_phantom_omatome_items_in_tx(
 
     // 空になった注文の deliveries を削除（orders と order_emails は保持）
     for order_id in orders_to_delete {
-        let (remaining,): (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM items WHERE order_id = ?")
-                .bind(order_id)
-                .fetch_one(tx.as_mut())
-                .await
-                .map_err(|e| format!("Failed to count items: {e}"))?;
+        let (remaining,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items WHERE order_id = ?")
+            .bind(order_id)
+            .fetch_one(tx.as_mut())
+            .await
+            .map_err(|e| format!("Failed to count items: {e}"))?;
         if remaining == 0 {
             sqlx::query("DELETE FROM deliveries WHERE order_id = ?")
                 .bind(order_id)
