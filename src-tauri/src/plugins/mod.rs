@@ -383,4 +383,17 @@ mod tests {
             assert!(find_plugin(&registry, pt).is_some(), "No plugin for {}", pt);
         }
     }
+
+    #[test]
+    fn test_all_premium_bandai_parser_types_have_plugin() {
+        let registry = build_registry();
+        let pb_types = [
+            "premium_bandai_confirm",
+            "premium_bandai_omatome",
+            "premium_bandai_send",
+        ];
+        for pt in &pb_types {
+            assert!(find_plugin(&registry, pt).is_some(), "No plugin for {}", pt);
+        }
+    }
 }
