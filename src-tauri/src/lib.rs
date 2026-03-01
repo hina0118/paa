@@ -8,10 +8,10 @@ use tauri::{Listener, Manager};
 use tauri_plugin_sql::{Migration, MigrationKind};
 
 pub mod batch_runner;
-pub mod delivery_check;
 pub mod clipboard_watcher;
 pub mod commands;
 pub mod config;
+pub mod delivery_check;
 pub mod e2e_mocks;
 pub mod e2e_seed;
 pub mod gemini;
