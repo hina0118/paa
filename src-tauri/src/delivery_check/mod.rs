@@ -328,7 +328,7 @@ fn detect_charset(body: &[u8]) -> Option<String> {
 }
 
 /// HTTP `Content-Type` ヘッダ文字列から charset ラベルに対応する Encoding を返す。
-/// 例: `"text/html; charset=Shift_JIS"` → `Some(&SHIFT_JIS)`
+/// 例: `"text/html; charset=Shift_JIS"` → `Some(encoding_rs::SHIFT_JIS)`
 fn charset_from_content_type(content_type: &str) -> Option<&'static encoding_rs::Encoding> {
     // `charset=` を含む quoted-string パラメータに誤マッチしないよう、
     // `;` 区切りのパラメータを `name=value` としてパースし、`name` が
