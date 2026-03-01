@@ -268,13 +268,16 @@ impl SqliteOrderRepository {
                 sqlx::query_scalar(
                     r#"
                     SELECT o.id FROM orders o
-                    WHERE o.order_number COLLATE NOCASE != ?
-                    AND o.shop_domain = ?
+                    WHERE o.order_number COLLATE NOCASE != ?1
+                    AND o.shop_domain = ?2
                     AND o.id NOT IN (
                         SELECT d.order_id FROM deliveries d
                         WHERE d.delivery_status IN ('shipped', 'in_transit', 'out_for_delivery', 'delivered')
                     )
-                    AND COALESCE(o.order_date, o.created_at) < datetime(? / 1000, 'unixepoch', '+9 hours')
+                    AND (
+                        (o.order_date IS NOT NULL AND o.order_date < datetime(?3 / 1000, 'unixepoch', '+9 hours'))
+                        OR (o.order_date IS NULL AND o.created_at < datetime(?3 / 1000, 'unixepoch'))
+                    )
                     ORDER BY o.order_date IS NULL, o.order_date DESC, o.id DESC
                     "#,
                 )
@@ -288,13 +291,16 @@ impl SqliteOrderRepository {
                 sqlx::query_scalar(
                     r#"
                     SELECT o.id FROM orders o
-                    WHERE o.order_number COLLATE NOCASE != ?
+                    WHERE o.order_number COLLATE NOCASE != ?1
                     AND (o.shop_domain IS NULL OR o.shop_domain = '')
                     AND o.id NOT IN (
                         SELECT d.order_id FROM deliveries d
                         WHERE d.delivery_status IN ('shipped', 'in_transit', 'out_for_delivery', 'delivered')
                     )
-                    AND COALESCE(o.order_date, o.created_at) < datetime(? / 1000, 'unixepoch', '+9 hours')
+                    AND (
+                        (o.order_date IS NOT NULL AND o.order_date < datetime(?2 / 1000, 'unixepoch', '+9 hours'))
+                        OR (o.order_date IS NULL AND o.created_at < datetime(?2 / 1000, 'unixepoch'))
+                    )
                     ORDER BY o.order_date IS NULL, o.order_date DESC, o.id DESC
                     "#,
                 )
@@ -308,13 +314,16 @@ impl SqliteOrderRepository {
             sqlx::query_scalar(
                 r#"
                 SELECT o.id FROM orders o
-                WHERE o.order_number COLLATE NOCASE != ?
+                WHERE o.order_number COLLATE NOCASE != ?1
                 AND (o.shop_domain IS NULL OR o.shop_domain = '')
                 AND o.id NOT IN (
                     SELECT d.order_id FROM deliveries d
                     WHERE d.delivery_status IN ('shipped', 'in_transit', 'out_for_delivery', 'delivered')
                 )
-                AND COALESCE(o.order_date, o.created_at) < datetime(? / 1000, 'unixepoch', '+9 hours')
+                AND (
+                    (o.order_date IS NOT NULL AND o.order_date < datetime(?2 / 1000, 'unixepoch', '+9 hours'))
+                    OR (o.order_date IS NULL AND o.created_at < datetime(?2 / 1000, 'unixepoch'))
+                )
                 ORDER BY o.order_date IS NULL, o.order_date DESC, o.id DESC
                 "#,
             )
@@ -2910,6 +2919,79 @@ mod tests {
         assert_eq!(
             item_count.0, 0,
             "JST 変換により order_date '2022-06-05' が UTC cutoff '2022-06-04 17:59:04' より前と判定され、商品が削除されるべき"
+        );
+    }
+
+    #[tokio::test]
+    // created_at は UTC で保存されるため、+9 hours を加算せずに UTC cutoff と比較する必要がある。
+    // created_at が UTC cutoff より後の注文は、旧コード（COALESCE + '+9 hours'）では誤って対象に含まれてしまう
+    // （'2024-06-01 01:00:00' < '2024-06-01 09:00:00' → TRUE）ため、正しく除外されることを確認する。
+    async fn test_apply_change_items_created_at_utc_not_shifted() {
+        let pool = setup_test_db().await;
+        let repo = SqliteOrderRepository::new(pool.clone());
+
+        // cutoff = 2024-06-01 00:00:00 UTC (1717200000000 ms)
+        // JST では 2024-06-01 09:00:00
+        let cutoff_ts = 1717200000000i64;
+
+        // 注文: order_date = NULL, created_at = cutoff UTC + 1 hour (= '2024-06-01 01:00:00 UTC')
+        // UTC cutoff より後 → 対象外になるべき
+        // 旧コード（COALESCE + '+9 hours'）では '2024-06-01 01:00:00' < '2024-06-01 09:00:00' → TRUE で誤包含
+        sqlx::query(
+            r#"INSERT INTO orders (order_number, shop_domain, shop_name, order_date, created_at) VALUES ('COALESCE-001', '1999.co.jp', 'ホビーサーチ', NULL, '2024-06-01 01:00:00')"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert order");
+        let order_id: (i64,) =
+            sqlx::query_as("SELECT id FROM orders WHERE order_number = 'COALESCE-001'")
+                .fetch_one(&pool)
+                .await
+                .expect("get order id");
+        sqlx::query(r#"INSERT INTO items (order_id, item_name, quantity) VALUES (?, '商品E', 1)"#)
+            .bind(order_id.0)
+            .execute(&pool)
+            .await
+            .expect("insert item");
+
+        let order_info = crate::parsers::OrderInfo {
+            order_number: "COALESCE-002".to_string(),
+            order_date: None,
+            delivery_address: None,
+            delivery_info: None,
+            items: vec![crate::parsers::OrderItem {
+                name: "商品E".to_string(),
+                manufacturer: None,
+                model_number: None,
+                unit_price: 1000,
+                quantity: 1,
+                subtotal: 1000,
+                image_url: None,
+            }],
+            subtotal: Some(1000),
+            shipping_fee: None,
+            total_amount: Some(1000),
+        };
+
+        let result = repo
+            .apply_change_items(
+                &order_info,
+                Some("1999.co.jp".to_string()),
+                Some(cutoff_ts),
+            )
+            .await;
+        assert!(result.is_ok(), "apply_change_items failed: {:?}", result);
+
+        // created_at '2024-06-01 01:00:00' UTC は cutoff '2024-06-01 00:00:00' UTC より後なので対象外
+        // 商品は削除されず残るべき
+        let item_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM items WHERE order_id = ?")
+            .bind(order_id.0)
+            .fetch_one(&pool)
+            .await
+            .expect("count items");
+        assert_eq!(
+            item_count.0, 1,
+            "created_at が UTC cutoff より後の注文は対象外のため、既存商品は削除されずに残るべき"
         );
     }
 
