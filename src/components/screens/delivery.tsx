@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import {
   Truck,
   ExternalLink,
@@ -158,7 +158,7 @@ function StatusBadge({ status }: { status: string }) {
 type SummaryCardProps = {
   label: string;
   count: number;
-  icon: React.ReactNode;
+  icon: ReactNode;
   colorClass: string;
 };
 
