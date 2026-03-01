@@ -239,10 +239,14 @@ fn parse_tracking_html(carrier: &str, html: &str) -> ParsedStatus {
         }
     }
 
-    // --- その他 → shipped のまま更新（last_checked_at のみ更新）---
+    // --- その他（判定不能）---
+    // この分岐は配送ステータスを判定できなかったことを表す。
+    // 呼び出し側では、`delivery_status == "unknown"` の場合は
+    // `tracking_check_logs.delivery_status` を NULL として保存し、
+    // deliveries 側のステータスも更新しないように扱うこと。
     ParsedStatus {
         check_status: "success",
-        delivery_status: "shipped",
+        delivery_status: "unknown",
         description: None,
     }
 }
