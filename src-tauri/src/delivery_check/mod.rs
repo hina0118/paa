@@ -298,7 +298,7 @@ async fn fetch_html(client: &Client, url: &str, form_body: Option<&str>) -> Resu
         .await
         .map_err(|e| format!("Body read error: {e}"))?;
 
-    let html = decode_body(&body)?;
+    let html = decode_body(&body, &content_type)?;
 
     log::debug!(
         "[DeliveryCheck] Response url={url} status={status} \
@@ -327,10 +327,52 @@ fn detect_charset(body: &[u8]) -> Option<String> {
     }
 }
 
-/// バイト列を <meta charset> / Content-Type charset に従ってデコードする。
+/// HTTP `Content-Type` ヘッダ文字列から charset ラベルに対応する Encoding を返す。
+/// 例: `"text/html; charset=Shift_JIS"` → `Some(encoding_rs::SHIFT_JIS)`
+fn charset_from_content_type(content_type: &str) -> Option<&'static encoding_rs::Encoding> {
+    // `charset=` を含む quoted-string パラメータに誤マッチしないよう、
+    // `;` 区切りのパラメータを `name=value` としてパースし、`name` が
+    // `charset` のものだけを対象とする。
+    let lower = content_type.to_ascii_lowercase();
+    let mut iter = lower.split(';');
+    // 先頭はメディアタイプなので読み飛ばす
+    iter.next();
+
+    for part in iter {
+        let param = part.trim();
+        if param.is_empty() {
+            continue;
+        }
+        // name=value 形式のみ対象とする
+        let (name, value) = match param.split_once('=') {
+            Some((n, v)) => (n.trim(), v.trim()),
+            None => continue,
+        };
+        if name != "charset" {
+            continue;
+        }
+        // 値の前後の引用符と空白を除去
+        let value = value.trim_matches(['"', '\'']).trim();
+        if value.is_empty() {
+            // 空の charset パラメータは無視し、後続のパラメータを探索する
+            continue;
+        }
+        return encoding_rs::Encoding::for_label(value.as_bytes());
+    }
+
+    None
+}
+
+/// バイト列を Content-Type charset / `<meta charset>` に従ってデコードする。
+/// HTTP レスポンスヘッダの charset を優先し、なければ HTML 内の `<meta charset>` を参照する。
 /// 不明な場合は UTF-8 を試し、FFFD が出たら Shift-JIS にフォールバック。
-fn decode_body(body: &Bytes) -> Result<String, String> {
-    // HTML から charset ラベルを検出して encoding_rs に渡す
+fn decode_body(body: &Bytes, content_type: &str) -> Result<String, String> {
+    // 1. HTTP Content-Type ヘッダの charset を優先
+    if let Some(enc) = charset_from_content_type(content_type) {
+        let (decoded, _, _) = enc.decode(body);
+        return Ok(decoded.into_owned());
+    }
+    // 2. HTML の <meta charset> を参照
     if let Some(label) = detect_charset(body) {
         if let Some(enc) = encoding_rs::Encoding::for_label(label.as_bytes()) {
             let (decoded, _, _) = enc.decode(body);
@@ -637,5 +679,83 @@ mod tests {
         let result = parse_tracking_html("佐川急便", html);
         assert_eq!(result.check_status, "success");
         assert_eq!(result.delivery_status, "shipped");
+    }
+
+    // --- charset_from_content_type ---
+
+    #[test]
+    fn test_charset_from_content_type_shiftjis() {
+        let enc = charset_from_content_type("text/html; charset=Shift_JIS");
+        assert_eq!(enc, Some(encoding_rs::SHIFT_JIS));
+    }
+
+    #[test]
+    fn test_charset_from_content_type_utf8() {
+        let enc = charset_from_content_type("text/html; charset=utf-8");
+        assert_eq!(enc, Some(encoding_rs::UTF_8));
+    }
+
+    #[test]
+    fn test_charset_from_content_type_quoted() {
+        let enc = charset_from_content_type("text/html; charset=\"utf-8\"");
+        assert_eq!(enc, Some(encoding_rs::UTF_8));
+    }
+
+    #[test]
+    fn test_charset_from_content_type_no_charset() {
+        let enc = charset_from_content_type("text/html");
+        assert!(enc.is_none());
+    }
+
+    #[test]
+    fn test_charset_from_content_type_unknown_label() {
+        let enc = charset_from_content_type("text/html; charset=unknown-encoding-xyz");
+        assert!(enc.is_none());
+    }
+
+    #[test]
+    fn test_charset_from_content_type_quoted_string_not_mistaken() {
+        // profile パラメータに "charset=utf-8" が含まれていても charset パラメータではない
+        let enc = charset_from_content_type(
+            "text/html; profile=\"http://example.com/?charset=utf-8\"; charset=Shift_JIS",
+        );
+        assert_eq!(enc, Some(encoding_rs::SHIFT_JIS));
+    }
+
+    // --- decode_body ---
+
+    #[test]
+    fn test_decode_body_header_charset_takes_priority_over_meta() {
+        // ヘッダが Shift_JIS、meta が UTF-8 → ヘッダ優先で Shift_JIS デコード
+        let sjis_bytes = encoding_rs::SHIFT_JIS.encode("テスト").0.into_owned();
+        let mut html_bytes =
+            b"<html><head><meta charset=\"utf-8\"></head><body>".to_vec();
+        html_bytes.extend_from_slice(&sjis_bytes);
+        html_bytes.extend_from_slice(b"</body></html>");
+        let body = Bytes::from(html_bytes);
+        let result =
+            decode_body(&body, "text/html; charset=Shift_JIS").unwrap();
+        assert!(result.contains("テスト"));
+    }
+
+    #[test]
+    fn test_decode_body_falls_back_to_meta_charset() {
+        // ヘッダに charset なし → meta charset (Shift_JIS) を使用
+        let sjis_bytes = encoding_rs::SHIFT_JIS.encode("テスト").0.into_owned();
+        let mut html_bytes =
+            b"<html><head><meta charset=\"Shift_JIS\"></head><body>".to_vec();
+        html_bytes.extend_from_slice(&sjis_bytes);
+        html_bytes.extend_from_slice(b"</body></html>");
+        let body = Bytes::from(html_bytes);
+        let result = decode_body(&body, "text/html").unwrap();
+        assert!(result.contains("テスト"));
+    }
+
+    #[test]
+    fn test_decode_body_falls_back_to_utf8() {
+        // ヘッダ・meta charset ともになし → UTF-8 フォールバック
+        let body = Bytes::from("hello world".as_bytes().to_vec());
+        let result = decode_body(&body, "text/html").unwrap();
+        assert_eq!(result, "hello world");
     }
 }

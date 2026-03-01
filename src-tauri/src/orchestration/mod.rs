@@ -9,6 +9,7 @@
 //! - `sync_orchestrator` – Gmail同期オーケストレーション
 //! - `parse_orchestrator` – メール解析オーケストレーション
 //! - `product_parse_orchestrator` – 商品名解析オーケストレーション
+//! - `delivery_check_orchestrator` – 配送チェックオーケストレーション
 
 mod delivery_check_orchestrator;
 pub(crate) mod error_handler;
