@@ -387,12 +387,6 @@ impl SqliteOrderRepository {
 
         let mut orders_to_delete: HashSet<i64> = HashSet::new();
 
-        log::info!(
-            "apply_change_items: order_number={} candidate_order_ids={:?}",
-            order_info.order_number,
-            order_ids
-        );
-
         for item in &order_info.items {
             let product_name = item.name.trim();
             let cancel_qty = item.quantity.max(0);
@@ -403,12 +397,6 @@ impl SqliteOrderRepository {
 
             let mut remaining_qty = cancel_qty;
             let mut matched_any = false;
-
-            log::info!(
-                "apply_change_items: processing item {:?} qty={}",
-                product_name,
-                cancel_qty
-            );
 
             for &order_id in &order_ids {
                 if remaining_qty <= 0 {
@@ -423,12 +411,6 @@ impl SqliteOrderRepository {
                         .get(&order_id)
                         .map(|v| v.as_slice())
                         .unwrap_or(&[]);
-
-                    log::info!(
-                        "apply_change_items:   checking order_id={} items={:?}",
-                        order_id,
-                        items.iter().map(|(id, name, _, _, qty)| (id, name.as_str(), qty)).collect::<Vec<_>>()
-                    );
 
                     let product_master_name = incoming_pm_map.get(product_name).map(|s| s.as_str());
                     let found = items.iter().find(
