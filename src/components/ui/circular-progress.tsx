@@ -24,12 +24,16 @@ export function CircularProgress({
 
   return (
     <div
+      role="progressbar"
+      aria-valuenow={Math.round(value)}
+      aria-valuemin={0}
+      aria-valuemax={100}
       className={cn(
         'relative inline-flex items-center justify-center',
         className
       )}
     >
-      <svg width={size} height={size} className="-rotate-90">
+      <svg width={size} height={size} className="-rotate-90" aria-hidden="true">
         <circle
           cx={size / 2}
           cy={size / 2}
