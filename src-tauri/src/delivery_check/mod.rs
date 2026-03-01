@@ -558,7 +558,11 @@ impl BatchTask for DeliveryCheckTask {
             &ctx.pool,
             &input.tracking_number,
             parsed.check_status,
-            Some(parsed.delivery_status),
+            if parsed.delivery_status == "unknown" {
+                None
+            } else {
+                Some(parsed.delivery_status)
+            },
             parsed.description.as_deref(),
             None,
         )
