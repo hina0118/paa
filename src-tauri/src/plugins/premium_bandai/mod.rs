@@ -237,7 +237,10 @@ async fn cleanup_phantom_omatome_items_in_tx(
             SELECT d.order_id FROM deliveries d
             WHERE d.delivery_status IN ('shipped', 'in_transit', 'out_for_delivery', 'delivered')
         )
-        AND COALESCE(o.order_date, o.created_at) < datetime(? / 1000, 'unixepoch', '+9 hours')
+        AND (
+            (o.order_date IS NOT NULL AND o.order_date < datetime(? / 1000, 'unixepoch', '+9 hours'))
+            OR (o.order_date IS NULL AND o.created_at < datetime(? / 1000, 'unixepoch'))
+        )
         AND e.subject LIKE '%おまとめ完了%'
         ORDER BY o.id DESC
         "#,
