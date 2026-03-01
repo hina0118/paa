@@ -211,7 +211,7 @@ pub fn extract_order_number(lines: &[&str]) -> Option<String> {
         }
         // Pattern 3: 【注文No.】 ラベルのみ → 次の非空行に 5 桁数字（HTML テーブル形式）
         if ORDER_NUMBER_NO_LABEL_RE.is_match(line) {
-            if let Some(v) = lines[i + 1..]
+            if let Some(v) = lines.get(i + 1..).unwrap_or(&[])
                 .iter()
                 .map(|l| l.trim())
                 .find(|t| !t.is_empty())
@@ -252,7 +252,7 @@ pub fn extract_order_date(lines: &[&str]) -> Option<String> {
         }
         // Pattern 3: 【注文日】 ラベルのみ → 次の非空行に ISO 日付（HTML テーブル形式）
         if ORDER_DATE_ISO_LABEL_RE.is_match(line) {
-            if let Some(date_line) = lines[i + 1..]
+            if let Some(date_line) = lines.get(i + 1..).unwrap_or(&[])
                 .iter()
                 .map(|l| l.trim())
                 .find(|t| !t.is_empty())
@@ -304,7 +304,7 @@ pub fn extract_shipping_fee(lines: &[&str]) -> Option<i64> {
         }
         // 次行マッチ: `送料：` ラベルのみ
         if SHIPPING_LABEL_RE.is_match(trimmed) {
-            if let Some(next) = lines[i + 1..]
+            if let Some(next) = lines.get(i + 1..).unwrap_or(&[])
                 .iter()
                 .map(|l| l.trim())
                 .find(|t| !t.is_empty())
@@ -335,7 +335,7 @@ pub fn extract_payment_fee(lines: &[&str]) -> Option<i64> {
         }
         // 次行マッチ: `決済手数料：` ラベルのみ
         if PAYMENT_FEE_LABEL_RE.is_match(trimmed) {
-            if let Some(next) = lines[i + 1..]
+            if let Some(next) = lines.get(i + 1..).unwrap_or(&[])
                 .iter()
                 .map(|l| l.trim())
                 .find(|t| !t.is_empty())
