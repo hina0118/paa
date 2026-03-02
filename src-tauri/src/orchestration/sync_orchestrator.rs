@@ -19,6 +19,15 @@ use crate::repository::{
     EmailRepository, ShopSettingsRepository, SqliteEmailRepository, SqliteShopSettingsRepository,
 };
 
+/// DB内の最新 internal_date から差分同期の after_date を計算する。
+/// 安全マージンとして1日（86,400,000ms）前にずらし、RFC3339形式で返す。
+/// タイムスタンプが無効な場合は None を返す。
+pub(crate) fn compute_incremental_after_date(latest_ts: i64) -> Option<String> {
+    let margin_ms = 86_400_000i64;
+    let safe_ts = latest_ts.saturating_sub(margin_ms);
+    chrono::DateTime::from_timestamp_millis(safe_ts).map(|dt| dt.to_rfc3339())
+}
+
 /// Gmail全件同期タスクの本体。コマンド・トレイ両方から呼ぶ。
 pub async fn run_sync_task(app: tauri::AppHandle, pool: SqlitePool, sync_state: SyncState) {
     let app = TauriBatchCommandsApp { app };
@@ -122,11 +131,8 @@ async fn run_sync_core<A: BatchCommandsApp>(
         match email_repo.get_latest_internal_date().await {
             Ok(Some(ts)) => {
                 // 安全マージンとして1日（86,400,000ms）前にずらす（Gmail API の after: は日単位のため）
-                let margin_ms = 86_400_000i64;
-                let safe_ts = ts.saturating_sub(margin_ms);
-                match chrono::DateTime::from_timestamp_millis(safe_ts) {
-                    Some(dt) => {
-                        let rfc = dt.to_rfc3339();
+                match compute_incremental_after_date(ts) {
+                    Some(rfc) => {
                         log::info!(
                             "Incremental sync: using after_date={} (original latest={})",
                             rfc,
@@ -439,5 +445,53 @@ mod tests {
             "should emit at least one progress event"
         );
         assert_eq!(app.notify_count.load(Ordering::SeqCst), 1);
+    }
+
+    // ==================== compute_incremental_after_date Tests ====================
+
+    #[test]
+    fn compute_incremental_after_date_yields_one_day_before_latest() {
+        // 2024-01-01 00:00:00 UTC = 1704067200000ms
+        // 安全マージン1日(86400000ms)引くと 2023-12-31 00:00:00 UTC
+        let ts = 1_704_067_200_000i64;
+        let result = compute_incremental_after_date(ts);
+        assert!(result.is_some(), "should return Some for valid timestamp");
+        let date_str = result.unwrap();
+        assert!(
+            date_str.contains("2023-12-31"),
+            "after_date should be 1 day before latest (2023-12-31), got: {date_str}"
+        );
+    }
+
+    #[test]
+    fn compute_incremental_after_date_returns_none_for_extreme_timestamp() {
+        // i64::MIN から86400000を引くと saturating_sub で i64::MIN のまま → 変換失敗 → None
+        let result = compute_incremental_after_date(i64::MIN);
+        assert!(result.is_none(), "should return None for extreme timestamp");
+    }
+
+    #[test]
+    fn incremental_after_date_flows_into_build_sync_query() {
+        // DB の最新 internal_date から after_date を計算し、
+        // build_sync_query に渡したときに after:YYYY/MM/DD が含まれることを確認する
+        // （差分同期がフル同期にフォールバックしないことの直接検証）
+        let internal_date = 1_704_067_200_000i64; // 2024-01-01 UTC
+
+        let after_date = compute_incremental_after_date(internal_date);
+        assert!(
+            after_date.is_some(),
+            "valid internal_date should produce Some after_date (no full-sync fallback)"
+        );
+
+        let addresses = vec!["shop@example.com".to_string()];
+        let query = crate::logic::sync_logic::build_sync_query(&addresses, &None, &after_date);
+        assert!(
+            query.contains("after:2023/12/31"),
+            "query should contain after:2023/12/31, got: {query}"
+        );
+        assert!(
+            !query.contains("before:"),
+            "query should not contain before: when only after is set, got: {query}"
+        );
     }
 }
