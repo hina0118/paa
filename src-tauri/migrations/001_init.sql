@@ -131,6 +131,42 @@ CREATE TRIGGER deliveries_updated_at AFTER UPDATE ON deliveries BEGIN
 END;
 
 -- -----------------------------------------------------------------------------
+-- tracking_check_logs
+-- 配送業者HPを確認した結果を保存する。tracking_number ごとに最新 1 件のみ保持（UPSERT 設計）。
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS tracking_check_logs (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    tracking_number TEXT NOT NULL,
+    checked_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- チェック自体の結果: success=取得成功 / failed=エラー / not_found=追跡番号不明
+    check_status    TEXT NOT NULL DEFAULT 'success'
+                    CHECK(check_status IN ('success', 'failed', 'not_found')),
+    -- 確認時点の配送ステータス（deliveries.delivery_status と同じ値域）
+    -- check_status='success' 時は実際の配送状況（ただし HTML 解析結果が unknown で判定不能な場合は NULL）
+    -- check_status='not_found' 時は 'delivered' 扱いで保存される / check_status='failed' 時は NULL
+    delivery_status TEXT
+                    CHECK(delivery_status IS NULL OR delivery_status IN (
+                        'not_shipped', 'preparing', 'shipped', 'in_transit',
+                        'out_for_delivery', 'delivered', 'failed', 'returned', 'cancelled'
+                    )),
+    -- 配送業者サイトの最新イベント説明文（例: "品川営業所に到着しました"）
+    description     TEXT,
+    -- 最新イベントの場所・営業所名（例: "品川営業所"）
+    location        TEXT,
+    -- check_status='failed' のときの理由・エラーメッセージ
+    error_message   TEXT,
+    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+-- tracking_number ごとに最新 1 件のみ保持（UPSERT の衝突キーとして使用）
+-- 【設計上の制約】同一追跡番号が複数配送に紐づく場合（注文分割等）は最新の結果で上書きされる。
+-- 本テーブルは「追跡番号ごとの最新チェック結果」の記録を目的としており、配送単位のフル履歴保持は対象外とする。
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tracking_check_logs_tracking_number
+    ON tracking_check_logs(tracking_number);
+-- チェック日時の降順（全件を新しい順に表示する場合に使用）
+CREATE INDEX IF NOT EXISTS idx_tracking_check_logs_checked_at
+    ON tracking_check_logs(checked_at DESC);
+
+-- -----------------------------------------------------------------------------
 -- htmls
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS htmls (

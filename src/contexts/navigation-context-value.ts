@@ -3,6 +3,7 @@ import { createContext } from 'react';
 export type Screen =
   | 'dashboard'
   | 'orders'
+  | 'deliveries'
   | 'batch'
   | 'logs'
   | 'shop-settings'
@@ -23,7 +24,8 @@ export type Screen =
   | 'table-item-overrides'
   | 'table-order-overrides'
   | 'table-excluded-items'
-  | 'table-excluded-orders';
+  | 'table-excluded-orders'
+  | 'table-tracking-check-logs';
 
 export type NavigationContextType = {
   currentScreen: Screen;

@@ -304,7 +304,7 @@ describe('ShopSettings', () => {
     it('calls toggle_shop_enabled with isEnabled: false when clicking the disable button for an enabled shop', async () => {
       const user = userEvent.setup();
 
-      mockInvoke.mockImplementation((cmd: string, args?: unknown) => {
+      mockInvoke.mockImplementation((cmd: string, _args?: unknown) => {
         if (cmd === 'get_all_shop_settings') {
           return Promise.resolve([mockShop]);
         }
@@ -339,7 +339,7 @@ describe('ShopSettings', () => {
 
       const disabledShop = { ...mockShop, is_enabled: false };
 
-      mockInvoke.mockImplementation((cmd: string, args?: unknown) => {
+      mockInvoke.mockImplementation((cmd: string, _args?: unknown) => {
         if (cmd === 'get_all_shop_settings') {
           return Promise.resolve([disabledShop]);
         }

@@ -10,6 +10,7 @@ import { Settings } from '@/components/screens/settings';
 import { Backup } from '@/components/screens/backup';
 import { ShopSettings } from '@/components/screens/shop-settings';
 import { ProductMasterEdit } from '@/components/screens/product-master';
+import { Delivery } from '@/components/screens/delivery';
 import {
   EmailsTable,
   OrdersTable,
@@ -25,11 +26,13 @@ import {
   OrderOverridesTable,
   ExcludedItemsTable,
   ExcludedOrdersTable,
+  TrackingCheckLogsTable,
 } from '@/components/screens/tables';
 import { NavigationProvider } from '@/contexts/navigation-provider';
 import { useNavigation } from '@/contexts/use-navigation';
 import { SyncProvider } from '@/contexts/sync-provider';
 import { ParseProvider } from '@/contexts/parse-provider';
+import { DeliveryCheckProvider } from '@/contexts/delivery-check-provider';
 import { ThemeProvider } from '@/contexts/theme-provider';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
@@ -45,6 +48,8 @@ function AppContent() {
         return <Dashboard />;
       case 'orders':
         return <Orders />;
+      case 'deliveries':
+        return <Delivery />;
       case 'batch':
         return <Batch />;
       case 'logs':
@@ -87,6 +92,8 @@ function AppContent() {
         return <ExcludedItemsTable />;
       case 'table-excluded-orders':
         return <ExcludedOrdersTable />;
+      case 'table-tracking-check-logs':
+        return <TrackingCheckLogsTable />;
       default:
         return <Orders />;
     }
@@ -202,7 +209,9 @@ function App() {
       <NavigationProvider>
         <SyncProvider>
           <ParseProvider>
-            <AppContent />
+            <DeliveryCheckProvider>
+              <AppContent />
+            </DeliveryCheckProvider>
           </ParseProvider>
         </SyncProvider>
       </NavigationProvider>

@@ -20,6 +20,7 @@ export const VALID_TABLES = [
   'order_overrides',
   'excluded_items',
   'excluded_orders',
+  'tracking_check_logs',
 ] as const;
 
 export type ValidTableName = (typeof VALID_TABLES)[number];

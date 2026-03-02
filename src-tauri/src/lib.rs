@@ -11,6 +11,7 @@ pub mod batch_runner;
 pub mod clipboard_watcher;
 pub mod commands;
 pub mod config;
+pub mod delivery_check;
 pub mod e2e_mocks;
 pub mod e2e_seed;
 pub mod gemini;
@@ -204,6 +205,10 @@ pub fn run() {
             app.manage(commands::ProductNameParseState::new());
             log::info!("Product name parse state initialized");
 
+            // Initialize delivery check state
+            app.manage(commands::DeliveryCheckState::new());
+            log::info!("Delivery check state initialized");
+
             // Restore window settings and setup close handler
             let window = app
                 .get_webview_window("main")
@@ -275,12 +280,19 @@ pub fn run() {
                 true,
                 None::<&str>,
             )?;
+            let delivery_check_item = MenuItem::with_id(
+                app,
+                "tray_delivery_check",
+                "配送状況確認",
+                true,
+                None::<&str>,
+            )?;
             let batch_submenu = Submenu::with_id_and_items(
                 app,
                 "batch",
                 "バッチ処理",
                 true,
-                &[&sync_item, &parse_item, &product_item],
+                &[&sync_item, &parse_item, &product_item, &delivery_check_item],
             )?;
             let quit_item = MenuItem::with_id(app, "quit", "終了", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_item, &batch_submenu, &quit_item])?;
@@ -378,6 +390,29 @@ pub fn run() {
                         } else {
                             log::warn!(
                                 "Cannot run tray product name parse: pool or parse_state not initialized"
+                            );
+                        }
+                    }
+                    "tray_delivery_check" => {
+                        if let (Some(pool), Some(check_state)) = (
+                            app.try_state::<SqlitePool>(),
+                            app.try_state::<commands::DeliveryCheckState>(),
+                        ) {
+                            let app_clone = app.clone();
+                            let pool_clone = pool.inner().clone();
+                            let check_state_clone = check_state.inner().clone();
+                            if let Err(e) = check_state_clone.try_start() {
+                                log::warn!("Cannot start delivery check from tray: {e}");
+                            } else {
+                                tauri::async_runtime::spawn(orchestration::run_delivery_check_task(
+                                    app_clone,
+                                    pool_clone,
+                                    check_state_clone,
+                                ));
+                            }
+                        } else {
+                            log::warn!(
+                                "Cannot run tray delivery check: pool or check_state not initialized"
                             );
                         }
                     }
@@ -492,6 +527,8 @@ pub fn run() {
             commands::get_all_excluded_orders,
             commands::get_product_master_list,
             commands::update_product_master,
+            commands::start_delivery_check,
+            commands::cancel_delivery_check,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

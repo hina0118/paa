@@ -25,6 +25,7 @@ fn test_init_contains_expected_tables() {
         "items",
         "images",
         "deliveries",
+        "tracking_check_logs",
         "htmls",
         "order_emails",
         "order_htmls",
