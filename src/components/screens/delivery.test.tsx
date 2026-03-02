@@ -6,6 +6,16 @@ import { buildTrackingUrl } from './delivery-utils';
 
 const mockSelect = vi.fn();
 
+const { toastErrorMock } = vi.hoisted(() => ({
+  toastErrorMock: vi.fn(),
+}));
+
+vi.mock('@/lib/toast', () => ({
+  toastError: (...args: unknown[]) => toastErrorMock(...args),
+  formatError: (error: unknown) =>
+    error instanceof Error ? error.message : String(error),
+}));
+
 vi.mock('@/lib/database', () => ({
   DatabaseManager: {
     getInstance: () => ({
@@ -206,5 +216,29 @@ describe('Delivery component filters', () => {
     expect(
       screen.getByText('該当するレコードがありません')
     ).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Delivery component error handling tests
+// ---------------------------------------------------------------------------
+
+describe('Delivery component error handling', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('calls toastError and shows 0 rows when fetchDeliveries fails', async () => {
+    mockSelect.mockRejectedValue(new Error('DB connection failed'));
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    render(<Delivery />);
+
+    await screen.findByText(/0件の配送レコード/);
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      expect.stringContaining('配送情報の読み込みに失敗しました')
+    );
+
+    consoleSpy.mockRestore();
   });
 });
