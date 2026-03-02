@@ -121,7 +121,7 @@ async fn run_sync_core<A: BatchCommandsApp>(
     let after_date = if incremental {
         match email_repo.get_latest_internal_date().await {
             Ok(Some(ts)) => {
-                // 安全マージンとして1日（86400秒）前にずらす（Gmail API の after: は日単位のため）
+                // 安全マージンとして1日（86,400,000ms）前にずらす（Gmail API の after: は日単位のため）
                 let margin_ms = 86_400_000i64;
                 let safe_ts = ts.saturating_sub(margin_ms);
                 match chrono::DateTime::from_timestamp_millis(safe_ts) {
