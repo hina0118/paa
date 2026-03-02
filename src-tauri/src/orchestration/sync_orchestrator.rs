@@ -172,7 +172,10 @@ async fn run_sync_core<A: BatchCommandsApp>(
         }
     };
 
-    log::info!("Fetched {} message IDs from Gmail ({mode_label})", all_ids.len());
+    log::info!(
+        "Fetched {} message IDs from Gmail ({mode_label})",
+        all_ids.len()
+    );
 
     let new_ids: Vec<String> = match email_repo.filter_new_message_ids(&all_ids).await {
         Ok(ids) => ids,
@@ -184,7 +187,10 @@ async fn run_sync_core<A: BatchCommandsApp>(
         }
     };
 
-    log::info!("Found {} new messages to sync ({mode_label})", new_ids.len());
+    log::info!(
+        "Found {} new messages to sync ({mode_label})",
+        new_ids.len()
+    );
 
     if new_ids.is_empty() {
         log::info!("No new messages to sync ({mode_label})");
@@ -457,8 +463,8 @@ mod tests {
         let result = compute_incremental_after_date(ts);
         assert!(result.is_some(), "should return Some for valid timestamp");
         let date_str = result.unwrap();
-        let parsed =
-            chrono::DateTime::parse_from_rfc3339(&date_str).expect("after_date should be valid RFC3339");
+        let parsed = chrono::DateTime::parse_from_rfc3339(&date_str)
+            .expect("after_date should be valid RFC3339");
         let expected = chrono::DateTime::parse_from_rfc3339("2023-12-31T00:00:00+00:00")
             .expect("test expected date should be valid RFC3339");
         assert_eq!(
