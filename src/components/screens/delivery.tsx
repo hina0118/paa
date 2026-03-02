@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { toastError, formatError } from '@/lib/toast';
 import {
   Truck,
   ExternalLink,
@@ -202,6 +203,10 @@ export function Delivery() {
     try {
       const data = await fetchDeliveries();
       setRows(data);
+    } catch (error) {
+      console.error('Failed to load deliveries:', error);
+      toastError(`配送情報の読み込みに失敗しました: ${formatError(error)}`);
+      setRows([]);
     } finally {
       setLoading(false);
     }
