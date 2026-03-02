@@ -413,7 +413,7 @@ export function Settings() {
         <CardHeader>
           <CardTitle>スケジューラ設定</CardTitle>
           <CardDescription>
-            定期的なバックグラウンド処理（差分同期→メールパース→配達状況確認）を調整します
+            定期的なバックグラウンド処理（差分同期→メールパース→商品名解析→配達状況確認）を調整します
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">

@@ -41,7 +41,7 @@ pub async fn run_pipeline(app: &tauri::AppHandle) {
             log::info!("[Pipeline] {new_count} new email(s) synced, proceeding to parse");
         }
         StepOutcome::Skipped => {
-            log::info!("[Pipeline] Sync was skipped (already running), proceeding to parse anyway");
+            log::info!("[Pipeline] Sync was skipped, proceeding to parse anyway");
         }
     }
 
@@ -56,7 +56,7 @@ pub async fn run_pipeline(app: &tauri::AppHandle) {
             log::info!("[Pipeline] {new_count} new order(s) after parse, proceeding");
         }
         StepOutcome::Skipped => {
-            log::info!("[Pipeline] Parse was skipped (already running), proceeding anyway");
+            log::info!("[Pipeline] Parse was skipped, proceeding anyway");
         }
     }
 
