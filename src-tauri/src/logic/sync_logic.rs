@@ -12,6 +12,7 @@ use crate::gmail_client::GmailClientTrait;
 /// # Arguments
 /// * `sender_addresses` - 検索対象の送信者アドレスリスト
 /// * `oldest_date` - 検索の終了日（RFC3339形式）。この日付より前のメールを検索
+/// * `after_date` - 検索の開始日（RFC3339形式）。この日付以降のメールを検索（差分同期用）
 ///
 /// # Returns
 /// Gmailの検索クエリ文字列
@@ -20,24 +21,25 @@ use crate::gmail_client::GmailClientTrait;
 /// ```
 /// use paa_lib::logic::sync_logic::build_sync_query;
 ///
-/// let query = build_sync_query(&["shop@example.com".to_string()], &None);
+/// let query = build_sync_query(&["shop@example.com".to_string()], &None, &None);
 /// assert_eq!(query, "in:anywhere (from:shop@example.com)");
 ///
 /// let query = build_sync_query(
 ///     &["shop@example.com".to_string()],
 ///     &Some("2024-01-15T00:00:00Z".to_string()),
+///     &None,
 /// );
 /// assert!(query.contains("before:2024/01/15"));
 /// ```
-pub fn build_sync_query(sender_addresses: &[String], oldest_date: &Option<String>) -> String {
-    // Build query based on sender addresses
-    // in:anywhere で受信トレイ・スパム・ゴミ箱・アーカイブを含む全メールを検索
+pub fn build_sync_query(
+    sender_addresses: &[String],
+    oldest_date: &Option<String>,
+    after_date: &Option<String>,
+) -> String {
     let base_query = if sender_addresses.is_empty() {
-        // Fallback to keyword search if no sender addresses configured
         log::warn!("No enabled shop settings found, falling back to keyword search");
         r"in:anywhere subject:(注文 OR 予約 OR ありがとうございます)".to_string()
     } else {
-        // Build "in:anywhere (from:addr1 OR from:addr2 OR ...)" query
         let from_clauses: Vec<String> = sender_addresses
             .iter()
             .map(|addr| format!("from:{addr}"))
@@ -45,17 +47,27 @@ pub fn build_sync_query(sender_addresses: &[String], oldest_date: &Option<String
         format!("in:anywhere ({})", from_clauses.join(" OR "))
     };
 
+    let mut query = base_query;
+
     if let Some(date) = oldest_date {
-        // Parse and format for Gmail query (YYYY/MM/DD).
         if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(date) {
             let before_date = dt.format("%Y/%m/%d");
-            return format!("({base_query}) before:{before_date}");
+            query = format!("({query}) before:{before_date}");
+        } else {
+            log::warn!("Invalid date format in oldest_date, ignoring date constraint: {date}");
         }
-        // If parsing fails, log warning and use base query without date filter
-        log::warn!("Invalid date format in oldest_date, ignoring date constraint: {date}");
     }
 
-    base_query
+    if let Some(date) = after_date {
+        if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(date) {
+            let after_fmt = dt.format("%Y/%m/%d");
+            query = format!("({query}) after:{after_fmt}");
+        } else {
+            log::warn!("Invalid date format in after_date, ignoring date constraint: {date}");
+        }
+    }
+
+    query
 }
 
 /// "From"ヘッダーからメールアドレスを抽出する
@@ -303,7 +315,7 @@ mod tests {
 
     #[test]
     fn test_build_sync_query_single_address() {
-        let query = build_sync_query(&["shop@example.com".to_string()], &None);
+        let query = build_sync_query(&["shop@example.com".to_string()], &None, &None);
         assert_eq!(query, "in:anywhere (from:shop@example.com)");
     }
 
@@ -313,7 +325,7 @@ mod tests {
             "shop1@example.com".to_string(),
             "shop2@example.com".to_string(),
         ];
-        let query = build_sync_query(&addresses, &None);
+        let query = build_sync_query(&addresses, &None, &None);
         assert_eq!(
             query,
             "in:anywhere (from:shop1@example.com OR from:shop2@example.com)"
@@ -322,7 +334,7 @@ mod tests {
 
     #[test]
     fn test_build_sync_query_empty_addresses() {
-        let query = build_sync_query(&[], &None);
+        let query = build_sync_query(&[], &None, &None);
         assert!(query.contains("in:anywhere"));
         assert!(query.contains("subject:"));
     }
@@ -332,6 +344,7 @@ mod tests {
         let query = build_sync_query(
             &["shop@example.com".to_string()],
             &Some("2024-01-15T10:30:00+09:00".to_string()),
+            &None,
         );
         assert!(query.contains("from:shop@example.com"));
         assert!(query.contains("before:2024/01/15"));
@@ -342,6 +355,7 @@ mod tests {
         let query = build_sync_query(
             &["shop@example.com".to_string()],
             &Some("invalid-date".to_string()),
+            &None,
         );
         // Invalid date should be ignored
         assert_eq!(query, "in:anywhere (from:shop@example.com)");
@@ -352,9 +366,42 @@ mod tests {
         let query = build_sync_query(
             &["shop@example.com".to_string()],
             &Some("2024-06-01T00:00:00Z".to_string()),
+            &None,
         );
         assert!(query.contains("in:anywhere"));
         assert!(query.contains("before:2024/06/01"));
+    }
+
+    #[test]
+    fn test_build_sync_query_with_after_date() {
+        let query = build_sync_query(
+            &["shop@example.com".to_string()],
+            &None,
+            &Some("2024-06-01T00:00:00Z".to_string()),
+        );
+        assert!(query.contains("from:shop@example.com"));
+        assert!(query.contains("after:2024/06/01"));
+    }
+
+    #[test]
+    fn test_build_sync_query_with_after_date_invalid() {
+        let query = build_sync_query(
+            &["shop@example.com".to_string()],
+            &None,
+            &Some("bad-date".to_string()),
+        );
+        assert_eq!(query, "in:anywhere (from:shop@example.com)");
+    }
+
+    #[test]
+    fn test_build_sync_query_with_both_before_and_after() {
+        let query = build_sync_query(
+            &["shop@example.com".to_string()],
+            &Some("2024-12-31T00:00:00Z".to_string()),
+            &Some("2024-01-01T00:00:00Z".to_string()),
+        );
+        assert!(query.contains("before:2024/12/31"));
+        assert!(query.contains("after:2024/01/01"));
     }
 
     // ==================== extract_email_address Tests ====================

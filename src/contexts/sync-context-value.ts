@@ -22,6 +22,7 @@ export interface SyncContextType {
   progress: BatchProgress | null;
   metadata: SyncMetadata | null;
   startSync: () => Promise<void>;
+  startIncrementalSync: () => Promise<void>;
   cancelSync: () => Promise<void>;
   refreshStatus: () => Promise<void>;
   updateBatchSize: (size: number) => Promise<void>;

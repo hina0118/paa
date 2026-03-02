@@ -270,7 +270,9 @@ pub fn run() {
 
             // Setup system tray
             let show_item = MenuItem::with_id(app, "show", "表示", true, None::<&str>)?;
-            let sync_item = MenuItem::with_id(app, "tray_sync", "Gmail同期", true, None::<&str>)?;
+            let sync_item = MenuItem::with_id(app, "tray_sync", "Gmail同期（全件）", true, None::<&str>)?;
+            let incremental_sync_item =
+                MenuItem::with_id(app, "tray_incremental_sync", "Gmail同期（差分）", true, None::<&str>)?;
             let parse_item =
                 MenuItem::with_id(app, "tray_parse", "メールパース", true, None::<&str>)?;
             let product_item = MenuItem::with_id(
@@ -292,7 +294,7 @@ pub fn run() {
                 "batch",
                 "バッチ処理",
                 true,
-                &[&sync_item, &parse_item, &product_item, &delivery_check_item],
+                &[&sync_item, &incremental_sync_item, &parse_item, &product_item, &delivery_check_item],
             )?;
             let quit_item = MenuItem::with_id(app, "quit", "終了", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_item, &batch_submenu, &quit_item])?;
@@ -332,6 +334,23 @@ pub fn run() {
                             ));
                         } else {
                             log::warn!("Cannot run tray sync: pool or sync_state not initialized");
+                        }
+                    }
+                    "tray_incremental_sync" => {
+                        if let (Some(pool), Some(sync_state)) = (
+                            app.try_state::<SqlitePool>(),
+                            app.try_state::<gmail::SyncState>(),
+                        ) {
+                            let app_clone = app.clone();
+                            let pool_clone = pool.inner().clone();
+                            let sync_state_clone = sync_state.inner().clone();
+                            tauri::async_runtime::spawn(orchestration::run_incremental_sync_task(
+                                app_clone,
+                                pool_clone,
+                                sync_state_clone,
+                            ));
+                        } else {
+                            log::warn!("Cannot run tray incremental sync: pool or sync_state not initialized");
                         }
                     }
                     "tray_parse" => {
@@ -468,6 +487,7 @@ pub fn run() {
             commands::get_db_filename,
             commands::fetch_gmail_emails,
             commands::start_sync,
+            commands::start_incremental_sync,
             commands::cancel_sync,
             commands::get_sync_status,
             commands::update_batch_size,
