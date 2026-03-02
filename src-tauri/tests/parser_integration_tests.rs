@@ -75,8 +75,11 @@ fn test_build_sync_query_integration() {
     assert!(query.contains(" OR "));
 
     // 日付フィルター付き
-    let query_with_date =
-        build_sync_query(&addresses, &Some("2024-06-15T12:00:00+09:00".to_string()), &None);
+    let query_with_date = build_sync_query(
+        &addresses,
+        &Some("2024-06-15T12:00:00+09:00".to_string()),
+        &None,
+    );
     assert!(query_with_date.contains("before:2024/06/15"));
 }
 

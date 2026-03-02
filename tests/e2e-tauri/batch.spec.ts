@@ -30,12 +30,17 @@ describe('バッチ処理 (Tauri)', () => {
     await expect(heading).toBeDisplayed();
   });
 
-  it('同期を開始ボタンがクリックできる', async () => {
-    const startBtn = await $('button*=同期を開始');
+  it('差分同期ボタンがクリックできる', async () => {
+    const startBtn = await $('button*=差分同期');
     await startBtn.waitForDisplayed({ timeout: 5000 });
     await startBtn.click();
     // モックにより「新規メッセージなし」で即完了する想定
     await expect(startBtn).toBeDisplayed();
+  });
+
+  it('全件同期ボタンが表示される', async () => {
+    const fullSyncBtn = await $('button*=全件同期');
+    await expect(fullSyncBtn).toBeDisplayed();
   });
 
   it('パースを開始ボタンをクリックすると確認ダイアログが表示される', async () => {

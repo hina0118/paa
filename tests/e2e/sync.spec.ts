@@ -21,13 +21,17 @@ test.describe('Sync画面（Batch内）', () => {
     ).toBeVisible();
   });
 
-  test('同期開始ボタンがクリックできる', async ({ page }) => {
-    const startButton = page.getByRole('button', { name: '同期を開始' });
+  test('差分同期ボタンがクリックできる', async ({ page }) => {
+    const startButton = page.getByRole('button', { name: '差分同期' });
     await expect(startButton).toBeVisible();
     await startButton.click();
-    // Tauri API がなくてもクリックは実行される（エラー表示になる可能性あり）
     await expect(
-      page.getByRole('button', { name: /同期を開始|同期中\.\.\.|同期を再開/ })
+      page.getByRole('button', { name: /差分同期|同期中\.\.\./ })
     ).toBeVisible();
+  });
+
+  test('全件同期ボタンが表示される', async ({ page }) => {
+    const fullSyncButton = page.getByRole('button', { name: '全件同期' });
+    await expect(fullSyncButton).toBeVisible();
   });
 });
