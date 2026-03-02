@@ -71,14 +71,19 @@ describe('DeliveryCheckContext', () => {
   });
 
   it('throws error when used outside provider', () => {
-    const originalError = console.error;
-    console.error = () => {};
+    const consoleErrorSpy = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
 
-    expect(() => {
-      renderHook(() => useDeliveryCheck());
-    }).toThrow('useDeliveryCheck must be used within a DeliveryCheckProvider');
-
-    console.error = originalError;
+    try {
+      expect(() => {
+        renderHook(() => useDeliveryCheck());
+      }).toThrow(
+        'useDeliveryCheck must be used within a DeliveryCheckProvider'
+      );
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
   });
 
   it('startDeliveryCheck invokes start_delivery_check and sets isChecking to true', async () => {
@@ -139,11 +144,14 @@ describe('DeliveryCheckContext', () => {
   });
 
   it('sets isChecking to false when batch-progress completes', async () => {
-    let progressCallback: ((e: { payload: BatchProgress }) => void) | null =
-      null;
+    let progressCallback:
+      | ((e: { payload: BatchProgress }) => Promise<void>)
+      | null = null;
     mockListen.mockImplementation((event: string, cb: (e: unknown) => void) => {
       if (event === BATCH_PROGRESS_EVENT) {
-        progressCallback = cb as (e: { payload: BatchProgress }) => void;
+        progressCallback = cb as (e: {
+          payload: BatchProgress;
+        }) => Promise<void>;
       }
       return Promise.resolve(() => {});
     });
@@ -160,7 +168,7 @@ describe('DeliveryCheckContext', () => {
 
     // 完了イベント受信
     await act(async () => {
-      progressCallback?.({
+      await progressCallback?.({
         payload: {
           task_name: TASK_NAMES.DELIVERY_CHECK,
           batch_number: 1,
@@ -182,11 +190,14 @@ describe('DeliveryCheckContext', () => {
   });
 
   it('ignores batch-progress events for other tasks', async () => {
-    let progressCallback: ((e: { payload: BatchProgress }) => void) | null =
-      null;
+    let progressCallback:
+      | ((e: { payload: BatchProgress }) => Promise<void>)
+      | null = null;
     mockListen.mockImplementation((event: string, cb: (e: unknown) => void) => {
       if (event === BATCH_PROGRESS_EVENT) {
-        progressCallback = cb as (e: { payload: BatchProgress }) => void;
+        progressCallback = cb as (e: {
+          payload: BatchProgress;
+        }) => Promise<void>;
       }
       return Promise.resolve(() => {});
     });
@@ -202,7 +213,7 @@ describe('DeliveryCheckContext', () => {
 
     // 別タスクの完了イベント
     await act(async () => {
-      progressCallback?.({
+      await progressCallback?.({
         payload: {
           task_name: TASK_NAMES.GMAIL_SYNC,
           batch_number: 1,
@@ -223,11 +234,14 @@ describe('DeliveryCheckContext', () => {
   });
 
   it('shows toastSuccess on completion when window is visible', async () => {
-    let progressCallback: ((e: { payload: BatchProgress }) => void) | null =
-      null;
+    let progressCallback:
+      | ((e: { payload: BatchProgress }) => Promise<void>)
+      | null = null;
     mockListen.mockImplementation((event: string, cb: (e: unknown) => void) => {
       if (event === BATCH_PROGRESS_EVENT) {
-        progressCallback = cb as (e: { payload: BatchProgress }) => void;
+        progressCallback = cb as (e: {
+          payload: BatchProgress;
+        }) => Promise<void>;
       }
       return Promise.resolve(() => {});
     });
@@ -238,7 +252,7 @@ describe('DeliveryCheckContext', () => {
     await waitFor(() => expect(progressCallback).not.toBeNull());
 
     await act(async () => {
-      progressCallback?.({
+      await progressCallback?.({
         payload: {
           task_name: TASK_NAMES.DELIVERY_CHECK,
           batch_number: 1,
@@ -261,11 +275,14 @@ describe('DeliveryCheckContext', () => {
   });
 
   it('shows toastError on completion with error when window is visible', async () => {
-    let progressCallback: ((e: { payload: BatchProgress }) => void) | null =
-      null;
+    let progressCallback:
+      | ((e: { payload: BatchProgress }) => Promise<void>)
+      | null = null;
     mockListen.mockImplementation((event: string, cb: (e: unknown) => void) => {
       if (event === BATCH_PROGRESS_EVENT) {
-        progressCallback = cb as (e: { payload: BatchProgress }) => void;
+        progressCallback = cb as (e: {
+          payload: BatchProgress;
+        }) => Promise<void>;
       }
       return Promise.resolve(() => {});
     });
@@ -276,7 +293,7 @@ describe('DeliveryCheckContext', () => {
     await waitFor(() => expect(progressCallback).not.toBeNull());
 
     await act(async () => {
-      progressCallback?.({
+      await progressCallback?.({
         payload: {
           task_name: TASK_NAMES.DELIVERY_CHECK,
           batch_number: 1,
@@ -300,11 +317,14 @@ describe('DeliveryCheckContext', () => {
   });
 
   it('sends notification on completion when window is not visible', async () => {
-    let progressCallback: ((e: { payload: BatchProgress }) => void) | null =
-      null;
+    let progressCallback:
+      | ((e: { payload: BatchProgress }) => Promise<void>)
+      | null = null;
     mockListen.mockImplementation((event: string, cb: (e: unknown) => void) => {
       if (event === BATCH_PROGRESS_EVENT) {
-        progressCallback = cb as (e: { payload: BatchProgress }) => void;
+        progressCallback = cb as (e: {
+          payload: BatchProgress;
+        }) => Promise<void>;
       }
       return Promise.resolve(() => {});
     });
@@ -315,7 +335,7 @@ describe('DeliveryCheckContext', () => {
     await waitFor(() => expect(progressCallback).not.toBeNull());
 
     await act(async () => {
-      progressCallback?.({
+      await progressCallback?.({
         payload: {
           task_name: TASK_NAMES.DELIVERY_CHECK,
           batch_number: 1,
