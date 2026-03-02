@@ -52,6 +52,9 @@ describe('Settings', () => {
       if (cmd === 'get_gemini_config') {
         return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
       }
+      if (cmd === 'get_scheduler_config') {
+        return Promise.resolve({ interval_minutes: 1440, enabled: true });
+      }
       return Promise.resolve(null);
     });
     mockListen.mockResolvedValue(() => {});
@@ -129,6 +132,9 @@ describe('Settings', () => {
         if (cmd === 'get_gemini_config') {
           return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
         }
+        if (cmd === 'get_scheduler_config') {
+          return Promise.resolve({ interval_minutes: 1440, enabled: true });
+        }
         return Promise.resolve(null);
       });
 
@@ -173,6 +179,9 @@ describe('Settings', () => {
         if (cmd === 'get_gemini_config') {
           return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
         }
+        if (cmd === 'get_scheduler_config') {
+          return Promise.resolve({ interval_minutes: 1440, enabled: true });
+        }
         return Promise.resolve(null);
       });
 
@@ -208,6 +217,9 @@ describe('Settings', () => {
         }
         if (cmd === 'get_gemini_config') {
           return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
+        }
+        if (cmd === 'get_scheduler_config') {
+          return Promise.resolve({ interval_minutes: 1440, enabled: true });
         }
         return Promise.resolve(null);
       });
@@ -246,6 +258,9 @@ describe('Settings', () => {
         }
         if (cmd === 'get_gemini_config') {
           return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
+        }
+        if (cmd === 'get_scheduler_config') {
+          return Promise.resolve({ interval_minutes: 1440, enabled: true });
         }
         return Promise.resolve(null);
       });
@@ -287,6 +302,9 @@ describe('Settings', () => {
         }
         if (cmd === 'get_gemini_config') {
           return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
+        }
+        if (cmd === 'get_scheduler_config') {
+          return Promise.resolve({ interval_minutes: 1440, enabled: true });
         }
         return Promise.resolve(null);
       });
@@ -330,6 +348,9 @@ describe('Settings', () => {
         if (cmd === 'get_gemini_config') {
           return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
         }
+        if (cmd === 'get_scheduler_config') {
+          return Promise.resolve({ interval_minutes: 1440, enabled: true });
+        }
         return Promise.resolve(null);
       });
 
@@ -367,6 +388,9 @@ describe('Settings', () => {
         }
         if (cmd === 'get_gemini_config') {
           return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
+        }
+        if (cmd === 'get_scheduler_config') {
+          return Promise.resolve({ interval_minutes: 1440, enabled: true });
         }
         return Promise.resolve(null);
       });
@@ -408,6 +432,9 @@ describe('Settings', () => {
         }
         if (cmd === 'get_gemini_config') {
           return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
+        }
+        if (cmd === 'get_scheduler_config') {
+          return Promise.resolve({ interval_minutes: 1440, enabled: true });
         }
         return Promise.resolve(null);
       });
@@ -453,6 +480,9 @@ describe('Settings', () => {
         if (cmd === 'get_gemini_config') {
           return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
         }
+        if (cmd === 'get_scheduler_config') {
+          return Promise.resolve({ interval_minutes: 1440, enabled: true });
+        }
         return Promise.resolve(null);
       });
 
@@ -490,6 +520,9 @@ describe('Settings', () => {
         }
         if (cmd === 'get_gemini_config') {
           return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
+        }
+        if (cmd === 'get_scheduler_config') {
+          return Promise.resolve({ interval_minutes: 1440, enabled: true });
         }
         return Promise.resolve(null);
       });
@@ -534,6 +567,9 @@ describe('Settings', () => {
         if (cmd === 'get_gemini_config') {
           return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
         }
+        if (cmd === 'get_scheduler_config') {
+          return Promise.resolve({ interval_minutes: 1440, enabled: true });
+        }
         return Promise.resolve(null);
       });
 
@@ -576,6 +612,9 @@ describe('Settings', () => {
         }
         if (cmd === 'get_gemini_config') {
           return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
+        }
+        if (cmd === 'get_scheduler_config') {
+          return Promise.resolve({ interval_minutes: 1440, enabled: true });
         }
         return Promise.resolve(null);
       });
@@ -622,6 +661,9 @@ describe('Settings', () => {
         if (cmd === 'get_gemini_config') {
           return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
         }
+        if (cmd === 'get_scheduler_config') {
+          return Promise.resolve({ interval_minutes: 1440, enabled: true });
+        }
         return Promise.resolve(null);
       });
 
@@ -666,6 +708,9 @@ describe('Settings', () => {
         if (cmd === 'get_gemini_config') {
           return Promise.resolve({ batch_size: 20, delay_seconds: 10 });
         }
+        if (cmd === 'get_scheduler_config') {
+          return Promise.resolve({ interval_minutes: 1440, enabled: true });
+        }
         return Promise.resolve(null);
       });
 
@@ -707,6 +752,9 @@ describe('Settings', () => {
         }
         if (cmd === 'get_gemini_config') {
           return Promise.resolve({ batch_size: 100, delay_seconds: 10 });
+        }
+        if (cmd === 'get_scheduler_config') {
+          return Promise.resolve({ interval_minutes: 1440, enabled: true });
         }
         return Promise.resolve(null);
       });
@@ -752,6 +800,9 @@ describe('Settings', () => {
         if (cmd === 'get_gemini_config') {
           return Promise.resolve({ batch_size: 10, delay_seconds: 5 });
         }
+        if (cmd === 'get_scheduler_config') {
+          return Promise.resolve({ interval_minutes: 1440, enabled: true });
+        }
         return Promise.resolve(null);
       });
 
@@ -793,6 +844,9 @@ describe('Settings', () => {
         }
         if (cmd === 'get_gemini_config') {
           return Promise.resolve({ batch_size: 10, delay_seconds: 90 });
+        }
+        if (cmd === 'get_scheduler_config') {
+          return Promise.resolve({ interval_minutes: 1440, enabled: true });
         }
         return Promise.resolve(null);
       });
@@ -850,6 +904,8 @@ describe('Settings', () => {
           return Promise.resolve(defaultParseMetadata);
         if (cmd === 'get_gemini_config')
           return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
+        if (cmd === 'get_scheduler_config')
+          return Promise.resolve({ interval_minutes: 1440, enabled: true });
 
         if (cmd === 'update_batch_size') return Promise.resolve(undefined);
         if (cmd === 'update_max_iterations') return Promise.resolve(undefined);
