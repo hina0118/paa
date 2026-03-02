@@ -41,6 +41,10 @@ pub trait EmailRepository: Send + Sync {
 
     /// メッセージ数を取得
     async fn get_message_count(&self) -> Result<i64, String>;
+
+    /// DB内のメールの最新 internal_date（ミリ秒Unix時刻）を取得する。
+    /// メールが存在しない場合は None を返す。
+    async fn get_latest_internal_date(&self) -> Result<Option<i64>, String>;
 }
 
 /// メール統計関連のDB操作を抽象化するトレイト
@@ -251,6 +255,16 @@ impl EmailRepository for SqliteEmailRepository {
 
         Ok(count.0)
     }
+
+    async fn get_latest_internal_date(&self) -> Result<Option<i64>, String> {
+        let row: (Option<i64>,) =
+            sqlx::query_as("SELECT MAX(internal_date) FROM emails WHERE internal_date > 0")
+                .fetch_one(&self.pool)
+                .await
+                .map_err(|e| format!("Failed to get latest internal_date: {e}"))?;
+
+        Ok(row.0)
+    }
 }
 
 #[cfg(test)]
@@ -435,6 +449,67 @@ mod tests {
         ids_2000.extend((0..2000).map(|i| format!("chunk_2000_{}", i)));
         let result = repo.filter_new_message_ids(&ids_2000).await.unwrap();
         assert_eq!(result.len(), 2000);
+    }
+
+    #[tokio::test]
+    async fn test_get_latest_internal_date_empty_db() {
+        let pool = setup_test_db().await;
+        let repo = SqliteEmailRepository::new(pool);
+
+        let result = repo.get_latest_internal_date().await.unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[tokio::test]
+    async fn test_get_latest_internal_date_returns_max() {
+        let pool = setup_test_db().await;
+        let repo = SqliteEmailRepository::new(pool);
+
+        let messages = vec![
+            GmailMessage {
+                message_id: "old".to_string(),
+                snippet: "".to_string(),
+                subject: None,
+                body_plain: None,
+                body_html: None,
+                internal_date: 1704067200000, // 2024-01-01
+                from_address: None,
+            },
+            GmailMessage {
+                message_id: "new".to_string(),
+                snippet: "".to_string(),
+                subject: None,
+                body_plain: None,
+                body_html: None,
+                internal_date: 1704153600000, // 2024-01-02
+                from_address: None,
+            },
+        ];
+        repo.save_messages(&messages).await.unwrap();
+
+        let result = repo.get_latest_internal_date().await.unwrap();
+        assert_eq!(result, Some(1704153600000));
+    }
+
+    #[tokio::test]
+    async fn test_get_latest_internal_date_all_zero() {
+        let pool = setup_test_db().await;
+        let repo = SqliteEmailRepository::new(pool);
+
+        let messages = vec![GmailMessage {
+            message_id: "zero_date".to_string(),
+            snippet: "".to_string(),
+            subject: None,
+            body_plain: None,
+            body_html: None,
+            internal_date: 0,
+            from_address: None,
+        }];
+        repo.save_messages(&messages).await.unwrap();
+
+        // internal_date = 0 のみの場合は None を返す（フル同期へフォールバック）
+        let result = repo.get_latest_internal_date().await.unwrap();
+        assert_eq!(result, None);
     }
 
     #[tokio::test]
