@@ -457,8 +457,9 @@ mod tests {
         let result = compute_incremental_after_date(ts);
         assert!(result.is_some(), "should return Some for valid timestamp");
         let date_str = result.unwrap();
-        assert!(
-            date_str.contains("2023-12-31"),
+        assert_eq!(
+            date_str,
+            "2023-12-31T00:00:00+00:00",
             "after_date should be 1 day before latest (2023-12-31), got: {date_str}"
         );
     }
