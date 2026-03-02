@@ -362,23 +362,7 @@ mod tests {
         insert_enabled_shop(&pool).await;
 
         // emails テーブルを作成（空のまま）
-        sqlx::query(
-            r#"CREATE TABLE IF NOT EXISTS emails (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                message_id TEXT UNIQUE NOT NULL,
-                body_plain TEXT,
-                body_html TEXT,
-                analysis_status TEXT NOT NULL DEFAULT 'pending',
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                internal_date INTEGER,
-                from_address TEXT,
-                subject TEXT
-            )"#,
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
+        create_emails_table(&pool).await;
 
         let tmp = TempDir::new().unwrap();
         let app = FakeApp {
@@ -408,23 +392,7 @@ mod tests {
         insert_enabled_shop(&pool).await;
 
         // emails テーブルを作成して既存データを挿入
-        sqlx::query(
-            r#"CREATE TABLE IF NOT EXISTS emails (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                message_id TEXT UNIQUE NOT NULL,
-                body_plain TEXT,
-                body_html TEXT,
-                analysis_status TEXT NOT NULL DEFAULT 'pending',
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                internal_date INTEGER,
-                from_address TEXT,
-                subject TEXT
-            )"#,
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
+        create_emails_table(&pool).await;
 
         sqlx::query(
             "INSERT INTO emails (message_id, internal_date) VALUES ('existing', 1704067200000)",
