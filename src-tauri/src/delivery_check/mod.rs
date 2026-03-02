@@ -542,10 +542,8 @@ impl BatchTask for DeliveryCheckTask {
                 )
                 .await?;
                 touch_delivery_last_checked(&ctx.pool, delivery_id).await?;
-                return Ok(DeliveryCheckOutput {
-                    delivery_id,
-                    check_status: "failed".to_string(),
-                });
+                // HTTP取得に失敗した場合は、ログ保存は維持しつつバッチとしては失敗扱いとする
+                return Err(e);
             }
         };
 
