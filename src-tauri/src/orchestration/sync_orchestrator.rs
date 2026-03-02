@@ -457,9 +457,12 @@ mod tests {
         let result = compute_incremental_after_date(ts);
         assert!(result.is_some(), "should return Some for valid timestamp");
         let date_str = result.unwrap();
+        let parsed =
+            chrono::DateTime::parse_from_rfc3339(&date_str).expect("after_date should be valid RFC3339");
+        let expected = chrono::DateTime::parse_from_rfc3339("2023-12-31T00:00:00+00:00")
+            .expect("test expected date should be valid RFC3339");
         assert_eq!(
-            date_str,
-            "2023-12-31T00:00:00+00:00",
+            parsed, expected,
             "after_date should be 1 day before latest (2023-12-31), got: {date_str}"
         );
     }
@@ -472,16 +475,16 @@ mod tests {
     }
 
     #[test]
-    fn incremental_after_date_flows_into_build_sync_query() {
-        // DB の最新 internal_date から after_date を計算し、
-        // build_sync_query に渡したときに after:YYYY/MM/DD が含まれることを確認する
-        // （差分同期がフル同期にフォールバックしないことの直接検証）
+    fn after_date_is_included_in_build_sync_query() {
+        // compute_incremental_after_date で算出した after_date を
+        // build_sync_query に渡したとき、after:YYYY/MM/DD 句が含まれることを確認する
+        // （DB や run_sync_core のフォールバック分岐はこのテストではカバーしない）
         let internal_date = 1_704_067_200_000i64; // 2024-01-01 UTC
 
         let after_date = compute_incremental_after_date(internal_date);
         assert!(
             after_date.is_some(),
-            "valid internal_date should produce Some after_date (no full-sync fallback)"
+            "valid internal_date should produce Some after_date for query building"
         );
 
         let addresses = vec!["shop@example.com".to_string()];
