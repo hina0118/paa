@@ -126,21 +126,24 @@ describe('DeliveryCheckContext', () => {
   it('cancelDeliveryCheck logs error and rethrows on failure', async () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    mockInvoke.mockRejectedValueOnce(new Error('cancel failed'));
+    try {
+      mockInvoke.mockRejectedValueOnce(new Error('cancel failed'));
 
-    const { result } = renderHook(() => useDeliveryCheck(), { wrapper });
+      const { result } = renderHook(() => useDeliveryCheck(), { wrapper });
 
-    await expect(
-      act(async () => {
-        await result.current.cancelDeliveryCheck();
-      })
-    ).rejects.toThrow('cancel failed');
+      await expect(
+        act(async () => {
+          await result.current.cancelDeliveryCheck();
+        })
+      ).rejects.toThrow('cancel failed');
 
-    expect(consoleSpy).toHaveBeenCalledWith(
-      'Failed to cancel delivery check:',
-      expect.any(Error)
-    );
-    consoleSpy.mockRestore();
+      expect(consoleSpy).toHaveBeenCalledWith(
+        'Failed to cancel delivery check:',
+        expect.any(Error)
+      );
+    } finally {
+      consoleSpy.mockRestore();
+    }
   });
 
   it('sets isChecking to false when batch-progress completes', async () => {
