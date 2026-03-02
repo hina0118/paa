@@ -211,4 +211,24 @@ pub(crate) mod test_helpers {
         .await
         .unwrap();
     }
+
+    pub async fn create_emails_table(pool: &SqlitePool) {
+        sqlx::query(
+            r#"CREATE TABLE IF NOT EXISTS emails (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                message_id TEXT UNIQUE NOT NULL,
+                body_plain TEXT,
+                body_html TEXT,
+                analysis_status TEXT NOT NULL DEFAULT 'pending',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                internal_date INTEGER,
+                from_address TEXT,
+                subject TEXT
+            )"#,
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+    }
 }
