@@ -68,7 +68,7 @@ fn test_build_sync_query_integration() {
         "info@anotherstore.com".to_string(),
     ];
 
-    let query = build_sync_query(&addresses, &None);
+    let query = build_sync_query(&addresses, &None, &None);
     assert!(query.contains("in:anywhere"));
     assert!(query.contains("from:order@hobbysearch.co.jp"));
     assert!(query.contains("from:info@anotherstore.com"));
@@ -76,7 +76,7 @@ fn test_build_sync_query_integration() {
 
     // 日付フィルター付き
     let query_with_date =
-        build_sync_query(&addresses, &Some("2024-06-15T12:00:00+09:00".to_string()));
+        build_sync_query(&addresses, &Some("2024-06-15T12:00:00+09:00".to_string()), &None);
     assert!(query_with_date.contains("before:2024/06/15"));
 }
 
@@ -274,7 +274,7 @@ fn test_email_processing_workflow() {
     assert_eq!(addresses[0], "order@hobbysearch.co.jp");
 
     // 2. 検索クエリを構築
-    let query = build_sync_query(&addresses, &None);
+    let query = build_sync_query(&addresses, &None, &None);
     assert!(query.contains("from:order@hobbysearch.co.jp"));
 
     // 3. メッセージのフィルタリング

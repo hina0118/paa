@@ -21,7 +21,7 @@ mod sync_orchestrator;
 pub use delivery_check_orchestrator::run_delivery_check_task;
 pub use parse_orchestrator::run_batch_parse_task;
 pub use product_parse_orchestrator::run_product_name_parse_task;
-pub use sync_orchestrator::run_sync_task;
+pub use sync_orchestrator::{run_incremental_sync_task, run_sync_task};
 
 use crate::batch_runner::BatchEventEmitter;
 use crate::e2e_mocks::{is_e2e_mock_mode, E2EMockGmailClient, GmailClientForE2E};

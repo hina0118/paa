@@ -19,14 +19,42 @@ use crate::repository::{
     EmailRepository, ShopSettingsRepository, SqliteEmailRepository, SqliteShopSettingsRepository,
 };
 
-/// Gmail同期タスクの本体。コマンド・トレイ両方から呼ぶ。
+/// Gmail全件同期タスクの本体。コマンド・トレイ両方から呼ぶ。
 pub async fn run_sync_task(app: tauri::AppHandle, pool: SqlitePool, sync_state: SyncState) {
     let app = TauriBatchCommandsApp { app };
     run_sync_task_with(&app, pool, sync_state).await
 }
 
+/// Gmail差分同期タスクの本体。DB内の最新日時以降のメールのみ取得する。
+pub async fn run_incremental_sync_task(
+    app: tauri::AppHandle,
+    pool: SqlitePool,
+    sync_state: SyncState,
+) {
+    let app = TauriBatchCommandsApp { app };
+    run_incremental_sync_task_with(&app, pool, sync_state).await
+}
+
 async fn run_sync_task_with<A: BatchCommandsApp>(app: &A, pool: SqlitePool, sync_state: SyncState) {
-    log::info!("Starting Gmail sync with BatchRunner<GmailSyncTask>...");
+    run_sync_core(app, pool, sync_state, false).await
+}
+
+async fn run_incremental_sync_task_with<A: BatchCommandsApp>(
+    app: &A,
+    pool: SqlitePool,
+    sync_state: SyncState,
+) {
+    run_sync_core(app, pool, sync_state, true).await
+}
+
+async fn run_sync_core<A: BatchCommandsApp>(
+    app: &A,
+    pool: SqlitePool,
+    sync_state: SyncState,
+    incremental: bool,
+) {
+    let mode_label = if incremental { "incremental" } else { "full" };
+    log::info!("Starting Gmail sync ({mode_label}) with BatchRunner<GmailSyncTask>...");
 
     let err = ErrorReporter::new(app, GMAIL_SYNC_TASK_NAME, GMAIL_SYNC_EVENT_NAME);
 
@@ -57,7 +85,7 @@ async fn run_sync_task_with<A: BatchCommandsApp>(app: &A, pool: SqlitePool, sync
         .collect();
 
     log::info!(
-        "Starting sync with {} enabled sender addresses",
+        "Starting sync ({mode_label}) with {} enabled sender addresses",
         sender_addresses.len()
     );
 
@@ -85,7 +113,43 @@ async fn run_sync_task_with<A: BatchCommandsApp>(app: &A, pool: SqlitePool, sync
         }
     };
 
-    let query = sync_logic::build_sync_query(&sender_addresses, &None);
+    // 差分同期の場合、DB内の最新 internal_date を起点にする
+    let after_date = if incremental {
+        match email_repo.get_latest_internal_date().await {
+            Ok(Some(ts)) => {
+                // 安全マージンとして1日（86400秒）前にずらす（Gmail API の after: は日単位のため）
+                let margin_ms = 86_400_000i64;
+                let safe_ts = ts.saturating_sub(margin_ms);
+                match chrono::DateTime::from_timestamp_millis(safe_ts) {
+                    Some(dt) => {
+                        let rfc = dt.to_rfc3339();
+                        log::info!(
+                            "Incremental sync: using after_date={} (original latest={})",
+                            rfc,
+                            ts
+                        );
+                        Some(rfc)
+                    }
+                    None => {
+                        log::warn!("Invalid latest internal_date {ts}, falling back to full sync");
+                        None
+                    }
+                }
+            }
+            Ok(None) => {
+                log::info!("No existing emails in DB, falling back to full sync");
+                None
+            }
+            Err(e) => {
+                log::warn!("Failed to get latest internal_date: {e}, falling back to full sync");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    let query = sync_logic::build_sync_query(&sender_addresses, &None, &after_date);
     let max_results = (config.sync.max_results_per_page.clamp(1, 500)) as u32;
 
     let all_ids = match fetch_all_message_ids(&gmail_client, &query, max_results, None).await {
@@ -98,7 +162,7 @@ async fn run_sync_task_with<A: BatchCommandsApp>(app: &A, pool: SqlitePool, sync
         }
     };
 
-    log::info!("Fetched {} message IDs from Gmail", all_ids.len());
+    log::info!("Fetched {} message IDs from Gmail ({mode_label})", all_ids.len());
 
     let new_ids: Vec<String> = match email_repo.filter_new_message_ids(&all_ids).await {
         Ok(ids) => ids,
@@ -110,10 +174,10 @@ async fn run_sync_task_with<A: BatchCommandsApp>(app: &A, pool: SqlitePool, sync
         }
     };
 
-    log::info!("Found {} new messages to sync", new_ids.len());
+    log::info!("Found {} new messages to sync ({mode_label})", new_ids.len());
 
     if new_ids.is_empty() {
-        log::info!("No new messages to sync");
+        log::info!("No new messages to sync ({mode_label})");
         let complete_event = BatchProgressEvent::complete(
             GMAIL_SYNC_TASK_NAME,
             0,
@@ -154,7 +218,7 @@ async fn run_sync_task_with<A: BatchCommandsApp>(app: &A, pool: SqlitePool, sync
     {
         Ok(batch_result) => {
             log::info!(
-                "Gmail sync completed: success={}, failed={}",
+                "Gmail sync ({mode_label}) completed: success={}, failed={}",
                 batch_result.success_count,
                 batch_result.failed_count
             );
@@ -251,5 +315,125 @@ mod tests {
         assert_eq!(emitted.len(), 1);
         assert_eq!(emitted[0], GMAIL_SYNC_EVENT_NAME);
         assert_eq!(app.notify_count.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn run_incremental_sync_task_emits_error_when_already_running() {
+        let pool = create_pool().await;
+        let tmp = TempDir::new().unwrap();
+        let app = FakeApp {
+            config_dir: tmp.path().to_path_buf(),
+            data_dir: Some(tmp.path().to_path_buf()),
+            emitted_events: std::sync::Mutex::new(Vec::new()),
+            notify_count: std::sync::atomic::AtomicUsize::new(0),
+            fail_create_gmail_client: false,
+        };
+        let sync_state = SyncState::new();
+        assert!(sync_state.try_start());
+
+        run_incremental_sync_task_with(&app, pool, sync_state).await;
+
+        let emitted = app.emitted_events.lock().unwrap();
+        assert_eq!(emitted.len(), 1);
+        assert_eq!(emitted[0], GMAIL_SYNC_EVENT_NAME);
+        assert_eq!(app.notify_count.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn run_incremental_sync_falls_back_to_full_when_db_empty() {
+        let pool = create_pool().await;
+        create_shop_settings_table(&pool).await;
+        insert_enabled_shop(&pool).await;
+
+        // emails テーブルを作成（空のまま）
+        sqlx::query(
+            r#"CREATE TABLE IF NOT EXISTS emails (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                message_id TEXT UNIQUE NOT NULL,
+                body_plain TEXT,
+                body_html TEXT,
+                analysis_status TEXT NOT NULL DEFAULT 'pending',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                internal_date INTEGER,
+                from_address TEXT,
+                subject TEXT
+            )"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let tmp = TempDir::new().unwrap();
+        let app = FakeApp {
+            config_dir: tmp.path().to_path_buf(),
+            data_dir: Some(tmp.path().to_path_buf()),
+            emitted_events: std::sync::Mutex::new(Vec::new()),
+            notify_count: std::sync::atomic::AtomicUsize::new(0),
+            fail_create_gmail_client: false,
+        };
+        let sync_state = SyncState::new();
+
+        // DB が空なので全件同期にフォールバック → E2Eモック（空結果）→ complete イベント
+        run_incremental_sync_task_with(&app, pool, sync_state).await;
+
+        let emitted = app.emitted_events.lock().unwrap();
+        assert!(
+            !emitted.is_empty(),
+            "should emit at least one progress event"
+        );
+        assert_eq!(app.notify_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn run_incremental_sync_handles_no_new_messages() {
+        let pool = create_pool().await;
+        create_shop_settings_table(&pool).await;
+        insert_enabled_shop(&pool).await;
+
+        // emails テーブルを作成して既存データを挿入
+        sqlx::query(
+            r#"CREATE TABLE IF NOT EXISTS emails (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                message_id TEXT UNIQUE NOT NULL,
+                body_plain TEXT,
+                body_html TEXT,
+                analysis_status TEXT NOT NULL DEFAULT 'pending',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                internal_date INTEGER,
+                from_address TEXT,
+                subject TEXT
+            )"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO emails (message_id, internal_date) VALUES ('existing', 1704067200000)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let tmp = TempDir::new().unwrap();
+        let app = FakeApp {
+            config_dir: tmp.path().to_path_buf(),
+            data_dir: Some(tmp.path().to_path_buf()),
+            emitted_events: std::sync::Mutex::new(Vec::new()),
+            notify_count: std::sync::atomic::AtomicUsize::new(0),
+            fail_create_gmail_client: false,
+        };
+        let sync_state = SyncState::new();
+
+        run_incremental_sync_task_with(&app, pool, sync_state).await;
+
+        let emitted = app.emitted_events.lock().unwrap();
+        assert!(
+            !emitted.is_empty(),
+            "should emit at least one progress event"
+        );
+        assert_eq!(app.notify_count.load(Ordering::SeqCst), 1);
     }
 }

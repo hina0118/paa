@@ -26,6 +26,7 @@ export function Batch() {
     progress: syncProgress,
     metadata: syncMetadata,
     startSync,
+    startIncrementalSync,
     cancelSync,
     refreshStatus: refreshSyncStatus,
   } = useSync();
@@ -54,6 +55,14 @@ export function Batch() {
       await startSync();
     } catch (err) {
       toastError(`同期の開始に失敗しました: ${formatError(err)}`);
+    }
+  };
+
+  const handleStartIncrementalSync = async () => {
+    try {
+      await startIncrementalSync();
+    } catch (err) {
+      toastError(`差分同期の開始に失敗しました: ${formatError(err)}`);
     }
   };
 
@@ -114,16 +123,14 @@ export function Batch() {
       <BatchSection
         title="1. Gmail同期"
         controlTitle="同期コントロール"
-        controlDescription="Gmail からメールを段階的に取得します"
+        controlDescription="Gmail からメールを取得します"
         isRunning={isSyncing}
         progress={syncProgress}
-        onStart={handleStartSync}
+        onStart={handleStartIncrementalSync}
         onCancel={handleCancelSync}
         cancelVariant="destructive"
         cancelLabel="中止"
-        startLabel={
-          syncMetadata?.sync_status === 'paused' ? '同期を再開' : '同期を開始'
-        }
+        startLabel="差分同期"
         runningLabel="同期中..."
         startDisabled={isParsing || isProductNameParsing}
         completeMessage="同期が完了しました"
@@ -132,6 +139,22 @@ export function Batch() {
         status={syncMetadata?.sync_status}
         statusConfig={SYNC_STATUS_CONFIG}
         progressTitle="同期進捗"
+        extraContent={
+          <div className="space-y-2">
+            <Button
+              onClick={handleStartSync}
+              disabled={isSyncing || isParsing || isProductNameParsing}
+              variant="outline"
+              size="sm"
+            >
+              全件同期
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              差分同期は最新の受信日時以降のメールのみ取得します。
+              全件同期は全期間のメールを取得します。
+            </p>
+          </div>
+        }
       />
 
       {/* 2. メールパース */}

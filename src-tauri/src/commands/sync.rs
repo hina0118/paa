@@ -47,6 +47,23 @@ pub async fn start_sync(
     Ok(())
 }
 
+/// Gmail差分同期処理を開始（最新受信日時以降のメールのみ取得）
+#[tauri::command]
+pub async fn start_incremental_sync(
+    app_handle: tauri::AppHandle,
+    pool: tauri::State<'_, SqlitePool>,
+    sync_state: tauri::State<'_, gmail::SyncState>,
+) -> Result<(), String> {
+    let pool_clone = pool.inner().clone();
+    let sync_state_clone = sync_state.inner().clone();
+    tauri::async_runtime::spawn(orchestration::run_incremental_sync_task(
+        app_handle,
+        pool_clone,
+        sync_state_clone,
+    ));
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn cancel_sync(sync_state: tauri::State<'_, gmail::SyncState>) -> Result<(), String> {
     log::info!("Cancelling sync...");
