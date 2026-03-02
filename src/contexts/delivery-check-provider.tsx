@@ -1,4 +1,4 @@
-import { useState, useCallback, type ReactNode } from 'react';
+import { useState, useCallback, useEffect, type ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { DeliveryCheckContext } from './delivery-check-context-value';
 import { type BatchProgress, TASK_NAMES } from './batch-progress-types';
@@ -29,6 +29,14 @@ export function DeliveryCheckProvider({ children }: { children: ReactNode }) {
     TASK_NAMES.DELIVERY_CHECK,
     handleComplete
   );
+
+  useEffect(() => {
+    if (progress && !progress.is_complete) {
+      setIsChecking(true);
+    } else if (progress?.is_complete) {
+      setIsChecking(false);
+    }
+  }, [progress]);
 
   const startDeliveryCheck = async () => {
     setIsChecking(true);
