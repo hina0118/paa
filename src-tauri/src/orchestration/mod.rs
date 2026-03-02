@@ -219,13 +219,46 @@ pub(crate) mod test_helpers {
                 message_id TEXT UNIQUE NOT NULL,
                 body_plain TEXT,
                 body_html TEXT,
-                analysis_status TEXT NOT NULL DEFAULT 'pending',
+                analysis_status TEXT NOT NULL DEFAULT 'pending' CHECK(analysis_status IN ('pending', 'completed')),
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 internal_date INTEGER,
                 from_address TEXT,
                 subject TEXT
             )"#,
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_emails_message_id ON emails(message_id)")
+            .execute(pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_emails_analysis_status ON emails(analysis_status)",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_emails_internal_date ON emails(internal_date)",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_emails_from_address ON emails(from_address)",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_emails_subject ON emails(subject)")
+            .execute(pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            r#"CREATE INDEX IF NOT EXISTS idx_emails_unparsed_filter ON emails(internal_date)
+               WHERE body_plain IS NOT NULL AND from_address IS NOT NULL"#,
         )
         .execute(pool)
         .await
