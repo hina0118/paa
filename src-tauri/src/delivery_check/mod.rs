@@ -502,12 +502,14 @@ impl BatchTask for DeliveryCheckTask {
                 &ctx.pool,
                 &input.tracking_number,
                 "not_found",
-                Some("delivered"),
+                None,
                 Some("未対応の配送業者"),
                 None,
             )
             .await?;
-            update_delivery_status(&ctx.pool, delivery_id, "delivered").await?;
+            // 未対応業者の場合は deliveries.delivery_status は変更せず、
+            // last_checked_at のみ更新する
+            touch_delivery_last_checked(&ctx.pool, delivery_id).await?;
             return Ok(DeliveryCheckOutput {
                 delivery_id,
                 check_status: "not_found".to_string(),
