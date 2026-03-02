@@ -190,7 +190,6 @@ fn parse_tracking_html(carrier: &str, html: &str) -> ParsedStatus {
     let delivered_keywords: &[&str] = &[
         "お届け済み",
         "配達完了",
-        "ご不在連絡票をお届け済み",
         "配達しました",
         "お届けしました",
         "お届けが済んでおります", // ヤマト: "このお品物はお届けが済んでおります。"
