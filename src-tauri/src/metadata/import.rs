@@ -419,7 +419,7 @@ where
         }
     }
 
-    // tracking_check_logs: tracking_number をキーに UPSERT（FK なし）
+    // tracking_check_logs: tracking_number をキーに INSERT OR REPLACE（既存行は削除→再挿入）
     let mut tracking_check_logs_inserted = 0usize;
     for row in &tracking_check_logs_rows {
         let result = sqlx::query(
