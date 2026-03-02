@@ -240,18 +240,14 @@ pub(crate) mod test_helpers {
         .execute(pool)
         .await
         .unwrap();
-        sqlx::query(
-            "CREATE INDEX IF NOT EXISTS idx_emails_internal_date ON emails(internal_date)",
-        )
-        .execute(pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            "CREATE INDEX IF NOT EXISTS idx_emails_from_address ON emails(from_address)",
-        )
-        .execute(pool)
-        .await
-        .unwrap();
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_emails_internal_date ON emails(internal_date)")
+            .execute(pool)
+            .await
+            .unwrap();
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_emails_from_address ON emails(from_address)")
+            .execute(pool)
+            .await
+            .unwrap();
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_emails_subject ON emails(subject)")
             .execute(pool)
             .await
