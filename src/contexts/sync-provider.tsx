@@ -70,27 +70,20 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     initializeSync();
   }, [refreshStatus]);
 
-  const startSync = async () => {
+  const invokeSyncCommand = async (command: string) => {
     try {
       setIsSyncing(true);
       setProgress(null);
-      await invoke('start_sync');
+      await invoke(command);
     } catch (error) {
       setIsSyncing(false);
       throw error;
     }
   };
 
-  const startIncrementalSync = async () => {
-    try {
-      setIsSyncing(true);
-      setProgress(null);
-      await invoke('start_incremental_sync');
-    } catch (error) {
-      setIsSyncing(false);
-      throw error;
-    }
-  };
+  const startSync = () => invokeSyncCommand('start_sync');
+
+  const startIncrementalSync = () => invokeSyncCommand('start_incremental_sync');
 
   const cancelSync = async () => {
     try {
