@@ -142,8 +142,8 @@ CREATE TABLE IF NOT EXISTS tracking_check_logs (
     check_status    TEXT NOT NULL DEFAULT 'success'
                     CHECK(check_status IN ('success', 'failed', 'not_found')),
     -- 確認時点の配送ステータス（deliveries.delivery_status と同じ値域）
-    -- check_status='success' 時は実際の配送状況、'not_found' 時は 'delivered' 扱いで保存される
-    -- check_status='failed' 時は NULL
+    -- check_status='success' 時は実際の配送状況（ただし HTML 解析結果が unknown で判定不能な場合は NULL）
+    -- check_status='not_found' 時は 'delivered' 扱いで保存される / check_status='failed' 時は NULL
     delivery_status TEXT
                     CHECK(delivery_status IS NULL OR delivery_status IN (
                         'not_shipped', 'preparing', 'shipped', 'in_transit',
