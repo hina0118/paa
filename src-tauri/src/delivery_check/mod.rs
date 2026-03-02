@@ -567,11 +567,8 @@ impl BatchTask for DeliveryCheckTask {
         .await?;
 
         // deliveries テーブルを更新
-        if parsed.delivery_status == "shipped" {
-            // shipped のままなら last_checked_at だけ更新（status は変えない）
-            touch_delivery_last_checked(&ctx.pool, delivery_id).await?;
-        } else if parsed.delivery_status == "unknown" {
-            // 判定不能（unknown）の場合も status は更新せず、last_checked_at のみ更新する
+        if parsed.delivery_status == "unknown" {
+            // 判定不能（unknown）の場合は status は更新せず、last_checked_at のみ更新する
             touch_delivery_last_checked(&ctx.pool, delivery_id).await?;
         } else {
             // それ以外のステータスは deliveries.delivery_status を更新する
