@@ -408,7 +408,7 @@ export function Delivery() {
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       {row.carrier ?? (
-                        <span className="text-muted-foreground">—</span>
+                        <span className="text-muted-foreground">不明</span>
                       )}
                     </td>
                     <td className="px-4 py-3">
