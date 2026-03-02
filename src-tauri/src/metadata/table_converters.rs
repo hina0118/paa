@@ -135,6 +135,7 @@ pub struct ImportResult {
     pub order_overrides_inserted: usize,
     pub excluded_items_inserted: usize,
     pub excluded_orders_inserted: usize,
+    pub tracking_check_logs_inserted: usize,
     pub image_files_copied: usize,
     /// app_data_dir 直下の復元ポイントZIPを更新できたか（インポート時）
     /// Some(true): 更新成功, Some(false): 更新失敗, None: 更新不要（restore_metadata）
