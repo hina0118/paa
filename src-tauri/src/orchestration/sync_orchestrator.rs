@@ -53,7 +53,11 @@ async fn run_sync_core<A: BatchCommandsApp>(
     sync_state: SyncState,
     incremental: bool,
 ) {
-    let mode_label = if incremental { "incremental" } else { "full" };
+    let mode_label = if incremental {
+        "incremental (requested, may fallback to full)"
+    } else {
+        "full"
+    };
     log::info!("Starting Gmail sync ({mode_label}) with BatchRunner<GmailSyncTask>...");
 
     let err = ErrorReporter::new(app, GMAIL_SYNC_TASK_NAME, GMAIL_SYNC_EVENT_NAME);
