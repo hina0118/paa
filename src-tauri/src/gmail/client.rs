@@ -1913,7 +1913,7 @@ mod tests {
     #[test]
     fn test_build_sync_query_without_date() {
         let addresses = vec!["test@example.com".to_string()];
-        let query = build_sync_query(&addresses, &None);
+        let query = build_sync_query(&addresses, &None, &None);
         assert_eq!(query, "in:anywhere (from:test@example.com)");
     }
 
@@ -1921,7 +1921,7 @@ mod tests {
     fn test_build_sync_query_with_valid_date() {
         let addresses = vec!["test@example.com".to_string()];
         let date = Some("2024-01-15T10:30:00Z".to_string());
-        let query = build_sync_query(&addresses, &date);
+        let query = build_sync_query(&addresses, &date, &None);
         assert!(query.contains("from:test@example.com"));
         assert!(query.contains("before:2024/01/15"));
     }
@@ -1930,7 +1930,7 @@ mod tests {
     fn test_build_sync_query_with_invalid_date() {
         let addresses = vec!["test@example.com".to_string()];
         let date = Some("invalid-date".to_string());
-        let query = build_sync_query(&addresses, &date);
+        let query = build_sync_query(&addresses, &date, &None);
         // 無効な日付の場合、基本クエリのみが返される
         assert_eq!(query, "in:anywhere (from:test@example.com)");
     }
@@ -1945,7 +1945,7 @@ mod tests {
         ];
 
         for (date_str, expected_before) in test_cases {
-            let query = build_sync_query(&addresses, &Some(date_str.to_string()));
+            let query = build_sync_query(&addresses, &Some(date_str.to_string()), &None);
             assert!(
                 query.contains(expected_before),
                 "Query: {query}, Expected: {expected_before}"
@@ -1960,7 +1960,7 @@ mod tests {
             "test2@example.com".to_string(),
             "test3@example.com".to_string(),
         ];
-        let query = build_sync_query(&addresses, &None);
+        let query = build_sync_query(&addresses, &None, &None);
         assert_eq!(
             query,
             "in:anywhere (from:test1@example.com OR from:test2@example.com OR from:test3@example.com)"
@@ -1970,7 +1970,7 @@ mod tests {
     #[test]
     fn test_build_sync_query_with_empty_addresses() {
         let addresses: Vec<String> = vec![];
-        let query = build_sync_query(&addresses, &None);
+        let query = build_sync_query(&addresses, &None, &None);
         // Should fallback to keyword search
         assert_eq!(
             query,
@@ -2233,7 +2233,7 @@ mod tests {
     fn test_build_sync_query_date_format() {
         let addresses = vec!["test@example.com".to_string()];
         let date = Some("2024-01-15T10:30:00Z".to_string());
-        let query = build_sync_query(&addresses, &date);
+        let query = build_sync_query(&addresses, &date, &None);
 
         // Should extract just the date part (2024-01-15) and format as 2024/01/15
         assert!(query.contains("before:2024/01/15"));

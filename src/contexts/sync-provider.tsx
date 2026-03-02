@@ -70,16 +70,23 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     initializeSync();
   }, [refreshStatus]);
 
-  const startSync = async () => {
+  const invokeSyncCommand = async (
+    command: 'start_sync' | 'start_incremental_sync'
+  ) => {
     try {
       setIsSyncing(true);
       setProgress(null);
-      await invoke('start_sync');
+      await invoke(command);
     } catch (error) {
       setIsSyncing(false);
       throw error;
     }
   };
+
+  const startSync = () => invokeSyncCommand('start_sync');
+
+  const startIncrementalSync = () =>
+    invokeSyncCommand('start_incremental_sync');
 
   const cancelSync = async () => {
     try {
@@ -137,6 +144,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         progress,
         metadata,
         startSync,
+        startIncrementalSync,
         cancelSync,
         refreshStatus,
         updateBatchSize,

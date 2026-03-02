@@ -21,7 +21,7 @@ mod sync_orchestrator;
 pub use delivery_check_orchestrator::run_delivery_check_task;
 pub use parse_orchestrator::run_batch_parse_task;
 pub use product_parse_orchestrator::run_product_name_parse_task;
-pub use sync_orchestrator::run_sync_task;
+pub use sync_orchestrator::{run_incremental_sync_task, run_sync_task};
 
 use crate::batch_runner::BatchEventEmitter;
 use crate::e2e_mocks::{is_e2e_mock_mode, E2EMockGmailClient, GmailClientForE2E};
@@ -206,6 +206,55 @@ pub(crate) mod test_helpers {
             INSERT INTO shop_settings (id, shop_name, sender_address, parser_type, is_enabled, subject_filters, created_at, updated_at)
             VALUES (1, 'TestShop', 'shop@example.com', 'hobbysearch_confirm', 1, NULL, '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')
             "#,
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    pub async fn create_emails_table(pool: &SqlitePool) {
+        sqlx::query(
+            r#"CREATE TABLE IF NOT EXISTS emails (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                message_id TEXT UNIQUE NOT NULL,
+                body_plain TEXT,
+                body_html TEXT,
+                analysis_status TEXT NOT NULL DEFAULT 'pending' CHECK(analysis_status IN ('pending', 'completed')),
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                internal_date INTEGER,
+                from_address TEXT,
+                subject TEXT
+            )"#,
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_emails_message_id ON emails(message_id)")
+            .execute(pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_emails_analysis_status ON emails(analysis_status)",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_emails_internal_date ON emails(internal_date)")
+            .execute(pool)
+            .await
+            .unwrap();
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_emails_from_address ON emails(from_address)")
+            .execute(pool)
+            .await
+            .unwrap();
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_emails_subject ON emails(subject)")
+            .execute(pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            r#"CREATE INDEX IF NOT EXISTS idx_emails_unparsed_filter ON emails(internal_date)
+               WHERE body_plain IS NOT NULL AND from_address IS NOT NULL"#,
         )
         .execute(pool)
         .await
