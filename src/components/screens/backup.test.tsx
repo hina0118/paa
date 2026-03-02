@@ -80,6 +80,7 @@ describe('Backup', () => {
         order_overrides_count: 3,
         excluded_items_count: 1,
         excluded_orders_count: 2,
+        tracking_check_logs_count: 7,
         image_files_count: 45,
         images_skipped: 0,
       });
@@ -100,16 +101,14 @@ describe('Backup', () => {
         });
       });
 
-      // Check main message shows total (excluding image_files_count) and image files separately
       await waitFor(() => {
         expect(
           screen.getByText(
-            /バックアップを保存しました（合計: 103件、画像ファイル: 45件）/
+            /バックアップを保存しました（合計: 110件、画像ファイル: 45件）/
           )
         ).toBeInTheDocument();
       });
 
-      // Check details are shown (should not include image files in details)
       await waitFor(() => {
         const detailsText = screen.getByText(/images: 10件/);
         expect(detailsText).toBeInTheDocument();
@@ -128,6 +127,7 @@ describe('Backup', () => {
         order_overrides_count: 3,
         excluded_items_count: 1,
         excluded_orders_count: 2,
+        tracking_check_logs_count: 7,
         image_files_count: 45,
         images_skipped: 5,
       });
@@ -157,6 +157,7 @@ describe('Backup', () => {
         order_overrides_count: 3,
         excluded_items_count: 1,
         excluded_orders_count: 2,
+        tracking_check_logs_count: 7,
         image_files_count: 45,
         images_skipped: 0,
         restore_point_saved: false,
@@ -169,11 +170,10 @@ describe('Backup', () => {
         screen.getByRole('button', { name: 'データのバックアップ' })
       );
 
-      // Check success toast is shown (export itself succeeded)
       await waitFor(() => {
         expect(
           screen.getByText(
-            /バックアップを保存しました（合計: 103件、画像ファイル: 45件）/
+            /バックアップを保存しました（合計: 110件、画像ファイル: 45件）/
           )
         ).toBeInTheDocument();
       });
@@ -238,6 +238,7 @@ describe('Backup', () => {
         order_overrides_inserted: 2,
         excluded_items_inserted: 1,
         excluded_orders_inserted: 1,
+        tracking_check_logs_inserted: 3,
         image_files_copied: 38,
       });
 
@@ -261,16 +262,14 @@ describe('Backup', () => {
         });
       });
 
-      // Check main message shows total (excluding image_files_copied) and image files separately
       await waitFor(() => {
         expect(
           screen.getByText(
-            /インポートしました（合計: 82件、画像ファイル: 38件）/
+            /インポートしました（合計: 85件、画像ファイル: 38件）/
           )
         ).toBeInTheDocument();
       });
 
-      // Check details are shown
       await waitFor(() => {
         const detailsText = screen.getByText(/images: 8件/);
         expect(detailsText).toBeInTheDocument();
@@ -326,6 +325,7 @@ describe('Backup', () => {
         order_overrides_inserted: 2,
         excluded_items_inserted: 1,
         excluded_orders_inserted: 1,
+        tracking_check_logs_inserted: 3,
         image_files_copied: 38,
         restore_point_updated: false,
         restore_point_error: 'ファイルシステムエラー',
@@ -337,11 +337,10 @@ describe('Backup', () => {
         screen.getByRole('button', { name: 'データのインポート' })
       );
 
-      // Check success toast is shown (import itself succeeded)
       await waitFor(() => {
         expect(
           screen.getByText(
-            /インポートしました（合計: 82件、画像ファイル: 38件）/
+            /インポートしました（合計: 85件、画像ファイル: 38件）/
           )
         ).toBeInTheDocument();
       });
@@ -388,6 +387,7 @@ describe('Backup', () => {
         order_overrides_inserted: 2,
         excluded_items_inserted: 1,
         excluded_orders_inserted: 1,
+        tracking_check_logs_inserted: 3,
         image_files_copied: 38,
         restore_point_updated: false,
         restore_point_error: 'ディスク容量不足',
@@ -399,11 +399,10 @@ describe('Backup', () => {
         screen.getByRole('button', { name: 'データのインポート' })
       );
 
-      // Check that import success toast is shown
       await waitFor(() => {
         expect(
           screen.getByText(
-            /インポートしました（合計: 82件、画像ファイル: 38件）/
+            /インポートしました（合計: 85件、画像ファイル: 38件）/
           )
         ).toBeInTheDocument();
       });
@@ -432,6 +431,7 @@ describe('Backup', () => {
         order_overrides_inserted: 0,
         excluded_items_inserted: 0,
         excluded_orders_inserted: 0,
+        tracking_check_logs_inserted: 0,
         image_files_copied: 1,
       });
 
@@ -569,6 +569,7 @@ describe('Backup', () => {
         order_overrides_count: 3,
         excluded_items_count: 1,
         excluded_orders_count: 2,
+        tracking_check_logs_count: 7,
         image_files_count: 45,
         images_skipped: 0,
       });
@@ -639,6 +640,7 @@ describe('Backup', () => {
         order_overrides_count: 3,
         excluded_items_count: 1,
         excluded_orders_count: 2,
+        tracking_check_logs_count: 7,
         image_files_count: 45,
         images_skipped: 0,
       });
@@ -713,6 +715,7 @@ describe('Backup', () => {
         order_overrides_inserted: 2,
         excluded_items_inserted: 1,
         excluded_orders_inserted: 1,
+        tracking_check_logs_inserted: 3,
         image_files_copied: 38,
       });
 
@@ -772,6 +775,7 @@ describe('Backup', () => {
         order_overrides_inserted: 0,
         excluded_items_inserted: 0,
         excluded_orders_inserted: 0,
+        tracking_check_logs_inserted: 0,
         image_files_copied: 1,
       });
 

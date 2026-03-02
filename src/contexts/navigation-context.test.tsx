@@ -62,6 +62,7 @@ describe('NavigationContext', () => {
       'table-order-overrides',
       'table-excluded-items',
       'table-excluded-orders',
+      'table-tracking-check-logs',
     ] as const;
 
     tableScreens.forEach((screen) => {

@@ -10,6 +10,7 @@ import {
   Archive,
   ChevronDown,
   BookOpen,
+  Truck,
 } from 'lucide-react';
 import { useNavigation } from '@/contexts/use-navigation';
 import type { Screen } from '@/contexts/navigation-context-value';
@@ -23,6 +24,7 @@ type NavigationScreen = Extract<
   Screen,
   | 'dashboard'
   | 'orders'
+  | 'deliveries'
   | 'batch'
   | 'logs'
   | 'shop-settings'
@@ -55,6 +57,7 @@ type TableScreen = Extract<
   | 'table-order-overrides'
   | 'table-excluded-items'
   | 'table-excluded-orders'
+  | 'table-tracking-check-logs'
 >;
 
 type TableItem = {
@@ -65,6 +68,7 @@ type TableItem = {
 const navigationItems: NavigationItem[] = [
   { name: 'ダッシュボード', icon: LayoutDashboard, id: 'dashboard' },
   { name: '商品一覧', icon: ShoppingCart, id: 'orders' },
+  { name: '配送状況', icon: Truck, id: 'deliveries' },
   { name: 'バッチ処理', icon: Layers, id: 'batch' },
   { name: 'ログ', icon: ScrollText, id: 'logs' },
   { name: '店舗設定', icon: Store, id: 'shop-settings' },
@@ -89,6 +93,7 @@ const tableItems: TableItem[] = [
   { name: '注文上書き', id: 'table-order-overrides' },
   { name: '除外アイテム', id: 'table-excluded-items' },
   { name: '除外注文', id: 'table-excluded-orders' },
+  { name: '配送確認ログ', id: 'table-tracking-check-logs' },
 ];
 
 export function Sidebar() {

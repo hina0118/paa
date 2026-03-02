@@ -89,6 +89,20 @@ pub(super) type ExcludedItemRow = (
 /// (id, shop_domain, order_number, reason, created_at)
 pub(super) type ExcludedOrderRow = (i64, String, String, Option<String>, Option<String>);
 
+/// tracking_check_logs テーブル行
+/// (id, tracking_number, checked_at, check_status, delivery_status, description, location, error_message, created_at)
+pub(super) type TrackingCheckLogRow = (
+    i64,
+    String,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    String,
+);
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ExportResult {
     pub images_count: usize,
@@ -99,6 +113,7 @@ pub struct ExportResult {
     pub order_overrides_count: usize,
     pub excluded_items_count: usize,
     pub excluded_orders_count: usize,
+    pub tracking_check_logs_count: usize,
     pub image_files_count: usize,
     /// スキップした画像数（不正な file_name、サイズ超過、ファイル不存在）
     pub images_skipped: usize,
@@ -120,6 +135,7 @@ pub struct ImportResult {
     pub order_overrides_inserted: usize,
     pub excluded_items_inserted: usize,
     pub excluded_orders_inserted: usize,
+    pub tracking_check_logs_inserted: usize,
     pub image_files_copied: usize,
     /// app_data_dir 直下の復元ポイントZIPを更新できたか（インポート時）
     /// Some(true): 更新成功, Some(false): 更新失敗, None: 更新不要（restore_metadata）
@@ -234,4 +250,18 @@ pub(super) struct JsonExcludedOrderRow(
     pub(super) String,         // order_number
     pub(super) Option<String>, // reason
     pub(super) Option<String>, // created_at (未使用)
+);
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+pub(super) struct JsonTrackingCheckLogRow(
+    pub(super) i64,            // id (未使用)
+    pub(super) String,         // tracking_number
+    pub(super) String,         // checked_at
+    pub(super) String,         // check_status
+    pub(super) Option<String>, // delivery_status
+    pub(super) Option<String>, // description
+    pub(super) Option<String>, // location
+    pub(super) Option<String>, // error_message
+    pub(super) Option<String>, // created_at (インポート時に COALESCE(?, CURRENT_TIMESTAMP) で使用)
 );
