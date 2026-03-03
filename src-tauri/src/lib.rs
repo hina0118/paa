@@ -486,8 +486,18 @@ pub fn run() {
                     "tray_scheduler_toggle" => {
                         if let Some(sched_state) = app.try_state::<scheduler::SchedulerState>() {
                             let new_enabled = sched_state.toggle();
+
+                            // 設定ファイル側の scheduler.enabled も更新しておくことで、
+                            // get_scheduler_config や設定画面と実際の動作の乖離を防ぐ。
+                            if let Err(e) = commands::update_scheduler_enabled(new_enabled) {
+                                log::warn!("[Scheduler] Failed to persist enabled state from tray: {e}");
+                            }
+
                             let label = if new_enabled {
-                                format!("スケジューラ: ON ({}間隔)", scheduler::format_interval(sched_state.interval_minutes()))
+                                format!(
+                                    "スケジューラ: ON ({}間隔)",
+                                    scheduler::format_interval(sched_state.interval_minutes())
+                                )
                             } else {
                                 "スケジューラ: OFF".to_string()
                             };
