@@ -105,24 +105,21 @@ async fn run_sync_step(app: &tauri::AppHandle, pool: &SqlitePool) -> StepOutcome
     }
 
     // try_start 成功後は is_running フラグが必ず解除されるよう、
-    // ここでの件数取得失敗では早期 return せず 0 をデフォルトとする。
+    // before カウント失敗では早期 return せず 0 をデフォルトとする。
+    // count_emails 内で既にエラーログを出しているため、ここでは追加ログを出さない。
     let before = match count_emails(pool).await {
         Some(n) => n,
-        None => {
-            log::debug!("[Pipeline] Failed to count emails before sync, assuming 0");
-            0
-        }
+        None => 0,
     };
 
     log::info!("[Pipeline] Step 1/4: incremental sync");
     super::run_incremental_sync_task(app.clone(), pool.clone(), sync_state, true).await;
     log::info!("[Pipeline] Step 1/4: incremental sync completed");
+    // after カウント失敗は「件数不明」として Skipped を返し後続へ進める。
+    // 0 と扱うと新規メールなしと誤判定して後続ステップをスキップしてしまうため。
     let after = match count_emails(pool).await {
         Some(n) => n,
-        None => {
-            log::warn!("[Pipeline] Failed to count emails after sync, assuming 0");
-            0
-        }
+        None => return StepOutcome::Skipped,
     };
 
     StepOutcome::Ran {
