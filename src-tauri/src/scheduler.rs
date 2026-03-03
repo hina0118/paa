@@ -99,8 +99,12 @@ async fn wait_for_interval_or_shutdown(duration: Duration, shutdown: &Arc<Atomic
         _ = tokio::time::sleep(duration) => true,
         _ = async {
             loop {
+                // ループ先頭でシャットダウンフラグを確認することで、
+                // 呼び出し時点ですでに shutdown=true の場合でも余計な待機を避ける。
+                if shutdown.load(Ordering::Relaxed) {
+                    break;
+                }
                 tokio::time::sleep(Duration::from_secs(1)).await;
-                if shutdown.load(Ordering::Relaxed) { break; }
             }
         } => false,
     }
