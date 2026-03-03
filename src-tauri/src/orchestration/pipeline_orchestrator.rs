@@ -16,8 +16,10 @@ use super::clamp_batch_size;
 enum StepOutcome {
     /// ステップを実行し、新規データ数を返す
     Ran { new_count: i64 },
-    /// 手動実行中・状態未取得などでスキップされた
+    /// 手動実行中・状態未取得などでスキップされた（未実行）
     Skipped,
+    /// ステップは実行済みだが、件数取得に失敗して新規データ数が不明
+    Unknown,
 }
 
 /// パイプラインを実行する。スケジューラから呼ばれる。
@@ -43,6 +45,9 @@ pub async fn run_pipeline(app: &tauri::AppHandle) {
         StepOutcome::Skipped => {
             log::info!("[Pipeline] Sync was skipped, proceeding to parse anyway");
         }
+        StepOutcome::Unknown => {
+            log::info!("[Pipeline] Sync ran but email count is unknown, proceeding to parse anyway");
+        }
     }
 
     // Step 2: メールパース
@@ -57,6 +62,9 @@ pub async fn run_pipeline(app: &tauri::AppHandle) {
         }
         StepOutcome::Skipped => {
             log::info!("[Pipeline] Parse was skipped, proceeding anyway");
+        }
+        StepOutcome::Unknown => {
+            log::info!("[Pipeline] Parse ran but order count is unknown, proceeding anyway");
         }
     }
 
@@ -115,11 +123,11 @@ async fn run_sync_step(app: &tauri::AppHandle, pool: &SqlitePool) -> StepOutcome
     log::info!("[Pipeline] Step 1/4: incremental sync");
     super::run_incremental_sync_task(app.clone(), pool.clone(), sync_state, true).await;
     log::info!("[Pipeline] Step 1/4: incremental sync completed");
-    // after カウント失敗は「件数不明」として Skipped を返し後続へ進める。
-    // 0 と扱うと新規メールなしと誤判定して後続ステップをスキップしてしまうため。
+    // after カウント失敗は「実行済みだが件数不明」として Unknown を返し後続へ進める。
+    // Skipped と区別することで run_pipeline 側のログ・制御フローの意味を正確に保つ。
     let after = match count_emails(pool).await {
         Some(n) => n,
-        None => return StepOutcome::Skipped,
+        None => return StepOutcome::Unknown,
     };
 
     StepOutcome::Ran {
@@ -162,7 +170,7 @@ async fn run_parse_step(app: &tauri::AppHandle, pool: &SqlitePool) -> StepOutcom
     log::info!("[Pipeline] Step 2/4: batch parse completed");
     let after = match count_orders(pool).await {
         Some(n) => n,
-        None => return StepOutcome::Skipped,
+        None => return StepOutcome::Unknown,
     };
 
     StepOutcome::Ran {
