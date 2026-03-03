@@ -6,7 +6,7 @@
 //! - `tokio::time::sleep` ベースの非同期ループ
 //! - `SchedulerState` で有効/無効をトレイメニューからトグル可能
 //! - パイプライン実行中は次の tick をスキップ（多重実行防止）
-//! - 既存の `shutdown_signal` を共有し、quit 時にループを終了
+//! - `tokio::sync::Notify` をスケジューラ内で管理し、quit 時の通知でループを終了
 
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
@@ -90,6 +90,27 @@ pub fn format_interval(minutes: i64) -> String {
     }
 }
 
+/// `set_running` の RAII ガード。
+///
+/// `RunningGuard::new` がフラグを `true` に設定し、スコープを抜ける際
+/// （panic 時を含む）に `set_running(false)` を確実に呼び出す。
+struct RunningGuard {
+    state: SchedulerState,
+}
+
+impl RunningGuard {
+    fn new(state: SchedulerState) -> Self {
+        state.set_running(true);
+        Self { state }
+    }
+}
+
+impl Drop for RunningGuard {
+    fn drop(&mut self) {
+        self.state.set_running(false);
+    }
+}
+
 /// インターバルが経過するか、シャットダウンシグナルを受けるまで待機する。
 ///
 /// 正常にインターバルが経過した場合は `true` を返す。
@@ -139,7 +160,7 @@ pub async fn run_scheduler(
             continue;
         }
 
-        state.set_running(true);
+        let _guard = RunningGuard::new(state.clone());
 
         let _ = app.emit(SCHEDULER_PIPELINE_STARTED_EVENT, ());
 
@@ -148,8 +169,7 @@ pub async fn run_scheduler(
         log::info!("[Scheduler] Pipeline completed");
 
         let _ = app.emit(SCHEDULER_PIPELINE_COMPLETED_EVENT, ());
-
-        state.set_running(false);
+        // _guard drops here, calling set_running(false)
     }
 
     log::info!("[Scheduler] Loop exited");
