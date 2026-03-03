@@ -127,11 +127,7 @@ async fn wait_for_interval_or_shutdown(duration: Duration, shutdown: &Arc<Notify
 ///
 /// `tokio::time::sleep` ベースで毎 tick ごとに最新の `interval_minutes` を参照するため、
 /// 設定画面やコマンドから間隔を変更すると再起動なしで次の tick から反映される。
-pub async fn run_scheduler(
-    app: tauri::AppHandle,
-    state: SchedulerState,
-    shutdown: Arc<Notify>,
-) {
+pub async fn run_scheduler(app: tauri::AppHandle, state: SchedulerState, shutdown: Arc<Notify>) {
     log::info!(
         "[Scheduler] Started: interval={}min, enabled={}",
         state.interval_minutes(),
@@ -140,11 +136,8 @@ pub async fn run_scheduler(
 
     loop {
         let interval_min = state.interval_minutes().max(1);
-        if !wait_for_interval_or_shutdown(
-            Duration::from_secs(interval_min as u64 * 60),
-            &shutdown,
-        )
-        .await
+        if !wait_for_interval_or_shutdown(Duration::from_secs(interval_min as u64 * 60), &shutdown)
+            .await
         {
             log::info!("[Scheduler] Shutdown signal received, exiting");
             break;
