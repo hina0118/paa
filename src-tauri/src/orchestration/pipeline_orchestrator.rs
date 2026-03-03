@@ -266,15 +266,7 @@ fn load_parse_batch_size(app: &tauri::AppHandle) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sqlx::sqlite::SqlitePoolOptions;
-
-    async fn create_pool() -> SqlitePool {
-        SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .unwrap()
-    }
+    use crate::orchestration::test_helpers::create_pool;
 
     #[tokio::test]
     async fn count_emails_returns_none_when_table_missing() {
