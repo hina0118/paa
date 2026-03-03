@@ -15,6 +15,11 @@ use std::time::Duration;
 use tauri::Emitter;
 use tokio::sync::Notify;
 
+/// スケジューラ実行間隔の最小値（分）
+pub const SCHEDULER_INTERVAL_MIN_MINUTES: i64 = 1;
+/// スケジューラ実行間隔の最大値（分・7日）
+pub const SCHEDULER_INTERVAL_MAX_MINUTES: i64 = 10_080;
+
 /// スケジューラの状態イベント（フロントエンドへの通知用）
 pub const SCHEDULER_STATUS_EVENT: &str = "scheduler-status-changed";
 pub const SCHEDULER_PIPELINE_STARTED_EVENT: &str = "scheduler-pipeline-started";
@@ -123,6 +128,17 @@ async fn wait_for_interval_or_shutdown(duration: Duration, shutdown: &Arc<Notify
     }
 }
 
+/// `interval_minutes` を `[SCHEDULER_INTERVAL_MIN_MINUTES, SCHEDULER_INTERVAL_MAX_MINUTES]`
+/// にクランプして `Duration` に変換する。
+///
+/// 設定ファイル破損・手動編集などで極端な値が入っても、
+/// `validate_scheduler_interval` と同じ範囲内の sleep 時間になる。
+fn interval_minutes_to_duration(minutes: i64) -> Duration {
+    let clamped = minutes.clamp(SCHEDULER_INTERVAL_MIN_MINUTES, SCHEDULER_INTERVAL_MAX_MINUTES);
+    let secs = (clamped as u64).saturating_mul(60);
+    Duration::from_secs(secs)
+}
+
 /// スケジューラのメインループ。`setup()` から `tauri::async_runtime::spawn` で起動する。
 ///
 /// `tokio::time::sleep` ベースで毎 tick ごとに最新の `interval_minutes` を参照するため、
@@ -135,9 +151,11 @@ pub async fn run_scheduler(app: tauri::AppHandle, state: SchedulerState, shutdow
     );
 
     loop {
-        let interval_min = state.interval_minutes().max(1);
-        if !wait_for_interval_or_shutdown(Duration::from_secs(interval_min as u64 * 60), &shutdown)
-            .await
+        if !wait_for_interval_or_shutdown(
+            interval_minutes_to_duration(state.interval_minutes()),
+            &shutdown,
+        )
+        .await
         {
             log::info!("[Scheduler] Shutdown signal received, exiting");
             break;
@@ -269,5 +287,36 @@ mod tests {
 
         state.set_interval_minutes(60);
         assert_eq!(clone.interval_minutes(), 60);
+    }
+
+    #[test]
+    fn interval_minutes_to_duration_normal() {
+        assert_eq!(
+            interval_minutes_to_duration(SCHEDULER_INTERVAL_MIN_MINUTES),
+            Duration::from_secs((SCHEDULER_INTERVAL_MIN_MINUTES as u64).saturating_mul(60))
+        );
+        assert_eq!(interval_minutes_to_duration(30), Duration::from_secs(30 * 60));
+        assert_eq!(
+            interval_minutes_to_duration(SCHEDULER_INTERVAL_MAX_MINUTES),
+            Duration::from_secs((SCHEDULER_INTERVAL_MAX_MINUTES as u64).saturating_mul(60))
+        );
+    }
+
+    #[test]
+    fn interval_minutes_to_duration_clamps_below_minimum() {
+        let min_secs = Duration::from_secs((SCHEDULER_INTERVAL_MIN_MINUTES as u64).saturating_mul(60));
+        assert_eq!(interval_minutes_to_duration(0), min_secs);
+        assert_eq!(interval_minutes_to_duration(-1), min_secs);
+        assert_eq!(interval_minutes_to_duration(i64::MIN), min_secs);
+    }
+
+    #[test]
+    fn interval_minutes_to_duration_clamps_above_maximum() {
+        let max_secs = Duration::from_secs((SCHEDULER_INTERVAL_MAX_MINUTES as u64).saturating_mul(60));
+        assert_eq!(
+            interval_minutes_to_duration(SCHEDULER_INTERVAL_MAX_MINUTES + 1),
+            max_secs
+        );
+        assert_eq!(interval_minutes_to_duration(i64::MAX), max_secs);
     }
 }

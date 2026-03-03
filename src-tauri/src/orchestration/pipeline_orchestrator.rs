@@ -16,8 +16,10 @@ use super::clamp_batch_size;
 enum StepOutcome {
     /// ステップを実行し、新規データ数を返す
     Ran { new_count: i64 },
-    /// 手動実行中・状態未取得などでスキップされた
+    /// 手動実行中・状態未取得などでスキップされた（未実行）
     Skipped,
+    /// ステップは実行済みだが、件数取得に失敗して新規データ数が不明
+    Unknown,
 }
 
 /// パイプラインを実行する。スケジューラから呼ばれる。
@@ -43,6 +45,9 @@ pub async fn run_pipeline(app: &tauri::AppHandle) {
         StepOutcome::Skipped => {
             log::info!("[Pipeline] Sync was skipped, proceeding to parse anyway");
         }
+        StepOutcome::Unknown => {
+            log::info!("[Pipeline] Sync ran but email count is unknown, proceeding to parse anyway");
+        }
     }
 
     // Step 2: メールパース
@@ -57,6 +62,9 @@ pub async fn run_pipeline(app: &tauri::AppHandle) {
         }
         StepOutcome::Skipped => {
             log::info!("[Pipeline] Parse was skipped, proceeding anyway");
+        }
+        StepOutcome::Unknown => {
+            log::info!("[Pipeline] Parse ran but order count is unknown, proceeding anyway");
         }
     }
 
@@ -96,16 +104,31 @@ async fn run_sync_step(app: &tauri::AppHandle, pool: &SqlitePool) -> StepOutcome
         }
     };
 
+    // 先に try_start で「すでに同期中なら即スキップ」し、無駄な COUNT クエリを避ける。
     if !sync_state.try_start() {
-        log::info!("[Pipeline] Sync already running, skipping");
+        log::info!(
+            "[Pipeline] Failed to start sync (already running or failed to acquire state lock), skipping"
+        );
         return StepOutcome::Skipped;
     }
 
-    let before = count_emails(pool).await;
+    // try_start 成功後は is_running フラグが必ず解除されるよう、
+    // before カウント失敗では早期 return せず 0 をデフォルトとする。
+    // count_emails 内で既にエラーログを出しているため、ここでは追加ログを出さない。
+    let before = match count_emails(pool).await {
+        Some(n) => n,
+        None => 0,
+    };
+
     log::info!("[Pipeline] Step 1/4: incremental sync");
     super::run_incremental_sync_task(app.clone(), pool.clone(), sync_state, true).await;
     log::info!("[Pipeline] Step 1/4: incremental sync completed");
-    let after = count_emails(pool).await;
+    // after カウント失敗は「実行済みだが件数不明」として Unknown を返し後続へ進める。
+    // Skipped と区別することで run_pipeline 側のログ・制御フローの意味を正確に保つ。
+    let after = match count_emails(pool).await {
+        Some(n) => n,
+        None => return StepOutcome::Unknown,
+    };
 
     StepOutcome::Ran {
         new_count: after.saturating_sub(before),
@@ -135,14 +158,20 @@ async fn run_parse_step(app: &tauri::AppHandle, pool: &SqlitePool) -> StepOutcom
     }
 
     let batch_size = load_parse_batch_size(app);
-    let before = count_orders(pool).await;
+    let before = match count_orders(pool).await {
+        Some(n) => n,
+        None => return StepOutcome::Skipped,
+    };
     log::info!(
         "[Pipeline] Step 2/4: batch parse (batch_size={})",
         batch_size
     );
     super::run_batch_parse_task(app.clone(), pool.clone(), parse_state, batch_size).await;
     log::info!("[Pipeline] Step 2/4: batch parse completed");
-    let after = count_orders(pool).await;
+    let after = match count_orders(pool).await {
+        Some(n) => n,
+        None => return StepOutcome::Unknown,
+    };
 
     StepOutcome::Ran {
         new_count: after.saturating_sub(before),
@@ -191,28 +220,28 @@ async fn run_delivery_check_step(app: &tauri::AppHandle, pool: &SqlitePool) {
     log::info!("[Pipeline] Step 4/4: delivery check completed");
 }
 
-async fn count_emails(pool: &SqlitePool) -> i64 {
+async fn count_emails(pool: &SqlitePool) -> Option<i64> {
     match sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM emails")
         .fetch_one(pool)
         .await
     {
-        Ok(count) => count,
+        Ok(count) => Some(count),
         Err(e) => {
             log::error!("[Pipeline] Failed to count emails: {e}");
-            0
+            None
         }
     }
 }
 
-async fn count_orders(pool: &SqlitePool) -> i64 {
+async fn count_orders(pool: &SqlitePool) -> Option<i64> {
     match sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM orders")
         .fetch_one(pool)
         .await
     {
-        Ok(count) => count,
+        Ok(count) => Some(count),
         Err(e) => {
             log::error!("[Pipeline] Failed to count orders: {e}");
-            0
+            None
         }
     }
 }
@@ -231,5 +260,81 @@ fn load_parse_batch_size(app: &tauri::AppHandle) -> usize {
             log::warn!("[Pipeline] Failed to load config: {e}, using default batch_size");
             100
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::orchestration::test_helpers::create_pool;
+
+    #[tokio::test]
+    async fn count_emails_returns_none_when_table_missing() {
+        let pool = create_pool().await;
+        // emails テーブルが存在しない場合、クエリエラー → None
+        assert!(count_emails(&pool).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn count_emails_returns_zero_for_empty_table() {
+        let pool = create_pool().await;
+        sqlx::query(
+            "CREATE TABLE emails (id INTEGER PRIMARY KEY, subject TEXT NOT NULL)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count_emails(&pool).await, Some(0));
+    }
+
+    #[tokio::test]
+    async fn count_emails_returns_correct_count() {
+        let pool = create_pool().await;
+        sqlx::query(
+            "CREATE TABLE emails (id INTEGER PRIMARY KEY, subject TEXT NOT NULL)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO emails (subject) VALUES ('a'), ('b'), ('c')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count_emails(&pool).await, Some(3));
+    }
+
+    #[tokio::test]
+    async fn count_orders_returns_none_when_table_missing() {
+        let pool = create_pool().await;
+        // orders テーブルが存在しない場合、クエリエラー → None
+        assert!(count_orders(&pool).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn count_orders_returns_zero_for_empty_table() {
+        let pool = create_pool().await;
+        sqlx::query(
+            "CREATE TABLE orders (id INTEGER PRIMARY KEY, item TEXT NOT NULL)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count_orders(&pool).await, Some(0));
+    }
+
+    #[tokio::test]
+    async fn count_orders_returns_correct_count() {
+        let pool = create_pool().await;
+        sqlx::query(
+            "CREATE TABLE orders (id INTEGER PRIMARY KEY, item TEXT NOT NULL)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO orders (item) VALUES ('x'), ('y')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count_orders(&pool).await, Some(2));
     }
 }
