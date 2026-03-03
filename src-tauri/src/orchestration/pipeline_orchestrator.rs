@@ -109,7 +109,7 @@ async fn run_sync_step(app: &tauri::AppHandle, pool: &SqlitePool) -> StepOutcome
     let before = match count_emails(pool).await {
         Some(n) => n,
         None => {
-            log::warn!("[Pipeline] Failed to count emails before sync, assuming 0");
+            log::debug!("[Pipeline] Failed to count emails before sync, assuming 0");
             0
         }
     };
