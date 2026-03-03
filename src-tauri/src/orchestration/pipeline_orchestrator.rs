@@ -96,15 +96,18 @@ async fn run_sync_step(app: &tauri::AppHandle, pool: &SqlitePool) -> StepOutcome
         }
     };
 
+    // try_start より前に件数取得を行い、DB失敗で早期 return しても
+    // is_running フラグが true のまま残らないようにする。
+    let before = match count_emails(pool).await {
+        Some(n) => n,
+        None => return StepOutcome::Skipped,
+    };
+
     if !sync_state.try_start() {
         log::info!("[Pipeline] Sync already running, skipping");
         return StepOutcome::Skipped;
     }
 
-    let before = match count_emails(pool).await {
-        Some(n) => n,
-        None => return StepOutcome::Skipped,
-    };
     log::info!("[Pipeline] Step 1/4: incremental sync");
     super::run_incremental_sync_task(app.clone(), pool.clone(), sync_state, true).await;
     log::info!("[Pipeline] Step 1/4: incremental sync completed");
