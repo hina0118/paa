@@ -875,6 +875,173 @@ describe('Settings', () => {
     });
   });
 
+  // スケジューラ有効/無効更新テスト
+  describe('handleSaveSchedulerEnabled', () => {
+    it('saves scheduler enabled successfully', async () => {
+      const user = userEvent.setup();
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'get_gemini_config')
+          return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
+        if (cmd === 'get_scheduler_config')
+          return Promise.resolve({ interval_minutes: 1440, enabled: true });
+        if (cmd === 'update_scheduler_enabled')
+          return Promise.resolve(undefined);
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(
+          document.getElementById('scheduler-enabled')
+        ).toBeInTheDocument();
+      });
+
+      // チェックを外してからチェック状態を変更
+      await user.click(document.getElementById('scheduler-enabled')!);
+
+      await user.click(
+        screen.getByRole('button', { name: 'スケジューラの有効/無効を保存' })
+      );
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith('update_scheduler_enabled', {
+          enabled: false,
+        });
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('スケジューラの有効/無効を更新しました')
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('handles scheduler enabled update error', async () => {
+      const user = userEvent.setup();
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'get_gemini_config')
+          return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
+        if (cmd === 'get_scheduler_config')
+          return Promise.resolve({ interval_minutes: 1440, enabled: true });
+        if (cmd === 'update_scheduler_enabled')
+          return Promise.reject(new Error('Scheduler error'));
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(
+          document.getElementById('scheduler-enabled')
+        ).toBeInTheDocument();
+      });
+
+      await user.click(
+        screen.getByRole('button', { name: 'スケジューラの有効/無効を保存' })
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/更新に失敗しました/)).toBeInTheDocument();
+        expect(screen.getByText(/Scheduler error/)).toBeInTheDocument();
+      });
+    });
+  });
+
+  // スケジューラ実行間隔更新テスト
+  describe('handleSaveSchedulerInterval', () => {
+    it('saves scheduler interval successfully', async () => {
+      const user = userEvent.setup();
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'get_gemini_config')
+          return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
+        if (cmd === 'get_scheduler_config')
+          return Promise.resolve({ interval_minutes: 1440, enabled: true });
+        if (cmd === 'update_scheduler_interval')
+          return Promise.resolve(undefined);
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      const input = document.getElementById('scheduler-interval')!;
+      await waitFor(() => {
+        expect(input).toBeInTheDocument();
+        expect(input).toHaveValue(1440);
+      });
+
+      await user.clear(input);
+      await user.type(input, '60');
+
+      await waitFor(() => {
+        expect(input).toHaveValue(60);
+      });
+
+      await user.click(
+        screen.getByRole('button', { name: 'スケジューラの実行間隔を保存' })
+      );
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith('update_scheduler_interval', {
+          intervalMinutes: 60,
+        });
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('スケジューラの実行間隔を更新しました')
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('shows validation error for out of range scheduler interval', async () => {
+      const user = userEvent.setup();
+      mockInvoke.mockImplementation((cmd: string) => {
+        if (cmd === 'get_sync_status')
+          return Promise.resolve(defaultSyncMetadata);
+        if (cmd === 'get_parse_status')
+          return Promise.resolve(defaultParseMetadata);
+        if (cmd === 'get_gemini_config')
+          return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
+        if (cmd === 'get_scheduler_config')
+          return Promise.resolve({ interval_minutes: 20000, enabled: true });
+        return Promise.resolve(null);
+      });
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(
+          document.getElementById('scheduler-interval')
+        ).toBeInTheDocument();
+      });
+
+      await user.click(
+        screen.getByRole('button', { name: 'スケジューラの実行間隔を保存' })
+      );
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            '実行間隔は1〜10080分（7日）の範囲で入力してください'
+          )
+        ).toBeInTheDocument();
+      });
+    });
+  });
+
   // 最大取得件数の表示テスト
   it('displays calculated max fetch count', async () => {
     renderWithProviders(<Settings />);
