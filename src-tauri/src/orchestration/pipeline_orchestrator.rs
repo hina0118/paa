@@ -46,7 +46,9 @@ pub async fn run_pipeline(app: &tauri::AppHandle) {
             log::info!("[Pipeline] Sync was skipped, proceeding to parse anyway");
         }
         StepOutcome::Unknown => {
-            log::info!("[Pipeline] Sync ran but email count is unknown, proceeding to parse anyway");
+            log::info!(
+                "[Pipeline] Sync ran but email count is unknown, proceeding to parse anyway"
+            );
         }
     }
 
@@ -278,24 +280,20 @@ mod tests {
     #[tokio::test]
     async fn count_emails_returns_zero_for_empty_table() {
         let pool = create_pool().await;
-        sqlx::query(
-            "CREATE TABLE emails (id INTEGER PRIMARY KEY, subject TEXT NOT NULL)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
+        sqlx::query("CREATE TABLE emails (id INTEGER PRIMARY KEY, subject TEXT NOT NULL)")
+            .execute(&pool)
+            .await
+            .unwrap();
         assert_eq!(count_emails(&pool).await, Some(0));
     }
 
     #[tokio::test]
     async fn count_emails_returns_correct_count() {
         let pool = create_pool().await;
-        sqlx::query(
-            "CREATE TABLE emails (id INTEGER PRIMARY KEY, subject TEXT NOT NULL)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
+        sqlx::query("CREATE TABLE emails (id INTEGER PRIMARY KEY, subject TEXT NOT NULL)")
+            .execute(&pool)
+            .await
+            .unwrap();
         sqlx::query("INSERT INTO emails (subject) VALUES ('a'), ('b'), ('c')")
             .execute(&pool)
             .await
@@ -313,24 +311,20 @@ mod tests {
     #[tokio::test]
     async fn count_orders_returns_zero_for_empty_table() {
         let pool = create_pool().await;
-        sqlx::query(
-            "CREATE TABLE orders (id INTEGER PRIMARY KEY, item TEXT NOT NULL)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
+        sqlx::query("CREATE TABLE orders (id INTEGER PRIMARY KEY, item TEXT NOT NULL)")
+            .execute(&pool)
+            .await
+            .unwrap();
         assert_eq!(count_orders(&pool).await, Some(0));
     }
 
     #[tokio::test]
     async fn count_orders_returns_correct_count() {
         let pool = create_pool().await;
-        sqlx::query(
-            "CREATE TABLE orders (id INTEGER PRIMARY KEY, item TEXT NOT NULL)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
+        sqlx::query("CREATE TABLE orders (id INTEGER PRIMARY KEY, item TEXT NOT NULL)")
+            .execute(&pool)
+            .await
+            .unwrap();
         sqlx::query("INSERT INTO orders (item) VALUES ('x'), ('y')")
             .execute(&pool)
             .await

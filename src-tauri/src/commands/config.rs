@@ -69,7 +69,9 @@ pub async fn update_gemini_delay_seconds(
 
 /// スケジューラ実行間隔のバリデーション（`SCHEDULER_INTERVAL_MIN_MINUTES`〜`SCHEDULER_INTERVAL_MAX_MINUTES`分）
 pub fn validate_scheduler_interval(interval_minutes: i64) -> Result<(), String> {
-    if !(SCHEDULER_INTERVAL_MIN_MINUTES..=SCHEDULER_INTERVAL_MAX_MINUTES).contains(&interval_minutes) {
+    if !(SCHEDULER_INTERVAL_MIN_MINUTES..=SCHEDULER_INTERVAL_MAX_MINUTES)
+        .contains(&interval_minutes)
+    {
         return Err(format!(
             "スケジューラの実行間隔は{}〜{}分の範囲である必要があります",
             SCHEDULER_INTERVAL_MIN_MINUTES, SCHEDULER_INTERVAL_MAX_MINUTES,
