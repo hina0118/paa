@@ -123,6 +123,16 @@ async fn wait_for_interval_or_shutdown(duration: Duration, shutdown: &Arc<Notify
     }
 }
 
+/// `interval_minutes` を `[1, 10_080]` にクランプして `Duration` に変換する。
+///
+/// 設定ファイル破損・手動編集などで極端な値が入っても、
+/// `validate_scheduler_interval` と同じ範囲内の sleep 時間になる。
+fn interval_minutes_to_duration(minutes: i64) -> Duration {
+    let clamped = minutes.clamp(1, 10_080);
+    let secs = (clamped as u64).saturating_mul(60);
+    Duration::from_secs(secs)
+}
+
 /// スケジューラのメインループ。`setup()` から `tauri::async_runtime::spawn` で起動する。
 ///
 /// `tokio::time::sleep` ベースで毎 tick ごとに最新の `interval_minutes` を参照するため、
@@ -135,12 +145,11 @@ pub async fn run_scheduler(app: tauri::AppHandle, state: SchedulerState, shutdow
     );
 
     loop {
-        // 設定ファイル破損/手動編集などで極端に大きい値が入っても安全なように、
-        // `validate_scheduler_interval` と同じ範囲 [1, 10080] にクランプする。
-        let interval_min = state.interval_minutes().clamp(1, 10_080);
-        let interval_secs = (interval_min as u64).saturating_mul(60);
-        if !wait_for_interval_or_shutdown(Duration::from_secs(interval_secs), &shutdown)
-            .await
+        if !wait_for_interval_or_shutdown(
+            interval_minutes_to_duration(state.interval_minutes()),
+            &shutdown,
+        )
+        .await
         {
             log::info!("[Scheduler] Shutdown signal received, exiting");
             break;
@@ -272,5 +281,34 @@ mod tests {
 
         state.set_interval_minutes(60);
         assert_eq!(clone.interval_minutes(), 60);
+    }
+
+    #[test]
+    fn interval_minutes_to_duration_normal() {
+        assert_eq!(interval_minutes_to_duration(1), Duration::from_secs(60));
+        assert_eq!(interval_minutes_to_duration(30), Duration::from_secs(30 * 60));
+        assert_eq!(
+            interval_minutes_to_duration(10_080),
+            Duration::from_secs(10_080 * 60)
+        );
+    }
+
+    #[test]
+    fn interval_minutes_to_duration_clamps_below_minimum() {
+        assert_eq!(interval_minutes_to_duration(0), Duration::from_secs(60));
+        assert_eq!(interval_minutes_to_duration(-1), Duration::from_secs(60));
+        assert_eq!(interval_minutes_to_duration(i64::MIN), Duration::from_secs(60));
+    }
+
+    #[test]
+    fn interval_minutes_to_duration_clamps_above_maximum() {
+        assert_eq!(
+            interval_minutes_to_duration(10_081),
+            Duration::from_secs(10_080 * 60)
+        );
+        assert_eq!(
+            interval_minutes_to_duration(i64::MAX),
+            Duration::from_secs(10_080 * 60)
+        );
     }
 }
