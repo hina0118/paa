@@ -521,7 +521,9 @@ pub fn run() {
                     }
                     "quit" => {
                         // スケジューラを即時起床させてシャットダウンを検出させる
-                        app.state::<Arc<Notify>>().notify_one();
+                        if let Some(notify) = app.try_state::<Arc<Notify>>() {
+                            notify.notify_one();
+                        }
 
                         // クリップボード監視をグレースフルに停止
                         if let Some(shutdown_signal) = app.try_state::<Arc<AtomicBool>>() {
