@@ -1,6 +1,7 @@
 use tauri::Manager;
 
 use crate::config;
+use crate::scheduler::{SCHEDULER_INTERVAL_MAX_MINUTES, SCHEDULER_INTERVAL_MIN_MINUTES};
 
 /// Gemini バッチサイズのバリデーション（1〜50）
 pub fn validate_gemini_batch_size(batch_size: i64) -> Result<(), String> {
@@ -66,12 +67,13 @@ pub async fn update_gemini_delay_seconds(
 // スケジューラ設定
 // ---------------------------------------------------------------------------
 
-/// スケジューラ実行間隔のバリデーション（1〜10080分 = 1分〜7日）
+/// スケジューラ実行間隔のバリデーション（`SCHEDULER_INTERVAL_MIN_MINUTES`〜`SCHEDULER_INTERVAL_MAX_MINUTES`分）
 pub fn validate_scheduler_interval(interval_minutes: i64) -> Result<(), String> {
-    if !(1..=10080).contains(&interval_minutes) {
-        return Err(
-            "スケジューラの実行間隔は1〜10080分（7日）の範囲である必要があります".to_string(),
-        );
+    if !(SCHEDULER_INTERVAL_MIN_MINUTES..=SCHEDULER_INTERVAL_MAX_MINUTES).contains(&interval_minutes) {
+        return Err(format!(
+            "スケジューラの実行間隔は{}〜{}分の範囲である必要があります",
+            SCHEDULER_INTERVAL_MIN_MINUTES, SCHEDULER_INTERVAL_MAX_MINUTES,
+        ));
     }
     Ok(())
 }
