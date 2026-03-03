@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::Emitter;
+use tokio::sync::Notify;
 
 /// スケジューラの状態イベント（フロントエンドへの通知用）
 pub const SCHEDULER_STATUS_EVENT: &str = "scheduler-status-changed";
@@ -89,6 +90,18 @@ pub fn format_interval(minutes: i64) -> String {
     }
 }
 
+/// インターバルが経過するか、シャットダウンシグナルを受けるまで待機する。
+///
+/// 正常にインターバルが経過した場合は `true` を返す。
+/// シャットダウンが検出された場合は `false` を返す。
+/// `Notify::notified()` で待機するため、ポーリングと異なり通知を受けた瞬間に即時復帰する。
+async fn wait_for_interval_or_shutdown(duration: Duration, shutdown: &Arc<Notify>) -> bool {
+    tokio::select! {
+        _ = tokio::time::sleep(duration) => true,
+        _ = shutdown.notified() => false,
+    }
+}
+
 /// スケジューラのメインループ。`setup()` から `tauri::async_runtime::spawn` で起動する。
 ///
 /// `tokio::time::sleep` ベースで毎 tick ごとに最新の `interval_minutes` を参照するため、
@@ -96,7 +109,7 @@ pub fn format_interval(minutes: i64) -> String {
 pub async fn run_scheduler(
     app: tauri::AppHandle,
     state: SchedulerState,
-    shutdown: Arc<AtomicBool>,
+    shutdown: Arc<Notify>,
 ) {
     log::info!(
         "[Scheduler] Started: interval={}min, enabled={}",
@@ -106,9 +119,12 @@ pub async fn run_scheduler(
 
     loop {
         let interval_min = state.interval_minutes().max(1);
-        tokio::time::sleep(Duration::from_secs(interval_min as u64 * 60)).await;
-
-        if shutdown.load(Ordering::Relaxed) {
+        if !wait_for_interval_or_shutdown(
+            Duration::from_secs(interval_min as u64 * 60),
+            &shutdown,
+        )
+        .await
+        {
             log::info!("[Scheduler] Shutdown signal received, exiting");
             break;
         }
