@@ -901,13 +901,16 @@ describe('Settings', () => {
         ).toBeInTheDocument();
       });
 
+      // チェックを外してからチェック状態を変更
+      await user.click(document.getElementById('scheduler-enabled')!);
+
       await user.click(
         screen.getByRole('button', { name: 'スケジューラの有効/無効を保存' })
       );
 
       await waitFor(() => {
         expect(mockInvoke).toHaveBeenCalledWith('update_scheduler_enabled', {
-          enabled: true,
+          enabled: false,
         });
       });
 
@@ -979,13 +982,20 @@ describe('Settings', () => {
         expect(input).toHaveValue(1440);
       });
 
+      await user.clear(input);
+      await user.type(input, '60');
+
+      await waitFor(() => {
+        expect(input).toHaveValue(60);
+      });
+
       await user.click(
         screen.getByRole('button', { name: 'スケジューラの実行間隔を保存' })
       );
 
       await waitFor(() => {
         expect(mockInvoke).toHaveBeenCalledWith('update_scheduler_interval', {
-          intervalMinutes: 1440,
+          intervalMinutes: 60,
         });
       });
 
