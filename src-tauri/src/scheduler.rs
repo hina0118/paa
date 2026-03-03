@@ -134,7 +134,10 @@ async fn wait_for_interval_or_shutdown(duration: Duration, shutdown: &Arc<Notify
 /// 設定ファイル破損・手動編集などで極端な値が入っても、
 /// `validate_scheduler_interval` と同じ範囲内の sleep 時間になる。
 fn interval_minutes_to_duration(minutes: i64) -> Duration {
-    let clamped = minutes.clamp(SCHEDULER_INTERVAL_MIN_MINUTES, SCHEDULER_INTERVAL_MAX_MINUTES);
+    let clamped = minutes.clamp(
+        SCHEDULER_INTERVAL_MIN_MINUTES,
+        SCHEDULER_INTERVAL_MAX_MINUTES,
+    );
     let secs = (clamped as u64).saturating_mul(60);
     Duration::from_secs(secs)
 }
@@ -295,7 +298,10 @@ mod tests {
             interval_minutes_to_duration(SCHEDULER_INTERVAL_MIN_MINUTES),
             Duration::from_secs((SCHEDULER_INTERVAL_MIN_MINUTES as u64).saturating_mul(60))
         );
-        assert_eq!(interval_minutes_to_duration(30), Duration::from_secs(30 * 60));
+        assert_eq!(
+            interval_minutes_to_duration(30),
+            Duration::from_secs(30 * 60)
+        );
         assert_eq!(
             interval_minutes_to_duration(SCHEDULER_INTERVAL_MAX_MINUTES),
             Duration::from_secs((SCHEDULER_INTERVAL_MAX_MINUTES as u64).saturating_mul(60))
@@ -304,7 +310,8 @@ mod tests {
 
     #[test]
     fn interval_minutes_to_duration_clamps_below_minimum() {
-        let min_secs = Duration::from_secs((SCHEDULER_INTERVAL_MIN_MINUTES as u64).saturating_mul(60));
+        let min_secs =
+            Duration::from_secs((SCHEDULER_INTERVAL_MIN_MINUTES as u64).saturating_mul(60));
         assert_eq!(interval_minutes_to_duration(0), min_secs);
         assert_eq!(interval_minutes_to_duration(-1), min_secs);
         assert_eq!(interval_minutes_to_duration(i64::MIN), min_secs);
@@ -312,7 +319,8 @@ mod tests {
 
     #[test]
     fn interval_minutes_to_duration_clamps_above_maximum() {
-        let max_secs = Duration::from_secs((SCHEDULER_INTERVAL_MAX_MINUTES as u64).saturating_mul(60));
+        let max_secs =
+            Duration::from_secs((SCHEDULER_INTERVAL_MAX_MINUTES as u64).saturating_mul(60));
         assert_eq!(
             interval_minutes_to_duration(SCHEDULER_INTERVAL_MAX_MINUTES + 1),
             max_secs
