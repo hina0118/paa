@@ -12,6 +12,8 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
 import { PageHeader } from '@/components/ui/page-header';
 import { toastError } from '@/lib/toast';
 import { useConfigSave } from '@/hooks/useConfigSave';
@@ -19,6 +21,11 @@ import { useConfigSave } from '@/hooks/useConfigSave';
 interface GeminiConfig {
   batch_size: number;
   delay_seconds: number;
+}
+
+interface SchedulerConfig {
+  interval_minutes: number;
+  enabled: boolean;
 }
 
 export function Settings() {
@@ -38,6 +45,8 @@ export function Settings() {
   const [parseBatchSize, setParseBatchSize] = useState<string>('');
   const [geminiBatchSize, setGeminiBatchSize] = useState<string>('');
   const [geminiDelaySeconds, setGeminiDelaySeconds] = useState<string>('');
+  const [schedulerEnabled, setSchedulerEnabled] = useState(true);
+  const [schedulerInterval, setSchedulerInterval] = useState<string>('');
   const [isInitialized, setIsInitialized] = useState(false);
 
   useEffect(() => {
@@ -67,6 +76,19 @@ export function Settings() {
       }
     };
     loadGeminiConfig();
+  }, []);
+
+  useEffect(() => {
+    const loadSchedulerConfig = async () => {
+      try {
+        const config = await invoke<SchedulerConfig>('get_scheduler_config');
+        setSchedulerEnabled(config.enabled);
+        setSchedulerInterval(config.interval_minutes.toString());
+      } catch (error) {
+        console.error('Failed to load scheduler config:', error);
+      }
+    };
+    loadSchedulerConfig();
   }, []);
 
   const batchSizeConfig = useConfigSave(async () => {
@@ -113,6 +135,19 @@ export function Settings() {
     }
     await updateParseBatchSize(value);
   }, 'パースバッチサイズ');
+
+  const schedulerEnabledConfig = useConfigSave(async () => {
+    await invoke('update_scheduler_enabled', { enabled: schedulerEnabled });
+  }, 'スケジューラの有効/無効');
+
+  const schedulerIntervalConfig = useConfigSave(async () => {
+    const value = parseInt(schedulerInterval, 10);
+    if (isNaN(value) || value < 1 || value > 10080) {
+      toastError('実行間隔は1〜10080分（7日）の範囲で入力してください');
+      return false;
+    }
+    await invoke('update_scheduler_interval', { intervalMinutes: value });
+  }, 'スケジューラの実行間隔');
 
   const geminiBatchSizeConfig = useConfigSave(async () => {
     const value = parseInt(geminiBatchSize, 10);
@@ -366,6 +401,75 @@ export function Settings() {
                 onClick={parseBatchSizeConfig.save}
                 disabled={parseBatchSizeConfig.isSaving}
                 aria-label="パースバッチサイズを保存"
+              >
+                保存
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>スケジューラ設定</CardTitle>
+          <CardDescription>
+            定期的なバックグラウンド処理（差分同期→メールパース→商品名解析→配達状況確認）を調整します
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="space-y-2">
+            <div className="flex items-center gap-3">
+              <Checkbox
+                id="scheduler-enabled"
+                checked={schedulerEnabled}
+                onCheckedChange={(checked) =>
+                  setSchedulerEnabled(checked === true)
+                }
+                disabled={schedulerEnabledConfig.isSaving}
+              />
+              <Label
+                htmlFor="scheduler-enabled"
+                className="text-sm font-medium"
+              >
+                スケジューラを有効にする
+              </Label>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              有効にすると、アプリ起動中に自動でバッチ処理を定期実行します
+            </p>
+            <div>
+              <Button
+                onClick={schedulerEnabledConfig.save}
+                disabled={schedulerEnabledConfig.isSaving}
+                aria-label="スケジューラの有効/無効を保存"
+              >
+                保存
+              </Button>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="scheduler-interval" className="text-sm font-medium">
+              実行間隔（分）
+            </label>
+            <p className="text-sm text-muted-foreground">
+              パイプラインの実行間隔 (1〜10080分、推奨: 1440 = 1日)
+            </p>
+            <div className="flex gap-2">
+              <Input
+                id="scheduler-interval"
+                type="number"
+                min="1"
+                max="10080"
+                value={schedulerInterval}
+                onChange={(e) => setSchedulerInterval(e.target.value)}
+                disabled={schedulerIntervalConfig.isSaving}
+                className="max-w-xs"
+              />
+              <Button
+                onClick={schedulerIntervalConfig.save}
+                disabled={schedulerIntervalConfig.isSaving}
+                aria-label="スケジューラの実行間隔を保存"
               >
                 保存
               </Button>
