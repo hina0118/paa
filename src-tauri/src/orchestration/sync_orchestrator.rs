@@ -392,6 +392,53 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn run_incremental_sync_with_caller_did_try_start_does_not_emit_already_running_error() {
+        // caller_did_try_start=true パスでは、パイプライン側で try_start() 呼び出し済みのため
+        // "already in progress" エラーイベントが emit されず、正常完了まで到達することを確認する。
+        let pool = create_pool().await;
+        create_shop_settings_table(&pool).await;
+        insert_enabled_shop(&pool).await;
+        create_emails_table(&pool).await;
+
+        let tmp = TempDir::new().unwrap();
+        let app = FakeApp {
+            config_dir: tmp.path().to_path_buf(),
+            data_dir: Some(tmp.path().to_path_buf()),
+            emitted_events: std::sync::Mutex::new(Vec::new()),
+            notify_count: std::sync::atomic::AtomicUsize::new(0),
+            fail_create_gmail_client: false,
+        };
+        let sync_state = SyncState::new();
+        // パイプライン側での try_start() 呼び出し済みを模擬
+        assert!(sync_state.try_start());
+        assert!(sync_state.is_running());
+
+        run_incremental_sync_task_with(&app, pool, sync_state.clone(), true).await;
+
+        // caller_did_try_start=true なので "already in progress" エラーは emit されず、
+        // 正常完了（notify）まで到達することを確認する
+        assert_eq!(
+            app.notify_count.load(Ordering::SeqCst),
+            1,
+            "should complete successfully, not short-circuit with already-running error"
+        );
+        // エラー早期リターンは GMAIL_SYNC_EVENT_NAME 1件 + notify 0件のパターン。
+        // そのパターンに一致しないことで、エラーイベントが emit されていないことを明示する。
+        {
+            let emitted = app.emitted_events.lock().unwrap();
+            assert!(
+                !(emitted.len() == 1 && app.notify_count.load(Ordering::SeqCst) == 0),
+                "should not match the already-running error pattern (1 event emitted, 0 notifications)"
+            );
+        }
+        // SyncGuard により running フラグが解除されていることを確認
+        assert!(
+            !sync_state.is_running(),
+            "SyncGuard should clear running flag after completion"
+        );
+    }
+
+    #[tokio::test]
     async fn run_incremental_sync_handles_no_new_messages() {
         let pool = create_pool().await;
         create_shop_settings_table(&pool).await;
