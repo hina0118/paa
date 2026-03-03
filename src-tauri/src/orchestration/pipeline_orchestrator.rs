@@ -98,7 +98,9 @@ async fn run_sync_step(app: &tauri::AppHandle, pool: &SqlitePool) -> StepOutcome
 
     // 先に try_start で「すでに同期中なら即スキップ」し、無駄な COUNT クエリを避ける。
     if !sync_state.try_start() {
-        log::info!("[Pipeline] Sync already running, skipping");
+        log::info!(
+            "[Pipeline] Failed to start sync (already running or failed to acquire state lock), skipping"
+        );
         return StepOutcome::Skipped;
     }
 
@@ -250,5 +252,89 @@ fn load_parse_batch_size(app: &tauri::AppHandle) -> usize {
             log::warn!("[Pipeline] Failed to load config: {e}, using default batch_size");
             100
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    async fn create_pool() -> SqlitePool {
+        SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn count_emails_returns_none_when_table_missing() {
+        let pool = create_pool().await;
+        // emails テーブルが存在しない場合、クエリエラー → None
+        assert!(count_emails(&pool).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn count_emails_returns_zero_for_empty_table() {
+        let pool = create_pool().await;
+        sqlx::query(
+            "CREATE TABLE emails (id INTEGER PRIMARY KEY, subject TEXT NOT NULL)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count_emails(&pool).await, Some(0));
+    }
+
+    #[tokio::test]
+    async fn count_emails_returns_correct_count() {
+        let pool = create_pool().await;
+        sqlx::query(
+            "CREATE TABLE emails (id INTEGER PRIMARY KEY, subject TEXT NOT NULL)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO emails (subject) VALUES ('a'), ('b'), ('c')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count_emails(&pool).await, Some(3));
+    }
+
+    #[tokio::test]
+    async fn count_orders_returns_none_when_table_missing() {
+        let pool = create_pool().await;
+        // orders テーブルが存在しない場合、クエリエラー → None
+        assert!(count_orders(&pool).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn count_orders_returns_zero_for_empty_table() {
+        let pool = create_pool().await;
+        sqlx::query(
+            "CREATE TABLE orders (id INTEGER PRIMARY KEY, item TEXT NOT NULL)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count_orders(&pool).await, Some(0));
+    }
+
+    #[tokio::test]
+    async fn count_orders_returns_correct_count() {
+        let pool = create_pool().await;
+        sqlx::query(
+            "CREATE TABLE orders (id INTEGER PRIMARY KEY, item TEXT NOT NULL)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO orders (item) VALUES ('x'), ('y')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count_orders(&pool).await, Some(2));
     }
 }
