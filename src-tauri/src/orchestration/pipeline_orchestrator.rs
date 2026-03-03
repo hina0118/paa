@@ -70,8 +70,10 @@ pub async fn run_pipeline(app: &tauri::AppHandle) {
 /// 差分同期を実行し、新規メール件数を返す。
 /// 手動同期中の場合や認証未設定の場合は Skipped を返す。
 ///
-/// Note: `SyncState::try_start()` は `run_sync_core` 内部で呼ばれるため、
-/// ここでは `is_running()` で読み取りチェックのみ行う。
+/// Note: `SyncState::try_start()` をここで直接呼び出すことで、
+/// 既に実行中の場合はエラーイベントを emit せずに静かにスキップできる。
+/// `run_incremental_sync_task` には `caller_did_try_start = true` を渡し、
+/// 内部での二重 `try_start()` を防ぐ。
 async fn run_sync_step(app: &tauri::AppHandle, pool: &SqlitePool) -> StepOutcome {
     use crate::gmail::SyncState;
 
