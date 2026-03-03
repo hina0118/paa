@@ -190,17 +190,29 @@ async fn run_delivery_check_step(app: &tauri::AppHandle, pool: &SqlitePool) {
 }
 
 async fn count_emails(pool: &SqlitePool) -> i64 {
-    sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM emails")
+    match sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM emails")
         .fetch_one(pool)
         .await
-        .unwrap_or(0)
+    {
+        Ok(count) => count,
+        Err(e) => {
+            log::error!("[Pipeline] Failed to count emails: {e}");
+            0
+        }
+    }
 }
 
 async fn count_orders(pool: &SqlitePool) -> i64 {
-    sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM orders")
+    match sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM orders")
         .fetch_one(pool)
         .await
-        .unwrap_or(0)
+    {
+        Ok(count) => count,
+        Err(e) => {
+            log::error!("[Pipeline] Failed to count orders: {e}");
+            0
+        }
+    }
 }
 
 fn load_parse_batch_size(app: &tauri::AppHandle) -> usize {
