@@ -293,7 +293,7 @@ mod tests {
     fn interval_minutes_to_duration_normal() {
         assert_eq!(
             interval_minutes_to_duration(SCHEDULER_INTERVAL_MIN_MINUTES),
-            Duration::from_secs(60)
+            Duration::from_secs((SCHEDULER_INTERVAL_MIN_MINUTES as u64).saturating_mul(60))
         );
         assert_eq!(interval_minutes_to_duration(30), Duration::from_secs(30 * 60));
         assert_eq!(
