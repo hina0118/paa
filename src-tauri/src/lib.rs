@@ -6,6 +6,7 @@ use tauri::menu::{Menu, MenuItem, Submenu};
 use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Listener, Manager};
 use tauri_plugin_sql::{Migration, MigrationKind};
+use tokio::sync::Notify;
 
 pub mod batch_runner;
 pub mod clipboard_watcher;
@@ -221,15 +222,13 @@ pub fn run() {
                 );
                 app.manage(scheduler_state.clone());
 
-                let shutdown_for_scheduler = app
-                    .try_state::<Arc<AtomicBool>>()
-                    .map(|s| s.inner().clone())
-                    .unwrap_or_else(|| Arc::new(AtomicBool::new(false)));
+                let scheduler_shutdown = Arc::new(Notify::new());
+                app.manage(scheduler_shutdown.clone());
                 let scheduler_app = app.handle().clone();
                 tauri::async_runtime::spawn(scheduler::run_scheduler(
                     scheduler_app,
                     scheduler_state,
-                    shutdown_for_scheduler,
+                    scheduler_shutdown,
                 ));
                 log::info!(
                     "Scheduler initialized: enabled={}, interval={}min",
@@ -490,9 +489,16 @@ pub fn run() {
 
                             // 設定ファイル側の scheduler.enabled も更新しておくことで、
                             // get_scheduler_config や設定画面と実際の動作の乖離を防ぐ。
-                            if let Err(e) = commands::update_scheduler_enabled(new_enabled) {
-                                log::warn!("[Scheduler] Failed to persist enabled state from tray: {e}");
-                            }
+                            let app_clone = app.clone();
+                            tauri::async_runtime::spawn(async move {
+                                if let Err(e) =
+                                    commands::update_scheduler_enabled(app_clone, new_enabled).await
+                                {
+                                    log::warn!(
+                                        "[Scheduler] Failed to persist enabled state from tray: {e}"
+                                    );
+                                }
+                            });
 
                             let label = if new_enabled {
                                 format!(
@@ -519,6 +525,9 @@ pub fn run() {
                             let shutdown_signal = shutdown_signal.inner().clone();
                             // シャットダウン要求を通知
                             shutdown_signal.store(true, Ordering::Relaxed);
+
+                            // スケジューラを即時起床させてシャットダウンを検出させる
+                            app.state::<Arc<Notify>>().notify_one();
 
                             // 監視スレッドの終了完了を明示的に待つ仕組みは現状ないため、
                             // シャットダウン要求を送ったら即座にアプリケーションを終了する。
