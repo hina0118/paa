@@ -75,15 +75,17 @@ pub async fn run_pipeline(app: &tauri::AppHandle) {
 async fn run_sync_step(app: &tauri::AppHandle, pool: &SqlitePool) -> StepOutcome {
     use crate::gmail::SyncState;
 
-    // OAuth認証情報が未設定ならスケジューラから静かにスキップ
+    // OAuth認証情報が未設定なら同期自体が実行できず、新規メールも増えないことが確定
     let has_credentials = app
         .path()
         .app_data_dir()
         .map(|dir| crate::gmail::has_oauth_credentials(&dir))
         .unwrap_or(false);
     if !has_credentials {
-        log::info!("[Pipeline] Gmail OAuth credentials not configured, skipping sync");
-        return StepOutcome::Skipped;
+        log::info!(
+            "[Pipeline] Gmail OAuth credentials not configured, treating as no new emails"
+        );
+        return StepOutcome::Ran { new_count: 0 };
     }
 
     let sync_state = match app.try_state::<SyncState>() {
