@@ -68,7 +68,7 @@ pub async fn run_pipeline(app: &tauri::AppHandle) {
 }
 
 /// 差分同期を実行し、新規メール件数を返す。
-/// 手動同期中の場合や認証未設定の場合は Skipped を返す。
+/// 手動同期中の場合は Skipped を返す。認証未設定の場合は new_count = 0 として扱う。
 ///
 /// Note: `SyncState::try_start()` をここで直接呼び出すことで、
 /// 既に実行中の場合はエラーイベントを emit せずに静かにスキップできる。

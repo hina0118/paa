@@ -520,22 +520,19 @@ pub fn run() {
                         }
                     }
                     "quit" => {
+                        // スケジューラを即時起床させてシャットダウンを検出させる
+                        app.state::<Arc<Notify>>().notify_one();
+
                         // クリップボード監視をグレースフルに停止
                         if let Some(shutdown_signal) = app.try_state::<Arc<AtomicBool>>() {
                             let shutdown_signal = shutdown_signal.inner().clone();
                             // シャットダウン要求を通知
                             shutdown_signal.store(true, Ordering::Relaxed);
-
-                            // スケジューラを即時起床させてシャットダウンを検出させる
-                            app.state::<Arc<Notify>>().notify_one();
-
-                            // 監視スレッドの終了完了を明示的に待つ仕組みは現状ないため、
-                            // シャットダウン要求を送ったら即座にアプリケーションを終了する。
-                            app.exit(0);
-                        } else {
-                            // 監視スレッドがいない場合は即座に終了
-                            app.exit(0);
                         }
+
+                        // 監視スレッドの終了完了を明示的に待つ仕組みは現状ないため、
+                        // シャットダウン要求を送ったら即座にアプリケーションを終了する。
+                        app.exit(0);
                     }
                     _ => {}
                 })

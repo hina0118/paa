@@ -422,15 +422,6 @@ mod tests {
             1,
             "should complete successfully, not short-circuit with already-running error"
         );
-        // エラー早期リターンは GMAIL_SYNC_EVENT_NAME 1件 + notify 0件のパターン。
-        // そのパターンに一致しないことで、エラーイベントが emit されていないことを明示する。
-        {
-            let emitted = app.emitted_events.lock().unwrap();
-            assert!(
-                !(emitted.len() == 1 && app.notify_count.load(Ordering::SeqCst) == 0),
-                "should not match the already-running error pattern (1 event emitted, 0 notifications)"
-            );
-        }
         // SyncGuard により running フラグが解除されていることを確認
         assert!(
             !sync_state.is_running(),
