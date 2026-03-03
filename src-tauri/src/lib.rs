@@ -396,6 +396,7 @@ pub fn run() {
                                 app_clone,
                                 pool_clone,
                                 sync_state_clone,
+                                false, // トレイ経由では try_start を本関数内で行う
                             ));
                         } else {
                             log::warn!("Cannot run tray incremental sync: pool or sync_state not initialized");
