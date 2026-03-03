@@ -135,8 +135,11 @@ pub async fn run_scheduler(app: tauri::AppHandle, state: SchedulerState, shutdow
     );
 
     loop {
-        let interval_min = state.interval_minutes().max(1);
-        if !wait_for_interval_or_shutdown(Duration::from_secs(interval_min as u64 * 60), &shutdown)
+        // 設定ファイル破損/手動編集などで極端に大きい値が入っても安全なように、
+        // `validate_scheduler_interval` と同じ範囲 [1, 10080] にクランプする。
+        let interval_min = state.interval_minutes().clamp(1, 10_080);
+        let interval_secs = (interval_min as u64).saturating_mul(60);
+        if !wait_for_interval_or_shutdown(Duration::from_secs(interval_secs), &shutdown)
             .await
         {
             log::info!("[Scheduler] Shutdown signal received, exiting");
