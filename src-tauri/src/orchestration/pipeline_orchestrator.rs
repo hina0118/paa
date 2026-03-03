@@ -101,11 +101,17 @@ async fn run_sync_step(app: &tauri::AppHandle, pool: &SqlitePool) -> StepOutcome
         return StepOutcome::Skipped;
     }
 
-    let before = count_emails(pool).await;
+    let before = match count_emails(pool).await {
+        Some(n) => n,
+        None => return StepOutcome::Skipped,
+    };
     log::info!("[Pipeline] Step 1/4: incremental sync");
     super::run_incremental_sync_task(app.clone(), pool.clone(), sync_state, true).await;
     log::info!("[Pipeline] Step 1/4: incremental sync completed");
-    let after = count_emails(pool).await;
+    let after = match count_emails(pool).await {
+        Some(n) => n,
+        None => return StepOutcome::Skipped,
+    };
 
     StepOutcome::Ran {
         new_count: after.saturating_sub(before),
@@ -135,14 +141,20 @@ async fn run_parse_step(app: &tauri::AppHandle, pool: &SqlitePool) -> StepOutcom
     }
 
     let batch_size = load_parse_batch_size(app);
-    let before = count_orders(pool).await;
+    let before = match count_orders(pool).await {
+        Some(n) => n,
+        None => return StepOutcome::Skipped,
+    };
     log::info!(
         "[Pipeline] Step 2/4: batch parse (batch_size={})",
         batch_size
     );
     super::run_batch_parse_task(app.clone(), pool.clone(), parse_state, batch_size).await;
     log::info!("[Pipeline] Step 2/4: batch parse completed");
-    let after = count_orders(pool).await;
+    let after = match count_orders(pool).await {
+        Some(n) => n,
+        None => return StepOutcome::Skipped,
+    };
 
     StepOutcome::Ran {
         new_count: after.saturating_sub(before),
@@ -191,28 +203,28 @@ async fn run_delivery_check_step(app: &tauri::AppHandle, pool: &SqlitePool) {
     log::info!("[Pipeline] Step 4/4: delivery check completed");
 }
 
-async fn count_emails(pool: &SqlitePool) -> i64 {
+async fn count_emails(pool: &SqlitePool) -> Option<i64> {
     match sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM emails")
         .fetch_one(pool)
         .await
     {
-        Ok(count) => count,
+        Ok(count) => Some(count),
         Err(e) => {
             log::error!("[Pipeline] Failed to count emails: {e}");
-            0
+            None
         }
     }
 }
 
-async fn count_orders(pool: &SqlitePool) -> i64 {
+async fn count_orders(pool: &SqlitePool) -> Option<i64> {
     match sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM orders")
         .fetch_one(pool)
         .await
     {
-        Ok(count) => count,
+        Ok(count) => Some(count),
         Err(e) => {
             log::error!("[Pipeline] Failed to count orders: {e}");
-            0
+            None
         }
     }
 }
