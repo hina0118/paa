@@ -119,7 +119,10 @@ async fn run_sync_step(app: &tauri::AppHandle, pool: &SqlitePool) -> StepOutcome
     log::info!("[Pipeline] Step 1/4: incremental sync completed");
     let after = match count_emails(pool).await {
         Some(n) => n,
-        None => return StepOutcome::Skipped,
+        None => {
+            log::warn!("[Pipeline] Failed to count emails after sync, assuming 0");
+            0
+        }
     };
 
     StepOutcome::Ran {
