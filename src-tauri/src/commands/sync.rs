@@ -60,6 +60,7 @@ pub async fn start_incremental_sync(
         app_handle,
         pool_clone,
         sync_state_clone,
+        false, // コマンド経由では try_start を本関数内で行う
     ));
     Ok(())
 }
