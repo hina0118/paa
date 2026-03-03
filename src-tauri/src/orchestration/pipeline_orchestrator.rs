@@ -94,14 +94,14 @@ async fn run_sync_step(app: &tauri::AppHandle, pool: &SqlitePool) -> StepOutcome
         }
     };
 
-    if sync_state.is_running() {
+    if !sync_state.try_start() {
         log::info!("[Pipeline] Sync already running, skipping");
         return StepOutcome::Skipped;
     }
 
     let before = count_emails(pool).await;
     log::info!("[Pipeline] Step 1/4: incremental sync");
-    super::run_incremental_sync_task(app.clone(), pool.clone(), sync_state).await;
+    super::run_incremental_sync_task(app.clone(), pool.clone(), sync_state, true).await;
     log::info!("[Pipeline] Step 1/4: incremental sync completed");
     let after = count_emails(pool).await;
 

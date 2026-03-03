@@ -35,25 +35,30 @@ pub async fn run_sync_task(app: tauri::AppHandle, pool: SqlitePool, sync_state: 
 }
 
 /// Gmail差分同期タスクの本体。DB内の最新日時以降のメールのみ取得する。
+///
+/// `caller_did_try_start`: 呼び出し元で既に `try_start()` 済みなら `true`（パイプライン経由）。
+/// `false` の場合は本関数内で `try_start()` を行う（コマンド・トレイ経由）。
 pub async fn run_incremental_sync_task(
     app: tauri::AppHandle,
     pool: SqlitePool,
     sync_state: SyncState,
+    caller_did_try_start: bool,
 ) {
     let app = TauriBatchCommandsApp { app };
-    run_incremental_sync_task_with(&app, pool, sync_state).await
+    run_incremental_sync_task_with(&app, pool, sync_state, caller_did_try_start).await
 }
 
 async fn run_sync_task_with<A: BatchCommandsApp>(app: &A, pool: SqlitePool, sync_state: SyncState) {
-    run_sync_core(app, pool, sync_state, false).await
+    run_sync_core(app, pool, sync_state, false, false).await
 }
 
 async fn run_incremental_sync_task_with<A: BatchCommandsApp>(
     app: &A,
     pool: SqlitePool,
     sync_state: SyncState,
+    caller_did_try_start: bool,
 ) {
-    run_sync_core(app, pool, sync_state, true).await
+    run_sync_core(app, pool, sync_state, true, caller_did_try_start).await
 }
 
 async fn run_sync_core<A: BatchCommandsApp>(
@@ -61,6 +66,7 @@ async fn run_sync_core<A: BatchCommandsApp>(
     pool: SqlitePool,
     sync_state: SyncState,
     incremental: bool,
+    caller_did_try_start: bool,
 ) {
     let mode_label = if incremental {
         "incremental (requested, may fallback to full)"
@@ -71,7 +77,7 @@ async fn run_sync_core<A: BatchCommandsApp>(
 
     let err = ErrorReporter::new(app, GMAIL_SYNC_TASK_NAME, GMAIL_SYNC_EVENT_NAME);
 
-    if !sync_state.try_start() {
+    if !caller_did_try_start && !sync_state.try_start() {
         log::warn!("Sync is already in progress");
         err.report_zero("Sync is already in progress");
         return;
@@ -347,7 +353,7 @@ mod tests {
         let sync_state = SyncState::new();
         assert!(sync_state.try_start());
 
-        run_incremental_sync_task_with(&app, pool, sync_state).await;
+        run_incremental_sync_task_with(&app, pool, sync_state, false).await;
 
         let emitted = app.emitted_events.lock().unwrap();
         assert_eq!(emitted.len(), 1);
@@ -375,7 +381,7 @@ mod tests {
         let sync_state = SyncState::new();
 
         // DB が空なので全件同期にフォールバック → E2Eモック（空結果）→ complete イベント
-        run_incremental_sync_task_with(&app, pool, sync_state).await;
+        run_incremental_sync_task_with(&app, pool, sync_state, false).await;
 
         let emitted = app.emitted_events.lock().unwrap();
         assert!(
@@ -411,7 +417,7 @@ mod tests {
         };
         let sync_state = SyncState::new();
 
-        run_incremental_sync_task_with(&app, pool, sync_state).await;
+        run_incremental_sync_task_with(&app, pool, sync_state, false).await;
 
         let emitted = app.emitted_events.lock().unwrap();
         assert!(
