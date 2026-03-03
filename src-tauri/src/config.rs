@@ -18,6 +18,8 @@ pub struct AppConfig {
     pub window: WindowConfig,
     #[serde(default)]
     pub gemini: GeminiConfig,
+    #[serde(default)]
+    pub scheduler: SchedulerConfig,
 }
 
 /// ウィンドウ設定（サイズ・位置・最大化状態）
@@ -97,6 +99,34 @@ pub struct ParseConfig {
     pub batch_size: i64,
 }
 
+/// スケジューラ設定（定期パイプライン実行）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SchedulerConfig {
+    /// パイプラインの実行間隔（分）
+    #[serde(default = "default_scheduler_interval_minutes")]
+    pub interval_minutes: i64,
+    /// 起動時に自動で有効にするか
+    #[serde(default = "default_scheduler_enabled")]
+    pub enabled: bool,
+}
+
+fn default_scheduler_interval_minutes() -> i64 {
+    1440
+}
+
+fn default_scheduler_enabled() -> bool {
+    true
+}
+
+impl Default for SchedulerConfig {
+    fn default() -> Self {
+        Self {
+            interval_minutes: 1440,
+            enabled: true,
+        }
+    }
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
@@ -109,6 +139,7 @@ impl Default for AppConfig {
             parse: ParseConfig { batch_size: 100 },
             window: WindowConfig::default(),
             gemini: GeminiConfig::default(),
+            scheduler: SchedulerConfig::default(),
         }
     }
 }
@@ -157,6 +188,8 @@ mod tests {
         assert_eq!(config.window.height, 600);
         assert_eq!(config.gemini.batch_size, 10);
         assert_eq!(config.gemini.delay_seconds, 10);
+        assert_eq!(config.scheduler.interval_minutes, 1440);
+        assert!(config.scheduler.enabled);
 
         // ファイルが作成されている
         assert!(dir.path().join(CONFIG_FILENAME).exists());
@@ -184,6 +217,10 @@ mod tests {
                 batch_size: 20,
                 delay_seconds: 5,
             },
+            scheduler: SchedulerConfig {
+                interval_minutes: 15,
+                enabled: false,
+            },
         };
 
         save(dir.path(), &config).unwrap();
@@ -197,6 +234,8 @@ mod tests {
         assert!(loaded.window.maximized);
         assert_eq!(loaded.gemini.batch_size, 20);
         assert_eq!(loaded.gemini.delay_seconds, 5);
+        assert_eq!(loaded.scheduler.interval_minutes, 15);
+        assert!(!loaded.scheduler.enabled);
     }
 
     #[test]
@@ -273,7 +312,13 @@ mod tests {
         // デフォルト値から取得した値と比較（serde の #[serde(default)] 適用元と揃える）
         let default_window = WindowConfig::default();
         let default_gemini = GeminiConfig::default();
+        let default_scheduler = SchedulerConfig::default();
         assert_eq!(loaded.window.width, default_window.width);
         assert_eq!(loaded.gemini.batch_size, default_gemini.batch_size);
+        assert_eq!(
+            loaded.scheduler.interval_minutes,
+            default_scheduler.interval_minutes
+        );
+        assert_eq!(loaded.scheduler.enabled, default_scheduler.enabled);
     }
 }

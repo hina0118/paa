@@ -4,8 +4,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::menu::{Menu, MenuItem, Submenu};
 use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
-use tauri::{Listener, Manager};
+use tauri::{Emitter, Listener, Manager};
 use tauri_plugin_sql::{Migration, MigrationKind};
+use tokio::sync::Notify;
 
 pub mod batch_runner;
 pub mod clipboard_watcher;
@@ -25,6 +26,7 @@ pub mod orchestration;
 pub mod parsers;
 pub mod plugins;
 pub mod repository;
+pub mod scheduler;
 
 /// items_fts の trigram トークナイザーは SQLite 3.43 で追加。3.43 以降であることを確認する。
 fn is_sqlite_version_supported(version: &str) -> bool {
@@ -209,6 +211,32 @@ pub fn run() {
             app.manage(commands::DeliveryCheckState::new());
             log::info!("Delivery check state initialized");
 
+            // Initialize and start scheduler
+            {
+                let scheduler_config = config::load(&app_config_dir)
+                    .map(|c| c.scheduler)
+                    .unwrap_or_default();
+                let scheduler_state = scheduler::SchedulerState::new(
+                    scheduler_config.enabled,
+                    scheduler_config.interval_minutes,
+                );
+                app.manage(scheduler_state.clone());
+
+                let scheduler_shutdown = Arc::new(Notify::new());
+                app.manage(scheduler_shutdown.clone());
+                let scheduler_app = app.handle().clone();
+                tauri::async_runtime::spawn(scheduler::run_scheduler(
+                    scheduler_app,
+                    scheduler_state,
+                    scheduler_shutdown,
+                ));
+                log::info!(
+                    "Scheduler initialized: enabled={}, interval={}min",
+                    scheduler_config.enabled,
+                    scheduler_config.interval_minutes
+                );
+            }
+
             // Restore window settings and setup close handler
             let window = app
                 .get_webview_window("main")
@@ -289,18 +317,36 @@ pub fn run() {
                 true,
                 None::<&str>,
             )?;
+            let scheduler_label = if app
+                .try_state::<scheduler::SchedulerState>()
+                .is_some_and(|s| s.is_enabled())
+            {
+                let mins = app
+                    .try_state::<scheduler::SchedulerState>()
+                    .map_or(1440, |s| s.interval_minutes());
+                format!("スケジューラ: ON ({}間隔)", scheduler::format_interval(mins))
+            } else {
+                "スケジューラ: OFF".to_string()
+            };
+            let scheduler_toggle_item = MenuItem::with_id(
+                app,
+                "tray_scheduler_toggle",
+                &scheduler_label,
+                true,
+                None::<&str>,
+            )?;
             let batch_submenu = Submenu::with_id_and_items(
                 app,
                 "batch",
                 "バッチ処理",
                 true,
-                &[&sync_item, &incremental_sync_item, &parse_item, &product_item, &delivery_check_item],
+                &[&sync_item, &incremental_sync_item, &parse_item, &product_item, &delivery_check_item, &scheduler_toggle_item],
             )?;
             let quit_item = MenuItem::with_id(app, "quit", "終了", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_item, &batch_submenu, &quit_item])?;
 
             // Initialize tray icon builder and set icon if available to avoid panics
-            let mut tray_builder = TrayIconBuilder::new();
+            let mut tray_builder = TrayIconBuilder::with_id("main");
             if let Some(icon) = app.default_window_icon() {
                 tray_builder = tray_builder.icon(icon.clone());
             } else {
@@ -309,10 +355,11 @@ pub fn run() {
                 );
             }
 
+            let scheduler_toggle_for_tray = scheduler_toggle_item.clone();
             let _tray = tray_builder
                 .menu(&menu)
                 .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| match event.id.as_ref() {
+                .on_menu_event(move |app, event| match event.id.as_ref() {
                     "show" => {
                         if let Some(window) = app.get_webview_window("main") {
                             let _ = window.show();
@@ -348,6 +395,7 @@ pub fn run() {
                                 app_clone,
                                 pool_clone,
                                 sync_state_clone,
+                                false, // トレイ経由では try_start を本関数内で行う
                             ));
                         } else {
                             log::warn!("Cannot run tray incremental sync: pool or sync_state not initialized");
@@ -435,20 +483,58 @@ pub fn run() {
                             );
                         }
                     }
+                    "tray_scheduler_toggle" => {
+                        if let Some(sched_state) = app.try_state::<scheduler::SchedulerState>() {
+                            let new_enabled = sched_state.toggle();
+
+                            // 設定ファイル側の scheduler.enabled も更新しておくことで、
+                            // get_scheduler_config や設定画面と実際の動作の乖離を防ぐ。
+                            let app_clone = app.clone();
+                            tauri::async_runtime::spawn(async move {
+                                if let Err(e) =
+                                    commands::update_scheduler_enabled(app_clone, new_enabled).await
+                                {
+                                    log::warn!(
+                                        "[Scheduler] Failed to persist enabled state from tray: {e}"
+                                    );
+                                }
+                            });
+
+                            let label = if new_enabled {
+                                format!(
+                                    "スケジューラ: ON ({}間隔)",
+                                    scheduler::format_interval(sched_state.interval_minutes())
+                                )
+                            } else {
+                                "スケジューラ: OFF".to_string()
+                            };
+                            let _ = scheduler_toggle_for_tray.set_text(&label);
+                            let _ = app.emit(
+                                scheduler::SCHEDULER_STATUS_EVENT,
+                                scheduler::SchedulerStatusPayload {
+                                    enabled: new_enabled,
+                                    interval_minutes: sched_state.interval_minutes(),
+                                },
+                            );
+                            log::info!("[Scheduler] Toggled: enabled={}", new_enabled);
+                        }
+                    }
                     "quit" => {
+                        // スケジューラを即時起床させてシャットダウンを検出させる
+                        if let Some(notify) = app.try_state::<Arc<Notify>>() {
+                            notify.notify_one();
+                        }
+
                         // クリップボード監視をグレースフルに停止
                         if let Some(shutdown_signal) = app.try_state::<Arc<AtomicBool>>() {
                             let shutdown_signal = shutdown_signal.inner().clone();
                             // シャットダウン要求を通知
                             shutdown_signal.store(true, Ordering::Relaxed);
-
-                            // 監視スレッドの終了完了を明示的に待つ仕組みは現状ないため、
-                            // シャットダウン要求を送ったら即座にアプリケーションを終了する。
-                            app.exit(0);
-                        } else {
-                            // 監視スレッドがいない場合は即座に終了
-                            app.exit(0);
                         }
+
+                        // 監視スレッドの終了完了を明示的に待つ仕組みは現状ないため、
+                        // シャットダウン要求を送ったら即座にアプリケーションを終了する。
+                        app.exit(0);
                     }
                     _ => {}
                 })
@@ -549,6 +635,9 @@ pub fn run() {
             commands::update_product_master,
             commands::start_delivery_check,
             commands::cancel_delivery_check,
+            commands::get_scheduler_config,
+            commands::update_scheduler_interval,
+            commands::update_scheduler_enabled,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

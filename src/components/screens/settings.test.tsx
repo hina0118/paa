@@ -38,22 +38,33 @@ const defaultParseMetadata = {
   total_parsed_count: 0,
 };
 
+/**
+ * テスト用モックファクトリ。共通コマンドのデフォルトレスポンスを提供し、
+ * 個別テストでは差分だけ上書きできる。
+ * overrides の値が Error インスタンスの場合は Promise.reject を返す。
+ */
+const createMockInvoke =
+  (overrides: Record<string, unknown> = {}) =>
+  (cmd: string) => {
+    if (Object.prototype.hasOwnProperty.call(overrides, cmd)) {
+      const val = overrides[cmd];
+      if (val instanceof Error) return Promise.reject(val);
+      return Promise.resolve(val);
+    }
+    if (cmd === 'get_sync_status') return Promise.resolve(defaultSyncMetadata);
+    if (cmd === 'get_parse_status')
+      return Promise.resolve(defaultParseMetadata);
+    if (cmd === 'get_gemini_config')
+      return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
+    if (cmd === 'get_scheduler_config')
+      return Promise.resolve({ interval_minutes: 1440, enabled: true });
+    return Promise.resolve(null);
+  };
+
 describe('Settings', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // セットアップのモックを上書き
-    mockInvoke.mockImplementation((cmd: string) => {
-      if (cmd === 'get_sync_status') {
-        return Promise.resolve(defaultSyncMetadata);
-      }
-      if (cmd === 'get_parse_status') {
-        return Promise.resolve(defaultParseMetadata);
-      }
-      if (cmd === 'get_gemini_config') {
-        return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
-      }
-      return Promise.resolve(null);
-    });
+    mockInvoke.mockImplementation(createMockInvoke());
     mockListen.mockResolvedValue(() => {});
   });
 
@@ -113,24 +124,12 @@ describe('Settings', () => {
   describe('handleSaveBatchSize', () => {
     it('saves batch size successfully', async () => {
       const user = userEvent.setup();
-      mockInvoke.mockImplementation((cmd: string) => {
-        if (cmd === 'get_sync_status') {
-          return Promise.resolve({
-            ...defaultSyncMetadata,
-            batch_size: 75, // 初期値を75に
-          });
-        }
-        if (cmd === 'get_parse_status') {
-          return Promise.resolve(defaultParseMetadata);
-        }
-        if (cmd === 'update_batch_size') {
-          return Promise.resolve(undefined);
-        }
-        if (cmd === 'get_gemini_config') {
-          return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
-        }
-        return Promise.resolve(null);
-      });
+      mockInvoke.mockImplementation(
+        createMockInvoke({
+          get_sync_status: { ...defaultSyncMetadata, batch_size: 75 },
+          update_batch_size: undefined,
+        })
+      );
 
       renderWithProviders(<Settings />);
 
@@ -160,21 +159,11 @@ describe('Settings', () => {
     it('shows validation error for invalid batch size', async () => {
       const user = userEvent.setup();
       // 初期値を0にしてバリデーションエラーをテスト
-      mockInvoke.mockImplementation((cmd: string) => {
-        if (cmd === 'get_sync_status') {
-          return Promise.resolve({
-            ...defaultSyncMetadata,
-            batch_size: 0,
-          });
-        }
-        if (cmd === 'get_parse_status') {
-          return Promise.resolve(defaultParseMetadata);
-        }
-        if (cmd === 'get_gemini_config') {
-          return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
-        }
-        return Promise.resolve(null);
-      });
+      mockInvoke.mockImplementation(
+        createMockInvoke({
+          get_sync_status: { ...defaultSyncMetadata, batch_size: 0 },
+        })
+      );
 
       renderWithProviders(<Settings />);
 
@@ -196,21 +185,11 @@ describe('Settings', () => {
     it('shows validation error for negative batch size', async () => {
       const user = userEvent.setup();
       // 初期値を負の値にしてバリデーションエラーをテスト
-      mockInvoke.mockImplementation((cmd: string) => {
-        if (cmd === 'get_sync_status') {
-          return Promise.resolve({
-            ...defaultSyncMetadata,
-            batch_size: -5,
-          });
-        }
-        if (cmd === 'get_parse_status') {
-          return Promise.resolve(defaultParseMetadata);
-        }
-        if (cmd === 'get_gemini_config') {
-          return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
-        }
-        return Promise.resolve(null);
-      });
+      mockInvoke.mockImplementation(
+        createMockInvoke({
+          get_sync_status: { ...defaultSyncMetadata, batch_size: -5 },
+        })
+      );
 
       renderWithProviders(<Settings />);
 
@@ -231,24 +210,12 @@ describe('Settings', () => {
 
     it('handles batch size update error', async () => {
       const user = userEvent.setup();
-      mockInvoke.mockImplementation((cmd: string) => {
-        if (cmd === 'get_sync_status') {
-          return Promise.resolve({
-            ...defaultSyncMetadata,
-            batch_size: 75, // 初期値を75に
-          });
-        }
-        if (cmd === 'get_parse_status') {
-          return Promise.resolve(defaultParseMetadata);
-        }
-        if (cmd === 'update_batch_size') {
-          return Promise.reject(new Error('Network error'));
-        }
-        if (cmd === 'get_gemini_config') {
-          return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
-        }
-        return Promise.resolve(null);
-      });
+      mockInvoke.mockImplementation(
+        createMockInvoke({
+          get_sync_status: { ...defaultSyncMetadata, batch_size: 75 },
+          update_batch_size: new Error('Network error'),
+        })
+      );
 
       renderWithProviders(<Settings />);
 
@@ -272,24 +239,12 @@ describe('Settings', () => {
   describe('handleSaveMaxIterations', () => {
     it('saves max iterations successfully', async () => {
       const user = userEvent.setup();
-      mockInvoke.mockImplementation((cmd: string) => {
-        if (cmd === 'get_sync_status') {
-          return Promise.resolve({
-            ...defaultSyncMetadata,
-            max_iterations: 200, // 初期値を200に
-          });
-        }
-        if (cmd === 'get_parse_status') {
-          return Promise.resolve(defaultParseMetadata);
-        }
-        if (cmd === 'update_max_iterations') {
-          return Promise.resolve(undefined);
-        }
-        if (cmd === 'get_gemini_config') {
-          return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
-        }
-        return Promise.resolve(null);
-      });
+      mockInvoke.mockImplementation(
+        createMockInvoke({
+          get_sync_status: { ...defaultSyncMetadata, max_iterations: 200 },
+          update_max_iterations: undefined,
+        })
+      );
 
       renderWithProviders(<Settings />);
 
@@ -317,21 +272,11 @@ describe('Settings', () => {
     it('shows validation error for invalid max iterations', async () => {
       const user = userEvent.setup();
       // 初期値を0にしてバリデーションエラーをテスト
-      mockInvoke.mockImplementation((cmd: string) => {
-        if (cmd === 'get_sync_status') {
-          return Promise.resolve({
-            ...defaultSyncMetadata,
-            max_iterations: 0,
-          });
-        }
-        if (cmd === 'get_parse_status') {
-          return Promise.resolve(defaultParseMetadata);
-        }
-        if (cmd === 'get_gemini_config') {
-          return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
-        }
-        return Promise.resolve(null);
-      });
+      mockInvoke.mockImplementation(
+        createMockInvoke({
+          get_sync_status: { ...defaultSyncMetadata, max_iterations: 0 },
+        })
+      );
 
       renderWithProviders(<Settings />);
 
@@ -352,24 +297,12 @@ describe('Settings', () => {
 
     it('handles max iterations update error', async () => {
       const user = userEvent.setup();
-      mockInvoke.mockImplementation((cmd: string) => {
-        if (cmd === 'get_sync_status') {
-          return Promise.resolve({
-            ...defaultSyncMetadata,
-            max_iterations: 200, // 初期値を200に
-          });
-        }
-        if (cmd === 'get_parse_status') {
-          return Promise.resolve(defaultParseMetadata);
-        }
-        if (cmd === 'update_max_iterations') {
-          return Promise.reject(new Error('Server error'));
-        }
-        if (cmd === 'get_gemini_config') {
-          return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
-        }
-        return Promise.resolve(null);
-      });
+      mockInvoke.mockImplementation(
+        createMockInvoke({
+          get_sync_status: { ...defaultSyncMetadata, max_iterations: 200 },
+          update_max_iterations: new Error('Server error'),
+        })
+      );
 
       renderWithProviders(<Settings />);
 
@@ -393,24 +326,12 @@ describe('Settings', () => {
   describe('handleSaveParseBatchSize', () => {
     it('saves parse batch size successfully', async () => {
       const user = userEvent.setup();
-      mockInvoke.mockImplementation((cmd: string) => {
-        if (cmd === 'get_sync_status') {
-          return Promise.resolve(defaultSyncMetadata);
-        }
-        if (cmd === 'get_parse_status') {
-          return Promise.resolve({
-            ...defaultParseMetadata,
-            batch_size: 150, // 初期値を150に
-          });
-        }
-        if (cmd === 'update_parse_batch_size') {
-          return Promise.resolve(undefined);
-        }
-        if (cmd === 'get_gemini_config') {
-          return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
-        }
-        return Promise.resolve(null);
-      });
+      mockInvoke.mockImplementation(
+        createMockInvoke({
+          get_parse_status: { ...defaultParseMetadata, batch_size: 150 },
+          update_parse_batch_size: undefined,
+        })
+      );
 
       renderWithProviders(<Settings />);
 
@@ -440,21 +361,11 @@ describe('Settings', () => {
     it('shows validation error for invalid parse batch size', async () => {
       const user = userEvent.setup();
       // 初期値を0にしてバリデーションエラーをテスト
-      mockInvoke.mockImplementation((cmd: string) => {
-        if (cmd === 'get_sync_status') {
-          return Promise.resolve(defaultSyncMetadata);
-        }
-        if (cmd === 'get_parse_status') {
-          return Promise.resolve({
-            ...defaultParseMetadata,
-            batch_size: 0,
-          });
-        }
-        if (cmd === 'get_gemini_config') {
-          return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
-        }
-        return Promise.resolve(null);
-      });
+      mockInvoke.mockImplementation(
+        createMockInvoke({
+          get_parse_status: { ...defaultParseMetadata, batch_size: 0 },
+        })
+      );
 
       renderWithProviders(<Settings />);
 
@@ -475,24 +386,12 @@ describe('Settings', () => {
 
     it('handles parse batch size update error', async () => {
       const user = userEvent.setup();
-      mockInvoke.mockImplementation((cmd: string) => {
-        if (cmd === 'get_sync_status') {
-          return Promise.resolve(defaultSyncMetadata);
-        }
-        if (cmd === 'get_parse_status') {
-          return Promise.resolve({
-            ...defaultParseMetadata,
-            batch_size: 150, // 初期値を150に
-          });
-        }
-        if (cmd === 'update_parse_batch_size') {
-          return Promise.reject(new Error('Parse error'));
-        }
-        if (cmd === 'get_gemini_config') {
-          return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
-        }
-        return Promise.resolve(null);
-      });
+      mockInvoke.mockImplementation(
+        createMockInvoke({
+          get_parse_status: { ...defaultParseMetadata, batch_size: 150 },
+          update_parse_batch_size: new Error('Parse error'),
+        })
+      );
 
       renderWithProviders(<Settings />);
 
@@ -518,24 +417,15 @@ describe('Settings', () => {
   describe('handleSaveMaxResultsPerPage', () => {
     it('saves max results per page successfully', async () => {
       const user = userEvent.setup();
-      mockInvoke.mockImplementation((cmd: string) => {
-        if (cmd === 'get_sync_status') {
-          return Promise.resolve({
+      mockInvoke.mockImplementation(
+        createMockInvoke({
+          get_sync_status: {
             ...defaultSyncMetadata,
             max_results_per_page: 200,
-          });
-        }
-        if (cmd === 'get_parse_status') {
-          return Promise.resolve(defaultParseMetadata);
-        }
-        if (cmd === 'update_max_results_per_page') {
-          return Promise.resolve(undefined);
-        }
-        if (cmd === 'get_gemini_config') {
-          return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
-        }
-        return Promise.resolve(null);
-      });
+          },
+          update_max_results_per_page: undefined,
+        })
+      );
 
       renderWithProviders(<Settings />);
 
@@ -564,21 +454,14 @@ describe('Settings', () => {
 
     it('shows validation error for out of range max results per page', async () => {
       const user = userEvent.setup();
-      mockInvoke.mockImplementation((cmd: string) => {
-        if (cmd === 'get_sync_status') {
-          return Promise.resolve({
+      mockInvoke.mockImplementation(
+        createMockInvoke({
+          get_sync_status: {
             ...defaultSyncMetadata,
             max_results_per_page: 600,
-          });
-        }
-        if (cmd === 'get_parse_status') {
-          return Promise.resolve(defaultParseMetadata);
-        }
-        if (cmd === 'get_gemini_config') {
-          return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
-        }
-        return Promise.resolve(null);
-      });
+          },
+        })
+      );
 
       renderWithProviders(<Settings />);
 
@@ -606,24 +489,12 @@ describe('Settings', () => {
   describe('handleSaveTimeoutMinutes', () => {
     it('saves timeout minutes successfully', async () => {
       const user = userEvent.setup();
-      mockInvoke.mockImplementation((cmd: string) => {
-        if (cmd === 'get_sync_status') {
-          return Promise.resolve({
-            ...defaultSyncMetadata,
-            timeout_minutes: 60,
-          });
-        }
-        if (cmd === 'get_parse_status') {
-          return Promise.resolve(defaultParseMetadata);
-        }
-        if (cmd === 'update_timeout_minutes') {
-          return Promise.resolve(undefined);
-        }
-        if (cmd === 'get_gemini_config') {
-          return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
-        }
-        return Promise.resolve(null);
-      });
+      mockInvoke.mockImplementation(
+        createMockInvoke({
+          get_sync_status: { ...defaultSyncMetadata, timeout_minutes: 60 },
+          update_timeout_minutes: undefined,
+        })
+      );
 
       renderWithProviders(<Settings />);
 
@@ -653,21 +524,12 @@ describe('Settings', () => {
   describe('handleSaveGeminiBatchSize', () => {
     it('saves gemini batch size successfully', async () => {
       const user = userEvent.setup();
-      mockInvoke.mockImplementation((cmd: string) => {
-        if (cmd === 'get_sync_status') {
-          return Promise.resolve(defaultSyncMetadata);
-        }
-        if (cmd === 'get_parse_status') {
-          return Promise.resolve(defaultParseMetadata);
-        }
-        if (cmd === 'update_gemini_batch_size') {
-          return Promise.resolve(undefined);
-        }
-        if (cmd === 'get_gemini_config') {
-          return Promise.resolve({ batch_size: 20, delay_seconds: 10 });
-        }
-        return Promise.resolve(null);
-      });
+      mockInvoke.mockImplementation(
+        createMockInvoke({
+          get_gemini_config: { batch_size: 20, delay_seconds: 10 },
+          update_gemini_batch_size: undefined,
+        })
+      );
 
       renderWithProviders(<Settings />);
 
@@ -698,18 +560,11 @@ describe('Settings', () => {
 
     it('shows validation error for out of range gemini batch size', async () => {
       const user = userEvent.setup();
-      mockInvoke.mockImplementation((cmd: string) => {
-        if (cmd === 'get_sync_status') {
-          return Promise.resolve(defaultSyncMetadata);
-        }
-        if (cmd === 'get_parse_status') {
-          return Promise.resolve(defaultParseMetadata);
-        }
-        if (cmd === 'get_gemini_config') {
-          return Promise.resolve({ batch_size: 100, delay_seconds: 10 });
-        }
-        return Promise.resolve(null);
-      });
+      mockInvoke.mockImplementation(
+        createMockInvoke({
+          get_gemini_config: { batch_size: 100, delay_seconds: 10 },
+        })
+      );
 
       renderWithProviders(<Settings />);
 
@@ -739,21 +594,12 @@ describe('Settings', () => {
   describe('handleSaveGeminiDelaySeconds', () => {
     it('saves gemini delay seconds successfully', async () => {
       const user = userEvent.setup();
-      mockInvoke.mockImplementation((cmd: string) => {
-        if (cmd === 'get_sync_status') {
-          return Promise.resolve(defaultSyncMetadata);
-        }
-        if (cmd === 'get_parse_status') {
-          return Promise.resolve(defaultParseMetadata);
-        }
-        if (cmd === 'update_gemini_delay_seconds') {
-          return Promise.resolve(undefined);
-        }
-        if (cmd === 'get_gemini_config') {
-          return Promise.resolve({ batch_size: 10, delay_seconds: 5 });
-        }
-        return Promise.resolve(null);
-      });
+      mockInvoke.mockImplementation(
+        createMockInvoke({
+          get_gemini_config: { batch_size: 10, delay_seconds: 5 },
+          update_gemini_delay_seconds: undefined,
+        })
+      );
 
       renderWithProviders(<Settings />);
 
@@ -784,18 +630,11 @@ describe('Settings', () => {
 
     it('shows validation error for out of range gemini delay seconds', async () => {
       const user = userEvent.setup();
-      mockInvoke.mockImplementation((cmd: string) => {
-        if (cmd === 'get_sync_status') {
-          return Promise.resolve(defaultSyncMetadata);
-        }
-        if (cmd === 'get_parse_status') {
-          return Promise.resolve(defaultParseMetadata);
-        }
-        if (cmd === 'get_gemini_config') {
-          return Promise.resolve({ batch_size: 10, delay_seconds: 90 });
-        }
-        return Promise.resolve(null);
-      });
+      mockInvoke.mockImplementation(
+        createMockInvoke({
+          get_gemini_config: { batch_size: 10, delay_seconds: 90 },
+        })
+      );
 
       renderWithProviders(<Settings />);
 
@@ -815,6 +654,139 @@ describe('Settings', () => {
         expect(
           screen.getByText(
             'リクエスト間の待機秒数は0〜60の範囲で入力してください'
+          )
+        ).toBeInTheDocument();
+      });
+    });
+  });
+
+  // スケジューラ有効/無効更新テスト
+  describe('handleSaveSchedulerEnabled', () => {
+    it('saves scheduler enabled successfully', async () => {
+      const user = userEvent.setup();
+      mockInvoke.mockImplementation(
+        createMockInvoke({ update_scheduler_enabled: undefined })
+      );
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(
+          document.getElementById('scheduler-enabled')
+        ).toBeInTheDocument();
+      });
+
+      // チェックを外してからチェック状態を変更
+      await user.click(document.getElementById('scheduler-enabled')!);
+
+      await user.click(
+        screen.getByRole('button', { name: 'スケジューラの有効/無効を保存' })
+      );
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith('update_scheduler_enabled', {
+          enabled: false,
+        });
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('スケジューラの有効/無効を更新しました')
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('handles scheduler enabled update error', async () => {
+      const user = userEvent.setup();
+      mockInvoke.mockImplementation(
+        createMockInvoke({
+          update_scheduler_enabled: new Error('Scheduler error'),
+        })
+      );
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(
+          document.getElementById('scheduler-enabled')
+        ).toBeInTheDocument();
+      });
+
+      await user.click(
+        screen.getByRole('button', { name: 'スケジューラの有効/無効を保存' })
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/更新に失敗しました/)).toBeInTheDocument();
+        expect(screen.getByText(/Scheduler error/)).toBeInTheDocument();
+      });
+    });
+  });
+
+  // スケジューラ実行間隔更新テスト
+  describe('handleSaveSchedulerInterval', () => {
+    it('saves scheduler interval successfully', async () => {
+      const user = userEvent.setup();
+      mockInvoke.mockImplementation(
+        createMockInvoke({ update_scheduler_interval: undefined })
+      );
+
+      renderWithProviders(<Settings />);
+
+      const input = document.getElementById('scheduler-interval')!;
+      await waitFor(() => {
+        expect(input).toBeInTheDocument();
+        expect(input).toHaveValue(1440);
+      });
+
+      await user.clear(input);
+      await user.type(input, '60');
+
+      await waitFor(() => {
+        expect(input).toHaveValue(60);
+      });
+
+      await user.click(
+        screen.getByRole('button', { name: 'スケジューラの実行間隔を保存' })
+      );
+
+      await waitFor(() => {
+        expect(mockInvoke).toHaveBeenCalledWith('update_scheduler_interval', {
+          intervalMinutes: 60,
+        });
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('スケジューラの実行間隔を更新しました')
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('shows validation error for out of range scheduler interval', async () => {
+      const user = userEvent.setup();
+      mockInvoke.mockImplementation(
+        createMockInvoke({
+          get_scheduler_config: { interval_minutes: 20000, enabled: true },
+        })
+      );
+
+      renderWithProviders(<Settings />);
+
+      await waitFor(() => {
+        expect(
+          document.getElementById('scheduler-interval')
+        ).toBeInTheDocument();
+      });
+
+      await user.click(
+        screen.getByRole('button', { name: 'スケジューラの実行間隔を保存' })
+      );
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            '実行間隔は1〜10080分（7日）の範囲で入力してください'
           )
         ).toBeInTheDocument();
       });
@@ -843,28 +815,17 @@ describe('Settings', () => {
     }) => {
       const user = userEvent.setup();
 
-      mockInvoke.mockImplementation((cmd: string) => {
-        if (cmd === 'get_sync_status')
-          return Promise.resolve(defaultSyncMetadata);
-        if (cmd === 'get_parse_status')
-          return Promise.resolve(defaultParseMetadata);
-        if (cmd === 'get_gemini_config')
-          return Promise.resolve({ batch_size: 10, delay_seconds: 10 });
-
-        if (cmd === 'update_batch_size') return Promise.resolve(undefined);
-        if (cmd === 'update_max_iterations') return Promise.resolve(undefined);
-        if (cmd === 'update_max_results_per_page')
-          return Promise.resolve(undefined);
-        if (cmd === 'update_timeout_minutes') return Promise.resolve(undefined);
-        if (cmd === 'update_parse_batch_size')
-          return Promise.resolve(undefined);
-        if (cmd === 'update_gemini_batch_size')
-          return Promise.resolve(undefined);
-        if (cmd === 'update_gemini_delay_seconds')
-          return Promise.resolve(undefined);
-
-        return Promise.resolve(null);
-      });
+      mockInvoke.mockImplementation(
+        createMockInvoke({
+          update_batch_size: undefined,
+          update_max_iterations: undefined,
+          update_max_results_per_page: undefined,
+          update_timeout_minutes: undefined,
+          update_parse_batch_size: undefined,
+          update_gemini_batch_size: undefined,
+          update_gemini_delay_seconds: undefined,
+        })
+      );
 
       renderWithProviders(<Settings />);
 
