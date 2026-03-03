@@ -226,6 +226,17 @@ mod tests {
     }
 
     #[test]
+    fn running_guard_sets_and_clears_running_flag() {
+        let state = SchedulerState::new(true, 10);
+        assert!(!state.is_running());
+        {
+            let _guard = RunningGuard::new(state.clone());
+            assert!(state.is_running());
+        }
+        assert!(!state.is_running());
+    }
+
+    #[test]
     fn format_interval_days() {
         assert_eq!(format_interval(1440), "1日");
         assert_eq!(format_interval(2880), "2日");
