@@ -82,9 +82,7 @@ async fn run_sync_step(app: &tauri::AppHandle, pool: &SqlitePool) -> StepOutcome
         .map(|dir| crate::gmail::has_oauth_credentials(&dir))
         .unwrap_or(false);
     if !has_credentials {
-        log::info!(
-            "[Pipeline] Gmail OAuth credentials not configured, treating as no new emails"
-        );
+        log::info!("[Pipeline] Gmail OAuth credentials not configured, treating as no new emails");
         return StepOutcome::Ran { new_count: 0 };
     }
 
@@ -125,14 +123,21 @@ async fn run_parse_step(app: &tauri::AppHandle, pool: &SqlitePool) -> StepOutcom
         }
     };
 
-    if *parse_state.is_running.lock().unwrap_or_else(|e| e.into_inner()) {
+    if *parse_state
+        .is_running
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+    {
         log::info!("[Pipeline] Parse already running, skipping");
         return StepOutcome::Skipped;
     }
 
     let batch_size = load_parse_batch_size(app);
     let before = count_orders(pool).await;
-    log::info!("[Pipeline] Step 2/4: batch parse (batch_size={})", batch_size);
+    log::info!(
+        "[Pipeline] Step 2/4: batch parse (batch_size={})",
+        batch_size
+    );
     super::run_batch_parse_task(app.clone(), pool.clone(), parse_state, batch_size).await;
     log::info!("[Pipeline] Step 2/4: batch parse completed");
     let after = count_orders(pool).await;
