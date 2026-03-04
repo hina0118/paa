@@ -1,7 +1,5 @@
 import { useEffect } from 'react';
 import { LayoutDashboard } from 'lucide-react';
-import { useParse } from '@/contexts/use-parse';
-import { useSync } from '@/contexts/use-sync';
 import { useDashboardStats } from '@/hooks/useDashboardStats';
 import { Card, CardContent } from '../ui/card';
 import { Button } from '../ui/button';
@@ -10,12 +8,13 @@ import { Skeleton } from '../ui/skeleton';
 import { OrderStatsSection } from '../dashboard/order-stats-section';
 import { DeliveryStatsSection } from '../dashboard/delivery-stats-section';
 import { ProductMasterSection } from '../dashboard/product-master-section';
-import { MiscStatsSection } from '../dashboard/misc-stats-section';
-import { EmailStatsSection } from '../dashboard/email-stats-section';
+import {
+  ShopSettingsCard,
+  ProductImagesCard,
+} from '../dashboard/misc-stats-section';
 
 export function Dashboard() {
   const {
-    emailStats,
     orderStats,
     deliveryStats,
     productMasterStats,
@@ -24,16 +23,10 @@ export function Dashboard() {
     loadError,
     loadStats,
   } = useDashboardStats();
-  const { metadata: parseMetadata, refreshStatus: refreshParseStatus } =
-    useParse();
-  const { metadata: syncMetadata, refreshStatus: refreshSyncStatus } =
-    useSync();
 
   useEffect(() => {
     loadStats();
-    refreshParseStatus();
-    refreshSyncStatus();
-  }, [loadStats, refreshParseStatus, refreshSyncStatus]);
+  }, [loadStats]);
 
   return (
     <div className="container mx-auto pt-0 pb-10 px-6 space-y-6">
@@ -43,25 +36,23 @@ export function Dashboard() {
         </Button>
       </PageHeader>
 
-      {emailStats && (
+      {(orderStats || deliveryStats) && (
         <>
           {orderStats && <OrderStatsSection orderStats={orderStats} />}
           {deliveryStats && (
             <DeliveryStatsSection deliveryStats={deliveryStats} />
           )}
-          {productMasterStats && (
-            <ProductMasterSection productMasterStats={productMasterStats} />
-          )}
-          {miscStats && <MiscStatsSection miscStats={miscStats} />}
-          <EmailStatsSection
-            emailStats={emailStats}
-            syncMetadata={syncMetadata}
-            parseMetadata={parseMetadata}
-          />
+          <div className="grid gap-4 md:grid-cols-3">
+            {productMasterStats && (
+              <ProductMasterSection productMasterStats={productMasterStats} />
+            )}
+            {miscStats && <ShopSettingsCard miscStats={miscStats} />}
+            {miscStats && <ProductImagesCard miscStats={miscStats} />}
+          </div>
         </>
       )}
 
-      {!emailStats && !loading && (
+      {!orderStats && !deliveryStats && !loading && (
         <Card>
           <CardContent className="flex items-center justify-center py-10">
             <p className="text-muted-foreground">
@@ -73,7 +64,7 @@ export function Dashboard() {
         </Card>
       )}
 
-      {loading && !emailStats && (
+      {loading && !orderStats && !deliveryStats && (
         <div className="space-y-4">
           <div className="grid gap-4 md:grid-cols-3">
             {[...Array(3)].map((_, i) => (
