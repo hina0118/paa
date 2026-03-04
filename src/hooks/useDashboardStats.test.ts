@@ -3,18 +3,10 @@ import { renderHook, act, waitFor } from '@testing-library/react';
 import { useDashboardStats } from './useDashboardStats';
 import { mockInvoke } from '@/test/setup';
 
-const defaultEmailStats = {
-  total_emails: 100,
-  with_body_plain: 80,
-  with_body_html: 90,
-  without_body: 10,
-  avg_plain_length: 500,
-  avg_html_length: 2000,
-};
-
 const defaultOrderStats = {
   total_orders: 50,
   total_items: 120,
+  distinct_items_with_normalized: 75,
   total_amount: 150000,
 };
 
@@ -28,6 +20,7 @@ const defaultDeliveryStats = {
   failed: 1,
   returned: 0,
   cancelled: 2,
+  not_shipped_over_1_year: 0,
 };
 
 const defaultProductMasterStats = {
@@ -40,13 +33,12 @@ const defaultMiscStats = {
   shop_settings_count: 8,
   shop_settings_enabled_count: 6,
   images_count: 15,
+  distinct_items_with_normalized: 75,
 };
 
 const setupDefaultMocks = () => {
   mockInvoke.mockImplementation((cmd: string) => {
     switch (cmd) {
-      case 'get_email_stats':
-        return Promise.resolve(defaultEmailStats);
       case 'get_order_stats':
         return Promise.resolve(defaultOrderStats);
       case 'get_delivery_stats':
@@ -70,7 +62,6 @@ describe('useDashboardStats', () => {
   it('初期状態はすべてnull/falseである', () => {
     const { result } = renderHook(() => useDashboardStats());
 
-    expect(result.current.emailStats).toBeNull();
     expect(result.current.orderStats).toBeNull();
     expect(result.current.deliveryStats).toBeNull();
     expect(result.current.productMasterStats).toBeNull();
@@ -100,7 +91,6 @@ describe('useDashboardStats', () => {
       await result.current.loadStats();
     });
 
-    expect(result.current.emailStats).toEqual(defaultEmailStats);
     expect(result.current.orderStats).toEqual(defaultOrderStats);
     expect(result.current.deliveryStats).toEqual(defaultDeliveryStats);
     expect(result.current.productMasterStats).toEqual(
@@ -114,9 +104,14 @@ describe('useDashboardStats', () => {
   it('loadStats失敗時はloadErrorがtrueになる', async () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     mockInvoke.mockImplementation((cmd: string) => {
-      if (cmd === 'get_email_stats') {
+      if (cmd === 'get_order_stats') {
         return Promise.reject(new Error('Failed to load stats'));
       }
+      if (cmd === 'get_delivery_stats')
+        return Promise.resolve(defaultDeliveryStats);
+      if (cmd === 'get_product_master_stats')
+        return Promise.resolve(defaultProductMasterStats);
+      if (cmd === 'get_misc_stats') return Promise.resolve(defaultMiscStats);
       return Promise.resolve(null);
     });
 
@@ -165,43 +160,23 @@ describe('useDashboardStats', () => {
   });
 
   it('古いリクエスト結果を破棄する（requestIdパターン）', async () => {
-    const firstEmailStats = {
-      total_emails: 100,
-      with_body_plain: 80,
-      with_body_html: 90,
-      without_body: 10,
-      avg_plain_length: 500,
-      avg_html_length: 2000,
-    };
+    const firstOrderStats = { ...defaultOrderStats, total_orders: 50 };
+    const secondOrderStats = { ...defaultOrderStats, total_orders: 100 };
 
-    const secondEmailStats = {
-      total_emails: 200,
-      with_body_plain: 160,
-      with_body_html: 180,
-      without_body: 20,
-      avg_plain_length: 600,
-      avg_html_length: 2500,
-    };
-
-    // First call: resolve slowly
-    // Second call: resolve immediately with different data
     let resolveFirst: ((value: unknown) => void) | null = null;
     let callCount = 0;
 
     mockInvoke.mockImplementation((cmd: string) => {
-      if (cmd === 'get_email_stats') {
+      if (cmd === 'get_order_stats') {
         callCount++;
         if (callCount === 1) {
           return new Promise((resolve) => {
             resolveFirst = resolve;
           });
         }
-        return Promise.resolve(secondEmailStats);
+        return Promise.resolve(secondOrderStats);
       }
-      // Other stats return defaults
       switch (cmd) {
-        case 'get_order_stats':
-          return Promise.resolve(defaultOrderStats);
         case 'get_delivery_stats':
           return Promise.resolve(defaultDeliveryStats);
         case 'get_product_master_stats':
@@ -215,30 +190,24 @@ describe('useDashboardStats', () => {
 
     const { result } = renderHook(() => useDashboardStats());
 
-    // First call (will be slow)
     act(() => {
       void result.current.loadStats();
     });
 
-    // Second call before first completes
     await act(async () => {
       await result.current.loadStats();
     });
 
-    // Wait for second request to complete
     await waitFor(() => {
-      expect(result.current.emailStats).toEqual(secondEmailStats);
+      expect(result.current.orderStats).toEqual(secondOrderStats);
     });
 
-    // Now resolve the first (stale) request
-    resolveFirst?.(firstEmailStats);
+    resolveFirst?.(firstOrderStats);
 
-    // Stats should still show second result (stale result is discarded)
-    // Give time for any potential state update
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
     });
 
-    expect(result.current.emailStats).toEqual(secondEmailStats);
+    expect(result.current.orderStats).toEqual(secondOrderStats);
   });
 });

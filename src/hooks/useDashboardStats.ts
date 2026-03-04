@@ -14,6 +14,7 @@ export interface EmailStats {
 export interface OrderStats {
   total_orders: number;
   total_items: number;
+  distinct_items_with_normalized: number;
   total_amount: number;
 }
 
@@ -27,6 +28,7 @@ export interface DeliveryStats {
   failed: number;
   returned: number;
   cancelled: number;
+  not_shipped_over_1_year: number;
 }
 
 export interface ProductMasterStats {
@@ -39,10 +41,10 @@ export interface MiscStats {
   shop_settings_count: number;
   shop_settings_enabled_count: number;
   images_count: number;
+  distinct_items_with_normalized: number;
 }
 
 export type UseDashboardStatsResult = {
-  emailStats: EmailStats | null;
   orderStats: OrderStats | null;
   deliveryStats: DeliveryStats | null;
   productMasterStats: ProductMasterStats | null;
@@ -66,7 +68,6 @@ export type UseDashboardStatsResult = {
  * 古いリクエストの結果が新しいリクエストの結果を上書きするのを防ぐ。
  */
 export function useDashboardStats(): UseDashboardStatsResult {
-  const [emailStats, setEmailStats] = useState<EmailStats | null>(null);
   const [orderStats, setOrderStats] = useState<OrderStats | null>(null);
   const [deliveryStats, setDeliveryStats] = useState<DeliveryStats | null>(
     null
@@ -83,21 +84,14 @@ export function useDashboardStats(): UseDashboardStatsResult {
     try {
       setLoading(true);
       setLoadError(false);
-      const [
-        emailResult,
-        orderResult,
-        deliveryResult,
-        productMasterResult,
-        miscResult,
-      ] = await Promise.all([
-        invoke<EmailStats>('get_email_stats'),
-        invoke<OrderStats>('get_order_stats'),
-        invoke<DeliveryStats>('get_delivery_stats'),
-        invoke<ProductMasterStats>('get_product_master_stats'),
-        invoke<MiscStats>('get_misc_stats'),
-      ]);
+      const [orderResult, deliveryResult, productMasterResult, miscResult] =
+        await Promise.all([
+          invoke<OrderStats>('get_order_stats'),
+          invoke<DeliveryStats>('get_delivery_stats'),
+          invoke<ProductMasterStats>('get_product_master_stats'),
+          invoke<MiscStats>('get_misc_stats'),
+        ]);
       if (requestId === loadStatsRequestId.current) {
-        setEmailStats(emailResult);
         setOrderStats(orderResult);
         setDeliveryStats(deliveryResult);
         setProductMasterStats(productMasterResult);
@@ -117,7 +111,6 @@ export function useDashboardStats(): UseDashboardStatsResult {
   }, []);
 
   return {
-    emailStats,
     orderStats,
     deliveryStats,
     productMasterStats,
