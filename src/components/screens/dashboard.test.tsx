@@ -152,7 +152,9 @@ describe('Dashboard', () => {
     renderWithProviders(<Dashboard />);
 
     await waitFor(() => {
-      expect(screen.getByText(/Failed to load stats/)).toBeInTheDocument();
+      expect(
+        screen.getByText(/データの読み込みに失敗しました/)
+      ).toBeInTheDocument();
     });
 
     expect(consoleSpy).toHaveBeenCalledWith(
@@ -187,7 +189,9 @@ describe('Dashboard', () => {
     renderWithProviders(<Dashboard />);
 
     await waitFor(() => {
-      expect(screen.getByText(/String error/)).toBeInTheDocument();
+      expect(
+        screen.getByText(/データの読み込みに失敗しました/)
+      ).toBeInTheDocument();
     });
 
     consoleSpy.mockRestore();
@@ -198,15 +202,16 @@ describe('Dashboard', () => {
     const user = userEvent.setup();
     renderWithProviders(<Dashboard />);
 
+    // 初期ロード完了を待つ
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: '更新' })).toBeInTheDocument();
+      expect(screen.getByText('75')).toBeInTheDocument();
     });
 
     const refreshButton = screen.getByRole('button', { name: '更新' });
     await user.click(refreshButton);
 
     await waitFor(() => {
-      // get_email_statsが2回呼ばれる（初期ロード + クリック）
+      // get_email_statsが2回以上呼ばれる（初期ロード + クリック）
       const calls = mockInvoke.mock.calls.filter(
         (call) => call[0] === 'get_email_stats'
       );
