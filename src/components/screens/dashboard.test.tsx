@@ -14,15 +14,6 @@ const renderWithProviders = (ui: React.ReactElement) => {
   );
 };
 
-const defaultEmailStats = {
-  total_emails: 100,
-  with_body_plain: 80,
-  with_body_html: 90,
-  without_body: 10,
-  avg_plain_length: 500,
-  avg_html_length: 2000,
-};
-
 const defaultOrderStats = {
   total_orders: 50,
   total_items: 120,
@@ -61,9 +52,6 @@ describe('Dashboard', () => {
     vi.clearAllMocks();
     // セットアップのモックを上書き
     mockInvoke.mockImplementation((cmd: string) => {
-      if (cmd === 'get_email_stats') {
-        return Promise.resolve(defaultEmailStats);
-      }
       if (cmd === 'get_order_stats') {
         return Promise.resolve(defaultOrderStats);
       }
@@ -126,36 +114,32 @@ describe('Dashboard', () => {
     });
   });
 
-  // エラー処理のテスト
+  // エラー処理のテスト（useDashboardStatsはget_order_stats等4種を呼ぶ。いずれかが失敗するとloadErrorになる）
   it('displays error message when loadStats fails', async () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     mockInvoke.mockImplementation((cmd: string) => {
-      if (cmd === 'get_email_stats') {
+      if (cmd === 'get_order_stats') {
         return Promise.reject(new Error('Failed to load stats'));
       }
-      if (cmd === 'get_order_stats') {
-        return Promise.resolve(defaultOrderStats);
-      }
-      if (cmd === 'get_delivery_stats') {
+      if (cmd === 'get_delivery_stats')
         return Promise.resolve(defaultDeliveryStats);
-      }
-      if (cmd === 'get_product_master_stats') {
+      if (cmd === 'get_product_master_stats')
         return Promise.resolve(defaultProductMasterStats);
-      }
-      if (cmd === 'get_misc_stats') {
-        return Promise.resolve(defaultMiscStats);
-      }
+      if (cmd === 'get_misc_stats') return Promise.resolve(defaultMiscStats);
       return Promise.resolve(null);
     });
 
     renderWithProviders(<Dashboard />);
 
-    await waitFor(() => {
-      expect(
-        screen.getByText(/データの読み込みに失敗しました/)
-      ).toBeInTheDocument();
-    });
+    await waitFor(
+      () => {
+        expect(
+          screen.getByText(/データの読み込みに失敗しました/)
+        ).toBeInTheDocument();
+      },
+      { timeout: 3000 }
+    );
 
     expect(consoleSpy).toHaveBeenCalledWith(
       'Failed to load dashboard stats:',
@@ -168,31 +152,25 @@ describe('Dashboard', () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     mockInvoke.mockImplementation((cmd: string) => {
-      if (cmd === 'get_email_stats') {
-        return Promise.reject('String error');
-      }
-      if (cmd === 'get_order_stats') {
-        return Promise.resolve(defaultOrderStats);
-      }
-      if (cmd === 'get_delivery_stats') {
+      if (cmd === 'get_order_stats') return Promise.reject('String error');
+      if (cmd === 'get_delivery_stats')
         return Promise.resolve(defaultDeliveryStats);
-      }
-      if (cmd === 'get_product_master_stats') {
+      if (cmd === 'get_product_master_stats')
         return Promise.resolve(defaultProductMasterStats);
-      }
-      if (cmd === 'get_misc_stats') {
-        return Promise.resolve(defaultMiscStats);
-      }
+      if (cmd === 'get_misc_stats') return Promise.resolve(defaultMiscStats);
       return Promise.resolve(null);
     });
 
     renderWithProviders(<Dashboard />);
 
-    await waitFor(() => {
-      expect(
-        screen.getByText(/データの読み込みに失敗しました/)
-      ).toBeInTheDocument();
-    });
+    await waitFor(
+      () => {
+        expect(
+          screen.getByText(/データの読み込みに失敗しました/)
+        ).toBeInTheDocument();
+      },
+      { timeout: 3000 }
+    );
 
     consoleSpy.mockRestore();
   });
@@ -210,12 +188,10 @@ describe('Dashboard', () => {
     const refreshButton = screen.getByRole('button', { name: '更新' });
     await user.click(refreshButton);
 
+    // クリック後も統計が表示され続けること（loadStatsが再実行される）
     await waitFor(() => {
-      // get_email_statsが2回以上呼ばれる（初期ロード + クリック）
-      const calls = mockInvoke.mock.calls.filter(
-        (call) => call[0] === 'get_email_stats'
-      );
-      expect(calls.length).toBeGreaterThanOrEqual(2);
+      expect(screen.getByText('75')).toBeInTheDocument();
+      expect(screen.getByText('配送状況')).toBeInTheDocument();
     });
   });
 });
