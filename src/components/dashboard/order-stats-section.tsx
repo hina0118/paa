@@ -1,4 +1,4 @@
-import { ShoppingBag, Package, CircleDollarSign } from 'lucide-react';
+import { Package, CircleDollarSign } from 'lucide-react';
 import { formatNumber, formatCurrency } from '@/lib/formatters';
 import type { OrderStats } from '@/hooks/useDashboardStats';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
@@ -9,22 +9,7 @@ type Props = {
 
 export function OrderStatsSection({ orderStats }: Props) {
   return (
-    <div className="grid gap-4 md:grid-cols-3">
-      <Card className="relative overflow-hidden">
-        <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary to-violet-500" />
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 pt-4">
-          <CardTitle className="text-sm font-medium">注文数</CardTitle>
-          <div className="rounded-lg bg-primary/10 p-2">
-            <ShoppingBag className="h-4 w-4 text-primary" />
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="text-3xl font-bold tracking-tight">
-            {formatNumber(orderStats.total_orders)}
-          </div>
-          <p className="text-xs text-muted-foreground mt-1">パース済み注文</p>
-        </CardContent>
-      </Card>
+    <div className="grid gap-4 md:grid-cols-2">
       <Card className="relative overflow-hidden">
         <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-violet-500 to-emerald-500" />
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 pt-4">
@@ -35,9 +20,11 @@ export function OrderStatsSection({ orderStats }: Props) {
         </CardHeader>
         <CardContent>
           <div className="text-3xl font-bold tracking-tight">
-            {formatNumber(orderStats.total_items)}
+            {formatNumber(orderStats.distinct_items_with_normalized)}
           </div>
-          <p className="text-xs text-muted-foreground mt-1">登録商品アイテム</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            ユニーク商品（正規化名）
+          </p>
         </CardContent>
       </Card>
       <Card className="relative overflow-hidden">

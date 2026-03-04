@@ -15,6 +15,7 @@ const defaultEmailStats = {
 const defaultOrderStats = {
   total_orders: 50,
   total_items: 120,
+  distinct_items_with_normalized: 75,
   total_amount: 150000,
 };
 
@@ -28,6 +29,7 @@ const defaultDeliveryStats = {
   failed: 1,
   returned: 0,
   cancelled: 2,
+  not_shipped_over_1_year: 0,
 };
 
 const defaultProductMasterStats = {
@@ -40,6 +42,7 @@ const defaultMiscStats = {
   shop_settings_count: 8,
   shop_settings_enabled_count: 6,
   images_count: 15,
+  distinct_items_with_normalized: 75,
 };
 
 const setupDefaultMocks = () => {

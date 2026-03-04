@@ -9,6 +9,8 @@ use sqlx::sqlite::SqlitePool;
 pub struct OrderStats {
     pub total_orders: i64,
     pub total_items: i64,
+    /// 正規化名を持つユニーク商品数（商品名解析・商品画像と同一指標）
+    pub distinct_items_with_normalized: i64,
     pub total_amount: i64,
 }
 
@@ -32,6 +34,8 @@ pub struct DeliveryStats {
     pub failed: i64,
     pub returned: i64,
     pub cancelled: i64,
+    /// 1年以上未発送の件数（注文日または作成日が1年以上前）
+    pub not_shipped_over_1_year: i64,
 }
 
 /// 配送状況のDB操作を抽象化するトレイト
@@ -67,6 +71,8 @@ pub struct MiscStats {
     pub shop_settings_count: i64,
     pub shop_settings_enabled_count: i64,
     pub images_count: i64,
+    /// 商品画像の網羅率計算用: 正規化名を持つユニーク商品数
+    pub distinct_items_with_normalized: i64,
 }
 
 /// 店舗設定・画像のDB操作を抽象化するトレイト
@@ -91,12 +97,13 @@ impl SqliteMiscStatsRepository {
 #[async_trait]
 impl MiscStatsRepository for SqliteMiscStatsRepository {
     async fn get_misc_stats(&self) -> Result<MiscStats, String> {
-        let stats: (i64, i64, i64) = sqlx::query_as(
+        let stats: (i64, i64, i64, Option<i64>) = sqlx::query_as(
             r#"
             SELECT
                 (SELECT COUNT(*) FROM shop_settings) AS shop_settings_count,
                 (SELECT COUNT(*) FROM shop_settings WHERE is_enabled = 1) AS shop_settings_enabled_count,
-                (SELECT COUNT(*) FROM images) AS images_count
+                (SELECT COUNT(*) FROM images) AS images_count,
+                (SELECT COUNT(DISTINCT item_name_normalized) FROM items WHERE item_name_normalized IS NOT NULL) AS distinct_items_with_normalized
             "#,
         )
         .fetch_one(&self.pool)
@@ -107,6 +114,7 @@ impl MiscStatsRepository for SqliteMiscStatsRepository {
             shop_settings_count: stats.0,
             shop_settings_enabled_count: stats.1,
             images_count: stats.2,
+            distinct_items_with_normalized: stats.3.unwrap_or(0),
         })
     }
 }
@@ -199,6 +207,31 @@ impl DeliveryStatsRepository for SqliteDeliveryStatsRepository {
                 _ => {}
             }
         }
+
+        // 1年以上未発送の件数（注文日または作成日が1年以上前で、最新ステータスがnot_shipped）
+        let over_1_year: (i64,) = sqlx::query_as(
+            r#"
+            WITH latest_delivery AS (
+                SELECT order_id, delivery_status
+                FROM (
+                    SELECT order_id, delivery_status,
+                           ROW_NUMBER() OVER (PARTITION BY order_id ORDER BY updated_at DESC) AS rn
+                    FROM deliveries
+                ) t
+                WHERE rn = 1
+            )
+            SELECT COUNT(*) AS cnt
+            FROM orders o
+            LEFT JOIN latest_delivery ld ON ld.order_id = o.id
+            WHERE COALESCE(ld.delivery_status, 'not_shipped') = 'not_shipped'
+              AND COALESCE(o.order_date, o.created_at) < date('now', '-1 year')
+            "#,
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to fetch not_shipped_over_1_year: {e}"))?;
+
+        stats.not_shipped_over_1_year = over_1_year.0;
         Ok(stats)
     }
 }
@@ -217,11 +250,12 @@ impl SqliteOrderStatsRepository {
 #[async_trait]
 impl OrderStatsRepository for SqliteOrderStatsRepository {
     async fn get_order_stats(&self) -> Result<OrderStats, String> {
-        let stats: (i64, i64, Option<i64>) = sqlx::query_as(
+        let stats: (i64, i64, Option<i64>, Option<i64>) = sqlx::query_as(
             r#"
             SELECT
                 (SELECT COUNT(*) FROM orders) AS total_orders,
                 (SELECT COUNT(*) FROM items) AS total_items,
+                (SELECT COUNT(DISTINCT item_name_normalized) FROM items WHERE item_name_normalized IS NOT NULL) AS distinct_items_with_normalized,
                 (SELECT COALESCE(SUM(price * quantity), 0) FROM items) AS total_amount
             "#,
         )
@@ -232,7 +266,8 @@ impl OrderStatsRepository for SqliteOrderStatsRepository {
         Ok(OrderStats {
             total_orders: stats.0,
             total_items: stats.1,
-            total_amount: stats.2.unwrap_or(0),
+            distinct_items_with_normalized: stats.2.unwrap_or(0),
+            total_amount: stats.3.unwrap_or(0),
         })
     }
 }
