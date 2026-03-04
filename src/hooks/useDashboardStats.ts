@@ -14,6 +14,7 @@ export interface EmailStats {
 export interface OrderStats {
   total_orders: number;
   total_items: number;
+  distinct_items_with_normalized: number;
   total_amount: number;
 }
 
@@ -27,6 +28,7 @@ export interface DeliveryStats {
   failed: number;
   returned: number;
   cancelled: number;
+  not_shipped_over_1_year: number;
 }
 
 export interface ProductMasterStats {
@@ -39,6 +41,7 @@ export interface MiscStats {
   shop_settings_count: number;
   shop_settings_enabled_count: number;
   images_count: number;
+  distinct_items_with_normalized: number;
 }
 
 export type UseDashboardStatsResult = {

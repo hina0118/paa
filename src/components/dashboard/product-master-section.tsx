@@ -13,48 +13,28 @@ type Props = {
 };
 
 export function ProductMasterSection({ productMasterStats }: Props) {
-  const progressPercent =
-    productMasterStats.distinct_items_with_normalized > 0
-      ? Math.min(
-          100,
-          (productMasterStats.items_with_parsed /
-            productMasterStats.distinct_items_with_normalized) *
-            100
-        )
-      : 0;
+  const total = productMasterStats.distinct_items_with_normalized;
+  const parsed = productMasterStats.items_with_parsed;
+  const coveragePercent =
+    total > 0 ? Math.min(100, Math.round((parsed / total) * 100)) : 0;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>商品名解析 (AI)</CardTitle>
+    <Card className="relative overflow-hidden">
+      <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-violet-500 to-emerald-500" />
+      <CardHeader className="pt-4">
+        <CardTitle>商品名解析</CardTitle>
         <CardDescription>
           Gemini API による商品名からのメーカー情報抽出の進捗
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="space-y-4">
-          <div>
-            <div className="flex items-center justify-between text-sm">
-              <span>解析済み / 対象</span>
-              <span className="font-semibold">
-                {formatNumber(productMasterStats.items_with_parsed)} /{' '}
-                {formatNumber(
-                  productMasterStats.distinct_items_with_normalized
-                )}{' '}
-                件
-              </span>
-            </div>
-            <div className="mt-2 h-2 w-full bg-secondary rounded-full overflow-hidden">
-              <div
-                className="h-full bg-emerald-500 transition-all"
-                style={{ width: `${progressPercent}%` }}
-              />
-            </div>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            product_master キャッシュ:{' '}
-            {formatNumber(productMasterStats.product_master_count)} 件
-          </p>
+        <div className="flex items-baseline gap-2">
+          <span className="text-2xl font-bold">
+            {formatNumber(parsed)} / {formatNumber(total)}
+          </span>
+          <span className="text-muted-foreground">
+            （{coveragePercent}% 網羅）
+          </span>
         </div>
       </CardContent>
     </Card>
