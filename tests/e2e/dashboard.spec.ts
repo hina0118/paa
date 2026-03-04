@@ -39,7 +39,7 @@ test.describe('ダッシュボード画面', () => {
   test('統計情報カードが表示される', async ({ page }) => {
     // 配送状況カード、読み込み中、またはエラーメッセージのいずれかが表示されるまで待機
     const deliveryStatsCard = page.getByText('配送状況');
-    const loadingText = page.getByText('データを読み込んでいます...');
+    const loadingText = page.getByRole('button', { name: '読み込み中...' });
     const loadErrorText = page.getByText(
       'データの読み込みに失敗しました。上の「更新」ボタンで再試行してください。'
     );

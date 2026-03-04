@@ -15,7 +15,6 @@ import {
 
 export function Dashboard() {
   const {
-    emailStats,
     orderStats,
     deliveryStats,
     productMasterStats,
@@ -37,7 +36,7 @@ export function Dashboard() {
         </Button>
       </PageHeader>
 
-      {emailStats && (
+      {(orderStats || deliveryStats) && (
         <>
           {orderStats && <OrderStatsSection orderStats={orderStats} />}
           {deliveryStats && (
@@ -53,7 +52,7 @@ export function Dashboard() {
         </>
       )}
 
-      {!emailStats && !loading && (
+      {!orderStats && !deliveryStats && !loading && (
         <Card>
           <CardContent className="flex items-center justify-center py-10">
             <p className="text-muted-foreground">
@@ -65,7 +64,7 @@ export function Dashboard() {
         </Card>
       )}
 
-      {loading && !emailStats && (
+      {loading && !orderStats && !deliveryStats && (
         <div className="space-y-4">
           <div className="grid gap-4 md:grid-cols-3">
             {[...Array(3)].map((_, i) => (
