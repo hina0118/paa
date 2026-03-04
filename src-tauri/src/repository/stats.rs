@@ -167,7 +167,8 @@ impl SqliteDeliveryStatsRepository {
 #[async_trait]
 impl DeliveryStatsRepository for SqliteDeliveryStatsRepository {
     async fn get_delivery_stats(&self) -> Result<DeliveryStats, String> {
-        let rows: Vec<(String, i64)> = sqlx::query_as(
+        // latest_delivery CTE を一度だけ使い、ステータス別件数と1年以上未発送件数を同時に集計する
+        let rows: Vec<(String, i64, i64)> = sqlx::query_as(
             r#"
             WITH latest_delivery AS (
                 SELECT order_id, delivery_status
@@ -177,14 +178,17 @@ impl DeliveryStatsRepository for SqliteDeliveryStatsRepository {
                     FROM deliveries
                 ) t
                 WHERE rn = 1
-            ),
-            order_status AS (
-                SELECT COALESCE(ld.delivery_status, 'not_shipped') AS status
-                FROM orders o
-                LEFT JOIN latest_delivery ld ON ld.order_id = o.id
             )
-            SELECT status, COUNT(*) AS cnt
-            FROM order_status
+            SELECT
+                COALESCE(ld.delivery_status, 'not_shipped') AS status,
+                COUNT(*) AS cnt,
+                COUNT(CASE
+                    WHEN COALESCE(ld.delivery_status, 'not_shipped') = 'not_shipped'
+                     AND COALESCE(o.order_date, o.created_at) < date('now', '-1 year')
+                    THEN 1
+                END) AS over_1_year_cnt
+            FROM orders o
+            LEFT JOIN latest_delivery ld ON ld.order_id = o.id
             GROUP BY status
             "#,
         )
@@ -193,9 +197,12 @@ impl DeliveryStatsRepository for SqliteDeliveryStatsRepository {
         .map_err(|e| format!("Failed to fetch delivery stats: {e}"))?;
 
         let mut stats = DeliveryStats::default();
-        for (status, cnt) in rows {
+        for (status, cnt, over_1_year) in rows {
             match status.as_str() {
-                "not_shipped" => stats.not_shipped = cnt,
+                "not_shipped" => {
+                    stats.not_shipped = cnt;
+                    stats.not_shipped_over_1_year = over_1_year;
+                }
                 "preparing" => stats.preparing = cnt,
                 "shipped" => stats.shipped = cnt,
                 "in_transit" => stats.in_transit = cnt,
@@ -207,31 +214,6 @@ impl DeliveryStatsRepository for SqliteDeliveryStatsRepository {
                 _ => {}
             }
         }
-
-        // 1年以上未発送の件数（注文日または作成日が1年以上前で、最新ステータスがnot_shipped）
-        let over_1_year: (i64,) = sqlx::query_as(
-            r#"
-            WITH latest_delivery AS (
-                SELECT order_id, delivery_status
-                FROM (
-                    SELECT order_id, delivery_status,
-                           ROW_NUMBER() OVER (PARTITION BY order_id ORDER BY updated_at DESC) AS rn
-                    FROM deliveries
-                ) t
-                WHERE rn = 1
-            )
-            SELECT COUNT(*) AS cnt
-            FROM orders o
-            LEFT JOIN latest_delivery ld ON ld.order_id = o.id
-            WHERE COALESCE(ld.delivery_status, 'not_shipped') = 'not_shipped'
-              AND COALESCE(o.order_date, o.created_at) < date('now', '-1 year')
-            "#,
-        )
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|e| format!("Failed to fetch not_shipped_over_1_year: {e}"))?;
-
-        stats.not_shipped_over_1_year = over_1_year.0;
         Ok(stats)
     }
 }
