@@ -545,7 +545,7 @@ pub fn dedup_items(items: Vec<crate::parsers::OrderItem>) -> Vec<crate::parsers:
             return true;
         }
         let normalized = item.name.nfkc().collect::<String>();
-        !paid_names.iter().any(|n| *n == normalized)
+        !paid_names.contains(&normalized)
     });
     deduped
 }
