@@ -26,6 +26,11 @@ static ORDER_DATE_RE: Lazy<Regex> = Lazy::new(|| {
 static AMOUNT_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"([\d,]+)\s*円").expect("Invalid AMOUNT_RE"));
 
+/// 発送方法行パターン（`発送方法  : ヤマト宅急便` 等）
+static CARRIER_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"発送方法\s*[：:]\s*(.+)").expect("Invalid CARRIER_RE")
+});
+
 /// `[商品名]:...` 行から OrderItem を抽出する
 ///
 /// 商品名に `[xxx]` 形式のブラケットが含まれる場合も対応（末尾ブラケットを SKU とみなす）。
@@ -81,6 +86,21 @@ pub fn extract_order_date(lines: &[&str]) -> Option<String> {
             let day: u32 = caps[3].parse().ok()?;
             let time = &caps[4];
             return Some(format!("{}-{:02}-{:02} {}", year, month, day, time));
+        }
+    }
+    None
+}
+
+/// `発送方法  : ヤマト宅急便` のような行から配送業者名を抽出する
+///
+/// 行が見つからない場合は `None` を返す。
+pub fn extract_carrier(lines: &[&str]) -> Option<String> {
+    for line in lines {
+        if let Some(caps) = CARRIER_RE.captures(line) {
+            let carrier = caps[1].trim().to_string();
+            if !carrier.is_empty() {
+                return Some(carrier);
+            }
         }
     }
     None
