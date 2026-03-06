@@ -1,5 +1,5 @@
-use super::{extract_amounts, extract_order_date, parse_item_line};
-use crate::parsers::{EmailParser, OrderInfo};
+use super::{extract_amounts, extract_carrier, extract_order_date, parse_item_line};
+use crate::parsers::{DeliveryInfo, EmailParser, OrderInfo};
 
 /// キッズドラゴン 発送通知メール用パーサー
 ///
@@ -26,11 +26,21 @@ impl EmailParser for KidsDragonSendParser {
         let order_date =
             extract_order_date(&lines).ok_or("Order date not found (used as order number)")?;
 
+        // 発送通知である時点で発送済みとして扱う。
+        // 追跡番号は含まれないため空文字を設定し、carrier は発送方法行から取得する。
+        let delivery_info = DeliveryInfo {
+            carrier: extract_carrier(&lines).unwrap_or_default(),
+            tracking_number: String::new(),
+            delivery_date: None,
+            delivery_time: None,
+            carrier_url: None,
+        };
+
         Ok(OrderInfo {
             order_number: order_date.clone(),
             order_date: Some(order_date),
             delivery_address: None,
-            delivery_info: None, // 追跡番号なし
+            delivery_info: Some(delivery_info),
             items,
             subtotal,
             shipping_fee,
@@ -105,10 +115,47 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_send_no_delivery_info() {
-        // 追跡番号なし
+    fn test_parse_send_delivery_info_is_some() {
+        // 発送通知である時点で delivery_info が設定される
         let order = KidsDragonSendParser.parse(sample_send_email()).unwrap();
-        assert!(order.delivery_info.is_none());
+        assert!(order.delivery_info.is_some());
+    }
+
+    #[test]
+    fn test_parse_send_carrier_from_shipping_method() {
+        let order = KidsDragonSendParser.parse(sample_send_email()).unwrap();
+        let delivery = order.delivery_info.unwrap();
+        assert_eq!(delivery.carrier, "ヤマト宅急便");
+    }
+
+    #[test]
+    fn test_parse_send_tracking_number_empty() {
+        // 追跡番号は含まれないため空文字
+        let order = KidsDragonSendParser.parse(sample_send_email()).unwrap();
+        let delivery = order.delivery_info.unwrap();
+        assert_eq!(delivery.tracking_number, "");
+    }
+
+    #[test]
+    fn test_parse_send_carrier_url_is_none() {
+        // 追跡番号なしのため URL は設定されない
+        let order = KidsDragonSendParser.parse(sample_send_email()).unwrap();
+        let delivery = order.delivery_info.unwrap();
+        assert!(delivery.carrier_url.is_none());
+    }
+
+    #[test]
+    fn test_parse_send_carrier_empty_when_no_shipping_method() {
+        // 発送方法行がないメールでも delivery_info は Some（carrier は空文字）
+        let body = r#"商品の発送が完了致しました
+[商品名]：テスト商品[test-001]       550 円 x  1 個       550 円
+  合計                   550 円
+○ 受注日時
+  2023年6月15日 02:17
+"#;
+        let order = KidsDragonSendParser.parse(body).unwrap();
+        let delivery = order.delivery_info.unwrap();
+        assert_eq!(delivery.carrier, "");
     }
 
     #[test]
