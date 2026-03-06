@@ -14,6 +14,7 @@ pub mod goodsmile;
 pub mod hobbysearch;
 pub mod kids_dragon;
 pub mod premium_bandai;
+pub mod sagawa;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // inventory による自動登録
@@ -108,6 +109,8 @@ pub enum DispatchOutcome {
     ConsolidationApplied { new_order_number: String },
     /// 複数注文を保存した（split_complete 等）。先頭の `OrderInfo` を代表として保持する。
     MultiOrderSaved(Vec<OrderInfo>),
+    /// 配達完了メールを処理した（tracking_check_logs + deliveries を更新済み）
+    DeliveryCompleted { tracking_number: String },
 }
 
 /// ディスパッチ失敗時のエラー種別
