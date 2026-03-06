@@ -1658,7 +1658,9 @@ async fn remove_zero_price_duplicates_in_tx(
                 .execute(tx.as_mut())
                 .await
                 .map_err(|e| format!("Failed to delete zero-price duplicate item {id}: {e}"))?;
-            log::debug!("Removed zero-price duplicate item id={id} name='{name}' from order {order_id}");
+            log::debug!(
+                "Removed zero-price duplicate item id={id} name='{name}' from order {order_id}"
+            );
         }
     }
 
