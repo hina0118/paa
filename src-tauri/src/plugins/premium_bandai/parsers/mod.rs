@@ -902,20 +902,14 @@ mod tests {
 
     #[test]
     fn test_dedup_items_no_duplicates() {
-        let items = vec![
-            make_item("商品A", 1000, 1),
-            make_item("商品B", 2000, 1),
-        ];
+        let items = vec![make_item("商品A", 1000, 1), make_item("商品B", 2000, 1)];
         let result = dedup_items(items);
         assert_eq!(result.len(), 2);
     }
 
     #[test]
     fn test_dedup_items_exact_duplicate() {
-        let items = vec![
-            make_item("商品A", 1000, 1),
-            make_item("商品A", 1000, 1),
-        ];
+        let items = vec![make_item("商品A", 1000, 1), make_item("商品A", 1000, 1)];
         let result = dedup_items(items);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].name, "商品A");
@@ -948,10 +942,7 @@ mod tests {
     #[test]
     fn test_dedup_items_zero_price_unique_name_kept() {
         // 有料アイテムに対応する名前がない 0 円は保持
-        let items = vec![
-            make_item("商品A", 1000, 1),
-            make_item("商品B", 0, 1),
-        ];
+        let items = vec![make_item("商品A", 1000, 1), make_item("商品B", 0, 1)];
         let result = dedup_items(items);
         assert_eq!(result.len(), 2);
     }
