@@ -630,6 +630,8 @@ impl SqliteOrderRepository {
             }
         }
 
+        remove_zero_price_duplicates_in_tx(tx, order_id).await?;
+
         if let Some(delivery_info) = &order_info.delivery_info {
             let existing_delivery: Option<(i64,)> = sqlx::query_as(
                 r#"
@@ -1616,6 +1618,51 @@ impl OrderRepository for SqliteOrderRepository {
             }
         }
     }
+}
+
+/// 同一注文内で `price = 0` かつ NFKC 正規化後の商品名が有料アイテムと一致するアイテムを削除する。
+///
+/// プレミアムバンダイのメールで全角/半角が混在した重複（例: `ＨＧ` vs `HG`）を
+/// 再パース時にクリーンアップするために使用する。
+async fn remove_zero_price_duplicates_in_tx(
+    tx: &mut sqlx::Transaction<'_, Sqlite>,
+    order_id: i64,
+) -> Result<(), String> {
+    use unicode_normalization::UnicodeNormalization;
+
+    let rows: Vec<(i64, String, i64)> =
+        sqlx::query_as("SELECT id, item_name, price FROM items WHERE order_id = ?")
+            .bind(order_id)
+            .fetch_all(tx.as_mut())
+            .await
+            .map_err(|e| format!("Failed to fetch items for dedup: {e}"))?;
+
+    let paid_names: Vec<String> = rows
+        .iter()
+        .filter(|(_, _, price)| *price > 0)
+        .map(|(_, name, _)| name.nfkc().collect::<String>())
+        .collect();
+
+    if paid_names.is_empty() {
+        return Ok(());
+    }
+
+    for (id, name, price) in &rows {
+        if *price != 0 {
+            continue;
+        }
+        let normalized: String = name.nfkc().collect();
+        if paid_names.iter().any(|n| *n == normalized) {
+            sqlx::query("DELETE FROM items WHERE id = ?")
+                .bind(id)
+                .execute(tx.as_mut())
+                .await
+                .map_err(|e| format!("Failed to delete zero-price duplicate item {id}: {e}"))?;
+            log::debug!("Removed zero-price duplicate item id={id} name='{name}' from order {order_id}");
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

@@ -13,9 +13,10 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 
 use super::{
-    body_to_lines, extract_image_urls_from_html, extract_order_date, extract_order_number,
-    extract_payment_fee, extract_shipping_fee, extract_total_amount, find_recommend_section_line,
-    normalize_product_name, parse_item_subtotal, parse_price, parse_quantity,
+    body_to_lines, dedup_items, extract_image_urls_from_html, extract_order_date,
+    extract_order_number, extract_payment_fee, extract_shipping_fee, extract_total_amount,
+    find_recommend_section_line, normalize_product_name, parse_item_subtotal, parse_price,
+    parse_quantity,
 };
 use crate::parsers::{EmailParser, OrderInfo, OrderItem};
 use scraper::{ElementRef, Html, Selector};
@@ -220,7 +221,7 @@ fn extract_items_from_confirm_html(html: &str, image_urls: &[String]) -> Vec<Ord
         });
     }
 
-    items
+    dedup_items(items)
 }
 
 /// 注文確認メールの商品リストを抽出する
@@ -394,7 +395,7 @@ fn extract_confirm_items(lines: &[&str], image_urls: &[String]) -> Vec<OrderItem
     // 末尾の未確定商品を確定（小計行なしで終わった場合）
     flush(&mut pending, &mut items, image_urls);
 
-    items
+    dedup_items(items)
 }
 
 #[cfg(test)]
