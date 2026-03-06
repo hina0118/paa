@@ -1652,7 +1652,7 @@ async fn remove_zero_price_duplicates_in_tx(
             continue;
         }
         let normalized: String = name.nfkc().collect();
-        if paid_names.iter().any(|n| *n == normalized) {
+        if paid_names.contains(&normalized) {
             sqlx::query("DELETE FROM items WHERE id = ?")
                 .bind(id)
                 .execute(tx.as_mut())
