@@ -10,7 +10,7 @@
 //! ディスパッチ時に `apply_change_items_in_tx` で元注文の商品を商品名マッチングで削除する。
 
 use super::{
-    body_to_lines, extract_order_date, extract_order_number, extract_payment_fee,
+    body_to_lines, dedup_items, extract_order_date, extract_order_number, extract_payment_fee,
     extract_shipping_fee, extract_total_amount, normalize_product_name, parse_price,
 };
 use crate::parsers::{EmailParser, OrderInfo, OrderItem};
@@ -207,7 +207,7 @@ fn extract_omatome_items(lines: &[&str]) -> Vec<OrderItem> {
         }
     }
 
-    items
+    dedup_items(items)
 }
 
 #[cfg(test)]

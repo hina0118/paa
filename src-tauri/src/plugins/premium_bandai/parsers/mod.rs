@@ -508,9 +508,52 @@ pub fn parse_item_subtotal(line: &str) -> Option<i64> {
         .and_then(|c| c[1].replace(',', "").parse().ok())
 }
 
+/// 商品リストの重複を排除する
+///
+/// **Step 1**: `(name, unit_price, quantity)` が同一のアイテムをマージし、
+/// `image_url` / `manufacturer` / `model_number` は情報量の多い方を優先する。
+///
+/// **Step 2**: `unit_price == 0` のアイテムについて、NFKC 正規化後の名前が
+/// 有料アイテムと一致する場合は破棄する（全角/半角表記揺れを吸収）。
+pub fn dedup_items(items: Vec<crate::parsers::OrderItem>) -> Vec<crate::parsers::OrderItem> {
+    use unicode_normalization::UnicodeNormalization;
+    let mut deduped: Vec<crate::parsers::OrderItem> = Vec::new();
+    for item in items {
+        if let Some(existing) = deduped.iter_mut().find(|e| {
+            e.name == item.name && e.unit_price == item.unit_price && e.quantity == item.quantity
+        }) {
+            if item.image_url.is_some() && existing.image_url.is_none() {
+                existing.image_url = item.image_url;
+            }
+            if item.manufacturer.is_some() && existing.manufacturer.is_none() {
+                existing.manufacturer = item.manufacturer;
+            }
+            if item.model_number.is_some() && existing.model_number.is_none() {
+                existing.model_number = item.model_number;
+            }
+        } else {
+            deduped.push(item);
+        }
+    }
+    let paid_names: Vec<String> = deduped
+        .iter()
+        .filter(|i| i.unit_price > 0)
+        .map(|i| i.name.nfkc().collect::<String>())
+        .collect();
+    deduped.retain(|item| {
+        if item.unit_price != 0 {
+            return true;
+        }
+        let normalized = item.name.nfkc().collect::<String>();
+        !paid_names.contains(&normalized)
+    });
+    deduped
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parsers::OrderItem;
 
     #[test]
     fn test_normalize_product_name_strip_resale() {
@@ -842,6 +885,79 @@ mod tests {
             lines.iter().any(|l| l == "1,980円&times;1＝1,980円"),
             "got: {:?}",
             lines
+        );
+    }
+
+    fn make_item(name: &str, unit_price: i64, quantity: i64) -> OrderItem {
+        OrderItem {
+            name: name.to_string(),
+            unit_price,
+            quantity,
+            subtotal: unit_price * quantity,
+            image_url: None,
+            manufacturer: None,
+            model_number: None,
+        }
+    }
+
+    #[test]
+    fn test_dedup_items_no_duplicates() {
+        let items = vec![make_item("商品A", 1000, 1), make_item("商品B", 2000, 1)];
+        let result = dedup_items(items);
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn test_dedup_items_exact_duplicate() {
+        let items = vec![make_item("商品A", 1000, 1), make_item("商品A", 1000, 1)];
+        let result = dedup_items(items);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "商品A");
+    }
+
+    #[test]
+    fn test_dedup_items_zero_price_same_name() {
+        // 同名の有料アイテムと 0 円アイテムが共存 → 0 円を除去
+        let items = vec![
+            make_item("HG 1/144 テスト", 4730, 1),
+            make_item("HG 1/144 テスト", 0, 1),
+        ];
+        let result = dedup_items(items);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].unit_price, 4730);
+    }
+
+    #[test]
+    fn test_dedup_items_zero_price_fullwidth_name() {
+        // 全角/半角の表記揺れを吸収して 0 円を除去（ＨＧ vs HG）
+        let items = vec![
+            make_item("HG 1/144 テスト", 4730, 1),
+            make_item("ＨＧ 1/144 テスト", 0, 1),
+        ];
+        let result = dedup_items(items);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].unit_price, 4730);
+    }
+
+    #[test]
+    fn test_dedup_items_zero_price_unique_name_kept() {
+        // 有料アイテムに対応する名前がない 0 円は保持
+        let items = vec![make_item("商品A", 1000, 1), make_item("商品B", 0, 1)];
+        let result = dedup_items(items);
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn test_dedup_items_merges_image_url() {
+        // 同一アイテムのうち image_url がある方を優先
+        let mut item_with_image = make_item("商品A", 1000, 1);
+        item_with_image.image_url = Some("https://example.com/img.jpg".to_string());
+        let item_without_image = make_item("商品A", 1000, 1);
+        let result = dedup_items(vec![item_without_image, item_with_image]);
+        assert_eq!(result.len(), 1);
+        assert_eq!(
+            result[0].image_url,
+            Some("https://example.com/img.jpg".to_string())
         );
     }
 }
