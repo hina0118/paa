@@ -25,8 +25,8 @@ pub struct SagawaDeliveryInfo {
 
 /// 佐川急便 配達完了メールをパースする
 pub fn parse(body: &str) -> Result<SagawaDeliveryInfo, String> {
-    let tracking_number = extract_tracking_number(body)
-        .ok_or_else(|| "送り状No.が見つかりません".to_string())?;
+    let tracking_number =
+        extract_tracking_number(body).ok_or_else(|| "送り状No.が見つかりません".to_string())?;
     let delivered_at = extract_delivered_at(body);
     Ok(SagawaDeliveryInfo {
         tracking_number,
@@ -70,7 +70,8 @@ fn extract_delivered_at(body: &str) -> Option<String> {
                 // 次行に日時がなければ諦める
                 return None;
             }
-        } else if trimmed.contains("お届け完了日時") || trimmed.contains("配達完了日時") {
+        } else if trimmed.contains("お届け完了日時") || trimmed.contains("配達完了日時")
+        {
             found_marker = true;
         }
     }

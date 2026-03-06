@@ -60,8 +60,7 @@ impl VendorPlugin for SagawaPlugin {
         }
 
         // 1. メール本文をパース
-        let info = parsers::delivery_complete::parse(body)
-            .map_err(DispatchError::ParseFailed)?;
+        let info = parsers::delivery_complete::parse(body).map_err(DispatchError::ParseFailed)?;
 
         log::debug!(
             "[sagawa_delivery_complete] email_id={} tracking_number={}",
@@ -70,13 +69,12 @@ impl VendorPlugin for SagawaPlugin {
         );
 
         // 2. tracking_number で delivery を検索
-        let delivery: Option<(i64,)> = sqlx::query_as(
-            "SELECT id FROM deliveries WHERE tracking_number = ? LIMIT 1",
-        )
-        .bind(&info.tracking_number)
-        .fetch_optional(tx.as_mut())
-        .await
-        .map_err(|e| DispatchError::SaveFailed(format!("DB error: {e}")))?;
+        let delivery: Option<(i64,)> =
+            sqlx::query_as("SELECT id FROM deliveries WHERE tracking_number = ? LIMIT 1")
+                .bind(&info.tracking_number)
+                .fetch_optional(tx.as_mut())
+                .await
+                .map_err(|e| DispatchError::SaveFailed(format!("DB error: {e}")))?;
 
         // 3. tracking_check_logs を更新（メイン操作）
         //    delivery の有無にかかわらず記録する
@@ -96,7 +94,9 @@ impl VendorPlugin for SagawaPlugin {
         .bind(&info.tracking_number)
         .execute(tx.as_mut())
         .await
-        .map_err(|e| DispatchError::SaveFailed(format!("Failed to upsert tracking_check_logs: {e}")))?;
+        .map_err(|e| {
+            DispatchError::SaveFailed(format!("Failed to upsert tracking_check_logs: {e}"))
+        })?;
 
         // 4. deliveries が存在すれば更新
         if let Some((delivery_id,)) = delivery {
@@ -218,12 +218,11 @@ mod tests {
         .await
         .unwrap();
 
-        let (id,): (i64,) =
-            sqlx::query_as("SELECT id FROM deliveries WHERE tracking_number = ?")
-                .bind(tracking_number)
-                .fetch_one(pool)
-                .await
-                .unwrap();
+        let (id,): (i64,) = sqlx::query_as("SELECT id FROM deliveries WHERE tracking_number = ?")
+            .bind(tracking_number)
+            .fetch_one(pool)
+            .await
+            .unwrap();
         id
     }
 
@@ -298,13 +297,12 @@ mod tests {
             .unwrap();
         tx.commit().await.unwrap();
 
-        let row: (String, Option<String>) = sqlx::query_as(
-            "SELECT delivery_status, actual_delivery FROM deliveries WHERE id = ?",
-        )
-        .bind(delivery_id)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let row: (String, Option<String>) =
+            sqlx::query_as("SELECT delivery_status, actual_delivery FROM deliveries WHERE id = ?")
+                .bind(delivery_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
 
         assert_eq!(row.0, "delivered");
         assert_eq!(row.1, Some("2026-03-04 11:18:00".to_string()));
@@ -371,11 +369,12 @@ mod tests {
             tx.commit().await.unwrap();
         }
 
-        let count: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM tracking_check_logs WHERE tracking_number = '470551104391'")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+        let count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM tracking_check_logs WHERE tracking_number = '470551104391'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
         assert_eq!(count.0, 1, "tracking_check_logs は1件のみ（冪等）");
     }
 }
