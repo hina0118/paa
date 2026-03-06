@@ -289,6 +289,19 @@ fn outcome_to_order_info(outcome: DispatchOutcome, email_id: i64) -> (OrderInfo,
             };
             (info, true)
         }
+        DispatchOutcome::DeliveryCompleted { tracking_number } => {
+            let info = OrderInfo {
+                order_number: tracking_number,
+                order_date: None,
+                delivery_address: None,
+                delivery_info: None,
+                items: vec![],
+                subtotal: None,
+                shipping_fee: None,
+                total_amount: None,
+            };
+            (info, true)
+        }
         DispatchOutcome::MultiOrderSaved(orders) => {
             let first = orders.into_iter().next().unwrap_or_else(|| {
                 log::warn!(
