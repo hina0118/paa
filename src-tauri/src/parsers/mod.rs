@@ -167,6 +167,8 @@ pub struct DeliveryInfo {
     pub delivery_time: Option<String>,
     /// 配送会社URL
     pub carrier_url: Option<String>,
+    /// deliveries テーブルに登録する初期ステータス（None の場合は "shipped"）
+    pub delivery_status: Option<String>,
 }
 
 /// 商品情報
@@ -442,6 +444,7 @@ mod tests {
             delivery_date: Some("2024-01-15".to_string()),
             delivery_time: Some("14:00-16:00".to_string()),
             carrier_url: Some("https://example.com/track".to_string()),
+            delivery_status: None,
         };
 
         assert_eq!(info.carrier, "ヤマト運輸");
@@ -531,6 +534,7 @@ mod tests {
             delivery_date: None,
             delivery_time: None,
             carrier_url: None,
+            delivery_status: None,
         };
 
         let json = serde_json::to_string(&info).unwrap();
