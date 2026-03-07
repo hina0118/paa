@@ -42,16 +42,20 @@ async fn run_delivery_check_task_with<A: BatchCommandsApp>(
     };
 
     // 対象: 未配達かつ追跡番号あり（空白のみは除外）
+    // tracking_check_logs に終端ステータスが記録済みの場合はスキップ
+    // （フロントエンドが COALESCE で tcl.delivery_status を優先表示するため再確認不要）
     let rows: Vec<(i64, String, String)> = match sqlx::query_as(
         r#"
-        SELECT id, tracking_number, carrier
-        FROM deliveries
-        WHERE delivery_status NOT IN ('delivered', 'cancelled', 'returned')
-          AND tracking_number IS NOT NULL
-          AND TRIM(tracking_number) != ''
-          AND carrier IS NOT NULL
-          AND TRIM(carrier) != ''
-        ORDER BY updated_at ASC
+        SELECT d.id, d.tracking_number, d.carrier
+        FROM deliveries d
+        LEFT JOIN tracking_check_logs tcl ON d.tracking_number = tcl.tracking_number
+        WHERE d.delivery_status NOT IN ('delivered', 'cancelled', 'returned')
+          AND d.tracking_number IS NOT NULL
+          AND TRIM(d.tracking_number) != ''
+          AND d.carrier IS NOT NULL
+          AND TRIM(d.carrier) != ''
+          AND COALESCE(tcl.delivery_status, '') NOT IN ('delivered', 'cancelled', 'returned')
+        ORDER BY d.updated_at ASC
         "#,
     )
     .fetch_all(&pool)

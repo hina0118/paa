@@ -98,6 +98,7 @@ impl EmailParser for PremiumBandaiSendParser {
             delivery_date: None,
             delivery_time: None,
             carrier_url,
+            delivery_status: None,
         };
 
         Ok(OrderInfo {

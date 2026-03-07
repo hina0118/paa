@@ -191,6 +191,7 @@ pub fn extract_delivery_info(lines: &[&str]) -> Option<DeliveryInfo> {
             delivery_date,
             delivery_time,
             carrier_url,
+            delivery_status: None,
         })
     } else {
         None

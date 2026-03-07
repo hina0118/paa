@@ -633,6 +633,11 @@ impl SqliteOrderRepository {
         remove_zero_price_duplicates_in_tx(tx, order_id).await?;
 
         if let Some(delivery_info) = &order_info.delivery_info {
+            let status = delivery_info
+                .delivery_status
+                .as_deref()
+                .unwrap_or("shipped");
+
             let existing_delivery: Option<(i64,)> = sqlx::query_as(
                 r#"
                 SELECT id FROM deliveries
@@ -650,12 +655,13 @@ impl SqliteOrderRepository {
                 sqlx::query(
                     r#"
                     INSERT INTO deliveries (order_id, tracking_number, carrier, delivery_status)
-                    VALUES (?, ?, ?, 'shipped')
+                    VALUES (?, ?, ?, ?)
                     "#,
                 )
                 .bind(order_id)
                 .bind(&delivery_info.tracking_number)
                 .bind(&delivery_info.carrier)
+                .bind(status)
                 .execute(tx.as_mut())
                 .await
                 .map_err(|e| format!("Failed to insert delivery: {e}"))?;
@@ -666,11 +672,12 @@ impl SqliteOrderRepository {
                     r#"
                     UPDATE deliveries
                     SET carrier = COALESCE(?, carrier),
-                        delivery_status = 'shipped'
+                        delivery_status = ?
                     WHERE order_id = ? AND tracking_number = ?
                     "#,
                 )
                 .bind(&delivery_info.carrier)
+                .bind(status)
                 .bind(order_id)
                 .bind(&delivery_info.tracking_number)
                 .execute(tx.as_mut())
@@ -1187,6 +1194,11 @@ impl SqliteOrderRepository {
         };
 
         if let Some(delivery_info) = &order_info.delivery_info {
+            let status = delivery_info
+                .delivery_status
+                .as_deref()
+                .unwrap_or("shipped");
+
             let existing_delivery: Option<(i64,)> = sqlx::query_as(
                 r#"
                 SELECT id FROM deliveries
@@ -1204,12 +1216,13 @@ impl SqliteOrderRepository {
                 sqlx::query(
                     r#"
                     INSERT INTO deliveries (order_id, tracking_number, carrier, delivery_status)
-                    VALUES (?, ?, ?, 'shipped')
+                    VALUES (?, ?, ?, ?)
                     "#,
                 )
                 .bind(order_id)
                 .bind(&delivery_info.tracking_number)
                 .bind(&delivery_info.carrier)
+                .bind(status)
                 .execute(tx.as_mut())
                 .await
                 .map_err(|e| format!("Failed to insert delivery: {e}"))?;
@@ -1219,11 +1232,12 @@ impl SqliteOrderRepository {
                     r#"
                     UPDATE deliveries
                     SET carrier = COALESCE(?, carrier),
-                        delivery_status = 'shipped'
+                        delivery_status = ?
                     WHERE order_id = ? AND tracking_number = ?
                     "#,
                 )
                 .bind(&delivery_info.carrier)
+                .bind(status)
                 .bind(order_id)
                 .bind(&delivery_info.tracking_number)
                 .execute(tx.as_mut())
@@ -1843,6 +1857,7 @@ mod tests {
                 delivery_date: None,
                 delivery_time: None,
                 carrier_url: None,
+                delivery_status: None,
             }),
             items: vec![
                 OrderItem {
@@ -3520,6 +3535,7 @@ mod tests {
                 delivery_date: None,
                 delivery_time: None,
                 carrier_url: None,
+                delivery_status: None,
             }),
             items: vec![crate::parsers::OrderItem {
                 name: "発送商品X".to_string(),
@@ -3608,6 +3624,7 @@ mod tests {
                 delivery_date: None,
                 delivery_time: None,
                 carrier_url: None,
+                delivery_status: None,
             }),
             items: vec![crate::parsers::OrderItem {
                 name: "新規商品Y".to_string(),
