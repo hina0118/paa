@@ -31,6 +31,39 @@ async fn run_delivery_check_task_with<A: BatchCommandsApp>(
 
     let err = ErrorReporter::new(app, DELIVERY_CHECK_TASK_NAME, DELIVERY_CHECK_EVENT_NAME);
 
+    // tracking_check_logs の終端ステータスを deliveries に同期する
+    // stats 等が deliveries.delivery_status を直接参照するため、
+    // HTTP スクレイピングをスキップする前にDB上で一致させておく
+    if let Err(e) = sqlx::query(
+        r#"
+        UPDATE deliveries
+        SET delivery_status = (
+                SELECT tcl.delivery_status
+                FROM tracking_check_logs tcl
+                WHERE tcl.tracking_number = deliveries.tracking_number
+                  AND tcl.delivery_status IN ('delivered', 'cancelled', 'returned')
+            ),
+            last_checked_at = (
+                SELECT tcl.checked_at
+                FROM tracking_check_logs tcl
+                WHERE tcl.tracking_number = deliveries.tracking_number
+            ),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE EXISTS (
+            SELECT 1
+            FROM tracking_check_logs tcl
+            WHERE tcl.tracking_number = deliveries.tracking_number
+              AND tcl.delivery_status IN ('delivered', 'cancelled', 'returned')
+        )
+          AND delivery_status NOT IN ('delivered', 'cancelled', 'returned')
+        "#,
+    )
+    .execute(&pool)
+    .await
+    {
+        log::warn!("[DeliveryCheck] deliveries 同期に失敗（処理は継続）: {e}");
+    }
+
     // HTTP クライアント作成
     let ctx = match DeliveryCheckContext::new(pool.clone()) {
         Ok(c) => c,
