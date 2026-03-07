@@ -1969,6 +1969,124 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_save_order_delivery_status_delivered() {
+        // delivery_status: Some("delivered") を指定した場合に delivered で登録されること
+        let pool = setup_test_db().await;
+        let repo = SqliteOrderRepository::new(pool.clone());
+
+        sqlx::query("INSERT INTO emails (message_id, body_plain, from_address, subject) VALUES ('test-email-delivered', 'body', 'test@example.com', 'Subject')")
+            .execute(&pool)
+            .await
+            .expect("Failed to insert test email");
+        let email_id: (i64,) =
+            sqlx::query_as("SELECT id FROM emails WHERE message_id = 'test-email-delivered'")
+                .fetch_one(&pool)
+                .await
+                .expect("Failed to get email id");
+
+        use crate::parsers::{DeliveryInfo, OrderInfo, OrderItem};
+        let order_info = OrderInfo {
+            order_number: "ORD-DELIVERED".to_string(),
+            order_date: Some("2024-01-01".to_string()),
+            delivery_address: None,
+            delivery_info: Some(DeliveryInfo {
+                carrier: "ヤマト宅急便".to_string(),
+                tracking_number: String::new(),
+                delivery_date: None,
+                delivery_time: None,
+                carrier_url: None,
+                delivery_status: Some("delivered".to_string()),
+            }),
+            items: vec![OrderItem {
+                name: "商品X".to_string(),
+                manufacturer: None,
+                model_number: None,
+                unit_price: 1000,
+                quantity: 1,
+                subtotal: 1000,
+                image_url: None,
+            }],
+            subtotal: Some(1000),
+            shipping_fee: None,
+            total_amount: Some(1000),
+        };
+
+        let order_id = repo
+            .save_order(
+                &order_info,
+                Some(email_id.0),
+                Some("kids-dragon.co.jp".to_string()),
+                Some("キッズドラゴン".to_string()),
+            )
+            .await
+            .unwrap();
+
+        let delivery_status: (String,) =
+            sqlx::query_as("SELECT delivery_status FROM deliveries WHERE order_id = ?")
+                .bind(order_id)
+                .fetch_one(&pool)
+                .await
+                .expect("Failed to fetch delivery");
+        assert_eq!(delivery_status.0, "delivered");
+    }
+
+    #[tokio::test]
+    async fn test_save_order_delivery_status_invalid_returns_error() {
+        // delivery_status に不正値を指定した場合にエラーが返ること
+        let pool = setup_test_db().await;
+        let repo = SqliteOrderRepository::new(pool.clone());
+
+        sqlx::query("INSERT INTO emails (message_id, body_plain, from_address, subject) VALUES ('test-email-invalid', 'body', 'test@example.com', 'Subject')")
+            .execute(&pool)
+            .await
+            .expect("Failed to insert test email");
+        let email_id: (i64,) =
+            sqlx::query_as("SELECT id FROM emails WHERE message_id = 'test-email-invalid'")
+                .fetch_one(&pool)
+                .await
+                .expect("Failed to get email id");
+
+        use crate::parsers::{DeliveryInfo, OrderInfo, OrderItem};
+        let order_info = OrderInfo {
+            order_number: "ORD-INVALID".to_string(),
+            order_date: None,
+            delivery_address: None,
+            delivery_info: Some(DeliveryInfo {
+                carrier: "ヤマト運輸".to_string(),
+                tracking_number: "9999".to_string(),
+                delivery_date: None,
+                delivery_time: None,
+                carrier_url: None,
+                delivery_status: Some("invalid_status".to_string()),
+            }),
+            items: vec![OrderItem {
+                name: "商品Y".to_string(),
+                manufacturer: None,
+                model_number: None,
+                unit_price: 500,
+                quantity: 1,
+                subtotal: 500,
+                image_url: None,
+            }],
+            subtotal: Some(500),
+            shipping_fee: None,
+            total_amount: Some(500),
+        };
+
+        let result = repo
+            .save_order(
+                &order_info,
+                Some(email_id.0),
+                Some("example.com".to_string()),
+                None,
+            )
+            .await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid delivery_status"));
+    }
+
+    #[tokio::test]
     async fn test_apply_cancel_quantity_decrease() {
         let pool = setup_test_db().await;
         let repo = SqliteOrderRepository::new(pool.clone());
