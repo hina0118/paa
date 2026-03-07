@@ -101,7 +101,7 @@ export function Sidebar() {
   const [isTableSectionOpen, setIsTableSectionOpen] = useState(false);
 
   return (
-    <aside className="w-56 border-r bg-background flex flex-col h-screen">
+    <aside className="w-56 border-r bg-background flex flex-col h-full">
       <div className="h-14 flex items-center gap-2 px-4 border-b">
         <div className="h-7 w-7 rounded-lg bg-primary flex items-center justify-center shrink-0">
           <span className="text-xs font-bold text-primary-foreground">P</span>
