@@ -10,27 +10,26 @@ export function TitleBar() {
 
   useEffect(() => {
     isActiveRef.current = true;
-    const win = getCurrentWindow();
-
-    win
-      .isMaximized()
-      .then(setIsMaximized)
-      .catch(() => {});
-
     let cleanup: (() => void) | undefined;
-    win
-      .onResized(async () => {
+
+    const init = async () => {
+      const win = getCurrentWindow();
+      const maximized = await win.isMaximized();
+      setIsMaximized(maximized);
+
+      const unlisten = await win.onResized(async () => {
         const maximized = await win.isMaximized().catch(() => false);
         setIsMaximized(maximized);
-      })
-      .then((unlisten) => {
-        if (!isActiveRef.current) {
-          unlisten();
-        } else {
-          cleanup = unlisten;
-        }
-      })
-      .catch(() => {});
+      });
+
+      if (!isActiveRef.current) {
+        unlisten();
+      } else {
+        cleanup = unlisten;
+      }
+    };
+
+    init().catch(() => {});
 
     return () => {
       isActiveRef.current = false;
@@ -38,18 +37,27 @@ export function TitleBar() {
     };
   }, []);
 
-  const handleMinimize = () =>
-    getCurrentWindow()
-      .minimize()
-      .catch(() => {});
-  const handleMaximize = () =>
-    getCurrentWindow()
-      .toggleMaximize()
-      .catch(() => {});
-  const handleClose = () =>
-    getCurrentWindow()
-      .close()
-      .catch(() => {});
+  const handleMinimize = async () => {
+    try {
+      await getCurrentWindow().minimize();
+    } catch {
+      /* noop */
+    }
+  };
+  const handleMaximize = async () => {
+    try {
+      await getCurrentWindow().toggleMaximize();
+    } catch {
+      /* noop */
+    }
+  };
+  const handleClose = async () => {
+    try {
+      await getCurrentWindow().close();
+    } catch {
+      /* noop */
+    }
+  };
 
   return (
     <div
