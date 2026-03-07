@@ -13,6 +13,31 @@ use std::collections::{HashMap, HashSet};
 
 type ItemRow = (i64, i64, String, Option<String>, Option<String>, i64);
 
+/// deliveries.delivery_status に設定できる値の許容セット
+const VALID_DELIVERY_STATUSES: &[&str] = &[
+    "not_shipped",
+    "preparing",
+    "shipped",
+    "in_transit",
+    "out_for_delivery",
+    "delivered",
+    "failed",
+    "returned",
+    "cancelled",
+];
+
+/// DeliveryInfo.delivery_status を検証して deliveries テーブルへの登録値を返す。
+/// None の場合は "shipped" を返す。不正値の場合はエラーを返す。
+fn resolve_delivery_status(status: Option<&str>) -> Result<&str, String> {
+    match status {
+        None => Ok("shipped"),
+        Some(s) if VALID_DELIVERY_STATUSES.contains(&s) => Ok(s),
+        Some(s) => Err(format!(
+            "Invalid delivery_status '{s}': must be one of {VALID_DELIVERY_STATUSES:?}"
+        )),
+    }
+}
+
 /// 注文関連のDB操作を抽象化するトレイト
 #[cfg_attr(test, automock)]
 #[async_trait]
@@ -633,10 +658,8 @@ impl SqliteOrderRepository {
         remove_zero_price_duplicates_in_tx(tx, order_id).await?;
 
         if let Some(delivery_info) = &order_info.delivery_info {
-            let status = delivery_info
-                .delivery_status
-                .as_deref()
-                .unwrap_or("shipped");
+            let status =
+                resolve_delivery_status(delivery_info.delivery_status.as_deref())?;
 
             let existing_delivery: Option<(i64,)> = sqlx::query_as(
                 r#"
@@ -1194,10 +1217,8 @@ impl SqliteOrderRepository {
         };
 
         if let Some(delivery_info) = &order_info.delivery_info {
-            let status = delivery_info
-                .delivery_status
-                .as_deref()
-                .unwrap_or("shipped");
+            let status =
+                resolve_delivery_status(delivery_info.delivery_status.as_deref())?;
 
             let existing_delivery: Option<(i64,)> = sqlx::query_as(
                 r#"
