@@ -112,15 +112,16 @@ async function fetchDeliveries(): Promise<DeliveryRow[]> {
       d.order_id,
       d.tracking_number,
       d.carrier,
-      d.delivery_status,
+      COALESCE(tcl.delivery_status, d.delivery_status) AS delivery_status,
       d.estimated_delivery,
       d.actual_delivery,
-      d.last_checked_at,
+      COALESCE(tcl.checked_at, d.last_checked_at) AS last_checked_at,
       o.order_number,
       o.shop_domain,
       o.order_date
     FROM deliveries d
     LEFT JOIN orders o ON d.order_id = o.id
+    LEFT JOIN tracking_check_logs tcl ON d.tracking_number = tcl.tracking_number
     ORDER BY d.updated_at DESC
   `);
   return rows.map((r) => ({

@@ -26,14 +26,16 @@ impl EmailParser for KidsDragonSendParser {
         let order_date =
             extract_order_date(&lines).ok_or("Order date not found (used as order number)")?;
 
-        // 発送通知である時点で発送済みとして扱う。
         // 追跡番号は含まれないため空文字を設定し、carrier は発送方法行から取得する。
+        // 追跡番号がないため配送状況確認バッチの対象外となり、ステータスが shipped のまま
+        // 残り続けるのを防ぐため、初期ステータスを delivered として登録する。
         let delivery_info = DeliveryInfo {
             carrier: extract_carrier(&lines).unwrap_or_default(),
             tracking_number: String::new(),
             delivery_date: None,
             delivery_time: None,
             carrier_url: None,
+            delivery_status: Some("delivered".to_string()),
         };
 
         Ok(OrderInfo {
