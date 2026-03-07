@@ -658,8 +658,7 @@ impl SqliteOrderRepository {
         remove_zero_price_duplicates_in_tx(tx, order_id).await?;
 
         if let Some(delivery_info) = &order_info.delivery_info {
-            let status =
-                resolve_delivery_status(delivery_info.delivery_status.as_deref())?;
+            let status = resolve_delivery_status(delivery_info.delivery_status.as_deref())?;
 
             let existing_delivery: Option<(i64,)> = sqlx::query_as(
                 r#"
@@ -1217,8 +1216,7 @@ impl SqliteOrderRepository {
         };
 
         if let Some(delivery_info) = &order_info.delivery_info {
-            let status =
-                resolve_delivery_status(delivery_info.delivery_status.as_deref())?;
+            let status = resolve_delivery_status(delivery_info.delivery_status.as_deref())?;
 
             let existing_delivery: Option<(i64,)> = sqlx::query_as(
                 r#"
