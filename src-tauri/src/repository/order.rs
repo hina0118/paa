@@ -13,6 +13,31 @@ use std::collections::{HashMap, HashSet};
 
 type ItemRow = (i64, i64, String, Option<String>, Option<String>, i64);
 
+/// deliveries.delivery_status に設定できる値の許容セット
+const VALID_DELIVERY_STATUSES: &[&str] = &[
+    "not_shipped",
+    "preparing",
+    "shipped",
+    "in_transit",
+    "out_for_delivery",
+    "delivered",
+    "failed",
+    "returned",
+    "cancelled",
+];
+
+/// DeliveryInfo.delivery_status を検証して deliveries テーブルへの登録値を返す。
+/// None の場合は "shipped" を返す。不正値の場合はエラーを返す。
+fn resolve_delivery_status(status: Option<&str>) -> Result<&str, String> {
+    match status {
+        None => Ok("shipped"),
+        Some(s) if VALID_DELIVERY_STATUSES.contains(&s) => Ok(s),
+        Some(s) => Err(format!(
+            "Invalid delivery_status '{s}': must be one of {VALID_DELIVERY_STATUSES:?}"
+        )),
+    }
+}
+
 /// 注文関連のDB操作を抽象化するトレイト
 #[cfg_attr(test, automock)]
 #[async_trait]
@@ -633,6 +658,8 @@ impl SqliteOrderRepository {
         remove_zero_price_duplicates_in_tx(tx, order_id).await?;
 
         if let Some(delivery_info) = &order_info.delivery_info {
+            let status = resolve_delivery_status(delivery_info.delivery_status.as_deref())?;
+
             let existing_delivery: Option<(i64,)> = sqlx::query_as(
                 r#"
                 SELECT id FROM deliveries
@@ -650,12 +677,13 @@ impl SqliteOrderRepository {
                 sqlx::query(
                     r#"
                     INSERT INTO deliveries (order_id, tracking_number, carrier, delivery_status)
-                    VALUES (?, ?, ?, 'shipped')
+                    VALUES (?, ?, ?, ?)
                     "#,
                 )
                 .bind(order_id)
                 .bind(&delivery_info.tracking_number)
                 .bind(&delivery_info.carrier)
+                .bind(status)
                 .execute(tx.as_mut())
                 .await
                 .map_err(|e| format!("Failed to insert delivery: {e}"))?;
@@ -666,11 +694,12 @@ impl SqliteOrderRepository {
                     r#"
                     UPDATE deliveries
                     SET carrier = COALESCE(?, carrier),
-                        delivery_status = 'shipped'
+                        delivery_status = ?
                     WHERE order_id = ? AND tracking_number = ?
                     "#,
                 )
                 .bind(&delivery_info.carrier)
+                .bind(status)
                 .bind(order_id)
                 .bind(&delivery_info.tracking_number)
                 .execute(tx.as_mut())
@@ -1187,6 +1216,8 @@ impl SqliteOrderRepository {
         };
 
         if let Some(delivery_info) = &order_info.delivery_info {
+            let status = resolve_delivery_status(delivery_info.delivery_status.as_deref())?;
+
             let existing_delivery: Option<(i64,)> = sqlx::query_as(
                 r#"
                 SELECT id FROM deliveries
@@ -1204,12 +1235,13 @@ impl SqliteOrderRepository {
                 sqlx::query(
                     r#"
                     INSERT INTO deliveries (order_id, tracking_number, carrier, delivery_status)
-                    VALUES (?, ?, ?, 'shipped')
+                    VALUES (?, ?, ?, ?)
                     "#,
                 )
                 .bind(order_id)
                 .bind(&delivery_info.tracking_number)
                 .bind(&delivery_info.carrier)
+                .bind(status)
                 .execute(tx.as_mut())
                 .await
                 .map_err(|e| format!("Failed to insert delivery: {e}"))?;
@@ -1219,11 +1251,12 @@ impl SqliteOrderRepository {
                     r#"
                     UPDATE deliveries
                     SET carrier = COALESCE(?, carrier),
-                        delivery_status = 'shipped'
+                        delivery_status = ?
                     WHERE order_id = ? AND tracking_number = ?
                     "#,
                 )
                 .bind(&delivery_info.carrier)
+                .bind(status)
                 .bind(order_id)
                 .bind(&delivery_info.tracking_number)
                 .execute(tx.as_mut())
@@ -1843,6 +1876,7 @@ mod tests {
                 delivery_date: None,
                 delivery_time: None,
                 carrier_url: None,
+                delivery_status: None,
             }),
             items: vec![
                 OrderItem {
@@ -1930,6 +1964,124 @@ mod tests {
         .expect("Failed to fetch order_email link");
         assert_eq!(link.0, order_id);
         assert_eq!(link.1, email_id.0);
+    }
+
+    #[tokio::test]
+    async fn test_save_order_delivery_status_delivered() {
+        // delivery_status: Some("delivered") を指定した場合に delivered で登録されること
+        let pool = setup_test_db().await;
+        let repo = SqliteOrderRepository::new(pool.clone());
+
+        sqlx::query("INSERT INTO emails (message_id, body_plain, from_address, subject) VALUES ('test-email-delivered', 'body', 'test@example.com', 'Subject')")
+            .execute(&pool)
+            .await
+            .expect("Failed to insert test email");
+        let email_id: (i64,) =
+            sqlx::query_as("SELECT id FROM emails WHERE message_id = 'test-email-delivered'")
+                .fetch_one(&pool)
+                .await
+                .expect("Failed to get email id");
+
+        use crate::parsers::{DeliveryInfo, OrderInfo, OrderItem};
+        let order_info = OrderInfo {
+            order_number: "ORD-DELIVERED".to_string(),
+            order_date: Some("2024-01-01".to_string()),
+            delivery_address: None,
+            delivery_info: Some(DeliveryInfo {
+                carrier: "ヤマト宅急便".to_string(),
+                tracking_number: String::new(),
+                delivery_date: None,
+                delivery_time: None,
+                carrier_url: None,
+                delivery_status: Some("delivered".to_string()),
+            }),
+            items: vec![OrderItem {
+                name: "商品X".to_string(),
+                manufacturer: None,
+                model_number: None,
+                unit_price: 1000,
+                quantity: 1,
+                subtotal: 1000,
+                image_url: None,
+            }],
+            subtotal: Some(1000),
+            shipping_fee: None,
+            total_amount: Some(1000),
+        };
+
+        let order_id = repo
+            .save_order(
+                &order_info,
+                Some(email_id.0),
+                Some("kids-dragon.co.jp".to_string()),
+                Some("キッズドラゴン".to_string()),
+            )
+            .await
+            .unwrap();
+
+        let delivery_status: (String,) =
+            sqlx::query_as("SELECT delivery_status FROM deliveries WHERE order_id = ?")
+                .bind(order_id)
+                .fetch_one(&pool)
+                .await
+                .expect("Failed to fetch delivery");
+        assert_eq!(delivery_status.0, "delivered");
+    }
+
+    #[tokio::test]
+    async fn test_save_order_delivery_status_invalid_returns_error() {
+        // delivery_status に不正値を指定した場合にエラーが返ること
+        let pool = setup_test_db().await;
+        let repo = SqliteOrderRepository::new(pool.clone());
+
+        sqlx::query("INSERT INTO emails (message_id, body_plain, from_address, subject) VALUES ('test-email-invalid', 'body', 'test@example.com', 'Subject')")
+            .execute(&pool)
+            .await
+            .expect("Failed to insert test email");
+        let email_id: (i64,) =
+            sqlx::query_as("SELECT id FROM emails WHERE message_id = 'test-email-invalid'")
+                .fetch_one(&pool)
+                .await
+                .expect("Failed to get email id");
+
+        use crate::parsers::{DeliveryInfo, OrderInfo, OrderItem};
+        let order_info = OrderInfo {
+            order_number: "ORD-INVALID".to_string(),
+            order_date: None,
+            delivery_address: None,
+            delivery_info: Some(DeliveryInfo {
+                carrier: "ヤマト運輸".to_string(),
+                tracking_number: "9999".to_string(),
+                delivery_date: None,
+                delivery_time: None,
+                carrier_url: None,
+                delivery_status: Some("invalid_status".to_string()),
+            }),
+            items: vec![OrderItem {
+                name: "商品Y".to_string(),
+                manufacturer: None,
+                model_number: None,
+                unit_price: 500,
+                quantity: 1,
+                subtotal: 500,
+                image_url: None,
+            }],
+            subtotal: Some(500),
+            shipping_fee: None,
+            total_amount: Some(500),
+        };
+
+        let result = repo
+            .save_order(
+                &order_info,
+                Some(email_id.0),
+                Some("example.com".to_string()),
+                None,
+            )
+            .await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid delivery_status"));
     }
 
     #[tokio::test]
@@ -3520,6 +3672,7 @@ mod tests {
                 delivery_date: None,
                 delivery_time: None,
                 carrier_url: None,
+                delivery_status: None,
             }),
             items: vec![crate::parsers::OrderItem {
                 name: "発送商品X".to_string(),
@@ -3608,6 +3761,7 @@ mod tests {
                 delivery_date: None,
                 delivery_time: None,
                 carrier_url: None,
+                delivery_status: None,
             }),
             items: vec![crate::parsers::OrderItem {
                 name: "新規商品Y".to_string(),

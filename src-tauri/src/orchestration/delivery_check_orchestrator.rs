@@ -31,6 +31,39 @@ async fn run_delivery_check_task_with<A: BatchCommandsApp>(
 
     let err = ErrorReporter::new(app, DELIVERY_CHECK_TASK_NAME, DELIVERY_CHECK_EVENT_NAME);
 
+    // tracking_check_logs の終端ステータスを deliveries に同期する
+    // stats 等が deliveries.delivery_status を直接参照するため、
+    // HTTP スクレイピングをスキップする前にDB上で一致させておく
+    if let Err(e) = sqlx::query(
+        r#"
+        UPDATE deliveries
+        SET delivery_status = (
+                SELECT tcl.delivery_status
+                FROM tracking_check_logs tcl
+                WHERE tcl.tracking_number = deliveries.tracking_number
+                  AND tcl.delivery_status IN ('delivered', 'cancelled', 'returned')
+            ),
+            last_checked_at = (
+                SELECT tcl.checked_at
+                FROM tracking_check_logs tcl
+                WHERE tcl.tracking_number = deliveries.tracking_number
+            ),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE EXISTS (
+            SELECT 1
+            FROM tracking_check_logs tcl
+            WHERE tcl.tracking_number = deliveries.tracking_number
+              AND tcl.delivery_status IN ('delivered', 'cancelled', 'returned')
+        )
+          AND delivery_status NOT IN ('delivered', 'cancelled', 'returned')
+        "#,
+    )
+    .execute(&pool)
+    .await
+    {
+        log::warn!("[DeliveryCheck] deliveries 同期に失敗（処理は継続）: {e}");
+    }
+
     // HTTP クライアント作成
     let ctx = match DeliveryCheckContext::new(pool.clone()) {
         Ok(c) => c,
@@ -42,16 +75,20 @@ async fn run_delivery_check_task_with<A: BatchCommandsApp>(
     };
 
     // 対象: 未配達かつ追跡番号あり（空白のみは除外）
+    // tracking_check_logs に終端ステータスが記録済みの場合はスキップ
+    // （フロントエンドが COALESCE で tcl.delivery_status を優先表示するため再確認不要）
     let rows: Vec<(i64, String, String)> = match sqlx::query_as(
         r#"
-        SELECT id, tracking_number, carrier
-        FROM deliveries
-        WHERE delivery_status NOT IN ('delivered', 'cancelled', 'returned')
-          AND tracking_number IS NOT NULL
-          AND TRIM(tracking_number) != ''
-          AND carrier IS NOT NULL
-          AND TRIM(carrier) != ''
-        ORDER BY updated_at ASC
+        SELECT d.id, d.tracking_number, d.carrier
+        FROM deliveries d
+        LEFT JOIN tracking_check_logs tcl ON d.tracking_number = tcl.tracking_number
+        WHERE d.delivery_status NOT IN ('delivered', 'cancelled', 'returned')
+          AND d.tracking_number IS NOT NULL
+          AND TRIM(d.tracking_number) != ''
+          AND d.carrier IS NOT NULL
+          AND TRIM(d.carrier) != ''
+          AND COALESCE(tcl.delivery_status, '') NOT IN ('delivered', 'cancelled', 'returned')
+        ORDER BY d.updated_at ASC
         "#,
     )
     .fetch_all(&pool)

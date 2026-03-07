@@ -42,6 +42,7 @@ impl EmailParser for GoodSmileSendParser {
             delivery_date: None,
             delivery_time,
             carrier_url: None,
+            delivery_status: None,
         };
 
         Ok(OrderInfo {
