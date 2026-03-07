@@ -1,12 +1,15 @@
-import { useState, useEffect } from 'react';
-import { Minus, Square, X, Maximize2 } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Minus, Square, X, Minimize2 } from 'lucide-react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { cn } from '@/lib/utils';
 
 export function TitleBar() {
   const [isMaximized, setIsMaximized] = useState(false);
 
+  const isActiveRef = useRef(true);
+
   useEffect(() => {
+    isActiveRef.current = true;
     const win = getCurrentWindow();
 
     win
@@ -21,11 +24,16 @@ export function TitleBar() {
         setIsMaximized(maximized);
       })
       .then((unlisten) => {
-        cleanup = unlisten;
+        if (!isActiveRef.current) {
+          unlisten();
+        } else {
+          cleanup = unlisten;
+        }
       })
       .catch(() => {});
 
     return () => {
+      isActiveRef.current = false;
       cleanup?.();
     };
   }, []);
@@ -54,6 +62,7 @@ export function TitleBar() {
       {/* ウィンドウコントロール */}
       <div className="flex">
         <button
+          type="button"
           className={cn(
             'flex h-9 w-12 items-center justify-center',
             'text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
@@ -64,6 +73,7 @@ export function TitleBar() {
           <Minus className="h-3.5 w-3.5" />
         </button>
         <button
+          type="button"
           className={cn(
             'flex h-9 w-12 items-center justify-center',
             'text-muted-foreground transition-colors hover:bg-muted hover:text-foreground'
@@ -72,12 +82,13 @@ export function TitleBar() {
           onClick={handleMaximize}
         >
           {isMaximized ? (
-            <Maximize2 className="h-3.5 w-3.5" />
+            <Minimize2 className="h-3.5 w-3.5" />
           ) : (
             <Square className="h-3.5 w-3.5" />
           )}
         </button>
         <button
+          type="button"
           className={cn(
             'flex h-9 w-12 items-center justify-center',
             'text-muted-foreground transition-colors',
