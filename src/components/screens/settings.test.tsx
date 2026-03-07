@@ -249,7 +249,9 @@ describe('Settings', () => {
       renderWithProviders(<Settings />);
 
       await waitFor(() => {
-        expect(document.getElementById('max-iterations')).toBeInTheDocument();
+        const input = document.getElementById('max-iterations');
+        expect(input).toBeInTheDocument();
+        expect(input).toHaveValue(200);
       });
 
       await user.click(
@@ -307,7 +309,9 @@ describe('Settings', () => {
       renderWithProviders(<Settings />);
 
       await waitFor(() => {
-        expect(document.getElementById('max-iterations')).toBeInTheDocument();
+        const input = document.getElementById('max-iterations');
+        expect(input).toBeInTheDocument();
+        expect(input).toHaveValue(200);
       });
 
       await user.click(
@@ -430,9 +434,9 @@ describe('Settings', () => {
       renderWithProviders(<Settings />);
 
       await waitFor(() => {
-        expect(
-          document.getElementById('max-results-per-page')
-        ).toBeInTheDocument();
+        const input = document.getElementById('max-results-per-page');
+        expect(input).toBeInTheDocument();
+        expect(input).toHaveValue(200);
       });
 
       await user.click(
@@ -499,7 +503,9 @@ describe('Settings', () => {
       renderWithProviders(<Settings />);
 
       await waitFor(() => {
-        expect(document.getElementById('timeout-minutes')).toBeInTheDocument();
+        const input = document.getElementById('timeout-minutes');
+        expect(input).toBeInTheDocument();
+        expect(input).toHaveValue(60);
       });
 
       await user.click(
@@ -534,9 +540,9 @@ describe('Settings', () => {
       renderWithProviders(<Settings />);
 
       await waitFor(() => {
-        expect(
-          document.getElementById('gemini-batch-size')
-        ).toBeInTheDocument();
+        const input = document.getElementById('gemini-batch-size');
+        expect(input).toBeInTheDocument();
+        expect(input).toHaveValue(20);
       });
 
       await user.click(
@@ -604,9 +610,9 @@ describe('Settings', () => {
       renderWithProviders(<Settings />);
 
       await waitFor(() => {
-        expect(
-          document.getElementById('gemini-delay-seconds')
-        ).toBeInTheDocument();
+        const input = document.getElementById('gemini-delay-seconds');
+        expect(input).toBeInTheDocument();
+        expect(input).toHaveValue(5);
       });
 
       await user.click(
