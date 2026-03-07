@@ -27,9 +27,8 @@ static AMOUNT_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"([\d,]+)\s*円").expect("Invalid AMOUNT_RE"));
 
 /// 発送方法行パターン（`発送方法  : ヤマト宅急便` 等）
-static CARRIER_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"発送方法\s*[：:]\s*(.+)").expect("Invalid CARRIER_RE")
-});
+static CARRIER_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"発送方法\s*[：:]\s*(.+)").expect("Invalid CARRIER_RE"));
 
 /// `[商品名]:...` 行から OrderItem を抽出する
 ///
