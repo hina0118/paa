@@ -11,7 +11,13 @@
   },
   "app": {
     "windows": [
-      { "title": "paa", "width": 800, "height": 600, "label": "main" }
+      {
+        "title": "paa",
+        "width": 800,
+        "height": 600,
+        "label": "main",
+        "decorations": false
+      }
     ],
     "security": {
       "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost",

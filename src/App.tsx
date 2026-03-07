@@ -28,6 +28,7 @@ import {
   ExcludedOrdersTable,
   TrackingCheckLogsTable,
 } from '@/components/screens/tables';
+import { TitleBar } from '@/components/layout/titlebar';
 import { NavigationProvider } from '@/contexts/navigation-provider';
 import { useNavigation } from '@/contexts/use-navigation';
 import { SyncProvider } from '@/contexts/sync-provider';
@@ -100,9 +101,12 @@ function AppContent() {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <Sidebar />
-      <main className="flex-1 min-w-0 overflow-auto">{renderScreen()}</main>
+    <div className="flex flex-col h-screen overflow-hidden">
+      <TitleBar />
+      <div className="flex flex-1 overflow-hidden">
+        <Sidebar />
+        <main className="flex-1 min-w-0 overflow-auto">{renderScreen()}</main>
+      </div>
       <Toaster position="top-right" richColors />
     </div>
   );
