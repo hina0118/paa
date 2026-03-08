@@ -133,9 +133,7 @@ TEL：000-0000-0000
         let delivery = order.delivery_info.unwrap();
         assert_eq!(
             delivery.carrier_url,
-            Some(
-                "https://trackings.post.japanpost.jp/services/srv/search/input".to_string()
-            )
+            Some("https://trackings.post.japanpost.jp/services/srv/search/input".to_string())
         );
     }
 
@@ -187,8 +185,9 @@ TEL：000-0000-0000
 
     #[test]
     fn test_parse_send_no_items_returns_error() {
-        let result =
-            AnimateSendParser.parse("●ご注文番号\n28928446\n●送り状番号\n217565803081\n●ご注文内容\n支払方法：クレジット");
+        let result = AnimateSendParser.parse(
+            "●ご注文番号\n28928446\n●送り状番号\n217565803081\n●ご注文内容\n支払方法：クレジット",
+        );
         assert!(result.is_err());
     }
 }
