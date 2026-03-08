@@ -11,6 +11,7 @@
 // pub mod にすることでリンカーがモジュールを保持し、inventory::submit! の静的初期化が LTO でも除外されない
 pub mod animate;
 pub mod dmm;
+pub mod furuichi_online;
 pub mod goodsmile;
 pub mod hobbysearch;
 pub mod kids_dragon;
@@ -406,6 +407,15 @@ mod tests {
         let registry = build_registry();
         let animate_types = ["animate_confirm", "animate_send"];
         for pt in &animate_types {
+            assert!(find_plugin(&registry, pt).is_some(), "No plugin for {}", pt);
+        }
+    }
+
+    #[test]
+    fn test_all_furuichi_parser_types_have_plugin() {
+        let registry = build_registry();
+        let furuichi_types = ["furuichi_confirm", "furuichi_send"];
+        for pt in &furuichi_types {
             assert!(find_plugin(&registry, pt).is_some(), "No plugin for {}", pt);
         }
     }
