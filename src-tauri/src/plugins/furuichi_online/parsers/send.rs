@@ -3,7 +3,7 @@ use super::{
 };
 use crate::parsers::{DeliveryInfo, EmailParser, OrderInfo};
 
-/// ゆうパケット追跡サービスの URL
+/// 日本郵便追跡サービスの URL（ゆうパック・ゆうパケット共通）
 const JAPANPOST_TRACKING_URL: &str =
     "https://trackings.post.japanpost.jp/services/srv/search/input";
 
@@ -35,7 +35,7 @@ impl EmailParser for FuruichiSendParser {
             return Err("No items found".to_string());
         }
 
-        // ゆうパケットの場合は日本郵便追跡 URL を設定する
+        // ゆうパケット・ゆうパック系の場合は日本郵便追跡 URL を設定する
         // 他の配送会社は carrier_url なし（delivery_check が別途対応）
         let carrier_url = if carrier.contains("ゆうパケット") || carrier.contains("ゆうパック")
         {
