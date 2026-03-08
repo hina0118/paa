@@ -13,8 +13,8 @@ const JAPANPOST_TRACKING_URL: &str =
 /// 送信元：`info@furu1.online`
 ///
 /// プレーンテキスト形式（quoted-printable UTF-8）。
-/// 金額情報は `save_order_in_tx` の既存スキップロジックにより
-/// confirm で登録済みの価格を上書きしない。
+/// この送信メールには金額情報が含まれず、本パーサーも金額系フィールドを
+/// 返さない／更新しない（価格情報は confirm 側で登録済みのものを利用する）。
 pub struct FuruichiSendParser;
 
 impl EmailParser for FuruichiSendParser {
