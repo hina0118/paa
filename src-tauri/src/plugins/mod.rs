@@ -9,6 +9,7 @@
 //! - `alternate_domains()` はプラグイン側で管理（DMM の mail/mono 二重チェック等）
 
 // pub mod にすることでリンカーがモジュールを保持し、inventory::submit! の静的初期化が LTO でも除外されない
+pub mod animate;
 pub mod dmm;
 pub mod goodsmile;
 pub mod hobbysearch;
@@ -396,6 +397,15 @@ mod tests {
             "premium_bandai_send",
         ];
         for pt in &pb_types {
+            assert!(find_plugin(&registry, pt).is_some(), "No plugin for {}", pt);
+        }
+    }
+
+    #[test]
+    fn test_all_animate_parser_types_have_plugin() {
+        let registry = build_registry();
+        let animate_types = ["animate_confirm", "animate_send"];
+        for pt in &animate_types {
             assert!(find_plugin(&registry, pt).is_some(), "No plugin for {}", pt);
         }
     }
