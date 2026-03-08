@@ -208,7 +208,11 @@ mod tests {
 
     #[test]
     fn test_extract_order_number_with_bullet() {
-        let lines = vec!["●ご注文番号", "28928446", "ご注文番号は大切に保管してください。"];
+        let lines = vec![
+            "●ご注文番号",
+            "28928446",
+            "ご注文番号は大切に保管してください。",
+        ];
         assert_eq!(extract_order_number(&lines), Some("28928446".to_string()));
     }
 

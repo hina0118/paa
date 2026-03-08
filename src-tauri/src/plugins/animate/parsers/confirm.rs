@@ -1,6 +1,6 @@
 use super::{
-    body_to_lines, extract_items, extract_shipping_fee, extract_subtotal, extract_total_amount,
-    extract_order_number,
+    body_to_lines, extract_items, extract_order_number, extract_shipping_fee, extract_subtotal,
+    extract_total_amount,
 };
 use crate::parsers::{EmailParser, OrderInfo};
 
@@ -166,8 +166,8 @@ TEL：000-0000-0000
 
     #[test]
     fn test_parse_confirm_no_items_returns_error() {
-        let result = AnimateConfirmParser
-            .parse("●ご注文番号\n28928446\n●ご注文内容\n支払方法：クレジット");
+        let result =
+            AnimateConfirmParser.parse("●ご注文番号\n28928446\n●ご注文内容\n支払方法：クレジット");
         assert!(result.is_err());
     }
 }
