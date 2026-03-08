@@ -45,7 +45,9 @@ impl VendorPlugin for AnimatePlugin {
                 shop_name: "アニメイト通販".to_string(),
                 sender_address: "info@animate-onlineshop.jp".to_string(),
                 parser_type: "animate_confirm".to_string(),
-                subject_filters: Some(vec!["ご注文の確認".to_string()]),
+                // 「出荷完了のお知らせ」との誤マッチを防ぐため、ブランド名まで含めた
+                // より具体的なフィルターを使用する（件名: 「【アニメイト通販】ご注文の確認」）
+                subject_filters: Some(vec!["【アニメイト通販】ご注文の確認".to_string()]),
             },
             DefaultShopSetting {
                 shop_name: "アニメイト通販".to_string(),
