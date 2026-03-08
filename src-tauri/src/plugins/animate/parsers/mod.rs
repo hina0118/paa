@@ -45,13 +45,15 @@ pub fn body_to_lines(body: &str) -> Vec<String> {
 
 /// 注文番号を抽出する
 ///
-/// `●ご注文番号` の次行に 8 桁の数字が続く形式。
+/// ラベル行（`注文番号` で終わる行: `●ご注文番号` / `ご注文番号` / `注文番号` 等）の
+/// 次行に 8 桁の数字が続く形式を想定する。
+/// `ends_with("注文番号")` による判定で `●` 有無や `ご` 有無の表記揺れに対応する。
 pub fn extract_order_number(lines: &[&str]) -> Option<String> {
     for (i, line) in lines.iter().enumerate() {
-        if line.trim() == "●ご注文番号" {
+        if line.trim().ends_with("注文番号") {
             if let Some(&next) = lines.get(i + 1) {
                 let n = next.trim();
-                if !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()) {
+                if n.len() == 8 && n.chars().all(|c| c.is_ascii_digit()) {
                     return Some(n.to_string());
                 }
             }
@@ -62,13 +64,15 @@ pub fn extract_order_number(lines: &[&str]) -> Option<String> {
 
 /// 送り状番号を抽出する
 ///
-/// `●送り状番号` の次行に 12 桁の数字が続く形式。
+/// ラベル行（`送り状番号` で終わる行: `●送り状番号` / `送り状番号` 等）の
+/// 次行に 12 桁の数字が続く形式を想定する。
+/// `ends_with("送り状番号")` による判定で `●` 有無の表記揺れに対応する。
 pub fn extract_tracking_number(lines: &[&str]) -> Option<String> {
     for (i, line) in lines.iter().enumerate() {
-        if line.trim() == "●送り状番号" {
+        if line.trim().ends_with("送り状番号") {
             if let Some(&next) = lines.get(i + 1) {
                 let n = next.trim();
-                if !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()) {
+                if n.len() == 12 && n.chars().all(|c| c.is_ascii_digit()) {
                     return Some(n.to_string());
                 }
             }
@@ -200,10 +204,47 @@ pub fn extract_total_amount(lines: &[&str]) -> Option<i64> {
 mod tests {
     use super::*;
 
+    // ─── extract_order_number ───
+
     #[test]
-    fn test_extract_order_number() {
+    fn test_extract_order_number_with_bullet() {
         let lines = vec!["●ご注文番号", "28928446", "ご注文番号は大切に保管してください。"];
         assert_eq!(extract_order_number(&lines), Some("28928446".to_string()));
+    }
+
+    #[test]
+    fn test_extract_order_number_without_bullet() {
+        // 「●」なしの表記揺れに対応
+        let lines = vec!["ご注文番号", "28928446"];
+        assert_eq!(extract_order_number(&lines), Some("28928446".to_string()));
+    }
+
+    #[test]
+    fn test_extract_order_number_without_go_prefix() {
+        // 「ご」なしの表記揺れに対応
+        let lines = vec!["注文番号", "28928446"];
+        assert_eq!(extract_order_number(&lines), Some("28928446".to_string()));
+    }
+
+    #[test]
+    fn test_extract_order_number_wrong_digit_count_rejected() {
+        // 8桁未満の数字は注文番号として採用しない
+        let lines = vec!["●ご注文番号", "1234567"];
+        assert_eq!(extract_order_number(&lines), None);
+    }
+
+    #[test]
+    fn test_extract_order_number_nine_digits_rejected() {
+        // 9桁は採用しない
+        let lines = vec!["●ご注文番号", "123456789"];
+        assert_eq!(extract_order_number(&lines), None);
+    }
+
+    #[test]
+    fn test_extract_order_number_sentence_line_not_label() {
+        // 「注文番号は大切に〜」のような文章行はラベルとして扱わない
+        let lines = vec!["ご注文番号は大切に保管してください。", "28928446"];
+        assert_eq!(extract_order_number(&lines), None);
     }
 
     #[test]
@@ -212,13 +253,39 @@ mod tests {
         assert_eq!(extract_order_number(&lines), None);
     }
 
+    // ─── extract_tracking_number ───
+
     #[test]
-    fn test_extract_tracking_number() {
+    fn test_extract_tracking_number_with_bullet() {
         let lines = vec!["●送り状番号", "217565803081"];
         assert_eq!(
             extract_tracking_number(&lines),
             Some("217565803081".to_string())
         );
+    }
+
+    #[test]
+    fn test_extract_tracking_number_without_bullet() {
+        // 「●」なしの表記揺れに対応
+        let lines = vec!["送り状番号", "217565803081"];
+        assert_eq!(
+            extract_tracking_number(&lines),
+            Some("217565803081".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_tracking_number_wrong_digit_count_rejected() {
+        // 12桁未満は採用しない
+        let lines = vec!["●送り状番号", "12345678901"];
+        assert_eq!(extract_tracking_number(&lines), None);
+    }
+
+    #[test]
+    fn test_extract_tracking_number_thirteen_digits_rejected() {
+        // 13桁は採用しない
+        let lines = vec!["●送り状番号", "2175658030812"];
+        assert_eq!(extract_tracking_number(&lines), None);
     }
 
     #[test]
