@@ -2,10 +2,7 @@ use super::{
     body_to_lines, extract_carrier, extract_items, extract_order_number, extract_tracking_number,
 };
 use crate::parsers::{DeliveryInfo, EmailParser, OrderInfo};
-
-/// 日本郵便追跡サービスの URL（ゆうパック・ゆうパケット共通）
-const JAPANPOST_TRACKING_URL: &str =
-    "https://trackings.post.japanpost.jp/services/srv/search/input";
+use crate::plugins::JAPANPOST_TRACKING_URL;
 
 /// ふるいちオンライン 発送通知メール用パーサー
 ///
@@ -156,7 +153,7 @@ Tel：09016717298
         let delivery = order.delivery_info.unwrap();
         assert_eq!(
             delivery.carrier_url,
-            Some("https://trackings.post.japanpost.jp/services/srv/search/input".to_string())
+            Some(crate::plugins::JAPANPOST_TRACKING_URL.to_string())
         );
     }
 

@@ -203,6 +203,18 @@ pub trait VendorPlugin: Send + Sync {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// プラグイン共通定数
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// 日本郵便追跡サービスの URL - 入力フォーム（ゆうパック・ゆうパケット共通）
+pub(crate) const JAPANPOST_TRACKING_URL: &str =
+    "https://trackings.post.japanpost.jp/services/srv/search/input";
+
+/// 日本郵便追跡サービスの URL - 直接検索（追跡番号をクエリパラメータで渡す形式）
+pub(crate) const JAPANPOST_TRACKING_URL_DIRECT: &str =
+    "https://trackings.post.japanpost.jp/services/srv/search/direct";
+
+// ─────────────────────────────────────────────────────────────────────────────
 // プラグイン共通ヘルパー（pub(crate) で各プラグインから参照）
 // ─────────────────────────────────────────────────────────────────────────────
 
