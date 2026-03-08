@@ -448,7 +448,8 @@ pub fn carrier_tracking_url(carrier: &str, tracking_number: &str) -> Option<Stri
         || carrier.contains("郵便")
     {
         Some(format!(
-            "https://trackings.post.japanpost.jp/services/srv/search/direct?reqCodeNo1={}",
+            "{}?reqCodeNo1={}",
+            crate::plugins::JAPANPOST_TRACKING_URL_DIRECT,
             tracking_number
         ))
     } else {

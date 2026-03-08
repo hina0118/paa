@@ -1,9 +1,6 @@
 use super::{body_to_lines, extract_items, extract_order_number, extract_tracking_number};
 use crate::parsers::{DeliveryInfo, EmailParser, OrderInfo};
-
-/// ゆうパック追跡サービスの URL
-const JAPANPOST_TRACKING_URL: &str =
-    "https://trackings.post.japanpost.jp/services/srv/search/input";
+use crate::plugins::JAPANPOST_TRACKING_URL;
 
 /// アニメイト通販 出荷完了メール用パーサー
 ///
@@ -133,7 +130,7 @@ TEL：000-0000-0000
         let delivery = order.delivery_info.unwrap();
         assert_eq!(
             delivery.carrier_url,
-            Some("https://trackings.post.japanpost.jp/services/srv/search/input".to_string())
+            Some(crate::plugins::JAPANPOST_TRACKING_URL.to_string())
         );
     }
 
