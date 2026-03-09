@@ -9,6 +9,7 @@
 //! - `alternate_domains()` はプラグイン側で管理（DMM の mail/mono 二重チェック等）
 
 // pub mod にすることでリンカーがモジュールを保持し、inventory::submit! の静的初期化が LTO でも除外されない
+pub mod amiami;
 pub mod animate;
 pub mod dmm;
 pub mod furuichi_online;
@@ -428,6 +429,21 @@ mod tests {
         let registry = build_registry();
         let furuichi_types = ["furuichi_confirm", "furuichi_send"];
         for pt in &furuichi_types {
+            assert!(find_plugin(&registry, pt).is_some(), "No plugin for {}", pt);
+        }
+    }
+
+    #[test]
+    fn test_all_amiami_parser_types_have_plugin() {
+        let registry = build_registry();
+        let amiami_types = [
+            "amiami_rakuten_confirm",
+            "amiami_rakuten_send",
+            "amiami_confirm",
+            "amiami_send",
+            "amiami_cancel",
+        ];
+        for pt in &amiami_types {
             assert!(find_plugin(&registry, pt).is_some(), "No plugin for {}", pt);
         }
     }
