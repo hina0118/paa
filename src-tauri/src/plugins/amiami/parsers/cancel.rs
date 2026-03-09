@@ -23,8 +23,7 @@ pub struct AmiamiCancelParser;
 /// - `受注番号 ： 226512861` 形式（全角コロン）
 /// - `ご注文226512861以下商品` 形式（直接埋め込み）
 static ORDER_NUMBER_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?:受注番号\s*[：:]\s*|ご注文)(\d{9,})")
-        .expect("Invalid ORDER_NUMBER_RE")
+    Regex::new(r"(?:受注番号\s*[：:]\s*|ご注文)(\d{9,})").expect("Invalid ORDER_NUMBER_RE")
 });
 
 impl AmiamiCancelParser {

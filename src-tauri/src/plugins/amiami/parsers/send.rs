@@ -26,8 +26,7 @@ impl EmailParser for AmiamiSendParser {
         let tracking_number = extract_tracking_number(&lines)
             .ok_or_else(|| "Tracking number not found".to_string())?;
 
-        let carrier = detect_carrier(email_body)
-            .ok_or_else(|| "Carrier not found".to_string())?;
+        let carrier = detect_carrier(email_body).ok_or_else(|| "Carrier not found".to_string())?;
 
         let items = extract_rakuten_items(&lines);
         if items.is_empty() {

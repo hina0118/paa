@@ -24,8 +24,7 @@ impl EmailParser for AmiamiRakutenSendParser {
         let tracking_number = extract_tracking_number(&lines)
             .ok_or_else(|| "Tracking number not found".to_string())?;
 
-        let carrier = detect_carrier(email_body)
-            .ok_or_else(|| "Carrier not found".to_string())?;
+        let carrier = detect_carrier(email_body).ok_or_else(|| "Carrier not found".to_string())?;
 
         let items = extract_rakuten_items(&lines);
         if items.is_empty() {
@@ -163,7 +162,8 @@ mod tests {
 
     #[test]
     fn test_parse_send_no_items_returns_error() {
-        let body = "受注番号：739419973\n荷物お問合せ番号：397404561713\nhttp://www.kuronekoyamato.co.jp/";
+        let body =
+            "受注番号：739419973\n荷物お問合せ番号：397404561713\nhttp://www.kuronekoyamato.co.jp/";
         assert!(AmiamiRakutenSendParser.parse(body).is_err());
     }
 }
