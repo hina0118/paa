@@ -53,9 +53,8 @@ static DIRECT_QUANTITY_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^個数[：:](\d+)").expect("Invalid DIRECT_QUANTITY_RE"));
 
 /// 直販 confirm 商品小計: `小計：\1,690`
-static DIRECT_ITEM_SUBTOTAL_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^小計[：:][\\¥]?([\d,]+)").expect("Invalid DIRECT_ITEM_SUBTOTAL_RE")
-});
+static DIRECT_ITEM_SUBTOTAL_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^小計[：:][\\¥]?([\d,]+)").expect("Invalid DIRECT_ITEM_SUBTOTAL_RE"));
 
 /// 直販 confirm 合計小計: `●小計　　　：\7,480`（複数スペースや全角スペースを含む）
 /// プレフィックスは `■`/`◆`/`●` のいずれかを使用するメール形式がある。
@@ -84,11 +83,9 @@ pub fn body_to_lines(body: &str) -> Vec<String> {
 
 /// `受注番号：739419973` 形式の注文番号を抽出する（楽天・直販 send 共通）
 pub fn extract_order_number(lines: &[&str]) -> Option<String> {
-    lines.iter().find_map(|line| {
-        ORDER_NUMBER_RE
-            .captures(line)
-            .map(|c| c[1].to_string())
-    })
+    lines
+        .iter()
+        .find_map(|line| ORDER_NUMBER_RE.captures(line).map(|c| c[1].to_string()))
 }
 
 /// `受注番号 "219908570"` 形式の注文番号を抽出する（直販 confirm 専用）
@@ -250,7 +247,8 @@ pub fn extract_direct_subtotal(lines: &[&str]) -> Option<i64> {
     lines.iter().find_map(|line| {
         let trimmed = line.trim();
         // ■/◆/● プレフィックスがある行のみ (商品小計行との区別)
-        if !trimmed.starts_with('■') && !trimmed.starts_with('◆') && !trimmed.starts_with('●') {
+        if !trimmed.starts_with('■') && !trimmed.starts_with('◆') && !trimmed.starts_with('●')
+        {
             return None;
         }
         DIRECT_SUBTOTAL_RE
@@ -263,7 +261,8 @@ pub fn extract_direct_subtotal(lines: &[&str]) -> Option<i64> {
 pub fn extract_direct_shipping_fee(lines: &[&str]) -> Option<i64> {
     lines.iter().find_map(|line| {
         let trimmed = line.trim();
-        if !trimmed.starts_with('■') && !trimmed.starts_with('◆') && !trimmed.starts_with('●') {
+        if !trimmed.starts_with('■') && !trimmed.starts_with('◆') && !trimmed.starts_with('●')
+        {
             return None;
         }
         DIRECT_SHIPPING_RE
@@ -276,7 +275,8 @@ pub fn extract_direct_shipping_fee(lines: &[&str]) -> Option<i64> {
 pub fn extract_direct_total(lines: &[&str]) -> Option<i64> {
     lines.iter().find_map(|line| {
         let trimmed = line.trim();
-        if !trimmed.starts_with('■') && !trimmed.starts_with('◆') && !trimmed.starts_with('●') {
+        if !trimmed.starts_with('■') && !trimmed.starts_with('◆') && !trimmed.starts_with('●')
+        {
             return None;
         }
         DIRECT_TOTAL_RE

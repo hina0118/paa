@@ -106,9 +106,7 @@ mod tests {
     #[test]
     fn test_parse_confirm_item_names() {
         let order = AmiamiConfirmParser.parse(sample_confirm()).unwrap();
-        assert!(order.items[0]
-            .name
-            .contains("HG ブレイサー・フェニックス"));
+        assert!(order.items[0].name.contains("HG ブレイサー・フェニックス"));
         assert!(order.items[3].name.contains("メダロット"));
     }
 
@@ -148,7 +146,8 @@ mod tests {
 
     #[test]
     fn test_parse_confirm_no_order_number_returns_error() {
-        let body = "商品名：テスト商品\n単価：\\1,000\n個数：1\n小計：\\1,000\n■合計　　　：1,000円";
+        let body =
+            "商品名：テスト商品\n単価：\\1,000\n個数：1\n小計：\\1,000\n■合計　　　：1,000円";
         assert!(AmiamiConfirmParser.parse(body).is_err());
     }
 

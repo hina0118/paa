@@ -46,9 +46,7 @@ impl VendorPlugin for AmiamiPlugin {
             "amiami_rakuten_confirm" => Some(Box::new(
                 parsers::rakuten_confirm::AmiamiRakutenConfirmParser,
             )),
-            "amiami_rakuten_send" => {
-                Some(Box::new(parsers::rakuten_send::AmiamiRakutenSendParser))
-            }
+            "amiami_rakuten_send" => Some(Box::new(parsers::rakuten_send::AmiamiRakutenSendParser)),
             "amiami_confirm" => Some(Box::new(parsers::confirm::AmiamiConfirmParser)),
             "amiami_send" => Some(Box::new(parsers::send::AmiamiSendParser)),
             // cancel は dispatch() 内で直接処理するため get_parser は None を返す
@@ -152,10 +150,7 @@ impl VendorPlugin for AmiamiPlugin {
         };
 
         // 注文確認メールは注文日が本文に含まれないため internal_date で補完する
-        if matches!(
-            parser_type,
-            "amiami_rakuten_confirm" | "amiami_confirm"
-        ) {
+        if matches!(parser_type, "amiami_rakuten_confirm" | "amiami_confirm") {
             apply_internal_date(&mut order_info, internal_date);
         }
 
@@ -208,7 +203,11 @@ mod tests {
             .iter()
             .filter(|s| s.parser_type == "amiami_cancel")
             .collect();
-        assert_eq!(cancel_settings.len(), 2, "cancel settings should have 2 entries");
+        assert_eq!(
+            cancel_settings.len(),
+            2,
+            "cancel settings should have 2 entries"
+        );
 
         let cancel_senders: Vec<&str> = cancel_settings
             .iter()
