@@ -154,7 +154,7 @@ pub async fn start_surugaya_mypage_fetch(
         let result = run_mypage_batch(&app_clone, &pool_clone, &win, &state_clone).await;
         state_clone.finish();
 
-        #[derive(serde::Serialize)]
+        #[derive(serde::Serialize, Clone)]
         struct FetchCompletePayload {
             cancelled: bool,
             error: Option<String>,
