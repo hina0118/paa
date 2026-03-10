@@ -219,7 +219,10 @@ async fn run_mypage_batch(
         }
 
         // 進捗イベント
-        let _ = app.emit("surugaya:fetch_progress", serde_json::json!({ "current": i, "total": total, "url": &url }));
+        let _ = app.emit(
+            "surugaya:fetch_progress",
+            serde_json::json!({ "current": i + 1, "total": total, "url": &url }),
+        );
 
         let html = match fetch_one_html(app, win, &url).await {
             Ok(h) => h,
