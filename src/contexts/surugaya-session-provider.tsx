@@ -16,15 +16,17 @@ function toProgress(
   isComplete: boolean
 ): BatchProgress {
   const { current, total, url } = payload;
+  // `current` is treated as a 0-based index from the backend; convert to a processed count.
+  const processed = total > 0 ? Math.min(current + 1, total) : 0;
   return {
     task_name: TASK_NAMES.SURUGAYA_MYPAGE_FETCH,
-    batch_number: current,
+    batch_number: processed,
     batch_size: 1,
     total_items: total,
-    processed_count: current,
-    success_count: current,
+    processed_count: processed,
+    success_count: processed,
     failed_count: 0,
-    progress_percent: total > 0 ? (current / total) * 100 : 0,
+    progress_percent: total > 0 ? (processed / total) * 100 : 0,
     status_message: url,
     is_complete: isComplete,
   };
