@@ -9,8 +9,7 @@ pub mod send;
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// `<br>` / `<br/>` / `<br />` タグを改行に置換するパターン
-static BR_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)<br\s*/?>").expect("Invalid BR_RE"));
+static BR_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)<br\s*/?>").expect("Invalid BR_RE"));
 
 /// HTML タグ全体を除去するパターン
 static HTML_TAG_RE: Lazy<Regex> =
@@ -18,15 +17,13 @@ static HTML_TAG_RE: Lazy<Regex> =
 
 /// confirm 取引番号: `お客様のご注文番号 [ M2502021943 ] になります。`
 /// 桁数は 9〜12 桁に対応（実績: 10桁・11桁）
-static CONFIRM_ORDER_NUMBER_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\[\s*(M\d{9,12})\s*\]").expect("Invalid CONFIRM_ORDER_NUMBER_RE")
-});
+static CONFIRM_ORDER_NUMBER_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\[\s*(M\d{9,12})\s*\]").expect("Invalid CONFIRM_ORDER_NUMBER_RE"));
 
 /// send 取引番号: `取引番号：M2603039345` (全角・半角コロン両対応)
 /// 桁数は 9〜12 桁に対応（実績: 10桁・11桁）
-static SEND_ORDER_NUMBER_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"取引番号[：:]\s*(M\d{9,12})").expect("Invalid SEND_ORDER_NUMBER_RE")
-});
+static SEND_ORDER_NUMBER_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"取引番号[：:]\s*(M\d{9,12})").expect("Invalid SEND_ORDER_NUMBER_RE"));
 
 /// マイページURL: `https://www.suruga-ya.jp/pcmypage/action_sell_search/detail?trade_code=M2603039345`
 /// href 属性内またはプレーンテキストの両方に対応する。桁数は 9〜12 桁に対応。
@@ -212,7 +209,8 @@ mod tests {
     #[test]
     fn test_extract_mypage_url_11_digit_trade_code() {
         // 実績: M25110817482 (11桁)
-        let body = "https://www.suruga-ya.jp/pcmypage/action_sell_search/detail?trade_code=M25110817482";
+        let body =
+            "https://www.suruga-ya.jp/pcmypage/action_sell_search/detail?trade_code=M25110817482";
         assert_eq!(
             extract_mypage_url(body),
             Some("https://www.suruga-ya.jp/pcmypage/action_sell_search/detail?trade_code=M25110817482".to_string())

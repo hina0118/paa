@@ -777,14 +777,12 @@ impl SqliteOrderRepository {
             .map_err(|e| format!("Failed to fetch html id: {e}"))?;
 
         // order_htmls に紐付けを登録（既存の場合は IGNORE）
-        sqlx::query(
-            r#"INSERT OR IGNORE INTO order_htmls(order_id, html_id) VALUES (?, ?)"#,
-        )
-        .bind(order_id)
-        .bind(html_id)
-        .execute(&mut **tx)
-        .await
-        .map_err(|e| format!("Failed to insert order_htmls: {e}"))?;
+        sqlx::query(r#"INSERT OR IGNORE INTO order_htmls(order_id, html_id) VALUES (?, ?)"#)
+            .bind(order_id)
+            .bind(html_id)
+            .execute(&mut **tx)
+            .await
+            .map_err(|e| format!("Failed to insert order_htmls: {e}"))?;
 
         Ok(())
     }

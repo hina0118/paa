@@ -23,10 +23,7 @@ use std::time::Duration;
 use sqlx::SqlitePool;
 use tauri::{AppHandle, Emitter, Listener, Manager, WebviewUrl, WebviewWindowBuilder};
 
-use crate::{
-    plugins::surugaya_mp::html_parser,
-    repository::SqliteOrderRepository,
-};
+use crate::{plugins::surugaya_mp::html_parser, repository::SqliteOrderRepository};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 状態管理
@@ -156,12 +153,32 @@ pub async fn start_surugaya_mypage_fetch(
     tokio::spawn(async move {
         let result = run_mypage_batch(&app_clone, &pool_clone, &win, &state_clone).await;
         state_clone.finish();
-        // 完了イベント（エラーメッセージを Some に、成功時は None を送信）
-        if let Err(ref e) = result {
-            log::error!("[surugaya_session] Batch failed: {e}");
+
+        #[derive(serde::Serialize)]
+        struct FetchCompletePayload {
+            cancelled: bool,
+            error: Option<String>,
         }
-        let error_msg: Option<String> = result.err();
-        let _ = app_clone.emit("surugaya:fetch_complete", error_msg);
+
+        let payload = match result {
+            Ok(cancelled) => {
+                if cancelled {
+                    log::info!("[surugaya_session] Batch cancelled by user");
+                }
+                FetchCompletePayload {
+                    cancelled,
+                    error: None,
+                }
+            }
+            Err(e) => {
+                log::error!("[surugaya_session] Batch failed: {e}");
+                FetchCompletePayload {
+                    cancelled: false,
+                    error: Some(e),
+                }
+            }
+        };
+        let _ = app_clone.emit("surugaya:fetch_complete", payload);
     });
 
     Ok(())
@@ -192,12 +209,13 @@ pub async fn get_surugaya_mypage_fetch_status(
 // バッチ実行ロジック
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// バッチ実行結果。`Ok(true)` = ユーザーによるキャンセル、`Ok(false)` = 正常完了。
 async fn run_mypage_batch(
     app: &AppHandle,
     pool: &SqlitePool,
     win: &tauri::WebviewWindow,
     state: &SurugayaSessionState,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     // pending な駿河屋マイページ URL を取得
     let pending: Vec<(i64, String)> = sqlx::query_as(
         "SELECT id, url FROM htmls \
@@ -215,7 +233,7 @@ async fn run_mypage_batch(
     for (i, (html_id, url)) in pending.into_iter().enumerate() {
         if state.should_cancel() {
             log::info!("[surugaya_session] Cancelled at {}/{}", i, total);
-            break;
+            return Ok(true);
         }
 
         // 進捗イベント
@@ -294,7 +312,7 @@ async fn run_mypage_batch(
         );
     }
 
-    Ok(())
+    Ok(false)
 }
 
 /// WebView を指定 URL にナビゲートし、マイページ HTML を受け取る
@@ -323,9 +341,7 @@ async fn fetch_one_html(
     });
 
     // WebView をナビゲート
-    let parsed_url: tauri::Url = url
-        .parse()
-        .map_err(|e: url::ParseError| e.to_string())?;
+    let parsed_url: tauri::Url = url.parse().map_err(|e: url::ParseError| e.to_string())?;
     win.navigate(parsed_url).map_err(|e| e.to_string())?;
 
     // HTML の受信を最大 30 秒待機
