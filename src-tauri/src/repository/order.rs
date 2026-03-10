@@ -762,22 +762,19 @@ impl SqliteOrderRepository {
         url: &str,
     ) -> Result<(), String> {
         // 同一 URL が既に htmls に存在する場合は INSERT しない（analysis_status を保護）
-        let existing_id: Option<i64> = sqlx::query_scalar("SELECT id FROM htmls WHERE url = ?")
+        // UNIQUE 制約付き url に対して SELECT→INSERT の2段階にすると並行実行時に競合する可能性があるため、
+        // まず INSERT OR IGNORE で挿入を試み、その後に id を取得する。
+        sqlx::query("INSERT OR IGNORE INTO htmls(url, analysis_status) VALUES (?, 'pending')")
             .bind(url)
-            .fetch_optional(&mut **tx)
+            .execute(&mut **tx)
             .await
-            .map_err(|e| format!("Failed to check htmls: {e}"))?;
+            .map_err(|e| format!("Failed to upsert htmls: {e}"))?;
 
-        let html_id = if let Some(id) = existing_id {
-            id
-        } else {
-            sqlx::query("INSERT INTO htmls(url, analysis_status) VALUES (?, 'pending')")
-                .bind(url)
-                .execute(&mut **tx)
-                .await
-                .map_err(|e| format!("Failed to insert htmls: {e}"))?
-                .last_insert_rowid()
-        };
+        let html_id: i64 = sqlx::query_scalar("SELECT id FROM htmls WHERE url = ?")
+            .bind(url)
+            .fetch_one(&mut **tx)
+            .await
+            .map_err(|e| format!("Failed to fetch html id: {e}"))?;
 
         // order_htmls に紐付けを登録（既存の場合は IGNORE）
         sqlx::query(
