@@ -750,6 +750,48 @@ impl SqliteOrderRepository {
         Ok(order_id)
     }
 
+    /// マイページ URL を `htmls` / `order_htmls` テーブルに登録する
+    ///
+    /// - `htmls` に URL を挿入（重複時は IGNORE）
+    /// - `order_htmls` に order_id と html_id を紐付け（重複時は IGNORE）
+    ///
+    /// 呼び出し元のトランザクション内で実行されるため、コミットは呼び出し元が行う。
+    pub(crate) async fn insert_html_url_for_order_in_tx(
+        tx: &mut sqlx::Transaction<'_, Sqlite>,
+        order_id: i64,
+        url: &str,
+    ) -> Result<(), String> {
+        // 同一 URL が既に htmls に存在する場合は INSERT しない（analysis_status を保護）
+        let existing_id: Option<i64> = sqlx::query_scalar("SELECT id FROM htmls WHERE url = ?")
+            .bind(url)
+            .fetch_optional(&mut **tx)
+            .await
+            .map_err(|e| format!("Failed to check htmls: {e}"))?;
+
+        let html_id = if let Some(id) = existing_id {
+            id
+        } else {
+            sqlx::query("INSERT INTO htmls(url, analysis_status) VALUES (?, 'pending')")
+                .bind(url)
+                .execute(&mut **tx)
+                .await
+                .map_err(|e| format!("Failed to insert htmls: {e}"))?
+                .last_insert_rowid()
+        };
+
+        // order_htmls に紐付けを登録（既存の場合は IGNORE）
+        sqlx::query(
+            r#"INSERT OR IGNORE INTO order_htmls(order_id, html_id) VALUES (?, ?)"#,
+        )
+        .bind(order_id)
+        .bind(html_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(|e| format!("Failed to insert order_htmls: {e}"))?;
+
+        Ok(())
+    }
+
     /// 指定注文の商品を削除し、order_info の商品で置き換える（分割完了の元注文更新用）
     pub(crate) async fn replace_items_for_order_in_tx(
         tx: &mut sqlx::Transaction<'_, Sqlite>,
