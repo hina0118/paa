@@ -497,15 +497,8 @@ impl BatchTask for DeliveryCheckTask {
                 "[DeliveryCheck] tracking_number='-' → delivered (delivery_id={})",
                 delivery_id
             );
-            insert_check_log(
-                &ctx.pool,
-                &input.tracking_number,
-                "not_found",
-                Some("delivered"),
-                Some("追跡番号なし（配達完了扱い）"),
-                None,
-            )
-            .await?;
+            // "-" は実際の追跡番号ではなく、tracking_check_logs.tracking_number の UNIQUE 制約に
+            // 抵触してログが上書きされてしまうため、この分岐ではログを記録せずステータス更新のみ行う。
             update_delivery_status(&ctx.pool, delivery_id, "delivered").await?;
             return Ok(DeliveryCheckOutput {
                 delivery_id,
