@@ -32,8 +32,8 @@ pub struct MypageOrderInfo {
 pub fn parse_mypage_html(html: &str) -> Result<MypageOrderInfo, String> {
     let document = Html::parse_document(html);
 
-    let trade_code = extract_trade_code(&document)
-        .ok_or_else(|| "取引番号が見つかりません".to_string())?;
+    let trade_code =
+        extract_trade_code(&document).ok_or_else(|| "取引番号が見つかりません".to_string())?;
 
     let order_date = extract_th_value(&document, "注文日").and_then(|s| parse_date_jp(&s));
     let subtotal = extract_th_value(&document, "商品合計").and_then(|s| parse_yen(&s));
@@ -364,7 +364,11 @@ mod tests {
         let result = parse_mypage_html(&sample_html()).unwrap();
         let di = result.order_info.delivery_info.as_ref().unwrap();
         assert!(di.carrier_url.is_some());
-        assert!(di.carrier_url.as_deref().unwrap().contains("kuronekoyamato"));
+        assert!(di
+            .carrier_url
+            .as_deref()
+            .unwrap()
+            .contains("kuronekoyamato"));
     }
 
     #[test]
