@@ -258,6 +258,16 @@ async fn run_mypage_batch(
         .await
         {
             log::warn!("[surugaya_session] save_order failed for {}: {e}", url);
+            // save_order_in_tx が失敗した場合は、このトランザクション全体をロールバックし、
+            // analysis_status を completed に更新しないようにする
+            if let Err(rollback_err) = tx.rollback().await {
+                log::error!(
+                    "[surugaya_session] Failed to rollback tx after save_order error for {}: {rollback_err}",
+                    url
+                );
+            }
+            // 現在処理中の HTML のみスキップし、次の HTML の処理を続行する
+            continue;
         }
 
         // htmls テーブルを更新（html_content 保存 + analysis_status = completed）
