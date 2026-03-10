@@ -100,6 +100,29 @@ const DELIVERY_STATUS_LABELS: Record<
 
 const ALL_FILTER = 'all';
 
+/** 配送業者グループ定義。新しい配送会社を追加する場合はここにエントリを追加する */
+const CARRIER_GROUPS: {
+  label: string;
+  matches: (carrier: string) => boolean;
+}[] = [
+  {
+    label: '日本郵便',
+    matches: (c) =>
+      c.includes('日本郵便') ||
+      c.includes('ゆうパック') ||
+      c.includes('ゆうパケット') ||
+      c.includes('ゆうメール'),
+  },
+  {
+    label: 'ヤマト運輸',
+    matches: (c) => c.includes('ヤマト') || c.includes('クロネコ'),
+  },
+];
+
+/** carrier がいずれかのグループに属するか調べる */
+const findCarrierGroup = (carrier: string) =>
+  CARRIER_GROUPS.find((g) => g.matches(carrier));
+
 // ---------------------------------------------------------------------------
 // DB query
 // ---------------------------------------------------------------------------
@@ -219,9 +242,17 @@ export function Delivery() {
 
   // --- Derived values ---
 
+  const allUniqueCarriers = Array.from(
+    new Set(rows.map((r) => r.carrier ?? '不明'))
+  );
   const carriers = [
     ALL_FILTER,
-    ...Array.from(new Set(rows.map((r) => r.carrier ?? '不明'))),
+    // データに存在するグループのみラベルを表示する
+    ...CARRIER_GROUPS.filter((g) => allUniqueCarriers.some(g.matches)).map(
+      (g) => g.label
+    ),
+    // どのグループにも属さない配送業者はそのまま表示する
+    ...allUniqueCarriers.filter((c) => !findCarrierGroup(c)),
   ];
   const statuses = [
     ALL_FILTER,
@@ -229,8 +260,17 @@ export function Delivery() {
   ];
 
   const filtered = rows.filter((r) => {
-    if (carrierFilter !== ALL_FILTER && (r.carrier ?? '不明') !== carrierFilter)
-      return false;
+    if (carrierFilter !== ALL_FILTER) {
+      const carrier = r.carrier ?? '不明';
+      const selectedGroup = CARRIER_GROUPS.find(
+        (g) => g.label === carrierFilter
+      );
+      if (selectedGroup) {
+        if (!selectedGroup.matches(carrier)) return false;
+      } else {
+        if (carrier !== carrierFilter) return false;
+      }
+    }
     if (statusFilter !== ALL_FILTER && r.deliveryStatus !== statusFilter)
       return false;
     return true;
