@@ -11,6 +11,11 @@ interface SurugayaFetchProgressPayload {
   url: string;
 }
 
+interface SurugayaFetchCompletePayload {
+  cancelled: boolean;
+  error: string | null;
+}
+
 function toProgress(
   payload: SurugayaFetchProgressPayload,
   isComplete: boolean
@@ -49,17 +54,22 @@ export function SurugayaSessionProvider({ children }: { children: ReactNode }) {
         }
       );
 
-      const unlistenComplete = await listen<string | null>(
+      const unlistenComplete = await listen<SurugayaFetchCompletePayload>(
         'surugaya:fetch_complete',
         (e) => {
           if (!isActive.current) return;
           setIsFetching(false);
-          const errorMsg = e.payload;
-          if (errorMsg) {
+          const { cancelled, error } = e.payload;
+          if (error) {
             setProgress((prev) =>
-              prev ? { ...prev, is_complete: true, error: errorMsg } : null
+              prev ? { ...prev, is_complete: true, error } : null
             );
-            toastError('駿河屋マイページ取得に失敗しました', errorMsg);
+            toastError('駿河屋マイページ取得に失敗しました', error);
+          } else if (cancelled) {
+            setProgress((prev) =>
+              prev ? { ...prev, is_complete: true } : null
+            );
+            // キャンセル時はトースト非表示
           } else {
             setProgress((prev) =>
               prev ? { ...prev, is_complete: true } : null
