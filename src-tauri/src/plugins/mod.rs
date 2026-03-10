@@ -18,6 +18,7 @@ pub mod hobbysearch;
 pub mod kids_dragon;
 pub mod premium_bandai;
 pub mod sagawa;
+pub mod surugaya;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // inventory による自動登録
@@ -444,6 +445,15 @@ mod tests {
             "amiami_cancel",
         ];
         for pt in &amiami_types {
+            assert!(find_plugin(&registry, pt).is_some(), "No plugin for {}", pt);
+        }
+    }
+
+    #[test]
+    fn test_all_surugaya_parser_types_have_plugin() {
+        let registry = build_registry();
+        let surugaya_types = ["surugaya_confirm", "surugaya_send"];
+        for pt in &surugaya_types {
             assert!(find_plugin(&registry, pt).is_some(), "No plugin for {}", pt);
         }
     }
