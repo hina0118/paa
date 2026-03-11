@@ -9,11 +9,13 @@
 
 pub mod client;
 pub mod config;
+pub mod ocr;
 pub mod product_parse_task;
 pub mod product_parser;
 
 pub use client::{GeminiClient, GeminiClientTrait, ParsedProduct};
 pub use config::{has_api_key, load_api_key};
+pub use ocr::ocr_image_bytes;
 pub use product_parse_task::{
     create_input as create_product_parse_input, ProductNameParseCache, ProductNameParseContext,
     ProductNameParseInput, ProductNameParseOutput, ProductNameParseTask,

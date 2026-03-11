@@ -42,7 +42,32 @@ import { listen } from '@tauri-apps/api/event';
 import { Toaster } from 'sonner';
 
 function AppContent() {
-  const { currentScreen } = useNavigation();
+  const { currentScreen, setCurrentScreen, setPendingOcrQuery } =
+    useNavigation();
+
+  // ocr-result イベント: OCR結果を受信 → 商品一覧画面へ遷移
+  useEffect(() => {
+    const isActive = { current: true };
+    let unlisten: (() => void) | null = null;
+
+    listen<string>('ocr-result', (event) => {
+      if (!isActive.current) return;
+      setPendingOcrQuery(event.payload);
+      setCurrentScreen('orders');
+    })
+      .then((fn) => {
+        if (!isActive.current) fn();
+        else unlisten = fn;
+      })
+      .catch((e) => {
+        console.error('Failed to set up ocr-result listener:', e);
+      });
+
+    return () => {
+      isActive.current = false;
+      unlisten?.();
+    };
+  }, [setCurrentScreen, setPendingOcrQuery]);
 
   const renderScreen = () => {
     switch (currentScreen) {

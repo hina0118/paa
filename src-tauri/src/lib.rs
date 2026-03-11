@@ -5,6 +5,7 @@ use std::sync::Arc;
 use tauri::menu::{Menu, MenuItem, Submenu};
 use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Listener, Manager};
+use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
 use tauri_plugin_sql::{Migration, MigrationKind};
 use tokio::sync::Notify;
 
@@ -51,6 +52,7 @@ pub fn run() {
     };
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -302,6 +304,7 @@ pub fn run() {
 
             // Setup system tray
             let show_item = MenuItem::with_id(app, "show", "表示", true, None::<&str>)?;
+            let ocr_search_item = MenuItem::with_id(app, "tray_ocr_search", "画面OCR検索 (Ctrl+Shift+O)", true, None::<&str>)?;
             let sync_item = MenuItem::with_id(app, "tray_sync", "Gmail同期（全件）", true, None::<&str>)?;
             let incremental_sync_item =
                 MenuItem::with_id(app, "tray_incremental_sync", "Gmail同期（差分）", true, None::<&str>)?;
@@ -347,7 +350,7 @@ pub fn run() {
                 &[&sync_item, &incremental_sync_item, &parse_item, &product_item, &delivery_check_item, &scheduler_toggle_item],
             )?;
             let quit_item = MenuItem::with_id(app, "quit", "終了", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_item, &batch_submenu, &quit_item])?;
+            let menu = Menu::with_items(app, &[&show_item, &ocr_search_item, &batch_submenu, &quit_item])?;
 
             // Initialize tray icon builder and set icon if available to avoid panics
             let mut tray_builder = TrayIconBuilder::with_id("main");
@@ -369,6 +372,14 @@ pub fn run() {
                             let _ = window.show();
                             let _ = window.set_focus();
                         }
+                    }
+                    "tray_ocr_search" => {
+                        let app_clone = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            if let Err(e) = commands::show_screen_overlay(app_clone).await {
+                                log::error!("Failed to show screen overlay from tray: {e}");
+                            }
+                        });
                     }
                     "tray_sync" => {
                         if let (Some(pool), Some(sync_state)) = (
@@ -570,6 +581,20 @@ pub fn run() {
                 }
             });
 
+            // グローバルショートカット登録: Ctrl+Shift+O → 画面OCR検索
+            let shortcut = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyO);
+            let app_handle_for_shortcut = app.handle().clone();
+            app.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, _event| {
+                let app_clone = app_handle_for_shortcut.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = commands::show_screen_overlay(app_clone).await {
+                        log::error!("Failed to show screen overlay via shortcut: {e}");
+                    }
+                });
+            }).map_err(|e| format!("Failed to register global shortcut: {e}"))?;
+
+            log::info!("Global shortcut Ctrl+Shift+O registered for OCR search");
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -646,6 +671,9 @@ pub fn run() {
             commands::start_surugaya_mypage_fetch,
             commands::cancel_surugaya_mypage_fetch,
             commands::get_surugaya_mypage_fetch_status,
+            commands::show_screen_overlay,
+            commands::close_screen_overlay,
+            commands::capture_and_ocr,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

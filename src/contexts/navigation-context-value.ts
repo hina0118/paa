@@ -30,6 +30,8 @@ export type Screen =
 export type NavigationContextType = {
   currentScreen: Screen;
   setCurrentScreen: (screen: Screen) => void;
+  pendingOcrQuery: string | null;
+  setPendingOcrQuery: (query: string | null) => void;
 };
 
 export const NavigationContext = createContext<
