@@ -26,8 +26,8 @@ pub async fn ocr_image_bytes(api_key: &str, image_bytes: &[u8]) -> Result<String
         "contents": [{
             "parts": [
                 {
-                    "inline_data": {
-                        "mime_type": "image/png",
+                    "inlineData": {
+                        "mimeType": "image/png",
                         "data": image_base64
                     }
                 },
