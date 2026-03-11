@@ -66,23 +66,22 @@ pub async fn ocr_image_bytes(api_key: &str, image_bytes: &[u8]) -> Result<String
         .body(body)
         .map_err(|e| format!("Failed to build request: {e}"))?;
 
-    let result =
-        tokio::time::timeout(Duration::from_secs(OCR_TIMEOUT_SECS), async {
-            let response = http_client
-                .request(req)
-                .await
-                .map_err(|e| format!("Request failed: {e}"))?;
-            let status = response.status();
-            let body_bytes = response
-                .into_body()
-                .collect()
-                .await
-                .map_err(|e| format!("Failed to read body: {e}"))?
-                .to_bytes();
-            Ok::<_, String>((status, body_bytes))
-        })
-        .await
-        .map_err(|_| format!("OCR request timed out after {OCR_TIMEOUT_SECS}s"))??;
+    let result = tokio::time::timeout(Duration::from_secs(OCR_TIMEOUT_SECS), async {
+        let response = http_client
+            .request(req)
+            .await
+            .map_err(|e| format!("Request failed: {e}"))?;
+        let status = response.status();
+        let body_bytes = response
+            .into_body()
+            .collect()
+            .await
+            .map_err(|e| format!("Failed to read body: {e}"))?
+            .to_bytes();
+        Ok::<_, String>((status, body_bytes))
+    })
+    .await
+    .map_err(|_| format!("OCR request timed out after {OCR_TIMEOUT_SECS}s"))??;
 
     let (status, body_bytes) = result;
     if !status.is_success() {
