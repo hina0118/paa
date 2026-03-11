@@ -1,4 +1,11 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  type MouseEvent,
+  type CSSProperties,
+} from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
@@ -46,7 +53,7 @@ export function ScreenOverlay() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [closeOverlay]);
 
-  const handleMouseDown = (e: React.MouseEvent) => {
+  const handleMouseDown = (e: MouseEvent) => {
     if (state !== 'selecting') return;
     e.preventDefault();
     isDragging.current = true;
@@ -59,14 +66,14 @@ export function ScreenOverlay() {
     });
   };
 
-  const handleMouseMove = (e: React.MouseEvent) => {
+  const handleMouseMove = (e: MouseEvent) => {
     if (!isDragging.current || state !== 'selecting') return;
     setSelection((prev) =>
       prev ? { ...prev, endX: e.clientX, endY: e.clientY } : null
     );
   };
 
-  const handleMouseUp = async (e: React.MouseEvent) => {
+  const handleMouseUp = async (e: MouseEvent) => {
     if (!isDragging.current || state !== 'selecting') return;
     isDragging.current = false;
 
@@ -114,7 +121,7 @@ export function ScreenOverlay() {
     }
   };
 
-  const selectionStyle = (): React.CSSProperties => {
+  const selectionStyle = (): CSSProperties => {
     if (!selection) return { display: 'none' };
     const { x, y, width, height } = normalizeRect(selection);
     return {
