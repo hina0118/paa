@@ -3,9 +3,17 @@ import { type Screen, NavigationContext } from './navigation-context-value';
 
 export function NavigationProvider({ children }: { children: ReactNode }) {
   const [currentScreen, setCurrentScreen] = useState<Screen>('orders');
+  const [pendingOcrQuery, setPendingOcrQuery] = useState<string | null>(null);
 
   return (
-    <NavigationContext.Provider value={{ currentScreen, setCurrentScreen }}>
+    <NavigationContext.Provider
+      value={{
+        currentScreen,
+        setCurrentScreen,
+        pendingOcrQuery,
+        setPendingOcrQuery,
+      }}
+    >
       {children}
     </NavigationContext.Provider>
   );
