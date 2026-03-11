@@ -4,12 +4,10 @@ import userEvent from '@testing-library/user-event';
 import { Toaster } from 'sonner';
 import { ImageSearchDialog } from './image-search-dialog';
 import { mockInvoke } from '@/test/setup';
-import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { openUrl } from '@tauri-apps/plugin-opener';
 
-vi.mock('@tauri-apps/api/webviewWindow', () => ({
-  WebviewWindow: vi.fn().mockImplementation(() => ({
-    once: vi.fn(),
-  })),
+vi.mock('@tauri-apps/plugin-opener', () => ({
+  openUrl: vi.fn(),
 }));
 
 const renderWithToaster = (ui: React.ReactElement) =>
@@ -32,9 +30,6 @@ describe('ImageSearchDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockInvoke.mockResolvedValue(undefined);
-    vi.mocked(WebviewWindow).mockImplementation(() => ({
-      once: vi.fn(),
-    }));
   });
 
   it('renders dialog when open', () => {
@@ -291,7 +286,7 @@ describe('ImageSearchDialog', () => {
     });
   });
 
-  it('shows fallback message and opens sub-window when API search fails', async () => {
+  it('shows fallback message and opens browser when API search fails', async () => {
     const user = userEvent.setup();
     mockInvoke.mockRejectedValue(new Error('API limit reached'));
 
@@ -305,25 +300,21 @@ describe('ImageSearchDialog', () => {
     await waitFor(() => {
       expect(
         screen.getByText(
-          /結果が見つからない場合もサブウィンドウでGoogle画像検索を開き/
+          /結果が見つからない場合もブラウザでGoogle画像検索を開き/
         )
       ).toBeInTheDocument();
     });
 
     const browserButton = screen.getByRole('button', {
-      name: /サブウィンドウでGoogle画像検索を開く/,
+      name: /ブラウザでGoogle画像検索を開く/,
     });
     await user.click(browserButton);
 
-    expect(WebviewWindow).toHaveBeenCalledWith(
-      expect.stringMatching(/^image-search-.+$/),
-      expect.objectContaining({
-        url: 'https://www.google.com/search?q=%E3%83%86%E3%82%B9%E3%83%88%E5%95%86%E5%93%81&tbm=isch',
-        title: 'Google画像検索: テスト商品',
-        width: 900,
-        height: 700,
-      })
-    );
+    await waitFor(() => {
+      expect(vi.mocked(openUrl)).toHaveBeenCalledWith(
+        'https://www.google.com/search?q=%E3%83%86%E3%82%B9%E3%83%88%E5%95%86%E5%93%81&tbm=isch'
+      );
+    });
   });
 
   it('saves image from manual URL input', async () => {
