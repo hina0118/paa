@@ -584,17 +584,18 @@ pub fn run() {
             // グローバルショートカット登録: Ctrl+Shift+O → 画面OCR検索
             let shortcut = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyO);
             let app_handle_for_shortcut = app.handle().clone();
-            app.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, _event| {
+            if let Err(e) = app.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, _event| {
                 let app_clone = app_handle_for_shortcut.clone();
                 tauri::async_runtime::spawn(async move {
                     if let Err(e) = commands::show_screen_overlay(app_clone).await {
                         log::error!("Failed to show screen overlay via shortcut: {e}");
                     }
                 });
-            }).map_err(|e| format!("Failed to register global shortcut: {e}"))?;
-
-            log::info!("Global shortcut Ctrl+Shift+O registered for OCR search");
-
+            }) {
+                log::warn!("Failed to register global shortcut: {e}");
+            } else {
+                log::info!("Global shortcut Ctrl+Shift+O registered for OCR search");
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
