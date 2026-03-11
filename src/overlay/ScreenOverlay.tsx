@@ -106,6 +106,11 @@ export function ScreenOverlay() {
       const physW = Math.round(width * factor);
       const physH = Math.round(height * factor);
 
+      // キャプチャ前にオーバーレイを非表示にしてスクリーンショットへの写り込みを防ぐ
+      await win.hide();
+      // OSが再描画するまで待機
+      await new Promise((resolve) => setTimeout(resolve, 150));
+
       await invoke('capture_and_ocr', {
         x: physX,
         y: physY,
