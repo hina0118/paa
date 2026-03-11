@@ -11,6 +11,7 @@ import { OrderItemCard } from '@/components/orders/order-item-card';
 import { OrderItemRowView } from '@/components/orders/order-item-row';
 import { OrderItemDrawer } from '@/components/orders/order-item-drawer';
 import type { OrderItemRow } from '@/lib/types';
+import { useNavigation } from '@/contexts/use-navigation';
 
 const SEARCH_DEBOUNCE_MS = 300;
 const CARD_MIN_WIDTH = 200;
@@ -23,9 +24,19 @@ const CARD_ROW_PADDING_AND_GAP = 16 + 16;
 const LIST_ROW_HEIGHT = 80;
 
 export function Orders() {
+  const { pendingOcrQuery, setPendingOcrQuery } = useNavigation();
+
   // 検索: デバウンス付き
   const { searchInput, searchDebounced, setSearchInput, clearSearch } =
     useDebouncedSearch(SEARCH_DEBOUNCE_MS);
+
+  // OCR クエリが渡された場合は検索ボックスにセット
+  useEffect(() => {
+    if (pendingOcrQuery !== null) {
+      setSearchInput(pendingOcrQuery);
+      setPendingOcrQuery(null);
+    }
+  }, [pendingOcrQuery, setSearchInput, setPendingOcrQuery]);
 
   // フィルタ: shopDomain, year, priceMin, priceMax + ドロップダウン選択肢
   const { filters, setFilter, clearFilters, filterOptions } = useOrderFilters();

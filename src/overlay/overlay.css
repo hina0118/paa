@@ -1,0 +1,24 @@
+/* オーバーレイウィンドウ専用スタイル
+ * index.css の bg-background (不透明色) を適用しないように独立した CSS を使用する
+ */
+
+/* Tailwind ユーティリティのみ（base は含めない: body 背景色の上書きを避けるため） */
+@tailwind utilities;
+
+/* ウィンドウとボディを透明にする */
+html,
+body,
+#overlay-root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent !important;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
