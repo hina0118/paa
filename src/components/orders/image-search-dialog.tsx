@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import {
   Dialog,
   DialogContent,
@@ -95,25 +95,12 @@ export function ImageSearchDialog({
     }
   }, [itemName]);
 
-  const handleOpenBrowserSearch = useCallback(() => {
+  const handleOpenBrowserSearch = useCallback(async () => {
     const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(itemName)}&tbm=isch`;
-    const uniqueSuffix =
-      typeof crypto !== 'undefined' && 'randomUUID' in crypto
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const label = `image-search-${uniqueSuffix}`;
     try {
-      const webview = new WebviewWindow(label, {
-        url: searchUrl,
-        title: `Google画像検索: ${itemName}`,
-        width: 900,
-        height: 700,
-      });
-      webview.once('tauri://error', (e) => {
-        toastError(`サブウィンドウを開けませんでした: ${formatError(e)}`);
-      });
+      await openUrl(searchUrl);
     } catch (err) {
-      toastError(`サブウィンドウを開けませんでした: ${formatError(err)}`);
+      toastError(`ブラウザを開けませんでした: ${formatError(err)}`);
     }
   }, [itemName]);
 
@@ -297,7 +284,7 @@ export function ImageSearchDialog({
           <div className="space-y-3 pt-3 border-t">
             {apiSearchFailed && (
               <p className="text-sm text-muted-foreground">
-                結果が見つからない場合もサブウィンドウでGoogle画像検索を開き、画像を選択してURLを貼り付けて登録できます。
+                結果が見つからない場合もブラウザでGoogle画像検索を開き、画像を選択してURLを貼り付けて登録できます。
               </p>
             )}
             <div className="flex flex-col sm:flex-row gap-2">
@@ -307,7 +294,7 @@ export function ImageSearchDialog({
                 className="flex-shrink-0"
               >
                 <ExternalLink className="mr-2 h-4 w-4" />
-                サブウィンドウでGoogle画像検索を開く
+                ブラウザでGoogle画像検索を開く
               </Button>
               <div className="flex-1 min-w-0">
                 <Input
