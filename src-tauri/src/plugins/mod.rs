@@ -19,6 +19,7 @@ pub mod kids_dragon;
 pub mod premium_bandai;
 pub mod sagawa;
 pub mod surugaya;
+pub mod surugaya_mp;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // inventory による自動登録
@@ -454,6 +455,15 @@ mod tests {
         let registry = build_registry();
         let surugaya_types = ["surugaya_confirm", "surugaya_send"];
         for pt in &surugaya_types {
+            assert!(find_plugin(&registry, pt).is_some(), "No plugin for {}", pt);
+        }
+    }
+
+    #[test]
+    fn test_all_surugaya_mp_parser_types_have_plugin() {
+        let registry = build_registry();
+        let surugaya_mp_types = ["surugaya_mp_confirm", "surugaya_mp_send"];
+        for pt in &surugaya_mp_types {
             assert!(find_plugin(&registry, pt).is_some(), "No plugin for {}", pt);
         }
     }

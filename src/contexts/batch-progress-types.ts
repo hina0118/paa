@@ -41,6 +41,7 @@ export const TASK_NAMES = {
   EMAIL_PARSE: 'メールパース',
   PRODUCT_NAME_PARSE: '商品名パース',
   DELIVERY_CHECK: '配送状況確認',
+  SURUGAYA_MYPAGE_FETCH: '駿河屋マイページ取得',
 } as const;
 
 /**
