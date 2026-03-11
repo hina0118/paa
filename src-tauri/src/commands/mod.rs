@@ -10,6 +10,7 @@ pub mod product_master;
 pub mod product_parse;
 pub mod shop_settings;
 pub mod stats;
+pub mod surugaya_session;
 pub mod sync;
 pub mod window;
 
@@ -25,5 +26,6 @@ pub use product_master::*;
 pub use product_parse::*;
 pub use shop_settings::*;
 pub use stats::*;
+pub use surugaya_session::*;
 pub use sync::*;
 pub use window::*;

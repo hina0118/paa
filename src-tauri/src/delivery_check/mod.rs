@@ -491,6 +491,21 @@ impl BatchTask for DeliveryCheckTask {
             input.tracking_number
         );
 
+        // 追跡番号が "-" の場合は番号未発番のまま更新がないと判断し、配達完了扱いにする
+        if input.tracking_number.trim() == "-" {
+            log::info!(
+                "[DeliveryCheck] tracking_number='-' → delivered (delivery_id={})",
+                delivery_id
+            );
+            // "-" は実際の追跡番号ではなく、tracking_check_logs.tracking_number の UNIQUE 制約に
+            // 抵触してログが上書きされてしまうため、この分岐ではログを記録せずステータス更新のみ行う。
+            update_delivery_status(&ctx.pool, delivery_id, "delivered").await?;
+            return Ok(DeliveryCheckOutput {
+                delivery_id,
+                check_status: "not_found".to_string(),
+            });
+        }
+
         // 追跡URL が構築できない業者はスキップ（check_status = not_found 扱い）
         let Some(url) = build_tracking_url(&input.carrier, &input.tracking_number) else {
             log::warn!(
@@ -649,6 +664,15 @@ mod tests {
         let result = parse_tracking_html("佐川急便", html);
         assert_eq!(result.check_status, "not_found");
         assert_eq!(result.delivery_status, "delivered");
+    }
+
+    #[test]
+    fn test_tracking_number_hyphen_is_no_number() {
+        // "-" はハイフン（追跡番号なし）を表す — build_tracking_url に渡る前に弾かれるべきだが、
+        // 仮に渡された場合でも URL が構築されることを確認（ガード漏れへの防御）
+        let url = build_tracking_url("ヤマト運輸（クロネコ）", "-");
+        // ヤマト運輸は POST URL を返す（パラメータなし）
+        assert!(url.is_some());
     }
 
     #[test]

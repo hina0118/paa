@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useSync } from '@/contexts/use-sync';
 import { useParse } from '@/contexts/use-parse';
 import { useDeliveryCheck } from '@/contexts/use-delivery-check';
+import { useSurugayaSession } from '@/contexts/use-surugaya-session';
 import { useNavigation } from '@/contexts/use-navigation';
 import { toastError, formatError } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
@@ -21,6 +22,13 @@ export function Batch() {
     startDeliveryCheck,
     cancelDeliveryCheck,
   } = useDeliveryCheck();
+  const {
+    isFetching,
+    progress: surugayaProgress,
+    openLoginWindow,
+    startFetch,
+    cancelFetch,
+  } = useSurugayaSession();
   const {
     isSyncing,
     progress: syncProgress,
@@ -112,6 +120,35 @@ export function Batch() {
       await cancelDeliveryCheck();
     } catch (err) {
       toastError(`配送状況確認の中止に失敗しました: ${formatError(err)}`);
+    }
+  };
+
+  // --- Surugaya mypage fetch handlers ---
+  const handleOpenSurugayaLogin = async () => {
+    try {
+      await openLoginWindow();
+    } catch (err) {
+      toastError(`ログインウィンドウの起動に失敗しました: ${formatError(err)}`);
+    }
+  };
+
+  const handleStartSurugayaFetch = async () => {
+    try {
+      await startFetch();
+    } catch (err) {
+      toastError(
+        `駿河屋マイページ取得の開始に失敗しました: ${formatError(err)}`
+      );
+    }
+  };
+
+  const handleCancelSurugayaFetch = async () => {
+    try {
+      await cancelFetch();
+    } catch (err) {
+      toastError(
+        `駿河屋マイページ取得の中止に失敗しました: ${formatError(err)}`
+      );
     }
   };
 
@@ -265,6 +302,41 @@ export function Batch() {
             未対応の配送業者の場合は、その旨をチェック結果として記録し、配送ステータスは変更しません。
             バッチ間に3秒のインターバルを設けています。
           </p>
+        }
+      />
+
+      {/* 5. 駿河屋マイページHTML取得 */}
+      <BatchSection
+        title="5. 駿河屋マイページHTML取得"
+        controlTitle="マイページ取得コントロール"
+        controlDescription="駿河屋マイページにアクセスして注文HTMLを取得します"
+        isRunning={isFetching}
+        progress={surugayaProgress}
+        onStart={handleStartSurugayaFetch}
+        onCancel={handleCancelSurugayaFetch}
+        startLabel="取得開始"
+        runningLabel="取得中..."
+        startDisabled={
+          isSyncing || isParsing || isProductNameParsing || isChecking
+        }
+        completeMessage="マイページHTML取得が完了しました"
+        progressTitle="取得進捗"
+        showBatchNumber={false}
+        showCounts={false}
+        extraContent={
+          <div className="space-y-2">
+            <Button
+              onClick={handleOpenSurugayaLogin}
+              disabled={isFetching}
+              variant="outline"
+              size="sm"
+            >
+              ログインウィンドウを開く
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              まずログインウィンドウを開いて駿河屋にログインしてから、取得開始を押してください。
+            </p>
+          </div>
         }
       />
 

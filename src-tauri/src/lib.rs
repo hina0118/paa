@@ -211,6 +211,10 @@ pub fn run() {
             app.manage(commands::DeliveryCheckState::new());
             log::info!("Delivery check state initialized");
 
+            // Initialize surugaya session state
+            app.manage(commands::SurugayaSessionState::new());
+            log::info!("Surugaya session state initialized");
+
             // Initialize and start scheduler
             {
                 let scheduler_config = config::load(&app_config_dir)
@@ -638,6 +642,10 @@ pub fn run() {
             commands::get_scheduler_config,
             commands::update_scheduler_interval,
             commands::update_scheduler_enabled,
+            commands::open_surugaya_login_window,
+            commands::start_surugaya_mypage_fetch,
+            commands::cancel_surugaya_mypage_fetch,
+            commands::get_surugaya_mypage_fetch_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

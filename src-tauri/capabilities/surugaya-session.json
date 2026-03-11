@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "surugaya-session",
+  "description": "Capability for the surugaya-session window (mypage fetching). Allows suruga-ya.jp pages to emit Tauri events so the on_page_load handler can pass HTML back to Rust.",
+  "windows": ["surugaya-session"],
+  "remote": {
+    "urls": ["https://*.suruga-ya.jp/*"]
+  },
+  "local": false,
+  "permissions": ["core:event:allow-emit"]
+}
