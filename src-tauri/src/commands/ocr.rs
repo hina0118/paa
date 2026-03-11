@@ -82,9 +82,8 @@ pub async fn capture_and_ocr(
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to get app data dir: {e}"))?;
-    let api_key = crate::gemini::config::load_api_key(&app_data_dir).map_err(|e| {
-        format!("Gemini APIキーの読み込みに失敗しました: {e}")
-    })?;
+    let api_key = crate::gemini::config::load_api_key(&app_data_dir)
+        .map_err(|e| format!("Gemini APIキーの読み込みに失敗しました: {e}"))?;
 
     let text = crate::gemini::ocr_image_bytes(&api_key, &png_bytes).await?;
 
