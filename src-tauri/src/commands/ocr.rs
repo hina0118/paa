@@ -126,8 +126,18 @@ fn capture_region(x: i32, y: i32, width: u32, height: u32) -> Result<Vec<u8>, St
     let rel_x = (x - monitor.x()).max(0) as u32;
     let rel_y = (y - monitor.y()).max(0) as u32;
 
+    // クロップ範囲が画像サイズを超えないようにクランプ
+    let img_width = full_image.width();
+    let img_height = full_image.height();
+    let crop_width = width.min(img_width.saturating_sub(rel_x));
+    let crop_height = height.min(img_height.saturating_sub(rel_y));
+
+    if crop_width == 0 || crop_height == 0 {
+        return Err("Capture region is outside monitor bounds".to_string());
+    }
+
     let dynamic_img = DynamicImage::ImageRgba8(full_image);
-    let cropped = dynamic_img.crop_imm(rel_x, rel_y, width, height);
+    let cropped = dynamic_img.crop_imm(rel_x, rel_y, crop_width, crop_height);
 
     let mut png_bytes: Vec<u8> = Vec::new();
     cropped
