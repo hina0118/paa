@@ -344,12 +344,27 @@ pub fn run() {
                 true,
                 None::<&str>,
             )?;
+            let full_parse_item = MenuItem::with_id(
+                app,
+                "tray_full_parse_pipeline",
+                "一括パース実行",
+                true,
+                None::<&str>,
+            )?;
             let batch_submenu = Submenu::with_id_and_items(
                 app,
                 "batch",
                 "バッチ処理",
                 true,
-                &[&sync_item, &incremental_sync_item, &parse_item, &product_item, &delivery_check_item, &scheduler_toggle_item],
+                &[
+                    &full_parse_item,
+                    &sync_item,
+                    &incremental_sync_item,
+                    &parse_item,
+                    &product_item,
+                    &delivery_check_item,
+                    &scheduler_toggle_item,
+                ],
             )?;
             let quit_item = MenuItem::with_id(app, "quit", "終了", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_item, &ocr_search_item, &batch_submenu, &quit_item])?;
@@ -497,6 +512,19 @@ pub fn run() {
                         } else {
                             log::warn!(
                                 "Cannot run tray delivery check: pool or check_state not initialized"
+                            );
+                        }
+                    }
+                    "tray_full_parse_pipeline" => {
+                        if let Some(pool) = app.try_state::<SqlitePool>() {
+                            let app_clone = app.clone();
+                            let pool_clone = pool.inner().clone();
+                            tauri::async_runtime::spawn(
+                                orchestration::run_full_parse_pipeline(app_clone, pool_clone),
+                            );
+                        } else {
+                            log::warn!(
+                                "Cannot run tray full parse pipeline: pool not initialized"
                             );
                         }
                     }
