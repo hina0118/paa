@@ -3,6 +3,8 @@ import { useSync } from '@/contexts/use-sync';
 import { useParse } from '@/contexts/use-parse';
 import { useDeliveryCheck } from '@/contexts/use-delivery-check';
 import { useSurugayaSession } from '@/contexts/use-surugaya-session';
+import { useFullParsePipeline } from '@/contexts/use-full-parse-pipeline';
+import { PIPELINE_STEP_LABELS } from '@/contexts/full-parse-pipeline-context-value';
 import { useNavigation } from '@/contexts/use-navigation';
 import { toastError, formatError } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
@@ -13,7 +15,7 @@ import {
 } from '@/components/ui/status-badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { PageHeader } from '@/components/ui/page-header';
-import { Layers } from 'lucide-react';
+import { Layers, PlayCircle } from 'lucide-react';
 
 export function Batch() {
   const {
@@ -51,6 +53,11 @@ export function Batch() {
     geminiApiKeyStatus,
   } = useParse();
   const { setCurrentScreen } = useNavigation();
+  const {
+    isRunning: isPipelineRunning,
+    currentStep: pipelineCurrentStep,
+    startPipeline,
+  } = useFullParsePipeline();
 
   useEffect(() => {
     refreshSyncStatus();
@@ -123,6 +130,15 @@ export function Batch() {
     }
   };
 
+  // --- Full parse pipeline handler ---
+  const handleStartPipeline = async () => {
+    try {
+      await startPipeline();
+    } catch (err) {
+      toastError(`一括パースの開始に失敗しました: ${formatError(err)}`);
+    }
+  };
+
   // --- Surugaya mypage fetch handlers ---
   const handleOpenSurugayaLogin = async () => {
     try {
@@ -156,6 +172,42 @@ export function Batch() {
     <div className="container mx-auto pt-0 pb-10 px-6 space-y-6">
       <PageHeader title="バッチ処理" icon={Layers} />
 
+      {/* 0. 一括パース実行 */}
+      <Card className="border-primary/30 bg-primary/5">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-primary">
+            <PlayCircle className="h-5 w-5" />
+            一括パース実行
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            メールパース → 駿河屋HTMLパース → 商品名解析 → 配送状況確認
+            をまとめて順番に実行します。
+            各ステップの成否に関わらず次のステップへ進みます。
+          </p>
+          {isPipelineRunning && pipelineCurrentStep && (
+            <p className="text-sm font-medium text-primary">
+              実行中: {PIPELINE_STEP_LABELS[pipelineCurrentStep]}...
+            </p>
+          )}
+          <Button
+            onClick={handleStartPipeline}
+            disabled={
+              isPipelineRunning ||
+              isSyncing ||
+              isParsing ||
+              isProductNameParsing ||
+              isChecking ||
+              isFetching
+            }
+            className="w-full sm:w-auto"
+          >
+            {isPipelineRunning ? '実行中...' : '一括パースを実行'}
+          </Button>
+        </CardContent>
+      </Card>
+
       {/* 1. Gmail同期 */}
       <BatchSection
         title="1. Gmail同期"
@@ -169,7 +221,7 @@ export function Batch() {
         cancelLabel="中止"
         startLabel="差分同期"
         runningLabel="同期中..."
-        startDisabled={isParsing || isProductNameParsing}
+        startDisabled={isPipelineRunning || isParsing || isProductNameParsing}
         completeMessage="同期が完了しました"
         showBatchNumber
         showCounts={false}
@@ -180,7 +232,12 @@ export function Batch() {
           <div className="space-y-2">
             <Button
               onClick={handleStartSync}
-              disabled={isSyncing || isParsing || isProductNameParsing}
+              disabled={
+                isPipelineRunning ||
+                isSyncing ||
+                isParsing ||
+                isProductNameParsing
+              }
               variant="outline"
               size="sm"
             >
@@ -205,7 +262,7 @@ export function Batch() {
         onCancel={handleCancelParse}
         startLabel="パースを開始"
         runningLabel="パース中..."
-        startDisabled={isSyncing || isProductNameParsing}
+        startDisabled={isPipelineRunning || isSyncing || isProductNameParsing}
         completeMessage="パースが完了しました"
         progressTitle="パース進捗"
         status={parseMetadata?.parse_status}
@@ -255,7 +312,10 @@ export function Batch() {
         startLabel="商品名を解析"
         runningLabel="解析中..."
         startDisabled={
-          isSyncing || isParsing || geminiApiKeyStatus !== 'available'
+          isPipelineRunning ||
+          isSyncing ||
+          isParsing ||
+          geminiApiKeyStatus !== 'available'
         }
         completeMessage="商品名解析が完了しました"
         progressTitle="解析進捗"
@@ -292,7 +352,9 @@ export function Batch() {
         onCancel={handleCancelDeliveryCheck}
         startLabel="配送状況を確認"
         runningLabel="確認中..."
-        startDisabled={isSyncing || isParsing || isProductNameParsing}
+        startDisabled={
+          isPipelineRunning || isSyncing || isParsing || isProductNameParsing
+        }
         completeMessage="配送状況確認が完了しました"
         progressTitle="確認進捗"
         extraContent={
@@ -317,7 +379,11 @@ export function Batch() {
         startLabel="取得開始"
         runningLabel="取得中..."
         startDisabled={
-          isSyncing || isParsing || isProductNameParsing || isChecking
+          isPipelineRunning ||
+          isSyncing ||
+          isParsing ||
+          isProductNameParsing ||
+          isChecking
         }
         completeMessage="マイページHTML取得が完了しました"
         progressTitle="取得進捗"
