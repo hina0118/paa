@@ -35,13 +35,13 @@ impl SurugayaSessionState {
         Self::default()
     }
 
-    fn try_start(&self) -> Result<(), String> {
+    pub(crate) fn try_start(&self) -> Result<(), String> {
         self.0
             .try_start()
             .map_err(|_| "マイページ取得は既に実行中です。".to_string())
     }
 
-    fn finish(&self) {
+    pub(crate) fn finish(&self) {
         self.0.finish();
     }
 
@@ -195,7 +195,10 @@ pub async fn get_surugaya_mypage_fetch_status(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// バッチ実行結果。`Ok(true)` = ユーザーによるキャンセル、`Ok(false)` = 正常完了。
-async fn run_mypage_batch(
+///
+/// パイプラインステップ（`orchestration::pipeline_steps::run_surugaya_step`）から
+/// も呼び出されるため `pub(crate)` としている。
+pub(crate) async fn run_mypage_batch(
     app: &AppHandle,
     pool: &SqlitePool,
     win: &tauri::WebviewWindow,
