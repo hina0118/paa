@@ -244,7 +244,7 @@ mod tests {
         run_batch_parse_task_with(&app, pool, parse_state.clone(), 10).await;
 
         // finish されて idle に戻る
-        assert!(!*parse_state.is_running.lock().unwrap());
+        assert!(!parse_state.is_running());
 
         let emitted = app.emitted_events.lock().unwrap();
         assert!(!emitted.is_empty());

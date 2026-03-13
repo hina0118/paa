@@ -150,32 +150,15 @@ pub async fn get_parse_status(
         .map_err(|e| format!("Failed to get app config dir: {e}"))?;
     let config = config::load(&app_config_dir)?;
 
-    let parse_status = if parse_state
-        .inner()
-        .is_running
-        .lock()
-        .map(|g| *g)
-        .unwrap_or(false)
-    {
+    let parse_status = if parse_state.inner().is_running() {
         "running"
-    } else if parse_state
-        .inner()
-        .last_error
-        .lock()
-        .map(|g| g.is_some())
-        .unwrap_or(false)
-    {
+    } else if parse_state.inner().last_error().is_some() {
         "error"
     } else {
         "idle"
     };
 
-    let last_error_message = parse_state
-        .inner()
-        .last_error
-        .lock()
-        .ok()
-        .and_then(|g| g.clone());
+    let last_error_message = parse_state.inner().last_error();
 
     Ok(parsers::ParseMetadata {
         parse_status: parse_status.to_string(),

@@ -1,6 +1,5 @@
 ﻿use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use std::sync::{Arc, Mutex};
 
 // 定数はemail_parse_taskモジュールからエクスポート
 pub use email_parse_task::{EMAIL_PARSE_EVENT_NAME, EMAIL_PARSE_TASK_NAME};
@@ -41,84 +40,62 @@ pub use email_parse_task::{
     EmailParseContext, EmailParseInput, EmailParseOutput, EmailParseTask, ShopSettingsCache,
 };
 
-/// パース状態管理
+/// パース状態管理（`BatchRunState` の薄いラッパー）
 ///
 /// 進捗テーブル削除後はメモリのみで状態を管理する。
-/// last_error はエラー時に設定され、次回 start でクリアされる。
-#[derive(Clone)]
-pub struct ParseState {
-    pub should_cancel: Arc<Mutex<bool>>,
-    pub is_running: Arc<Mutex<bool>>,
-    /// 直近のエラーメッセージ（エラー時のみ。start でクリア）
-    pub last_error: Arc<Mutex<Option<String>>>,
-}
-
-impl Default for ParseState {
-    fn default() -> Self {
-        Self {
-            should_cancel: Arc::new(Mutex::new(false)),
-            is_running: Arc::new(Mutex::new(false)),
-            last_error: Arc::new(Mutex::new(None)),
-        }
-    }
-}
+/// `last_error` はエラー時に設定され、次回 `start` でクリアされる。
+#[derive(Clone, Default)]
+pub struct ParseState(crate::BatchRunState);
 
 impl ParseState {
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// バッチを開始する（既に実行中なら Err）
+    pub fn start(&self) -> Result<(), String> {
+        self.0
+            .try_start()
+            .map_err(|_| "Parse is already running".to_string())
+    }
+
+    pub fn finish(&self) {
+        self.0.finish();
+    }
+
     pub fn request_cancel(&self) {
-        if let Ok(mut cancel) = self.should_cancel.lock() {
-            *cancel = true;
-            log::info!("Parse cancellation requested");
-        }
+        log::info!("Parse cancellation requested");
+        self.0.request_cancel();
     }
 
+    /// キャンセルフラグを返す
     pub fn is_cancelled(&self) -> bool {
-        self.should_cancel.lock().map(|c| *c).unwrap_or(false)
+        self.0.should_cancel()
     }
 
-    /// エラーを記録（get_parse_status で error として返す）
+    /// エラーを記録（`get_parse_status` で error として返す）
     pub fn set_error(&self, msg: &str) {
-        if let Ok(mut err) = self.last_error.lock() {
-            *err = Some(msg.to_string());
-        }
+        self.0.set_error(msg);
     }
 
     /// エラーをクリア
     pub fn clear_error(&self) {
-        if let Ok(mut err) = self.last_error.lock() {
-            *err = None;
-        }
+        self.0.clear_error();
     }
 
-    /// 強制的に idle にリセット
+    /// 強制的に idle にリセット（エラークリア含む、キャンセルフラグは維持）
     pub fn force_idle(&self) {
-        if let Ok(mut running) = self.is_running.lock() {
-            *running = false;
-        }
-        self.clear_error();
+        self.0.force_idle();
     }
 
-    pub fn start(&self) -> Result<(), String> {
-        let mut running = self.is_running.lock().map_err(|e| e.to_string())?;
-        if *running {
-            return Err("Parse is already running".to_string());
-        }
-        *running = true;
-        *self.should_cancel.lock().map_err(|e| e.to_string())? = false;
-        self.clear_error();
-        Ok(())
+    /// 実行中かどうかを返す
+    pub fn is_running(&self) -> bool {
+        self.0.is_running()
     }
 
-    pub fn finish(&self) {
-        if let Ok(mut running) = self.is_running.lock() {
-            *running = false;
-        }
-        if let Ok(mut cancel) = self.should_cancel.lock() {
-            *cancel = false;
-        }
+    /// 直近のエラーメッセージを返す
+    pub fn last_error(&self) -> Option<String> {
+        self.0.last_error()
     }
 }
 
@@ -224,8 +201,7 @@ mod tests {
     fn test_parse_state_new() {
         let state = ParseState::new();
         assert!(!state.is_cancelled());
-        assert!(state.should_cancel.lock().unwrap().eq(&false));
-        assert!(state.is_running.lock().unwrap().eq(&false));
+        assert!(!state.is_running());
     }
 
     #[test]
@@ -242,7 +218,7 @@ mod tests {
         let state = ParseState::new();
         let result = state.start();
         assert!(result.is_ok());
-        assert!(*state.is_running.lock().unwrap());
+        assert!(state.is_running());
     }
 
     #[test]
@@ -276,12 +252,12 @@ mod tests {
         state.start().unwrap();
         state.request_cancel();
 
-        assert!(*state.is_running.lock().unwrap());
+        assert!(state.is_running());
         assert!(state.is_cancelled());
 
         state.finish();
 
-        assert!(!*state.is_running.lock().unwrap());
+        assert!(!state.is_running());
         assert!(!state.is_cancelled());
     }
 
@@ -290,7 +266,7 @@ mod tests {
         let state = ParseState::new();
         // finishを呼んでもパニックしない
         state.finish();
-        assert!(!*state.is_running.lock().unwrap());
+        assert!(!state.is_running());
     }
 
     #[test]
@@ -311,7 +287,7 @@ mod tests {
         state.start().unwrap();
         state.finish();
 
-        assert!(!*state.is_running.lock().unwrap());
+        assert!(!state.is_running());
     }
 
     // ==================== get_body_for_parse Tests ====================
@@ -552,11 +528,11 @@ mod tests {
         state.start().unwrap();
 
         let cloned = state.clone();
-        // クローンは同じArcを共有
-        assert!(*cloned.is_running.lock().unwrap());
+        // クローンは同じ Arc を共有
+        assert!(cloned.is_running());
 
         state.finish();
-        assert!(!*cloned.is_running.lock().unwrap());
+        assert!(!cloned.is_running());
     }
 
     #[test]
