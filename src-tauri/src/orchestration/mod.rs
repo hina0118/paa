@@ -12,6 +12,7 @@
 //! - `delivery_check_orchestrator` – 配送チェックオーケストレーション
 //! - `pipeline_steps`       – 共通パイプラインステップ（スケジューラ・UI 両用）
 //! - `pipeline_orchestrator` – スケジューラ用パイプライン（同期→パース→配送確認）
+//! - `ui_pipeline`          – UI 用パイプライン（メールパース→駿河屋→商品名→配送確認）
 
 mod delivery_check_orchestrator;
 pub(crate) mod error_handler;
@@ -20,6 +21,7 @@ mod pipeline_orchestrator;
 pub(crate) mod pipeline_steps;
 mod product_parse_orchestrator;
 mod sync_orchestrator;
+mod ui_pipeline;
 
 // — re-exports —
 pub use delivery_check_orchestrator::run_delivery_check_task;
@@ -27,6 +29,7 @@ pub use parse_orchestrator::run_batch_parse_task;
 pub use pipeline_orchestrator::run_pipeline;
 pub use product_parse_orchestrator::run_product_name_parse_task;
 pub use sync_orchestrator::{run_incremental_sync_task, run_sync_task};
+pub use ui_pipeline::run_full_parse_pipeline;
 
 use crate::batch_runner::BatchEventEmitter;
 use crate::e2e_mocks::{is_e2e_mock_mode, E2EMockGmailClient, GmailClientForE2E};

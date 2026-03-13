@@ -675,6 +675,7 @@ pub fn run() {
             commands::start_surugaya_mypage_fetch,
             commands::cancel_surugaya_mypage_fetch,
             commands::get_surugaya_mypage_fetch_status,
+            commands::start_full_parse_pipeline,
             commands::show_screen_overlay,
             commands::close_screen_overlay,
             commands::capture_and_ocr,
