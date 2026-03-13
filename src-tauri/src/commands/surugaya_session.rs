@@ -14,10 +14,7 @@
 //! `on_page_load` で eval() した JS から `window.__TAURI__.event.emit()` を
 //! 呼び出し、HTML を Rust 側に渡す。
 
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc, Mutex,
-};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use sqlx::SqlitePool;
@@ -29,12 +26,9 @@ use crate::{plugins::surugaya_mp::html_parser, repository::SqliteOrderRepository
 // 状態管理
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// マイページ取得バッチの実行状態
+/// マイページ取得バッチの実行状態（`BatchRunState` の薄いラッパー）
 #[derive(Clone, Default)]
-pub struct SurugayaSessionState {
-    is_running: Arc<Mutex<bool>>,
-    should_cancel: Arc<AtomicBool>,
-}
+pub struct SurugayaSessionState(crate::BatchRunState);
 
 impl SurugayaSessionState {
     pub fn new() -> Self {
@@ -42,31 +36,26 @@ impl SurugayaSessionState {
     }
 
     fn try_start(&self) -> Result<(), String> {
-        let mut running = self
-            .is_running
-            .lock()
-            .map_err(|e| format!("Lock error: {e}"))?;
-        if *running {
-            return Err("マイページ取得は既に実行中です。".to_string());
-        }
-        *running = true;
-        self.should_cancel.store(false, Ordering::SeqCst);
-        Ok(())
+        self.0
+            .try_start()
+            .map_err(|_| "マイページ取得は既に実行中です。".to_string())
     }
 
     fn finish(&self) {
-        if let Ok(mut running) = self.is_running.lock() {
-            *running = false;
-        }
-        self.should_cancel.store(false, Ordering::SeqCst);
+        self.0.finish();
     }
 
     fn request_cancel(&self) {
-        self.should_cancel.store(true, Ordering::SeqCst);
+        self.0.request_cancel();
     }
 
     fn should_cancel(&self) -> bool {
-        self.should_cancel.load(Ordering::SeqCst)
+        self.0.should_cancel()
+    }
+
+    /// 実行中かどうかを返す（`get_surugaya_mypage_fetch_status` コマンド用）
+    fn is_running(&self) -> bool {
+        self.0.is_running()
     }
 }
 
@@ -198,11 +187,7 @@ pub async fn cancel_surugaya_mypage_fetch(
 pub async fn get_surugaya_mypage_fetch_status(
     session_state: tauri::State<'_, SurugayaSessionState>,
 ) -> Result<bool, String> {
-    let running = session_state
-        .is_running
-        .lock()
-        .map_err(|e| format!("Lock error: {e}"))?;
-    Ok(*running)
+    Ok(session_state.is_running())
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
