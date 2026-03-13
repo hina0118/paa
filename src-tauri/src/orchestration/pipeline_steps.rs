@@ -115,10 +115,7 @@ pub(crate) async fn run_parse_step(app: &tauri::AppHandle, pool: &SqlitePool) ->
         Some(n) => n,
         None => return StepOutcome::Skipped,
     };
-    log::info!(
-        "[Pipeline] Batch parse (batch_size={})",
-        batch_size
-    );
+    log::info!("[Pipeline] Batch parse (batch_size={})", batch_size);
     super::run_batch_parse_task(app.clone(), pool.clone(), parse_state, batch_size).await;
     log::info!("[Pipeline] Batch parse completed");
 
