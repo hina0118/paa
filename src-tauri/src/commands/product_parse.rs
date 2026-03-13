@@ -1,57 +1,38 @@
 use sqlx::sqlite::SqlitePool;
-use std::sync::{Arc, Mutex};
 use tauri::Manager;
 
 use crate::orchestration;
 
-/// 商品名パースの多重実行ガード用状態
+/// 商品名パースの多重実行ガード・キャンセル制御用状態（`BatchRunState` の薄いラッパー）
 #[derive(Clone, Default)]
-pub struct ProductNameParseState {
-    is_running: Arc<Mutex<bool>>,
-}
+pub struct ProductNameParseState(crate::BatchRunState);
 
 impl ProductNameParseState {
     pub fn new() -> Self {
-        Self {
-            is_running: Arc::new(Mutex::new(false)),
-        }
+        Self::default()
     }
 
     pub fn try_start(&self) -> Result<(), String> {
-        let mut running = self
-            .is_running
-            .lock()
-            .map_err(|e| format!("Lock error: {e}"))?;
-        if *running {
-            return Err("商品名解析は既に実行中です。完了するまでお待ちください。".to_string());
-        }
-        *running = true;
-        Ok(())
+        self.0
+            .try_start()
+            .map_err(|_| "商品名解析は既に実行中です。完了するまでお待ちください。".to_string())
     }
 
     pub fn finish(&self) {
-        if let Ok(mut running) = self.is_running.lock() {
-            *running = false;
-        }
+        self.0.finish();
+    }
+
+    pub fn request_cancel(&self) {
+        self.0.request_cancel();
+    }
+
+    pub fn should_cancel(&self) -> bool {
+        self.0.should_cancel()
     }
 }
 
-/// 商品名パース進捗イベント（後方互換性のため残す）
-/// 新しいコードでは BatchProgressEvent を使用してください
-#[derive(Debug, Clone, serde::Serialize)]
-#[deprecated(note = "Use BatchProgressEvent instead")]
-pub struct ProductNameParseProgress {
-    pub total_items: usize,
-    pub parsed_count: usize,
-    pub success_count: usize,
-    pub failed_count: usize,
-    pub status_message: String,
-    pub is_complete: bool,
-    pub error: Option<String>,
-}
-
-/// product_masterに未登録の商品名をGemini APIで解析して登録
-/// BatchRunner<ProductNameParseTask> を使用
+/// product_master に未登録の商品名を Gemini API で解析して登録
+/// `BatchRunner<ProductNameParseTask>` を使用
 #[tauri::command]
 pub async fn start_product_name_parse(
     app_handle: tauri::AppHandle,
@@ -82,5 +63,15 @@ pub async fn start_product_name_parse(
         parse_state_clone,
         true, // caller で try_start 済み
     ));
+    Ok(())
+}
+
+/// 商品名パースバッチをキャンセル
+#[tauri::command]
+pub async fn cancel_product_name_parse(
+    parse_state: tauri::State<'_, ProductNameParseState>,
+) -> Result<(), String> {
+    log::info!("Cancelling product name parse...");
+    parse_state.request_cancel();
     Ok(())
 }

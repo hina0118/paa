@@ -1,17 +1,10 @@
 use sqlx::sqlite::SqlitePool;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc, Mutex,
-};
 
 use crate::orchestration;
 
-/// 配送状況確認バッチの多重実行ガード＋キャンセル制御
+/// 配送状況確認バッチの多重実行ガード・キャンセル制御用状態（`BatchRunState` の薄いラッパー）
 #[derive(Clone, Default)]
-pub struct DeliveryCheckState {
-    is_running: Arc<Mutex<bool>>,
-    should_cancel: Arc<AtomicBool>,
-}
+pub struct DeliveryCheckState(crate::BatchRunState);
 
 impl DeliveryCheckState {
     pub fn new() -> Self {
@@ -20,34 +13,24 @@ impl DeliveryCheckState {
 
     /// バッチを開始する（既に実行中なら Err）
     pub fn try_start(&self) -> Result<(), String> {
-        let mut running = self
-            .is_running
-            .lock()
-            .map_err(|e| format!("Lock error: {e}"))?;
-        if *running {
-            return Err("配送状況確認は既に実行中です。完了するまでお待ちください。".to_string());
-        }
-        *running = true;
-        self.should_cancel.store(false, Ordering::SeqCst);
-        Ok(())
+        self.0
+            .try_start()
+            .map_err(|_| "配送状況確認は既に実行中です。完了するまでお待ちください。".to_string())
     }
 
     /// バッチ完了時に呼ぶ
     pub fn finish(&self) {
-        if let Ok(mut running) = self.is_running.lock() {
-            *running = false;
-        }
-        self.should_cancel.store(false, Ordering::SeqCst);
+        self.0.finish();
     }
 
     /// キャンセルを要求する
     pub fn request_cancel(&self) {
-        self.should_cancel.store(true, Ordering::SeqCst);
+        self.0.request_cancel();
     }
 
-    /// BatchRunner の should_cancel クロージャ用
+    /// `BatchRunner` の `should_cancel` クロージャ用
     pub fn should_cancel(&self) -> bool {
-        self.should_cancel.load(Ordering::SeqCst)
+        self.0.should_cancel()
     }
 }
 

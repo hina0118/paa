@@ -147,11 +147,7 @@ async fn run_parse_step(app: &tauri::AppHandle, pool: &SqlitePool) -> StepOutcom
         }
     };
 
-    if *parse_state
-        .is_running
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-    {
+    if parse_state.is_running() {
         log::info!("[Pipeline] Parse already running, skipping");
         return StepOutcome::Skipped;
     }

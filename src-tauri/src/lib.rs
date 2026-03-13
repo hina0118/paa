@@ -9,8 +9,10 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut}
 use tauri_plugin_sql::{Migration, MigrationKind};
 use tokio::sync::Notify;
 
+pub mod batch_run_state;
 pub mod batch_runner;
 pub mod clipboard_watcher;
+pub use batch_run_state::BatchRunState;
 pub mod commands;
 pub mod config;
 pub mod delivery_check;
@@ -638,6 +640,7 @@ pub fn run() {
             commands::save_gemini_api_key,
             commands::delete_gemini_api_key,
             commands::start_product_name_parse,
+            commands::cancel_product_name_parse,
             commands::has_gmail_oauth_credentials,
             commands::save_gmail_oauth_credentials,
             commands::delete_gmail_oauth_credentials,
