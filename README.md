@@ -1,167 +1,159 @@
-# Tauri + React + Typescript
-
-This template should help get you started developing with Tauri, React and Typescript in Vite.
-
-## Recommended IDE Setup
-
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
-
-# Purchase Archive & Assistant (PAA) 設計仕様書
+# Purchase Archive & Assistant (PAA)
 
 10年以上の買い物履歴を「資産」に変え、現在の買い物をサポートするパーソナル・アシスタント。
 
-## 1. システム概要
+## システム概要
 
-- **プラットフォーム**: Windows (Tauri + Rust)
-- **常駐形態**: タスクトレイ常駐型
+- **プラットフォーム**: Windows (Tauri 2 + Rust + React + TypeScript)
+- **常駐形態**: タスクトレイ常駐型デスクトップアプリ
 - **データベース**: SQLite (ローカル完結、オフライン動作)
 
-## 2. 主要機能
+## 主要機能
 
-### 2.1 データ収集 (Data Ingestion)
+### データ収集 (Data Ingestion)
 
-- **Gmail同期**: API経由で特定ECサイトのメールをフィルタリング取得。
-  - 保存データ: メール本文 (Raw Body), メールのメタデータ。
-- **注文詳細保存**: アプリ内WebView(Tauri)経由でECサイトの注文詳細ページを取得。
-  - 保存データ: HTML (Raw HTML)。
-- **外部画像連携**: 商品名をもとに画像検索APIから画像を取得。
-  - 保存データ: 画像バイナリ (BLOB) をDBに直接保存。
+- **Gmail 同期**: Gmail API 経由で対応 EC サイトのメールをフィルタリングして取得・保存
+- **駿河屋 WebView セッション**: ログイン済み WebView ウィンドウ経由でマイページ HTML を取得し、注文データを補完
 
-### 2.2 解析・管理 (Parsing & Management)
+### メール解析 (Parsing)
 
-- **情報の統合 (Merge)**: メール(受信日等)とHTML(正式名・価格・追跡番号)をマージ。
-- **解析ロジックの分離**: 各サイトのパーサーを独立させ、正規表現やセレクタをアプリ画面から編集可能にする。
-- **商品ベース管理**: 1注文内にある複数商品を個別のレコードとして管理。
+- **プラグイン型パーサー**: 店舗ごとのメール種別を `VendorPlugin` トレイトで抽象化し、`inventory::submit!` で自動登録
+- **対応店舗**:
+  - アミアミ (通常 / 楽天市場経由)
+  - アニメイト
+  - DMM (注文確認 / 発送 / キャンセル / 注文番号変更 / まとめ / 分割完了)
+  - フルイチオンライン
+  - グッドスマイルカンパニー
+  - ホビーサーチ (予約 / 変更 / 発送 / キャンセル)
+  - キッズドラゴン
+  - プレミアムバンダイ (まとめ注文対応)
+  - 佐川急便 (配達完了メール)
+  - 駿河屋 / 駿河屋マーケットプレイス
+- **特殊処理**: キャンセル・注文番号変更・まとめ完了など、`OrderInfo` を返さない種別も専用 `DispatchOutcome` で処理
 
-### 2.3 配送管理 (Delivery Tracker)
+### 商品管理 (Product Management)
 
-- **追跡番号抽出**: 保存済みHTMLから自動で運送会社と追跡番号を特定。
-- **自動更新**: 配送会社の追跡ページを定期的にバックグラウンドで確認し、ステータスを更新。
+- **商品マスター編集**: 商品名・正規化名・購入除外フラグなどを画面から編集
+- **商品名 AI 解析**: Google Gemini API を使って商品名を正規化・分類
+- **手動オーバーライド**: 商品名・価格・配送情報を手動で上書き可能
+- **除外設定**: 特定商品・注文をリストから除外
 
-### 2.4 OCR・購入確認アシスタント
+### 画像管理 (Image Management)
 
-- **Windows OCR**: `Windows.Media.Ocr` を利用し、画面上の商品名を読み取り。
-- **購入チェック**: `Alt + S` などのホットキーで画面をスキャンし、DBと照合。
-  - **曖昧検索**: 文字揺れやノイズ(送料込等)を許容するFuzzy Search。
-- **通知**: 照合結果をWindowsのトースト通知で即座に表示。
+- **SerpApi 画像検索**: 商品名をもとに Google 画像検索 API から画像を取得・DB 保存
+- **Google 画像検索**: 商品名でブラウザの Google 画像検索を開く
 
-## 3. データベース構造 (主要テーブル)
+### 配送管理 (Delivery Tracker)
 
-### `orders` (注文単位)
+- **配送状況追跡**: 追跡番号をもとに配送状況を確認・記録
+- **配達完了検出**: 佐川急便の配達完了メールから自動でステータスを更新
+- **追跡ログ**: `tracking_check_logs` テーブルに確認履歴を保存
 
-- `id`, `gmail_message_id`, `shop_domain`, `raw_body`, `raw_html`, `order_date`
+### OCR・購入確認アシスタント
 
-### `items` (商品単位)
+- **画面 OCR**: Windows OCR (`Windows.Media.Ocr`) を利用し、半透明オーバーレイ上で画面上の商品名を読み取り
+- **購入履歴照合**: OCR 結果で商品一覧を自動検索（`ocr-result` イベント経由）
+- **通知**: 照合結果を Windows のトースト通知で表示
 
-- `id`, `order_id` (FK), `item_name`, `price`, `tracking_number`, `delivery_status`
+### 自動化・スケジューラ
 
-### `images` (画像データ)
+- **バックグラウンドスケジューラ**: 差分同期 → メールパース → 商品名解析 → 配達状況確認のパイプラインを一定間隔で自動実行
+- **トレイメニュー**: スケジューラの有効/無効切り替え、同期・OCR スキャンへのクイックアクセス
+- **多重実行防止**: パイプライン実行中は次の tick をスキップ
 
-- `item_name_normalized` (リレーションキー), `file_name` (TEXT)
+## 画面構成
 
-## 4. タイムゾーン規約
+| 画面 | 内容 |
+| --- | --- |
+| ダッシュボード | 注文数・商品数・配送統計などのサマリー |
+| 商品一覧 (orders) | 商品カード一覧・OCR 検索結果表示 |
+| 配送管理 (deliveries) | 配送状況の一覧・追跡 |
+| バッチ実行 (batch) | Gmail 同期・メールパース・商品名解析を手動実行 |
+| ショップ設定 | 送信元アドレス・件名フィルター・パーサー種別の管理 |
+| 商品マスター | 商品正規化名・除外フラグの編集 |
+| API キー | Gemini API / SerpApi キーの設定 |
+| 設定 | スケジューラ間隔・外観・バックアップなど |
+| ログ | アプリ内ログの表示 |
+| テーブルビュー | 各 DB テーブルの内容を直接確認 |
+
+## データベース主要テーブル
+
+| テーブル | 内容 |
+| --- | --- |
+| `emails` | Gmail から取得したメール |
+| `orders` | 注文単位の情報 |
+| `items` | 注文内の個別商品 |
+| `deliveries` | 配送情報・追跡番号 |
+| `images` | 商品画像ファイル名 |
+| `htmls` | 取得した HTML |
+| `shop_settings` | ショップごとのパーサー設定 |
+| `product_master` | 商品マスター（正規化名・除外フラグ） |
+| `item_overrides` | 商品情報の手動オーバーライド |
+| `order_overrides` | 注文情報の手動オーバーライド |
+| `excluded_items` | 除外商品リスト |
+| `excluded_orders` | 除外注文リスト |
+| `tracking_check_logs` | 配送追跡確認ログ |
+
+## タイムゾーン規約
 
 アプリ全体で **日本標準時 (JST)** を表示用に統一する。
 
-| レイヤー                    | 実装                     | 用途                            |
-| --------------------------- | ------------------------ | ------------------------------- |
-| バックエンド (Rust)         | `chrono_tz::Asia::Tokyo` | ログ出力のタイムスタンプ        |
-| フロントエンド (TypeScript) | `'Asia/Tokyo'` (Intl)    | 日付・日時の表示フォーマット    |
-| データベース                | UTC                      | 保存形式（SQLite の日時カラム） |
+| レイヤー | 実装 | 用途 |
+| --- | --- | --- |
+| バックエンド (Rust) | `chrono_tz::Asia::Tokyo` | ログ出力のタイムスタンプ |
+| フロントエンド (TypeScript) | `'Asia/Tokyo'` (Intl) | 日付・日時の表示フォーマット |
+| データベース | UTC | 保存形式（SQLite の日時カラム） |
 
-他タイムゾーンを追加する場合は、Rust では `chrono_tz`、フロントでは IANA 文字列（例: `'America/New_York'`）で同一のタイムゾーンを指定すること。
-
-## 5. UI/UX 仕様
-
-- **メイン画面**: 商品画像を中心としたカード型グリッド表示。10年分の履歴を高速スクロール可能。
-- **トレイメニュー**: 同期実行、画面スキャン、設定へのクイックアクセス。
-- **進捗表示**: 「メール同期済み」「解析済み」「配送中」などのフェーズを視覚化。
+---
 
 ## Gmail API セットアップ
 
-このアプリケーションはGmail APIを使用して注文メールを取得します。以下の手順でセットアップしてください。
+### 1. Google Cloud Console でプロジェクトを作成
 
-### 1. Google Cloud Consoleでプロジェクトを作成
-
-1. [Google Cloud Console](https://console.cloud.google.com/)にアクセス
+1. [Google Cloud Console](https://console.cloud.google.com/) にアクセス
 2. 新しいプロジェクトを作成
-3. 「APIとサービス」→「ライブラリ」から「Gmail API」を有効化
+3. 「API とサービス」→「ライブラリ」から「Gmail API」を有効化
 
-### 2. OAuth 2.0 クライアント IDの作成
+### 2. OAuth 2.0 クライアント ID の作成
 
-1. 「APIとサービス」→「認証情報」
+1. 「API とサービス」→「認証情報」
 2. 「認証情報を作成」→「OAuth クライアント ID」
 3. アプリケーションの種類: 「デスクトップアプリ」
 4. 名前: 任意（例: PAA Desktop Client）
-5. 作成後、JSONをダウンロード
+5. 作成後、JSON をダウンロード
 
 ### 3. クライアントシークレットファイルの配置
 
-ダウンロードしたJSONファイルを **DBファイルと同じディレクトリ** に `client_secret.json` として配置:
-
-**配置場所**:
+ダウンロードした JSON ファイルを **DBファイルと同じディレクトリ** に `client_secret.json` として配置:
 
 ```
 %APPDATA%\jp.github.hina0118.paa\client_secret.json
 ```
 
-**パスの例**:
-
-```
-C:\Users\<ユーザー名>\AppData\Roaming\jp.github.hina0118.paa\client_secret.json
-```
-
-**注意**: このディレクトリには `paa_data.db` (データベースファイル) も保存されます。すべてのアプリケーションデータが同じ場所に集約されます。
-
-**ヒント**: エクスプローラーのアドレスバーに `%APPDATA%\jp.github.hina0118.paa` と入力するとディレクトリに直接アクセスできます。
+> ヒント: エクスプローラーのアドレスバーに `%APPDATA%\jp.github.hina0118.paa` と入力するとディレクトリに直接アクセスできます。
 
 ### 4. 初回認証
 
-アプリケーションで初めて「メール取得」機能を実行すると、認証が必要です。
+アプリケーションで「Gmail 同期」を実行すると認証が必要です。
 
-**認証手順**:
+1. 「Gmail 同期」ボタンをクリック
+2. ブラウザが自動的に開いて Google の認証画面が表示される
+3. アカウントを選択してアクセスを許可
+4. 認証完了後、トークンが自動保存され次回以降は不要
 
-1. 「Gmailメールを取得」ボタンをクリック
-2. 開発モードの場合、以下のいずれかの方法で認証:
+> ブラウザが開かない場合: F12 → コンソールに表示される認証 URL を手動でブラウザに貼り付け
 
-   **方法A: ブラウザが自動で開く場合**
-   - ブラウザが自動的に開いてGoogleの認証画面が表示されます
-   - アカウントを選択して、アプリケーションへのアクセスを許可
-
-   **方法B: ブラウザが開かない場合**
-   - 開発者ツール（F12キー）を開く
-   - コンソールタブに表示される認証URLをコピー
-   - ブラウザで手動で開く
-   - アカウントを選択して、アプリケーションへのアクセスを許可
-   - ブラウザが `http://localhost:8080/?code=...` のようなURLにリダイレクトされる（これは正常な動作）
-
-3. 認証を完了すると、トークンが自動的に保存され、次回以降は認証不要になります。
+---
 
 ## 新しい店舗（EC サイト）を追加する
 
-Phase 3 以降のプラグイン設計により、**変更箇所は最小限**で新店舗に対応できます。
-`registry.rs` への手動追加は不要で、プラグインファイル自身が `inventory::submit!` で自動登録されます。
+プラグイン設計により、**変更箇所は最小限**で新店舗に対応できます。
 
 ### 手順
 
-**1. パーサーモジュールを作成する**
+**1. プラグインを実装し、`inventory::submit!` で自動登録する**
 
-`src-tauri/src/parsers/<店舗名>/` ディレクトリを作成し、各メール種別のパーサーを実装します。
-各パーサーは `EmailParser` トレイトを実装してください。
-
-```
-src-tauri/src/parsers/<店舗名>/
-  mod.rs
-  confirm.rs         ← 注文確認メール
-  send.rs            ← 発送完了メール
-  cancel.rs          ← キャンセルメール
-  （必要に応じて追加）
-```
-
-**2. プラグインを実装し、`inventory::submit!` で自動登録する**
-
-`src-tauri/src/plugins/<店舗名>.rs` を作成し、`VendorPlugin` トレイトを実装します。
-ファイルの末尾に `inventory::submit!` を追加するだけで自動登録されます。
+`src-tauri/src/plugins/<店舗名>/mod.rs` を作成し、`VendorPlugin` トレイトを実装します。
 
 ```rust
 pub struct NewShopPlugin;
@@ -194,20 +186,20 @@ inventory::submit! {
 }
 ```
 
-**3. `plugins/mod.rs` に `pub mod` を追加する**
+**2. `plugins/mod.rs` に `pub mod` を追加する**
 
 ```rust
 // src-tauri/src/plugins/mod.rs
-pub mod newshop;  // ← 追加（pub mod にすることで LTO でも自動登録が除外されない）
+pub mod newshop;  // pub mod にすることで LTO でも自動登録が除外されない
 ```
 
-**4. 動作確認する**
+**3. 動作確認する**
 
 ```bash
 cargo test
 ```
 
-アプリを起動すると `ensure_default_settings()` が自動実行され、`default_shop_settings()` で定義したレコードが `shop_settings` テーブルへ挿入されます。SQL ファイルの編集は不要です。
+アプリを起動すると `ensure_default_settings()` が自動実行され、`default_shop_settings()` で定義したレコードが `shop_settings` テーブルへ挿入されます。
 
 ---
 
@@ -261,28 +253,28 @@ HTMLレポート: `coverage/index.html`
 
 詳細: `TESTING_FRONTEND.md`
 
-#### 全てのテスト実行
+#### 全テスト実行
 
 ```bash
 npm run test:all
 ```
 
-#### Lint
+### Lint
 
-npm スクリプト（プロジェクトルートで実行）
+| コマンド | 内容 |
+| --- | --- |
+| `npm run lint` | Rust・UI・フォーマットをまとめて実行（CI 想定） |
+| `npm run lint:rust` | Rust 用（Clippy、全ターゲット・全機能、警告をエラー扱い） |
+| `npm run lint:rust:fix` | Rust 用の自動修正 |
+| `npm run lint:ui` | フロント用 ESLint（--max-warnings 4） |
+| `npm run lint:ui:fix` | フロント用 ESLint の自動修正 |
+| `npm run format:check` | Prettier のチェックのみ（書き換えしない） |
+| `npm run format` | Prettier でフォーマット（書き換えする） |
+| `npm run lint:fix` | lint:rust:fix + lint:ui:fix + format をまとめて実行 |
 
-| コマンド                | 内容                                                      |
-| ----------------------- | --------------------------------------------------------- |
-| `npm run lint`          | Rust・UI・フォーマットをまとめて実行（CI 想定）           |
-| `npm run lint:rust`     | Rust 用（Clippy、全ターゲット・全機能、警告をエラー扱い） |
-| `npm run lint:rust:fix` | Rust 用の自動修正                                         |
-| `npm run lint:ui`       | フロント用 ESLint（--max-warnings 4）                     |
-| `npm run lint:ui:fix`   | フロント用 ESLint の自動修正                              |
-| `npm run format:check`  | Prettier のチェックのみ（書き換えしない）                 |
-| `npm run format`        | Prettier でフォーマット（書き換えする）                   |
-| `npm run lint:fix`      | lint:rust:fix ＋ lint:ui:fix ＋ format をまとめて実行     |
+---
 
-### PR レビューコメントの解決
+## PR レビューコメントの解決
 
 対応済みのレビューコメントを GitHub 上で Resolved にするスクリプトです。
 
@@ -302,10 +294,10 @@ npm スクリプト（プロジェクトルートで実行）
 .\scripts\resolve-pr-review-threads.ps1 -PrNumber 59 -ThreadIds @("PRRT_xxx","PRRT_yyy")
 ```
 
-| パラメータ       | 説明                                                                     |
-| ---------------- | ------------------------------------------------------------------------ |
-| `-PrNumber`      | PR 番号（必須。`-CurrentBranch` 使用時は不要）                           |
-| `-Owner`         | リポジトリオーナー（省略時は `gh repo view` または git remote から取得） |
-| `-Repo`          | リポジトリ名（省略時は同上）                                             |
-| `-CurrentBranch` | 現在のブランチの PR を対象にする                                         |
-| `-ThreadIds`     | 解決するスレッド ID の配列（省略時は未解決スレッドを自動取得）           |
+| パラメータ | 説明 |
+| --- | --- |
+| `-PrNumber` | PR 番号（必須。`-CurrentBranch` 使用時は不要） |
+| `-Owner` | リポジトリオーナー（省略時は `gh repo view` または git remote から取得） |
+| `-Repo` | リポジトリ名（省略時は同上） |
+| `-CurrentBranch` | 現在のブランチの PR を対象にする |
+| `-ThreadIds` | 解決するスレッド ID の配列（省略時は未解決スレッドを自動取得） |
