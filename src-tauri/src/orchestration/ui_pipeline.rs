@@ -8,11 +8,10 @@
 //! スケジューラ用 [`super::pipeline_orchestrator`] と共有する。
 
 use sqlx::sqlite::SqlitePool;
-use tauri::{Emitter, Manager};
+use tauri::Emitter;
 
 use super::pipeline_steps::{
-    run_delivery_check_step, run_parse_step, run_product_parse_step, run_surugaya_step,
-    StepOutcome,
+    run_delivery_check_step, run_parse_step, run_product_parse_step, run_surugaya_step, StepOutcome,
 };
 
 /// 各ステップの名前（`full-parse:step_started` イベントのペイロード）
