@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { DatabaseManager } from '@/lib/database';
+import { toastError } from '@/lib/toast';
 import { Orders } from '@/components/screens/orders';
 import { Sidebar } from '@/components/layout/sidebar';
 import { Dashboard } from '@/components/screens/dashboard';
@@ -62,6 +63,9 @@ function AppContent() {
       })
       .catch((e) => {
         console.error('Failed to set up ocr-result listener:', e);
+        toastError(
+          'OCR結果リスナーの初期化に失敗しました。OCR機能が使用できない可能性があります。'
+        );
       });
 
     return () => {
