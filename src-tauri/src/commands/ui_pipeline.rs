@@ -20,8 +20,7 @@ pub async fn start_full_parse_pipeline(
 ) -> Result<(), String> {
     let pool_clone = pool.inner().clone();
     tauri::async_runtime::spawn(crate::orchestration::run_full_parse_pipeline(
-        app_handle,
-        pool_clone,
+        app_handle, pool_clone,
     ));
     Ok(())
 }
