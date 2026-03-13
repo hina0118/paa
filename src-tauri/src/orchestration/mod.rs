@@ -10,12 +10,14 @@
 //! - `parse_orchestrator` – メール解析オーケストレーション
 //! - `product_parse_orchestrator` – 商品名解析オーケストレーション
 //! - `delivery_check_orchestrator` – 配送チェックオーケストレーション
+//! - `pipeline_steps`       – 共通パイプラインステップ（スケジューラ・UI 両用）
 //! - `pipeline_orchestrator` – スケジューラ用パイプライン（同期→パース→配送確認）
 
 mod delivery_check_orchestrator;
 pub(crate) mod error_handler;
 mod parse_orchestrator;
 mod pipeline_orchestrator;
+pub(crate) mod pipeline_steps;
 mod product_parse_orchestrator;
 mod sync_orchestrator;
 
