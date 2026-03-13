@@ -132,8 +132,8 @@ pub async fn open_surugaya_login_window(app_handle: AppHandle) -> Result<(), Str
 /// 駿河屋マイページ取得バッチを開始
 ///
 /// `surugaya-session` ウィンドウが開いていない（未ログイン）場合はエラーを返す。
-/// 取得対象は `htmls` テーブルで `analysis_status = 'pending'` かつ
-/// 駿河屋マイページ URL のレコード。
+/// 取得対象は `htmls` テーブルの駿河屋マイページ URL の全レコード。
+/// パーサーは都度更新されるため、メールパースと同様に毎回全量を再パースする。
 #[tauri::command]
 pub async fn start_surugaya_mypage_fetch(
     app_handle: AppHandle,
@@ -216,21 +216,20 @@ async fn run_mypage_batch(
     win: &tauri::WebviewWindow,
     state: &SurugayaSessionState,
 ) -> Result<bool, String> {
-    // pending な駿河屋マイページ URL を取得
-    let pending: Vec<(i64, String)> = sqlx::query_as(
+    // パーサーは都度更新されるため、全量を再パース対象とする（メールパースと同方針）
+    let targets: Vec<(i64, String)> = sqlx::query_as(
         "SELECT id, url FROM htmls \
-         WHERE analysis_status = 'pending' \
-         AND url LIKE 'https://www.suruga-ya.jp/pcmypage/%' \
+         WHERE url LIKE 'https://www.suruga-ya.jp/pcmypage/%' \
          ORDER BY id",
     )
     .fetch_all(pool)
     .await
-    .map_err(|e| format!("Failed to fetch pending htmls: {e}"))?;
+    .map_err(|e| format!("Failed to fetch target htmls: {e}"))?;
 
-    let total = pending.len();
-    log::info!("[surugaya_session] {} pending mypage(s) to fetch", total);
+    let total = targets.len();
+    log::info!("[surugaya_session] {} mypage(s) to fetch", total);
 
-    for (i, (html_id, url)) in pending.into_iter().enumerate() {
+    for (i, (html_id, url)) in targets.into_iter().enumerate() {
         if state.should_cancel() {
             log::info!("[surugaya_session] Cancelled at {}/{}", i, total);
             return Ok(true);
