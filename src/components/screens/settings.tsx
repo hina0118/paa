@@ -66,29 +66,28 @@ export function Settings() {
   }, [parseMetadata]);
 
   useEffect(() => {
-    const loadGeminiConfig = async () => {
-      try {
-        const config = await invoke<GeminiConfig>('get_gemini_config');
-        setGeminiBatchSize(config.batch_size.toString());
-        setGeminiDelaySeconds(config.delay_seconds.toString());
-      } catch (error) {
-        console.error('Failed to load Gemini config:', error);
+    const loadConfigs = async () => {
+      const [geminiResult, schedulerResult] = await Promise.allSettled([
+        invoke<GeminiConfig>('get_gemini_config'),
+        invoke<SchedulerConfig>('get_scheduler_config'),
+      ]);
+      if (geminiResult.status === 'fulfilled') {
+        setGeminiBatchSize(geminiResult.value.batch_size.toString());
+        setGeminiDelaySeconds(geminiResult.value.delay_seconds.toString());
+      } else {
+        console.error('Failed to load Gemini config:', geminiResult.reason);
+      }
+      if (schedulerResult.status === 'fulfilled') {
+        setSchedulerEnabled(schedulerResult.value.enabled);
+        setSchedulerInterval(schedulerResult.value.interval_minutes.toString());
+      } else {
+        console.error(
+          'Failed to load scheduler config:',
+          schedulerResult.reason
+        );
       }
     };
-    loadGeminiConfig();
-  }, []);
-
-  useEffect(() => {
-    const loadSchedulerConfig = async () => {
-      try {
-        const config = await invoke<SchedulerConfig>('get_scheduler_config');
-        setSchedulerEnabled(config.enabled);
-        setSchedulerInterval(config.interval_minutes.toString());
-      } catch (error) {
-        console.error('Failed to load scheduler config:', error);
-      }
-    };
-    loadSchedulerConfig();
+    loadConfigs();
   }, []);
 
   const batchSizeConfig = useConfigSave(async () => {

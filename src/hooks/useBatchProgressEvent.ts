@@ -36,7 +36,11 @@ export function useBatchProgressEvent(
     );
 
     return () => {
-      unlisten.then((fn) => fn());
+      unlisten
+        .then((fn) => fn())
+        .catch((e) => {
+          console.error('Failed to unlisten batch-progress event:', e);
+        });
     };
   }, [taskName, onComplete]);
 
