@@ -135,6 +135,7 @@ pub(crate) async fn run_parse_step(app: &tauri::AppHandle, pool: &SqlitePool) ->
 /// 駿河屋マイページ取得ステップ。
 /// `surugaya-session` ウィンドウが開いていない場合は Skipped を返す。
 /// 実行件数を返せないため常に `StepOutcome::Unknown` を返す（後続ステップは継続する）。
+#[allow(dead_code)]
 pub(crate) async fn run_surugaya_step(app: &tauri::AppHandle, pool: &SqlitePool) -> StepOutcome {
     use crate::commands::{surugaya_session, SurugayaSessionState};
     use tauri::Emitter;
