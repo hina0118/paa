@@ -107,16 +107,14 @@ async fn run_product_name_parse_task_with<A: BatchCommandsApp>(
 
     let product_repo = SqliteProductMasterRepository::new(pool.clone());
 
-    let items: Vec<(String, Option<String>)> = match product_repo
-        .get_unregistered_item_names()
-        .await
-    {
-        Ok(rows) => rows,
-        Err(e) => {
-            err.report_zero(&format!("商品情報の取得に失敗: {}", e));
-            return;
-        }
-    };
+    let items: Vec<(String, Option<String>)> =
+        match product_repo.get_unregistered_item_names().await {
+            Ok(rows) => rows,
+            Err(e) => {
+                err.report_zero(&format!("商品情報の取得に失敗: {}", e));
+                return;
+            }
+        };
 
     let total_items = items.len();
     log::info!(
