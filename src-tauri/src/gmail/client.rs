@@ -187,6 +187,11 @@ impl SyncState {
         }
     }
 
+    /// 直近のエラーメッセージを取得する
+    pub fn last_error(&self) -> Option<String> {
+        self.last_error.lock().ok().and_then(|g| g.clone())
+    }
+
     /// エラーをクリア（try_start で呼ぶ）
     pub fn clear_error(&self) {
         if let Ok(mut err) = self.last_error.lock() {

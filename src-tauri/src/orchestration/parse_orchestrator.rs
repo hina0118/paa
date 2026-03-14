@@ -39,16 +39,10 @@ async fn run_batch_parse_task_with<A: BatchCommandsApp>(
     let err = ErrorReporter::new(app, EMAIL_PARSE_TASK_NAME, EMAIL_PARSE_EVENT_NAME);
     let batch_size = batch_size.max(1);
 
-    if let Err(e) = parse_state.start() {
-        let msg = e.to_string();
-        if msg.contains("Parse is already running") {
-            log::warn!("Parse already running, skip starting new parse: {}", msg);
-            let already_msg = format!("Parse already running: {}", msg);
-            err.report_zero(&already_msg);
-        } else {
-            err.report_zero(&format!("Parse error: {}", msg));
-            parse_state.set_error(&e);
-        }
+    if let Err(e) = parse_state.try_start() {
+        // try_start の Err は常に「既に実行中」を意味する
+        log::warn!("Parse already running, skip starting new parse: {}", e);
+        err.report_zero(&format!("Parse already running: {}", e));
         return;
     }
 
@@ -215,7 +209,7 @@ mod tests {
             fail_create_gmail_client: false,
         };
         let parse_state = crate::parsers::ParseState::new();
-        parse_state.start().unwrap();
+        parse_state.try_start().unwrap();
 
         run_batch_parse_task_with(&app, pool, parse_state, 10).await;
 
