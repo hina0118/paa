@@ -19,6 +19,22 @@ use crate::repository::{
     EmailRepository, ShopSettingsRepository, SqliteEmailRepository, SqliteShopSettingsRepository,
 };
 
+/// 同期モード（全件 or 差分）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SyncMode {
+    Full,
+    Incremental,
+}
+
+/// try_start の責務（呼び出し元で実施済みか、本関数内で実施するか）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TryStartPolicy {
+    /// 本関数内で try_start を行う（コマンド・トレイ経由）
+    DoTryStart,
+    /// 呼び出し元で既に try_start 済み（パイプライン経由）
+    CallerDidTryStart,
+}
+
 /// DB内の最新 internal_date から差分同期の after_date を計算する。
 /// 安全マージンとして1日（86,400,000ms）前にずらし、RFC3339形式で返す。
 /// タイムスタンプが無効な場合は None を返す。
@@ -49,7 +65,14 @@ pub async fn run_incremental_sync_task(
 }
 
 async fn run_sync_task_with<A: BatchCommandsApp>(app: &A, pool: SqlitePool, sync_state: SyncState) {
-    run_sync_core(app, pool, sync_state, false, false).await
+    run_sync_core(
+        app,
+        pool,
+        sync_state,
+        SyncMode::Full,
+        TryStartPolicy::DoTryStart,
+    )
+    .await
 }
 
 async fn run_incremental_sync_task_with<A: BatchCommandsApp>(
@@ -58,17 +81,22 @@ async fn run_incremental_sync_task_with<A: BatchCommandsApp>(
     sync_state: SyncState,
     caller_did_try_start: bool,
 ) {
-    run_sync_core(app, pool, sync_state, true, caller_did_try_start).await
+    let policy = if caller_did_try_start {
+        TryStartPolicy::CallerDidTryStart
+    } else {
+        TryStartPolicy::DoTryStart
+    };
+    run_sync_core(app, pool, sync_state, SyncMode::Incremental, policy).await
 }
 
 async fn run_sync_core<A: BatchCommandsApp>(
     app: &A,
     pool: SqlitePool,
     sync_state: SyncState,
-    incremental: bool,
-    caller_did_try_start: bool,
+    mode: SyncMode,
+    try_start_policy: TryStartPolicy,
 ) {
-    let mode_label = if incremental {
+    let mode_label = if mode == SyncMode::Incremental {
         "incremental (requested, may fallback to full)"
     } else {
         "full"
@@ -77,7 +105,7 @@ async fn run_sync_core<A: BatchCommandsApp>(
 
     let err = ErrorReporter::new(app, GMAIL_SYNC_TASK_NAME, GMAIL_SYNC_EVENT_NAME);
 
-    if !caller_did_try_start && !sync_state.try_start() {
+    if try_start_policy == TryStartPolicy::DoTryStart && !sync_state.try_start() {
         log::warn!("Sync is already in progress");
         err.report_zero("Sync is already in progress");
         return;
@@ -133,7 +161,7 @@ async fn run_sync_core<A: BatchCommandsApp>(
     };
 
     // 差分同期の場合、DB内の最新 internal_date を起点にする
-    let after_date = if incremental {
+    let after_date = if mode == SyncMode::Incremental {
         match email_repo.get_latest_internal_date().await {
             Ok(Some(ts)) => {
                 // 安全マージンとして1日（86,400,000ms）前にずらす（Gmail API の after: は日単位のため）

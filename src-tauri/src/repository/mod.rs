@@ -2,6 +2,7 @@
 //!
 //! このモジュールはデータベース操作を抽象化し、テスト時にモック可能にします。
 
+pub mod delivery;
 pub mod email;
 pub mod order;
 pub mod overrides;
@@ -52,6 +53,9 @@ pub use product_master::MockProductMasterRepository;
 pub use product_master::{
     ProductMaster, ProductMasterFilter, ProductMasterRepository, SqliteProductMasterRepository,
 };
+
+// delivery
+pub use delivery::{PendingDelivery, SqliteDeliveryRepository};
 
 // overrides
 pub use overrides::{

@@ -8,6 +8,7 @@ use tokio::sync::Mutex;
 use super::error_handler::ErrorReporter;
 use super::{BatchCommandsApp, TauriBatchCommandsApp};
 use crate::batch_runner::{BatchProgressEvent, BatchRunner};
+use crate::commands::ProductNameParseState;
 use crate::config;
 use crate::e2e_mocks::{is_e2e_mock_mode, GeminiClientForE2E};
 use crate::gemini::{
@@ -15,6 +16,15 @@ use crate::gemini::{
     ProductNameParseTask, PRODUCT_NAME_PARSE_EVENT_NAME, PRODUCT_NAME_PARSE_TASK_NAME,
 };
 use crate::repository::SqliteProductMasterRepository;
+
+/// スコープを抜けると自動的に `parse_state.finish()` を呼ぶ RAII ガード。
+struct ParseStateGuard<'a>(&'a ProductNameParseState);
+
+impl Drop for ParseStateGuard<'_> {
+    fn drop(&mut self) {
+        self.0.finish();
+    }
+}
 
 /// 商品名パースタスクの本体。コマンド・トレイ両方から呼ぶ。
 ///
@@ -44,14 +54,19 @@ async fn run_product_name_parse_task_with<A: BatchCommandsApp>(
         PRODUCT_NAME_PARSE_EVENT_NAME,
     );
 
+    // caller_did_try_start=true ならすでに try_start 済みなので即ガードを張る。
+    // false なら後で try_start が成功した時点で Some にする。
+    let mut _guard: Option<ParseStateGuard> = if caller_did_try_start {
+        Some(ParseStateGuard(&parse_state))
+    } else {
+        None
+    };
+
     let app_data_dir = match app.app_data_dir() {
         Ok(p) => p,
         Err(e) => {
             err.report_zero(&e);
-            if caller_did_try_start {
-                parse_state.finish();
-            }
-            return;
+            return; // _guard がドロップされ、必要なら finish() が自動で呼ばれる
         }
     };
 
@@ -63,9 +78,6 @@ async fn run_product_name_parse_task_with<A: BatchCommandsApp>(
             err.report_zero(
                 "Gemini APIキーが設定されていません。設定画面でAPIキーを設定してください。",
             );
-            if caller_did_try_start {
-                parse_state.finish();
-            }
             return;
         }
         match crate::gemini::load_api_key(&app_data_dir) {
@@ -73,17 +85,11 @@ async fn run_product_name_parse_task_with<A: BatchCommandsApp>(
                 Ok(client) => GeminiClientForE2E::Real(Box::new(client)),
                 Err(e) => {
                     err.report_zero(&format!("Failed to create Gemini client: {}", e));
-                    if caller_did_try_start {
-                        parse_state.finish();
-                    }
                     return;
                 }
             },
             Err(e) => {
                 err.report_zero(&format!("Failed to load API key: {}", e));
-                if caller_did_try_start {
-                    parse_state.finish();
-                }
                 return;
             }
         }
@@ -95,35 +101,20 @@ async fn run_product_name_parse_task_with<A: BatchCommandsApp>(
             err.report_zero(&e);
             return;
         }
+        // try_start 成功 → 以降の early return でも finish() が必要
+        _guard = Some(ParseStateGuard(&parse_state));
     }
 
     let product_repo = SqliteProductMasterRepository::new(pool.clone());
 
-    let items: Vec<(String, Option<String>)> = match sqlx::query_as(
-        r#"
-        SELECT
-          TRIM(i.item_name) AS item_name,
-          MIN(o.shop_domain) AS shop_domain
-        FROM items i
-        JOIN orders o ON i.order_id = o.id
-        LEFT JOIN product_master pm ON TRIM(i.item_name) = pm.raw_name
-        WHERE i.item_name IS NOT NULL
-          AND i.item_name != ''
-          AND TRIM(i.item_name) != ''
-          AND pm.id IS NULL
-        GROUP BY TRIM(i.item_name)
-        "#,
-    )
-    .fetch_all(&pool)
-    .await
-    {
-        Ok(rows) => rows,
-        Err(e) => {
-            err.report_zero(&format!("商品情報の取得に失敗: {}", e));
-            parse_state.finish();
-            return;
-        }
-    };
+    let items: Vec<(String, Option<String>)> =
+        match product_repo.get_unregistered_item_names().await {
+            Ok(rows) => rows,
+            Err(e) => {
+                err.report_zero(&format!("商品情報の取得に失敗: {}", e));
+                return;
+            }
+        };
 
     let total_items = items.len();
     log::info!(
@@ -140,7 +131,6 @@ async fn run_product_name_parse_task_with<A: BatchCommandsApp>(
             "未解析の商品はありません（すべてproduct_masterに登録済み）".to_string(),
         );
         app.emit_event(PRODUCT_NAME_PARSE_EVENT_NAME, complete_event);
-        parse_state.finish();
         return;
     }
 
@@ -188,8 +178,7 @@ async fn run_product_name_parse_task_with<A: BatchCommandsApp>(
             );
         }
     }
-
-    parse_state.finish();
+    // _guard がドロップされ finish() が自動で呼ばれる
 }
 
 #[cfg(test)]
