@@ -53,10 +53,16 @@ impl ParseState {
     }
 
     /// バッチを開始する（既に実行中なら Err）
+    ///
+    /// `Err` は常に「既に実行中」を意味する（エラー文字列の内容に依存しないこと）。
+    pub fn try_start(&self) -> Result<(), String> {
+        self.0.try_start()
+    }
+
+    /// 後方互換のエイリアス（`try_start` を推奨）
+    #[deprecated(note = "Use try_start() instead")]
     pub fn start(&self) -> Result<(), String> {
-        self.0
-            .try_start()
-            .map_err(|_| "Parse is already running".to_string())
+        self.try_start()
     }
 
     pub fn finish(&self) {
@@ -232,7 +238,6 @@ mod tests {
         // 2回目のstartはエラー
         let result = state.start();
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), "Parse is already running");
     }
 
     #[test]
