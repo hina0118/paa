@@ -229,30 +229,23 @@ pub(crate) async fn run_delivery_check_step(app: &tauri::AppHandle, pool: &Sqlit
 // ヘルパー関数
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub(crate) async fn count_emails(pool: &SqlitePool) -> Option<i64> {
-    match sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM emails")
-        .fetch_one(pool)
-        .await
-    {
+async fn count_table(pool: &SqlitePool, table: &str) -> Option<i64> {
+    let query = format!("SELECT COUNT(*) FROM {table}");
+    match sqlx::query_scalar::<_, i64>(&query).fetch_one(pool).await {
         Ok(count) => Some(count),
         Err(e) => {
-            log::error!("[Pipeline] Failed to count emails: {e}");
+            log::error!("[Pipeline] Failed to count {table}: {e}");
             None
         }
     }
 }
 
+pub(crate) async fn count_emails(pool: &SqlitePool) -> Option<i64> {
+    count_table(pool, "emails").await
+}
+
 pub(crate) async fn count_orders(pool: &SqlitePool) -> Option<i64> {
-    match sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM orders")
-        .fetch_one(pool)
-        .await
-    {
-        Ok(count) => Some(count),
-        Err(e) => {
-            log::error!("[Pipeline] Failed to count orders: {e}");
-            None
-        }
-    }
+    count_table(pool, "orders").await
 }
 
 pub(crate) fn load_parse_batch_size(app: &tauri::AppHandle) -> usize {

@@ -5,6 +5,20 @@ use crate::config;
 use crate::gmail;
 use crate::orchestration;
 
+/// 設定読み込み → フィールド更新 → 保存の共通ヘルパー
+async fn update_sync_config<F>(app_handle: tauri::AppHandle, f: F) -> Result<(), String>
+where
+    F: FnOnce(&mut crate::config::SyncConfig),
+{
+    let app_config_dir = app_handle
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("Failed to get app config dir: {e}"))?;
+    let mut config = config::load(&app_config_dir)?;
+    f(&mut config.sync);
+    config::save(&app_config_dir, &config)
+}
+
 /// 最大繰り返し回数のバリデーション（1以上である必要がある）
 pub fn validate_max_iterations(max_iterations: i64) -> Result<(), String> {
     if max_iterations <= 0 {
@@ -83,26 +97,14 @@ pub async fn get_sync_status(
         .map_err(|e| format!("Failed to get app config dir: {e}"))?;
     let config = config::load(&app_config_dir)?;
 
+    let last_error_message = sync_state.inner().last_error();
     let sync_status = if sync_state.inner().is_running() {
         "syncing"
-    } else if sync_state
-        .inner()
-        .last_error
-        .lock()
-        .map(|g| g.is_some())
-        .unwrap_or(false)
-    {
+    } else if last_error_message.is_some() {
         "error"
     } else {
         "idle"
     };
-
-    let last_error_message = sync_state
-        .inner()
-        .last_error
-        .lock()
-        .ok()
-        .and_then(|g| g.clone());
 
     Ok(gmail::SyncMetadata {
         sync_status: sync_status.to_string(),
@@ -139,13 +141,7 @@ pub async fn update_batch_size(
     batch_size: i64,
 ) -> Result<(), String> {
     log::info!("Updating sync batch size to: {batch_size}");
-    let app_config_dir = app_handle
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("Failed to get app config dir: {e}"))?;
-    let mut config = config::load(&app_config_dir)?;
-    config.sync.batch_size = batch_size;
-    config::save(&app_config_dir, &config)
+    update_sync_config(app_handle, |s| s.batch_size = batch_size).await
 }
 
 #[tauri::command]
@@ -154,15 +150,8 @@ pub async fn update_max_iterations(
     max_iterations: i64,
 ) -> Result<(), String> {
     validate_max_iterations(max_iterations)?;
-
     log::info!("Updating max iterations to: {max_iterations}");
-    let app_config_dir = app_handle
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("Failed to get app config dir: {e}"))?;
-    let mut config = config::load(&app_config_dir)?;
-    config.sync.max_iterations = max_iterations;
-    config::save(&app_config_dir, &config)
+    update_sync_config(app_handle, |s| s.max_iterations = max_iterations).await
 }
 
 #[tauri::command]
@@ -172,13 +161,10 @@ pub async fn update_max_results_per_page(
 ) -> Result<(), String> {
     validate_max_results_per_page(max_results_per_page)?;
     log::info!("Updating max results per page to: {max_results_per_page}");
-    let app_config_dir = app_handle
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("Failed to get app config dir: {e}"))?;
-    let mut config = config::load(&app_config_dir)?;
-    config.sync.max_results_per_page = max_results_per_page;
-    config::save(&app_config_dir, &config)
+    update_sync_config(app_handle, |s| {
+        s.max_results_per_page = max_results_per_page
+    })
+    .await
 }
 
 #[tauri::command]
@@ -188,34 +174,22 @@ pub async fn update_timeout_minutes(
 ) -> Result<(), String> {
     validate_timeout_minutes(timeout_minutes)?;
     log::info!("Updating sync timeout to: {timeout_minutes} minutes");
-    let app_config_dir = app_handle
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("Failed to get app config dir: {e}"))?;
-    let mut config = config::load(&app_config_dir)?;
-    config.sync.timeout_minutes = timeout_minutes;
-    config::save(&app_config_dir, &config)
+    update_sync_config(app_handle, |s| s.timeout_minutes = timeout_minutes).await
 }
 
 /// Gmail メール取得（BatchRunner 経由で start_sync と同等の処理を実行）
+///
+/// 進捗は `batch-progress` イベントで通知される。
 #[tauri::command]
 pub async fn fetch_gmail_emails(
     app_handle: tauri::AppHandle,
     pool: tauri::State<'_, SqlitePool>,
     sync_state: tauri::State<'_, gmail::SyncState>,
-) -> Result<gmail::FetchResult, String> {
+) -> Result<(), String> {
     log::info!("Starting Gmail email fetch (via start_sync / BatchRunner)...");
     log::info!("If a browser window doesn't open automatically, please check the console for the authentication URL.");
 
-    // BatchRunner を使用する start_sync に委譲
-    start_sync(app_handle, pool, sync_state).await?;
-
-    // 進捗は batch-progress イベントで通知される
-    Ok(gmail::FetchResult {
-        fetched_count: 0,
-        saved_count: 0,
-        skipped_count: 0,
-    })
+    start_sync(app_handle, pool, sync_state).await
 }
 
 #[cfg(test)]

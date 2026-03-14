@@ -176,6 +176,14 @@ pub struct BatchProgressEvent {
 }
 
 impl BatchProgressEvent {
+    fn calc_progress_percent(processed: usize, total: usize) -> f32 {
+        if total > 0 {
+            (processed as f32 / total as f32) * 100.0
+        } else {
+            0.0
+        }
+    }
+
     /// 進捗イベントを作成
     #[allow(clippy::too_many_arguments)]
     pub fn progress(
@@ -188,11 +196,6 @@ impl BatchProgressEvent {
         failed_count: usize,
         status_message: String,
     ) -> Self {
-        let progress_percent = if total_items > 0 {
-            (processed_count as f32 / total_items as f32) * 100.0
-        } else {
-            0.0
-        };
         Self {
             task_name: task_name.to_string(),
             batch_number,
@@ -201,7 +204,7 @@ impl BatchProgressEvent {
             processed_count,
             success_count,
             failed_count,
-            progress_percent,
+            progress_percent: Self::calc_progress_percent(processed_count, total_items),
             status_message,
             is_complete: false,
             error: None,
@@ -240,11 +243,6 @@ impl BatchProgressEvent {
         failed_count: usize,
         error_message: String,
     ) -> Self {
-        let progress_percent = if total_items > 0 {
-            (processed_count as f32 / total_items as f32) * 100.0
-        } else {
-            0.0
-        };
         Self {
             task_name: task_name.to_string(),
             batch_number: 0,
@@ -253,7 +251,7 @@ impl BatchProgressEvent {
             processed_count,
             success_count,
             failed_count,
-            progress_percent,
+            progress_percent: Self::calc_progress_percent(processed_count, total_items),
             status_message: error_message.clone(),
             is_complete: true,
             error: Some(error_message),
@@ -268,11 +266,6 @@ impl BatchProgressEvent {
         success_count: usize,
         failed_count: usize,
     ) -> Self {
-        let progress_percent = if total_items > 0 {
-            (processed_count as f32 / total_items as f32) * 100.0
-        } else {
-            0.0
-        };
         Self {
             task_name: task_name.to_string(),
             batch_number: 0,
@@ -281,7 +274,7 @@ impl BatchProgressEvent {
             processed_count,
             success_count,
             failed_count,
-            progress_percent,
+            progress_percent: Self::calc_progress_percent(processed_count, total_items),
             status_message: "処理がキャンセルされました".to_string(),
             is_complete: true,
             error: Some("Cancelled by user".to_string()),
@@ -297,11 +290,6 @@ impl BatchProgressEvent {
         failed_count: usize,
         timeout_minutes: u64,
     ) -> Self {
-        let progress_percent = if total_items > 0 {
-            (processed_count as f32 / total_items as f32) * 100.0
-        } else {
-            0.0
-        };
         Self {
             task_name: task_name.to_string(),
             batch_number: 0,
@@ -310,7 +298,7 @@ impl BatchProgressEvent {
             processed_count,
             success_count,
             failed_count,
-            progress_percent,
+            progress_percent: Self::calc_progress_percent(processed_count, total_items),
             status_message: format!("タイムアウト（{}分）に達しました", timeout_minutes),
             is_complete: true,
             error: Some(format!("Timeout after {} minutes", timeout_minutes)),

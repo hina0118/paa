@@ -103,6 +103,30 @@ impl SqliteProductMasterRepository {
     pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
+
+    /// product_master に未登録のアイテム名と店舗ドメインを返す。
+    /// items テーブルを orders に JOIN し、product_master に登録済みのものを除外する。
+    pub async fn get_unregistered_item_names(
+        &self,
+    ) -> Result<Vec<(String, Option<String>)>, sqlx::Error> {
+        sqlx::query_as(
+            r#"
+            SELECT
+              TRIM(i.item_name) AS item_name,
+              MIN(o.shop_domain) AS shop_domain
+            FROM items i
+            JOIN orders o ON i.order_id = o.id
+            LEFT JOIN product_master pm ON TRIM(i.item_name) = pm.raw_name
+            WHERE i.item_name IS NOT NULL
+              AND i.item_name != ''
+              AND TRIM(i.item_name) != ''
+              AND pm.id IS NULL
+            GROUP BY TRIM(i.item_name)
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await
+    }
 }
 
 #[async_trait]

@@ -9,6 +9,7 @@ use crate::delivery_check::{
     DeliveryCheckContext, DeliveryCheckInput, DeliveryCheckTask, DELIVERY_CHECK_EVENT_NAME,
     DELIVERY_CHECK_TASK_NAME,
 };
+use crate::repository::SqliteDeliveryRepository;
 
 /// 配送状況確認タスクの本体。コマンドから呼ばれる。
 pub async fn run_delivery_check_task(
@@ -31,36 +32,10 @@ async fn run_delivery_check_task_with<A: BatchCommandsApp>(
 
     let err = ErrorReporter::new(app, DELIVERY_CHECK_TASK_NAME, DELIVERY_CHECK_EVENT_NAME);
 
+    let delivery_repo = SqliteDeliveryRepository::new(pool.clone());
+
     // tracking_check_logs の終端ステータスを deliveries に同期する
-    // stats 等が deliveries.delivery_status を直接参照するため、
-    // HTTP スクレイピングをスキップする前にDB上で一致させておく
-    if let Err(e) = sqlx::query(
-        r#"
-        UPDATE deliveries
-        SET delivery_status = (
-                SELECT tcl.delivery_status
-                FROM tracking_check_logs tcl
-                WHERE tcl.tracking_number = deliveries.tracking_number
-                  AND tcl.delivery_status IN ('delivered', 'cancelled', 'returned')
-            ),
-            last_checked_at = (
-                SELECT tcl.checked_at
-                FROM tracking_check_logs tcl
-                WHERE tcl.tracking_number = deliveries.tracking_number
-            ),
-            updated_at = CURRENT_TIMESTAMP
-        WHERE EXISTS (
-            SELECT 1
-            FROM tracking_check_logs tcl
-            WHERE tcl.tracking_number = deliveries.tracking_number
-              AND tcl.delivery_status IN ('delivered', 'cancelled', 'returned')
-        )
-          AND delivery_status NOT IN ('delivered', 'cancelled', 'returned')
-        "#,
-    )
-    .execute(&pool)
-    .await
-    {
+    if let Err(e) = delivery_repo.sync_terminal_statuses().await {
         log::warn!("[DeliveryCheck] deliveries 同期に失敗（処理は継続）: {e}");
     }
 
@@ -74,27 +49,9 @@ async fn run_delivery_check_task_with<A: BatchCommandsApp>(
         }
     };
 
-    // 対象: 未配達かつ追跡番号あり（空白のみは除外）
-    // tracking_check_logs に終端ステータスが記録済みの場合はスキップ
-    // （フロントエンドが COALESCE で tcl.delivery_status を優先表示するため再確認不要）
-    let rows: Vec<(i64, String, String)> = match sqlx::query_as(
-        r#"
-        SELECT d.id, d.tracking_number, d.carrier
-        FROM deliveries d
-        LEFT JOIN tracking_check_logs tcl ON d.tracking_number = tcl.tracking_number
-        WHERE d.delivery_status NOT IN ('delivered', 'cancelled', 'returned')
-          AND d.tracking_number IS NOT NULL
-          AND TRIM(d.tracking_number) != ''
-          AND d.carrier IS NOT NULL
-          AND TRIM(d.carrier) != ''
-          AND COALESCE(tcl.delivery_status, '') NOT IN ('delivered', 'cancelled', 'returned')
-        ORDER BY d.updated_at ASC
-        "#,
-    )
-    .fetch_all(&pool)
-    .await
-    {
-        Ok(r) => r,
+    // 対象: 未配達かつ追跡番号あり（終端ステータス記録済みはスキップ）
+    let pending = match delivery_repo.get_pending_deliveries().await {
+        Ok(rows) => rows,
         Err(e) => {
             err.report_zero(&format!("配送情報の取得に失敗: {e}"));
             check_state.finish();
@@ -102,7 +59,7 @@ async fn run_delivery_check_task_with<A: BatchCommandsApp>(
         }
     };
 
-    let total_items = rows.len();
+    let total_items = pending.len();
     log::info!("[DeliveryCheck] {} deliveries to check", total_items);
 
     if total_items == 0 {
@@ -118,12 +75,12 @@ async fn run_delivery_check_task_with<A: BatchCommandsApp>(
         return;
     }
 
-    let inputs: Vec<DeliveryCheckInput> = rows
+    let inputs: Vec<DeliveryCheckInput> = pending
         .into_iter()
-        .map(|(id, tracking_number, carrier)| DeliveryCheckInput {
-            delivery_id: id,
-            tracking_number,
-            carrier,
+        .map(|d| DeliveryCheckInput {
+            delivery_id: d.id,
+            tracking_number: d.tracking_number,
+            carrier: d.carrier,
         })
         .collect();
 
