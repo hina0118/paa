@@ -222,7 +222,7 @@ mod tests {
     #[test]
     fn test_parse_state_start_success() {
         let state = ParseState::new();
-        let result = state.start();
+        let result = state.try_start();
         assert!(result.is_ok());
         assert!(state.is_running());
     }
@@ -232,11 +232,11 @@ mod tests {
         let state = ParseState::new();
 
         // 最初のstart
-        let result = state.start();
+        let result = state.try_start();
         assert!(result.is_ok());
 
         // 2回目のstartはエラー
-        let result = state.start();
+        let result = state.try_start();
         assert!(result.is_err());
     }
 
@@ -246,7 +246,7 @@ mod tests {
         state.request_cancel();
         assert!(state.is_cancelled());
 
-        let result = state.start();
+        let result = state.try_start();
         assert!(result.is_ok());
         assert!(!state.is_cancelled());
     }
@@ -254,7 +254,7 @@ mod tests {
     #[test]
     fn test_parse_state_finish() {
         let state = ParseState::new();
-        state.start().unwrap();
+        state.try_start().unwrap();
         state.request_cancel();
 
         assert!(state.is_running());
@@ -279,17 +279,17 @@ mod tests {
         let state = ParseState::new();
 
         // サイクル1
-        state.start().unwrap();
+        state.try_start().unwrap();
         state.request_cancel();
         state.finish();
 
         // サイクル2
-        state.start().unwrap();
+        state.try_start().unwrap();
         assert!(!state.is_cancelled());
         state.finish();
 
         // サイクル3
-        state.start().unwrap();
+        state.try_start().unwrap();
         state.finish();
 
         assert!(!state.is_running());
@@ -530,7 +530,7 @@ mod tests {
     #[test]
     fn test_parse_state_clone() {
         let state = ParseState::new();
-        state.start().unwrap();
+        state.try_start().unwrap();
 
         let cloned = state.clone();
         // クローンは同じ Arc を共有
