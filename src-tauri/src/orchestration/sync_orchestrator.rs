@@ -65,7 +65,14 @@ pub async fn run_incremental_sync_task(
 }
 
 async fn run_sync_task_with<A: BatchCommandsApp>(app: &A, pool: SqlitePool, sync_state: SyncState) {
-    run_sync_core(app, pool, sync_state, SyncMode::Full, TryStartPolicy::DoTryStart).await
+    run_sync_core(
+        app,
+        pool,
+        sync_state,
+        SyncMode::Full,
+        TryStartPolicy::DoTryStart,
+    )
+    .await
 }
 
 async fn run_incremental_sync_task_with<A: BatchCommandsApp>(

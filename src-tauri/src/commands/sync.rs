@@ -161,7 +161,10 @@ pub async fn update_max_results_per_page(
 ) -> Result<(), String> {
     validate_max_results_per_page(max_results_per_page)?;
     log::info!("Updating max results per page to: {max_results_per_page}");
-    update_sync_config(app_handle, |s| s.max_results_per_page = max_results_per_page).await
+    update_sync_config(app_handle, |s| {
+        s.max_results_per_page = max_results_per_page
+    })
+    .await
 }
 
 #[tauri::command]
