@@ -227,7 +227,7 @@ mod tests {
     }
 
     const SAMPLE_BODY: &str = "\
-福田裕基 様
+山田太郎 様
 
 ◆お問い合わせ送り状No.
 470551104391

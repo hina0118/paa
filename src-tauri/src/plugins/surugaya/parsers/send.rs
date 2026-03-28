@@ -80,7 +80,7 @@ mod tests {
     use super::*;
 
     fn sample_send() -> &'static str {
-        r#"原田裕基様 （取引番号：S2204166697）
+        r#"山田太郎様 （取引番号：S2204166697）
 
 「駿河屋」にてお買い上げいただき、誠にありがとうございます。
 
@@ -104,7 +104,7 @@ http://tracking.post.japanpost.jp/services/srv/search/
 
     fn sample_send_yumail() -> &'static str {
         // ゆうメール: 追跡番号なし（email 1090 相当）
-        r#"原田裕基様 （取引番号：S2501067868）
+        r#"山田太郎様 （取引番号：S2501067868）
 
 「駿河屋」にてお買い上げいただき、誠にありがとうございます。
 

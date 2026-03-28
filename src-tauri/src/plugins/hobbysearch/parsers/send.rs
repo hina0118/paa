@@ -289,7 +289,7 @@ mod tests {
 
 [商品お届け先]
 山田 太郎 様
-〒812-0044 福岡県テスト市1-2-3
+〒100-0001 福岡県テスト市1-2-3
 
 [運送会社] 佐川急便
 [配送伝票] 470550808943
@@ -347,7 +347,7 @@ mod tests {
         assert!(order_info.delivery_address.is_some());
         let address = order_info.delivery_address.unwrap();
         assert_eq!(address.name, "山田 太郎");
-        assert_eq!(address.postal_code, Some("812-0044".to_string()));
+        assert_eq!(address.postal_code, Some("100-0001".to_string()));
     }
 
     /// parse_multi は [注文番号]セクションが存在しない場合 None を返す（parse() へフォールバック）

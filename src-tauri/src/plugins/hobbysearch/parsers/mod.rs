@@ -20,8 +20,8 @@ static YOYAKU_TOTAL_PATTERN: Lazy<Regex> =
 /// 配送先情報を抽出
 ///
 /// [商品お届け先] セクションから名前、郵便番号、住所を抽出する。
-/// - 同じ行に名前がある場合（例: "[商品お届け先]  原田 裕基 様"）にも対応
-/// - 郵便番号と住所が同じ行にある場合（例: "〒812-0044 福岡県..."）にも対応
+/// - 同じ行に名前がある場合（例: "[商品お届け先]  山田 太郎 様"）にも対応
+/// - 郵便番号と住所が同じ行にある場合（例: "〒100-0001 福岡県..."）にも対応
 pub fn extract_delivery_address(lines: &[&str]) -> Option<DeliveryAddress> {
     let mut in_delivery_section = false;
     let mut name: Option<String> = None;
@@ -34,7 +34,7 @@ pub fn extract_delivery_address(lines: &[&str]) -> Option<DeliveryAddress> {
         // [商品お届け先] セクション開始（同じ行に名前がある場合もある）
         if trimmed.starts_with("[商品お届け先]") {
             in_delivery_section = true;
-            // 同じ行に名前がある場合（例: "[商品お届け先]  原田 裕基 様"）
+            // 同じ行に名前がある場合（例: "[商品お届け先]  山田 太郎 様"）
             if trimmed.ends_with('様') {
                 let name_part = trimmed
                     .trim_start_matches("[商品お届け先]")
@@ -54,7 +54,7 @@ pub fn extract_delivery_address(lines: &[&str]) -> Option<DeliveryAddress> {
 
             // 郵便番号と住所を抽出（同じ行にある場合）
             if trimmed.starts_with('〒') {
-                // 郵便番号だけを抽出（例: "〒812-0044 福岡県..." → "812-0044"）
+                // 郵便番号だけを抽出（例: "〒100-0001 福岡県..." → "100-0001"）
                 let rest = trimmed.trim_start_matches('〒').trim();
                 if let Some(space_pos) = rest.find(' ') {
                     postal_code = Some(rest[..space_pos].trim().to_string());

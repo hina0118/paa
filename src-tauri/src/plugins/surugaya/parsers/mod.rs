@@ -196,7 +196,7 @@ mod tests {
     #[test]
     fn test_extract_order_number_send_format() {
         // send: `（取引番号：S2204166697）`
-        let lines = vec!["原田裕基様 （取引番号：S2204166697）"];
+        let lines = vec!["山田太郎様 （取引番号：S2204166697）"];
         assert_eq!(
             extract_order_number(&lines),
             Some("S2204166697".to_string())

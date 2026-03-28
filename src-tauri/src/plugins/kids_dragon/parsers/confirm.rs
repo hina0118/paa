@@ -42,7 +42,7 @@ impl EmailParser for KidsDragonConfirmParser {
 mod tests {
     use super::*;
 
-    /// サンプル確認メール（sample/原田裕基様 ご注文有難うございます キッズドラゴンです.eml の
+    /// サンプル確認メール（sample/山田太郎様 ご注文有難うございます キッズドラゴンです.eml の
     /// UTF-8 デコード後の本文。全角コロン `：` を含む実際のフォーマットを使用する）
     fn sample_confirm_email() -> &'static str {
         r#"【ご注文ご確認メール】  ホビーショップ　キッズドラゴン

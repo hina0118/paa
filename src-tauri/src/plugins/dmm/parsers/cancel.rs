@@ -75,7 +75,7 @@ mod tests {
 
     #[test]
     fn test_parse_dmm_cancel() {
-        let email = r#"原田 裕基 様
+        let email = r#"山田 太郎 様
 
 DMM通販をご利用いただき、ありがとうございます。
 下記の注文商品のキャンセルが完了いたしました。
