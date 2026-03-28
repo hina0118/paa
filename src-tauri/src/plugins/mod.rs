@@ -14,6 +14,7 @@ pub mod animate;
 pub mod dmm;
 pub mod furuichi_online;
 pub mod goodsmile;
+pub mod hobbyjapan;
 pub mod hobbysearch;
 pub mod kids_dragon;
 pub mod premium_bandai;
