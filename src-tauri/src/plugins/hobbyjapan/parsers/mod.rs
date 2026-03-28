@@ -24,9 +24,8 @@ static ITEM_PRICE_RE: Lazy<Regex> = Lazy::new(|| {
 });
 
 /// `　商品金額合計：￥7,880` パターン
-static SUBTOTAL_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"商品金額合計：[￥¥]([\d,]+)").expect("Invalid SUBTOTAL_RE")
-});
+static SUBTOTAL_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"商品金額合計：[￥¥]([\d,]+)").expect("Invalid SUBTOTAL_RE"));
 
 /// `　送料：￥700` パターン
 static SHIPPING_RE: Lazy<Regex> =
@@ -53,9 +52,9 @@ pub fn extract_order_number(lines: &[&str]) -> Option<String> {
 /// `【ご注文日】2026年03月21日` から注文日を抽出し `2026-03-21` 形式で返す
 pub fn extract_order_date(lines: &[&str]) -> Option<String> {
     lines.iter().find_map(|line| {
-        ORDER_DATE_RE.captures(line).map(|c| {
-            format!("{}-{}-{}", &c[1], &c[2], &c[3])
-        })
+        ORDER_DATE_RE
+            .captures(line)
+            .map(|c| format!("{}-{}-{}", &c[1], &c[2], &c[3]))
     })
 }
 
