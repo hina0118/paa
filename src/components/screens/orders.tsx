@@ -243,11 +243,11 @@ export function Orders() {
         </div>
       </div>
 
-      {loading ? (
+      {loading && items.length === 0 ? (
         <div className="flex-1 flex items-center justify-center text-muted-foreground">
           読み込み中...
         </div>
-      ) : items.length === 0 ? (
+      ) : !loading && items.length === 0 ? (
         <div className="flex-1 flex items-center justify-center text-muted-foreground">
           データがありません
         </div>
