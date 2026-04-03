@@ -17,18 +17,12 @@ test.describe('ナビゲーション', () => {
   test('サイドバーが表示される', async ({ page }) => {
     await expectSidebarVisible(page);
     // ナビゲーション項目が表示されることを確認
-    await expect(page.getByTestId('dashboard')).toBeVisible();
     await expect(page.getByTestId('orders')).toBeVisible();
     await expect(page.getByTestId('batch')).toBeVisible();
     await expect(page.getByTestId('logs')).toBeVisible();
     await expect(page.getByTestId('shop-settings')).toBeVisible();
     await expect(page.getByTestId('api-keys')).toBeVisible();
     await expect(page.getByTestId('settings')).toBeVisible();
-  });
-
-  test('Dashboard画面に遷移できる', async ({ page }) => {
-    await navigateToScreen(page, 'dashboard');
-    await expectScreenTitle(page, 'ダッシュボード');
   });
 
   test('Orders画面に遷移できる', async ({ page }) => {
@@ -71,10 +65,10 @@ test.describe('ナビゲーション', () => {
     const ordersButton = page.getByTestId('orders');
     await expect(ordersButton).toHaveAttribute('aria-current', 'page');
 
-    // Dashboardに遷移
-    await navigateToScreen(page, 'dashboard');
-    const dashboardButton = page.getByTestId('dashboard');
-    await expect(dashboardButton).toHaveAttribute('aria-current', 'page');
+    // Batchに遷移
+    await navigateToScreen(page, 'batch');
+    const batchButton = page.getByTestId('batch');
+    await expect(batchButton).toHaveAttribute('aria-current', 'page');
 
     // Ordersは非アクティブになる（aria-current が付かない）
     await expect(ordersButton).not.toHaveAttribute('aria-current');

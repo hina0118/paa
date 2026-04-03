@@ -18,7 +18,6 @@ describe('ナビゲーション (Tauri)', () => {
   it('サイドバーが表示される', async () => {
     await expectSidebarVisible();
     for (const id of [
-      'dashboard',
       'orders',
       'batch',
       'logs',
@@ -30,11 +29,6 @@ describe('ナビゲーション (Tauri)', () => {
       const btn = await $(`[data-testid="${id}"]`);
       await expect(btn).toBeDisplayed();
     }
-  });
-
-  it('Dashboard 画面に遷移できる', async () => {
-    await navigateToScreen('dashboard');
-    await expectScreenTitle('ダッシュボード');
   });
 
   it('Orders 画面に遷移できる', async () => {
