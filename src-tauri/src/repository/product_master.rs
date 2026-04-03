@@ -292,6 +292,8 @@ impl ProductMasterRepository for SqliteProductMasterRepository {
         // Avoid logging user/product data (raw_name, maker, series, name); keep logs metrics-only.
         log::debug!("Saving product_master entry");
 
+        let parsed = parsed.clone().normalize();
+
         let id: i64 = sqlx::query_scalar(
             r#"
             INSERT INTO product_master (
@@ -335,6 +337,8 @@ impl ProductMasterRepository for SqliteProductMasterRepository {
     }
 
     async fn update(&self, id: i64, parsed: &ParsedProduct) -> Result<(), String> {
+        let parsed = parsed.clone().normalize();
+
         sqlx::query(
             r#"
             UPDATE product_master
