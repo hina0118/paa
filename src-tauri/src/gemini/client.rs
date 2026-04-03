@@ -74,10 +74,15 @@ impl ParsedProduct {
 fn normalize_maker(maker: &str) -> String {
     match maker.trim() {
         // バンダイスピリッツ（プラモデル・フィギュア・食玩）
-        "バンダイ" | "BANDAI" | "Bandai" | "バンダイスピリッツ" => "BANDAI SPIRITS".to_string(),
+        "バンダイ" | "BANDAI" | "Bandai" | "バンダイスピリッツ" => {
+            "BANDAI SPIRITS".to_string()
+        }
         // バンダイナムコエンターテインメント（ゲームソフト）- BANDAI SPIRITS とは別エンティティ
-        "バンダイナムコ" | "バンダイナムコエンターテインメント" | "Bandai Namco Entertainment"
-        | "バンダイナムコゲームス" | "Bandai Namco Games" => "BANDAI NAMCO".to_string(),
+        "バンダイナムコ"
+        | "バンダイナムコエンターテインメント"
+        | "Bandai Namco Entertainment"
+        | "バンダイナムコゲームス"
+        | "Bandai Namco Games" => "BANDAI NAMCO".to_string(),
         // コトブキヤ
         "コトブキヤ" | "Kotobukiya" | "kotobukiya" | "KOTOBUKIYA" => "KOTOBUKIYA".to_string(),
         // グッドスマイルカンパニー
@@ -97,19 +102,32 @@ fn normalize_maker(maker: &str) -> String {
             "ホビージャパン".to_string()
         }
         // スクウェアエニックス
-        "Square Enix" | "SQUARE ENIX" | "スクウェア・エニックス" | "スクウェアエニクス"
-        | "スクウェア" | "Square" | "エニックス" | "Enix" => "スクウェアエニックス".to_string(),
+        "Square Enix"
+        | "SQUARE ENIX"
+        | "スクウェア・エニックス"
+        | "スクウェアエニクス"
+        | "スクウェア"
+        | "Square"
+        | "エニックス"
+        | "Enix" => "スクウェアエニックス".to_string(),
         // Level-5
         "レベルファイブ" | "LEVEL-5" | "Level 5" | "level5" => "Level-5".to_string(),
         // アトラス
         "ATLUS" | "Atlus" | "アトラス株式会社" => "アトラス".to_string(),
         // コーエーテクモ
-        "コーエーテクモゲームス" | "KOEI TECMO" | "Koei Tecmo" | "コーエー" | "Koei"
-        | "テクモ" | "Tecmo" => "コーエーテクモ".to_string(),
+        "コーエーテクモゲームス"
+        | "KOEI TECMO"
+        | "Koei Tecmo"
+        | "コーエー"
+        | "Koei"
+        | "テクモ"
+        | "Tecmo" => "コーエーテクモ".to_string(),
         // カプコン
         "CAPCOM" | "Capcom" => "カプコン".to_string(),
         // コナミ
-        "KONAMI" | "Konami" | "コナミデジタルエンタテインメント" => "コナミ".to_string(),
+        "KONAMI" | "Konami" | "コナミデジタルエンタテインメント" => {
+            "コナミ".to_string()
+        }
         // セガ
         "SEGA" | "Sega" | "セガゲームス" => "セガ".to_string(),
         // ナムコ（BANDAI NAMCO に統合前の旧表記）
@@ -117,7 +135,11 @@ fn normalize_maker(maker: &str) -> String {
         // Nintendo
         "任天堂" | "nintendo" | "Nintendo Co., Ltd." => "Nintendo".to_string(),
         // Sony
-        "ソニー" | "SONY" | "ソニー・インタラクティブエンタテインメント" | "SIE" | "SCE"
+        "ソニー"
+        | "SONY"
+        | "ソニー・インタラクティブエンタテインメント"
+        | "SIE"
+        | "SCE"
         | "SCEJ" => "Sony".to_string(),
         other => other.to_string(),
     }
@@ -134,12 +156,14 @@ fn normalize_series(series: &str) -> String {
             "ガンダムビルドダイバーズRe:RISE".to_string()
         }
         // SDガンダムGジェネレーション 表記ゆれ統一
-        "SDガンダム Gジェネレーション" | "SDガンダム ジージェネレーション"
-        | "SDガンダムGジェネレーション" | "SD Gundam G Generation" => {
-            "SDガンダムGジェネレーション".to_string()
-        }
+        "SDガンダム Gジェネレーション"
+        | "SDガンダム ジージェネレーション"
+        | "SDガンダムGジェネレーション"
+        | "SD Gundam G Generation" => "SDガンダムGジェネレーション".to_string(),
         // スーパーロボット大戦 表記ゆれ統一
-        "スーパーロボット大戦α外伝" | "スパロボα外伝" => "スーパーロボット大戦α外伝".to_string(),
+        "スーパーロボット大戦α外伝" | "スパロボα外伝" => {
+            "スーパーロボット大戦α外伝".to_string()
+        }
         // フレームアームズ系
         "フレームアームズ・ガール" | "Frame Arms Girl" | "FA:G" => {
             "フレームアームズ・ガール".to_string()
