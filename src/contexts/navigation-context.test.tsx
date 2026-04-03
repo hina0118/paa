@@ -14,16 +14,6 @@ describe('NavigationContext', () => {
     expect(result.current.currentScreen).toBe('orders');
   });
 
-  it('allows changing to dashboard screen', () => {
-    const { result } = renderHook(() => useNavigation(), { wrapper });
-
-    act(() => {
-      result.current.setCurrentScreen('dashboard');
-    });
-
-    expect(result.current.currentScreen).toBe('dashboard');
-  });
-
   it('allows changing to batch screen', () => {
     const { result } = renderHook(() => useNavigation(), { wrapper });
 
@@ -77,11 +67,6 @@ describe('NavigationContext', () => {
     const { result } = renderHook(() => useNavigation(), { wrapper });
 
     act(() => {
-      result.current.setCurrentScreen('dashboard');
-    });
-    expect(result.current.currentScreen).toBe('dashboard');
-
-    act(() => {
       result.current.setCurrentScreen('batch');
     });
     expect(result.current.currentScreen).toBe('batch');
@@ -108,12 +93,12 @@ describe('NavigationContext', () => {
     const { result, rerender } = renderHook(() => useNavigation(), { wrapper });
 
     act(() => {
-      result.current.setCurrentScreen('dashboard');
+      result.current.setCurrentScreen('batch');
     });
 
     rerender();
 
-    expect(result.current.currentScreen).toBe('dashboard');
+    expect(result.current.currentScreen).toBe('batch');
   });
 
   it('provides both currentScreen and setCurrentScreen', () => {

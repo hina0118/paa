@@ -3,7 +3,6 @@ import { DatabaseManager } from '@/lib/database';
 import { toastError } from '@/lib/toast';
 import { Orders } from '@/components/screens/orders';
 import { Sidebar } from '@/components/layout/sidebar';
-import { Dashboard } from '@/components/screens/dashboard';
 import { Batch } from '@/components/screens/batch';
 import { Logs } from '@/components/screens/logs';
 import { ApiKeys } from '@/components/screens/api-keys';
@@ -76,8 +75,6 @@ function AppContent() {
 
   const renderScreen = () => {
     switch (currentScreen) {
-      case 'dashboard':
-        return <Dashboard />;
       case 'orders':
         return <Orders />;
       case 'deliveries':
