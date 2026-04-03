@@ -292,6 +292,8 @@ impl ProductMasterRepository for SqliteProductMasterRepository {
         // Avoid logging user/product data (raw_name, maker, series, name); keep logs metrics-only.
         log::debug!("Saving product_master entry");
 
+        let parsed = parsed.clone().normalize();
+
         let id: i64 = sqlx::query_scalar(
             r#"
             INSERT INTO product_master (
@@ -335,6 +337,8 @@ impl ProductMasterRepository for SqliteProductMasterRepository {
     }
 
     async fn update(&self, id: i64, parsed: &ParsedProduct) -> Result<(), String> {
+        let parsed = parsed.clone().normalize();
+
         sqlx::query(
             r#"
             UPDATE product_master
@@ -534,7 +538,7 @@ mod tests {
         let pm = found.expect("should find by raw_name");
         assert_eq!(pm.raw_name, "RG 1/144 ガンダム");
         assert_eq!(pm.normalized_name, "rg1144gundam");
-        assert_eq!(pm.maker, Some("バンダイ".to_string()));
+        assert_eq!(pm.maker, Some("BANDAI SPIRITS".to_string()));
         assert_eq!(pm.series, Some("ガンダム".to_string()));
         assert_eq!(pm.product_name, Some("RG 1/144 ガンダム".to_string()));
         assert_eq!(pm.scale, Some("1/144".to_string()));
@@ -761,13 +765,13 @@ mod tests {
         seed_three_items(&repo).await;
 
         let filter = ProductMasterFilter {
-            maker: Some("バンダイ".to_string()),
+            maker: Some("BANDAI SPIRITS".to_string()),
             ..Default::default()
         };
         let results = repo.find_filtered(&filter, 10, 0).await.unwrap();
         assert_eq!(results.len(), 2);
         for r in &results {
-            assert_eq!(r.maker, Some("バンダイ".to_string()));
+            assert_eq!(r.maker, Some("BANDAI SPIRITS".to_string()));
         }
     }
 
@@ -817,7 +821,7 @@ mod tests {
         seed_three_items(&repo).await;
 
         let filter = ProductMasterFilter {
-            maker: Some("バンダイ".to_string()),
+            maker: Some("BANDAI SPIRITS".to_string()),
             ..Default::default()
         };
         let count = repo.count_filtered(&filter).await.unwrap();

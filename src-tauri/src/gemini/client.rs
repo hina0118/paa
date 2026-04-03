@@ -58,6 +58,121 @@ struct GeminiError {
     message: String,
 }
 
+impl ParsedProduct {
+    /// maker・series の表記ゆれを正規化して新しい ParsedProduct を返す。
+    /// DB保存前に呼び出すことで、AIの出力揺れを吸収する。
+    pub fn normalize(self) -> Self {
+        Self {
+            maker: self.maker.map(|m| normalize_maker(&m)),
+            series: self.series.map(|s| normalize_series(&s)),
+            ..self
+        }
+    }
+}
+
+/// メーカー名の表記ゆれを正規化する
+fn normalize_maker(maker: &str) -> String {
+    match maker.trim() {
+        // バンダイスピリッツ（プラモデル・フィギュア・食玩）
+        "バンダイ" | "BANDAI" | "Bandai" | "バンダイスピリッツ" => {
+            "BANDAI SPIRITS".to_string()
+        }
+        // バンダイナムコエンターテインメント（ゲームソフト）- BANDAI SPIRITS とは別エンティティ
+        "バンダイナムコ"
+        | "バンダイナムコエンターテインメント"
+        | "Bandai Namco Entertainment"
+        | "バンダイナムコゲームス"
+        | "Bandai Namco Games" => "BANDAI NAMCO".to_string(),
+        // コトブキヤ
+        "コトブキヤ" | "Kotobukiya" | "kotobukiya" | "KOTOBUKIYA" => "KOTOBUKIYA".to_string(),
+        // グッドスマイルカンパニー
+        "GOOD SMILE COMPANY" | "Good Smile Company" | "GSC" | "グッドスマイル" => {
+            "グッドスマイルカンパニー".to_string()
+        }
+        // マックスファクトリー
+        "MAX FACTORY" | "Max Factory" | "max factory" | "MAXFACTORY" => {
+            "マックスファクトリー".to_string()
+        }
+        // タカラトミー（合併後）
+        "TAKARA TOMY" | "TakaraTomy" | "Takara Tomy" | "タカラトミーアーツ" => {
+            "タカラトミー".to_string()
+        }
+        // ホビージャパン
+        "ホビージャパン(Hobby Japan)" | "Hobby Japan" | "HOBBY JAPAN" | "HJ" => {
+            "ホビージャパン".to_string()
+        }
+        // スクウェアエニックス
+        "Square Enix"
+        | "SQUARE ENIX"
+        | "スクウェア・エニックス"
+        | "スクウェアエニクス"
+        | "スクウェア"
+        | "Square"
+        | "エニックス"
+        | "Enix" => "スクウェアエニックス".to_string(),
+        // Level-5
+        "レベルファイブ" | "LEVEL-5" | "Level 5" | "level5" => "Level-5".to_string(),
+        // アトラス
+        "ATLUS" | "Atlus" | "アトラス株式会社" => "アトラス".to_string(),
+        // コーエーテクモ
+        "コーエーテクモゲームス"
+        | "KOEI TECMO"
+        | "Koei Tecmo"
+        | "コーエー"
+        | "Koei"
+        | "テクモ"
+        | "Tecmo" => "コーエーテクモ".to_string(),
+        // カプコン
+        "CAPCOM" | "Capcom" => "カプコン".to_string(),
+        // コナミ
+        "KONAMI" | "Konami" | "コナミデジタルエンタテインメント" => {
+            "コナミ".to_string()
+        }
+        // セガ
+        "SEGA" | "Sega" | "セガゲームス" => "セガ".to_string(),
+        // ナムコ（BANDAI NAMCO に統合前の旧表記）
+        "ナムコ" | "NAMCO" | "Namco" => "BANDAI NAMCO".to_string(),
+        // Nintendo
+        "任天堂" | "nintendo" | "Nintendo Co., Ltd." => "Nintendo".to_string(),
+        // Sony
+        "ソニー"
+        | "SONY"
+        | "ソニー・インタラクティブエンタテインメント"
+        | "SIE"
+        | "SCE"
+        | "SCEJ" => "Sony".to_string(),
+        other => other.to_string(),
+    }
+}
+
+/// シリーズ名の表記ゆれを正規化する
+fn normalize_series(series: &str) -> String {
+    match series.trim() {
+        // 30MM / 30MS
+        "30 MINUTES MISSIONS" | "30Minutes Missions" | "30 MINUTES MISSION" => "30MM".to_string(),
+        "30 MINUTES SISTERS" | "30Minutes Sisters" | "30 MINUTES SISTER" => "30MS".to_string(),
+        // ガンダムビルドダイバーズ
+        "ガンダムビルドダイバーズ Re：RISE" | "ガンダムビルドダイバーズ Re:RISE" => {
+            "ガンダムビルドダイバーズRe:RISE".to_string()
+        }
+        // SDガンダムGジェネレーション 表記ゆれ統一
+        "SDガンダム Gジェネレーション"
+        | "SDガンダム ジージェネレーション"
+        | "SDガンダムGジェネレーション"
+        | "SD Gundam G Generation" => "SDガンダムGジェネレーション".to_string(),
+        // スーパーロボット大戦 表記ゆれ統一
+        "スーパーロボット大戦α外伝" | "スパロボα外伝" => {
+            "スーパーロボット大戦α外伝".to_string()
+        }
+        // フレームアームズ系
+        "フレームアームズ・ガール" | "Frame Arms Girl" | "FA:G" => {
+            "フレームアームズ・ガール".to_string()
+        }
+        "フレームアームズ" | "Frame Arms" | "FA" => "フレームアームズ".to_string(),
+        other => other.to_string(),
+    }
+}
+
 /// Gemini API のレート制限関連定数
 pub const GEMINI_BATCH_SIZE: usize = 10;
 pub const GEMINI_DELAY_SECONDS: u64 = 10;
@@ -142,10 +257,41 @@ impl GeminiClient {
 - scale: スケール情報（例: "1/7", "1/144", "NON"。不明な場合は null）
 - is_reissue: 再販品かどうか（true/false）
 
-注意事項:
-- メーカー名は正式名称に統一してください（例: バンダイナムコ → BANDAI SPIRITS）
+【重要】メーカー名は必ず以下の正規表記で統一してください（表記ゆれ厳禁）:
+  プラモデル・フィギュア系:
+  - バンダイ / BANDAI / Bandai → BANDAI SPIRITS
+  - バンダイスピリッツ → BANDAI SPIRITS
+  - コトブキヤ / Kotobukiya / kotobukiya → KOTOBUKIYA
+  - グッドスマイルカンパニー / GOOD SMILE COMPANY / GSC / グッドスマイル → グッドスマイルカンパニー
+  - マックスファクトリー / MAX FACTORY / Max Factory → マックスファクトリー
+  - タカラトミー / TAKARA TOMY / TakaraTomy → タカラトミー
+  - ホビージャパン / Hobby Japan / HOBBY JAPAN → ホビージャパン
+  ゲームソフト系:
+  - バンダイナムコ / バンダイナムコエンターテインメント / BANDAI NAMCO → BANDAI NAMCO
+    ※ BANDAI SPIRITS（プラモ）と BANDAI NAMCO（ゲーム）は別会社のため混同しないこと
+  - 任天堂 / nintendo → Nintendo
+  - スクウェア / エニックス / スクウェア・エニックス / SQUARE ENIX → スクウェアエニックス
+  - アトラス / ATLUS / Atlus → アトラス
+  - コーエー / テクモ / コーエーテクモ / KOEI TECMO → コーエーテクモ
+  - カプコン / CAPCOM / Capcom → カプコン
+  - コナミ / KONAMI / Konami → コナミ
+  - セガ / SEGA / Sega / セガゲームス → セガ
+  - ナムコ / NAMCO / Namco → BANDAI NAMCO
+  - ソニー / SONY / SCE / SCEJ / SIE → Sony
+
+【重要】シリーズ名は必ず以下の正規表記で統一してください（表記ゆれ厳禁）:
+  - 30 MINUTES MISSIONS / 30Minutes Missions → 30MM
+  - 30 MINUTES SISTERS / 30Minutes Sisters → 30MS
+  - ガンダムビルドダイバーズ Re：RISE / ガンダムビルドダイバーズ Re:RISE → ガンダムビルドダイバーズRe:RISE
+  - SDガンダム Gジェネレーション / SDガンダム ジージェネレーション → SDガンダムGジェネレーション
+  - フレームアームズ・ガール / Frame Arms Girl / FA:G → フレームアームズ・ガール
+  - フレームアームズ / Frame Arms → フレームアームズ
+
+その他の注意事項:
 - 【再販】【予約】などのタグは is_reissue フラグで表現し、name からは除去してください
-- 品番・型番は name に含めないでください
+- 品番・型番（例: FG001, RG-30, HG など）は name に含めないでください
+- 状態情報（中古A、箱説なし等）は name に含めないでください
+- 同じバッチ内で同一メーカー・同一シリーズが複数ある場合は必ず同じ表記を使用してください
 
 出力は必ず有効なJSON配列形式で、商品名リストと同じ順序で出力してください。"#
         )
