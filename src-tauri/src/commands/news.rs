@@ -46,8 +46,7 @@ fn parse_item(item: roxmltree::Node) -> NewsFeedItem {
     let url = if is_atom {
         item.children()
             .find(|n| {
-                n.has_tag_name("link")
-                    && n.attribute("rel").map_or(true, |r| r == "alternate")
+                n.has_tag_name("link") && n.attribute("rel").map_or(true, |r| r == "alternate")
             })
             .and_then(|n| n.attribute("href"))
             .map(|s| s.to_string())
@@ -156,7 +155,6 @@ fn parse_item(item: roxmltree::Node) -> NewsFeedItem {
 /// RSS/Atom フィードを取得してパースする Tauri コマンド
 #[tauri::command]
 pub async fn fetch_news_feed(url: String) -> Result<Vec<NewsFeedItem>, String> {
-
     let response = reqwest::get(&url)
         .await
         .map_err(|e| format!("フィードの取得に失敗しました: {e}"))?;
@@ -166,8 +164,8 @@ pub async fn fetch_news_feed(url: String) -> Result<Vec<NewsFeedItem>, String> {
         .await
         .map_err(|e| format!("レスポンスの読み取りに失敗しました: {e}"))?;
 
-    let doc = roxmltree::Document::parse(&text)
-        .map_err(|e| format!("XMLの解析に失敗しました: {e}"))?;
+    let doc =
+        roxmltree::Document::parse(&text).map_err(|e| format!("XMLの解析に失敗しました: {e}"))?;
 
     // RSS 2.0/1.0 は <item>、Atom は <entry>
     let items = doc
@@ -228,12 +226,18 @@ pub async fn fetch_news_html(
 
     let item_sel = Selector::parse(&selectors.item)
         .map_err(|_| format!("無効なCSSセレクタ: {}", selectors.item))?;
-    let title_sel = selectors.title.as_deref().and_then(|s| Selector::parse(s).ok());
+    let title_sel = selectors
+        .title
+        .as_deref()
+        .and_then(|s| Selector::parse(s).ok());
     let thumb_sel = selectors
         .thumbnail
         .as_deref()
         .and_then(|s| Selector::parse(s).ok());
-    let date_sel = selectors.date.as_deref().and_then(|s| Selector::parse(s).ok());
+    let date_sel = selectors
+        .date
+        .as_deref()
+        .and_then(|s| Selector::parse(s).ok());
 
     // 相対 URL 解決用のベース URL
     let base = url::Url::parse(&url).ok();
@@ -331,7 +335,11 @@ pub async fn fetch_news_html(
                     .map(|re| re.replace_all(&decoded, "").to_string())
                     .unwrap_or(decoded);
                 let t = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
-                if t.is_empty() { None } else { Some(t) }
+                if t.is_empty() {
+                    None
+                } else {
+                    Some(t)
+                }
             }
             .filter(|s| !s.is_empty())?;
 
@@ -389,7 +397,16 @@ pub struct NewsClip {
 
 /// DB の生行をドメイン型に変換するヘルパー
 #[allow(clippy::type_complexity)]
-type ClipRow = (i64, String, String, String, Option<String>, Option<String>, String, String);
+type ClipRow = (
+    i64,
+    String,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    String,
+    String,
+);
 
 fn row_to_clip(row: ClipRow) -> NewsClip {
     let tags: Vec<String> = serde_json::from_str(&row.6).unwrap_or_default();
@@ -524,8 +541,8 @@ async fn summarize_with_gemini(
         .as_str()
         .ok_or_else(|| "Gemini レスポンスからテキストを取得できませんでした".to_string())?;
 
-    let result: GeminiSummaryResult = serde_json::from_str(text)
-        .map_err(|e| format!("AIレスポンスのJSONパースに失敗: {e}"))?;
+    let result: GeminiSummaryResult =
+        serde_json::from_str(text).map_err(|e| format!("AIレスポンスのJSONパースに失敗: {e}"))?;
 
     Ok((result.summary, result.tags))
 }
@@ -563,54 +580,54 @@ pub async fn clip_news_article(
     let tags_json =
         serde_json::to_string(&tags).map_err(|e| format!("タグのシリアライズに失敗: {e}"))?;
 
-    let row: (i64, String, String, String, Option<String>, Option<String>, String, String) =
-        sqlx::query_as(
-            "INSERT INTO news_clips (title, url, source_name, published_at, summary, tags)
+    let row: (
+        i64,
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        String,
+        String,
+    ) = sqlx::query_as(
+        "INSERT INTO news_clips (title, url, source_name, published_at, summary, tags)
              VALUES (?, ?, ?, ?, ?, ?)
              ON CONFLICT(url) DO UPDATE SET
                summary = excluded.summary,
                tags    = excluded.tags
              RETURNING id, title, url, source_name, published_at, summary, tags, clipped_at",
-        )
-        .bind(&title)
-        .bind(&url)
-        .bind(&source_name)
-        .bind(&published_at)
-        .bind(&summary)
-        .bind(&tags_json)
-        .fetch_one(pool.inner())
-        .await
-        .map_err(|e| format!("クリップの保存に失敗しました: {e}"))?;
+    )
+    .bind(&title)
+    .bind(&url)
+    .bind(&source_name)
+    .bind(&published_at)
+    .bind(&summary)
+    .bind(&tags_json)
+    .fetch_one(pool.inner())
+    .await
+    .map_err(|e| format!("クリップの保存に失敗しました: {e}"))?;
 
     Ok(row_to_clip(row))
 }
 
 /// クリップ一覧を clipped_at 降順で返す
 #[tauri::command]
-pub async fn get_news_clips(
-    pool: tauri::State<'_, SqlitePool>,
-) -> Result<Vec<NewsClip>, String> {
+pub async fn get_news_clips(pool: tauri::State<'_, SqlitePool>) -> Result<Vec<NewsClip>, String> {
     let rows: Vec<ClipRow> = sqlx::query_as(
-            "SELECT id, title, url, source_name, published_at, summary, tags, clipped_at
+        "SELECT id, title, url, source_name, published_at, summary, tags, clipped_at
              FROM news_clips
              ORDER BY clipped_at DESC",
-        )
-        .fetch_all(pool.inner())
-        .await
-        .map_err(|e| format!("クリップの取得に失敗しました: {e}"))?;
+    )
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|e| format!("クリップの取得に失敗しました: {e}"))?;
 
-    Ok(rows
-        .into_iter()
-        .map(row_to_clip)
-        .collect())
+    Ok(rows.into_iter().map(row_to_clip).collect())
 }
 
 /// クリップを削除する
 #[tauri::command]
-pub async fn delete_news_clip(
-    pool: tauri::State<'_, SqlitePool>,
-    id: i64,
-) -> Result<(), String> {
+pub async fn delete_news_clip(pool: tauri::State<'_, SqlitePool>, id: i64) -> Result<(), String> {
     sqlx::query("DELETE FROM news_clips WHERE id = ?")
         .bind(id)
         .execute(pool.inner())
@@ -621,9 +638,7 @@ pub async fn delete_news_clip(
 
 /// クリップ済み URL の一覧を返す（ニュース一覧でのクリップ済み判定用）
 #[tauri::command]
-pub async fn get_clipped_urls(
-    pool: tauri::State<'_, SqlitePool>,
-) -> Result<Vec<String>, String> {
+pub async fn get_clipped_urls(pool: tauri::State<'_, SqlitePool>) -> Result<Vec<String>, String> {
     let rows: Vec<(String,)> = sqlx::query_as("SELECT url FROM news_clips")
         .fetch_all(pool.inner())
         .await
