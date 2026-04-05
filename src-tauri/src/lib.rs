@@ -716,6 +716,7 @@ pub fn run() {
             commands::close_screen_overlay,
             commands::capture_and_ocr,
             commands::fetch_news_feed,
+            commands::fetch_news_html,
             commands::clip_news_article,
             commands::get_news_clips,
             commands::delete_news_clip,

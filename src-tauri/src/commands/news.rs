@@ -91,6 +91,7 @@ fn parse_item(item: roxmltree::Node) -> NewsFeedItem {
 /// RSS/Atom フィードを取得してパースする Tauri コマンド
 #[tauri::command]
 pub async fn fetch_news_feed(url: String) -> Result<Vec<NewsFeedItem>, String> {
+
     let response = reqwest::get(&url)
         .await
         .map_err(|e| format!("フィードの取得に失敗しました: {e}"))?;
@@ -107,6 +108,125 @@ pub async fn fetch_news_feed(url: String) -> Result<Vec<NewsFeedItem>, String> {
         .descendants()
         .filter(|n| n.has_tag_name("item"))
         .map(parse_item)
+        .collect();
+
+    Ok(items)
+}
+
+// =============================================================================
+// HTML スクレイピングによるニュース取得
+// =============================================================================
+
+/// HTML スクレイピング用セレクタ設定（フロントエンドから受け取る）
+#[derive(Debug, Deserialize)]
+pub struct HtmlScrapeSelectors {
+    pub item: String,
+    pub title: Option<String>,
+    pub thumbnail: Option<String>,
+    pub date: Option<String>,
+}
+
+/// HTML ページをスクレイピングしてニュース記事を取得する Tauri コマンド
+/// RSS 非対応サイト（GameWith 等）への対応に使用
+#[tauri::command]
+pub async fn fetch_news_html(
+    url: String,
+    selectors: HtmlScrapeSelectors,
+) -> Result<Vec<NewsFeedItem>, String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(ARTICLE_FETCH_TIMEOUT_SECS))
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+        .build()
+        .map_err(|e| format!("HTTPクライアントの初期化に失敗: {e}"))?;
+
+    let html = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("ページの取得に失敗しました: {e}"))?
+        .text()
+        .await
+        .map_err(|e| format!("レスポンスの読み取りに失敗しました: {e}"))?;
+
+    let document = Html::parse_document(&html);
+
+    let item_sel = Selector::parse(&selectors.item)
+        .map_err(|_| format!("無効なCSSセレクタ: {}", selectors.item))?;
+    let title_sel = selectors.title.as_deref().and_then(|s| Selector::parse(s).ok());
+    let thumb_sel = selectors
+        .thumbnail
+        .as_deref()
+        .and_then(|s| Selector::parse(s).ok());
+    let date_sel = selectors.date.as_deref().and_then(|s| Selector::parse(s).ok());
+
+    // 相対 URL 解決用のベース URL
+    let base = url::Url::parse(&url).ok();
+
+    let items: Vec<NewsFeedItem> = document
+        .select(&item_sel)
+        .filter_map(|el| {
+            // リンク URL: item 要素の href 属性
+            let href = el.value().attr("href").map(|s| s.to_string())?;
+            let item_url = base
+                .as_ref()
+                .and_then(|b| b.join(&href).ok())
+                .map(|u| u.to_string())
+                .unwrap_or(href);
+
+            // タイトル: title_selector があればその要素のテキスト、なければ item のテキスト
+            let title = if let Some(ref sel) = title_sel {
+                el.select(sel)
+                    .next()
+                    .map(|t| t.text().collect::<String>().trim().to_string())
+            } else {
+                // 日本語日付パターン（"2026年4月5日"）を除去してタイトルを抽出
+                let raw = el
+                    .text()
+                    .collect::<Vec<_>>()
+                    .join(" ")
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                let cleaned = regex::Regex::new(r"\d{4}年\d{1,2}月\d{1,2}日[\d:]*")
+                    .ok()
+                    .map(|re| re.replace_all(&raw, "").trim().to_string())
+                    .unwrap_or(raw);
+                Some(cleaned)
+            }
+            .filter(|s| !s.is_empty())?;
+
+            // サムネイル: thumb_selector があればその要素の src / data-src 属性
+            let thumbnail_url = thumb_sel.as_ref().and_then(|sel| {
+                el.select(sel).next().and_then(|img| {
+                    img.value()
+                        .attr("src")
+                        .or_else(|| img.value().attr("data-src"))
+                        .map(|s| {
+                            base.as_ref()
+                                .and_then(|b| b.join(s).ok())
+                                .map(|u| u.to_string())
+                                .unwrap_or_else(|| s.to_string())
+                        })
+                })
+            });
+
+            // 日付: date_selector があればその要素のテキスト
+            let published_at = date_sel.as_ref().and_then(|sel| {
+                el.select(sel)
+                    .next()
+                    .map(|d| d.text().collect::<String>().trim().to_string())
+                    .filter(|s| !s.is_empty())
+            });
+
+            Some(NewsFeedItem {
+                id: item_url.clone(),
+                title,
+                url: item_url,
+                description: None,
+                published_at,
+                thumbnail_url,
+            })
+        })
         .collect();
 
     Ok(items)

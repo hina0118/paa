@@ -11,11 +11,8 @@ interface RawFeedItem {
   thumbnail_url?: string;
 }
 
-async function fetchFromSource(source: NewsSource): Promise<NewsItem[]> {
-  const raw = await invoke<RawFeedItem[]>('fetch_news_feed', {
-    url: source.feedUrl,
-  });
-  return raw.map((item) => ({
+function toNewsItem(source: NewsSource, item: RawFeedItem): NewsItem {
+  return {
     id: `${source.id}:${item.id}`,
     title: item.title,
     url: item.url,
@@ -24,7 +21,29 @@ async function fetchFromSource(source: NewsSource): Promise<NewsItem[]> {
     thumbnailUrl: item.thumbnail_url,
     sourceId: source.id,
     sourceName: source.name,
-  }));
+  };
+}
+
+async function fetchFromSource(source: NewsSource): Promise<NewsItem[]> {
+  if (source.htmlSelectors) {
+    // HTML スクレイピングで取得
+    const raw = await invoke<RawFeedItem[]>('fetch_news_html', {
+      url: source.feedUrl,
+      selectors: {
+        item: source.htmlSelectors.item,
+        title: source.htmlSelectors.title,
+        thumbnail: source.htmlSelectors.thumbnail,
+        date: source.htmlSelectors.date,
+      },
+    });
+    return raw.map((item) => toNewsItem(source, item));
+  }
+
+  // RSS/Atom フィードで取得
+  const raw = await invoke<RawFeedItem[]>('fetch_news_feed', {
+    url: source.feedUrl,
+  });
+  return raw.map((item) => toNewsItem(source, item));
 }
 
 /**
