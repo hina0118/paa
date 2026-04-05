@@ -388,6 +388,7 @@ pub struct NewsClip {
 }
 
 /// DB の生行をドメイン型に変換するヘルパー
+#[allow(clippy::type_complexity)]
 type ClipRow = (i64, String, String, String, Option<String>, Option<String>, String, String);
 
 fn row_to_clip(row: ClipRow) -> NewsClip {
