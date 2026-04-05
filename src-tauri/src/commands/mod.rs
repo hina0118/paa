@@ -14,10 +14,12 @@ pub mod stats;
 pub mod surugaya_session;
 pub mod sync;
 pub mod ui_pipeline;
+pub mod news;
 pub mod window;
 
 pub use api_keys::*;
 pub use config::*;
+pub use news::*;
 pub use delivery_check::*;
 pub use image_search::*;
 pub use log::*;

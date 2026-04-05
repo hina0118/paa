@@ -707,6 +707,7 @@ pub fn run() {
             commands::show_screen_overlay,
             commands::close_screen_overlay,
             commands::capture_and_ocr,
+            commands::fetch_news_feed,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

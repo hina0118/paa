@@ -11,6 +11,7 @@ import { Backup } from '@/components/screens/backup';
 import { ShopSettings } from '@/components/screens/shop-settings';
 import { ProductMasterEdit } from '@/components/screens/product-master';
 import { Delivery } from '@/components/screens/delivery';
+import { News } from '@/components/screens/news';
 import {
   EmailsTable,
   OrdersTable,
@@ -75,6 +76,8 @@ function AppContent() {
 
   const renderScreen = () => {
     switch (currentScreen) {
+      case 'news':
+        return <News />;
       case 'orders':
         return <Orders />;
       case 'deliveries':

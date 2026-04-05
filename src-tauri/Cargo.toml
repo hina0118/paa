@@ -61,6 +61,7 @@ arboard = "3.6.1"
 inventory = "0.3"
 xcap = "0.0.14"
 tauri-plugin-global-shortcut = "2"
+roxmltree = "0.19"
 
 [dev-dependencies]
 mockall = "0.13"
