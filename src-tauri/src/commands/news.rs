@@ -388,26 +388,19 @@ pub struct NewsClip {
 }
 
 /// DB の生行をドメイン型に変換するヘルパー
-fn row_to_clip(
-    id: i64,
-    title: String,
-    url: String,
-    source_name: String,
-    published_at: Option<String>,
-    summary: Option<String>,
-    tags_json: String,
-    clipped_at: String,
-) -> NewsClip {
-    let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+type ClipRow = (i64, String, String, String, Option<String>, Option<String>, String, String);
+
+fn row_to_clip(row: ClipRow) -> NewsClip {
+    let tags: Vec<String> = serde_json::from_str(&row.6).unwrap_or_default();
     NewsClip {
-        id,
-        title,
-        url,
-        source_name,
-        published_at,
-        summary,
+        id: row.0,
+        title: row.1,
+        url: row.2,
+        source_name: row.3,
+        published_at: row.4,
+        summary: row.5,
         tags,
-        clipped_at,
+        clipped_at: row.7,
     }
 }
 
@@ -588,7 +581,7 @@ pub async fn clip_news_article(
         .await
         .map_err(|e| format!("クリップの保存に失敗しました: {e}"))?;
 
-    Ok(row_to_clip(row.0, row.1, row.2, row.3, row.4, row.5, row.6, row.7))
+    Ok(row_to_clip(row))
 }
 
 /// クリップ一覧を clipped_at 降順で返す
@@ -608,7 +601,7 @@ pub async fn get_news_clips(
 
     Ok(rows
         .into_iter()
-        .map(|r| row_to_clip(r.0, r.1, r.2, r.3, r.4, r.5, r.6, r.7))
+        .map(row_to_clip)
         .collect())
 }
 
