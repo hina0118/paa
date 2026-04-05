@@ -590,8 +590,7 @@ pub async fn clip_news_article(
 pub async fn get_news_clips(
     pool: tauri::State<'_, SqlitePool>,
 ) -> Result<Vec<NewsClip>, String> {
-    let rows: Vec<(i64, String, String, String, Option<String>, Option<String>, String, String)> =
-        sqlx::query_as(
+    let rows: Vec<ClipRow> = sqlx::query_as(
             "SELECT id, title, url, source_name, published_at, summary, tags, clipped_at
              FROM news_clips
              ORDER BY clipped_at DESC",
