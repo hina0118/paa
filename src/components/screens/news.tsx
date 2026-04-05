@@ -1,5 +1,5 @@
 import { RefreshCw, Newspaper, Bookmark } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/ui/page-header';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -14,6 +14,9 @@ type Tab = 'feed' | 'clips';
 
 export function News() {
   const [activeTab, setActiveTab] = useState<Tab>('feed');
+  const [selectedSources, setSelectedSources] = useState<Set<string>>(
+    new Set()
+  );
 
   const {
     items,
@@ -35,21 +38,62 @@ export function News() {
     else refreshClips();
   };
 
+  const toggleSource = (sourceId: string) => {
+    setSelectedSources((prev) => {
+      const next = new Set(prev);
+      if (next.has(sourceId)) next.delete(sourceId);
+      else next.add(sourceId);
+      return next;
+    });
+  };
+
+  // フィード表示に使うソース一覧（記事が存在するもののみ）
+  const feedSources = useMemo(() => {
+    const ids = new Set(items.map((i) => i.sourceId));
+    return allNewsSources.filter((s) => ids.has(s.id));
+  }, [items]);
+
+  // クリップ表示に使うソース一覧
+  const clipSources = useMemo(() => {
+    const names = new Set(clips.map((c) => c.sourceName));
+    return [...names];
+  }, [clips]);
+
+  const filteredItems = useMemo(
+    () =>
+      selectedSources.size === 0
+        ? items
+        : items.filter((i) => selectedSources.has(i.sourceId)),
+    [items, selectedSources]
+  );
+
+  const filteredClips = useMemo(
+    () =>
+      selectedSources.size === 0
+        ? clips
+        : clips.filter((c) => selectedSources.has(c.sourceName)),
+    [clips, selectedSources]
+  );
+
   const loading = activeTab === 'feed' ? feedLoading : false;
-  const description =
-    activeTab === 'feed'
-      ? feedLoading
-        ? '読み込み中...'
-        : `${items.length}件の記事`
-      : `${clips.length}件のクリップ`;
+  const visibleCount =
+    activeTab === 'feed' ? filteredItems.length : filteredClips.length;
+  const totalCount = activeTab === 'feed' ? items.length : clips.length;
+  const description = loading
+    ? '読み込み中...'
+    : selectedSources.size > 0
+      ? `${visibleCount} / ${totalCount}件`
+      : `${totalCount}件${activeTab === 'clips' ? 'のクリップ' : ''}`;
+
+  // タブ切り替え時にフィルターをリセット
+  const handleTabChange = (tab: Tab) => {
+    setActiveTab(tab);
+    setSelectedSources(new Set());
+  };
 
   return (
     <div className="container mx-auto h-full flex flex-col px-6">
-      <PageHeader
-        title="ニュース"
-        description={loading ? '読み込み中...' : description}
-        icon={Newspaper}
-      >
+      <PageHeader title="ニュース" description={description} icon={Newspaper}>
         <Button
           variant="outline"
           size="sm"
@@ -64,25 +108,41 @@ export function News() {
       </PageHeader>
 
       {/* タブ */}
-      <div className="flex gap-1 border-b mt-2 mb-0 shrink-0">
+      <div className="flex gap-1 border-b mt-2 shrink-0">
         <TabButton
           active={activeTab === 'feed'}
-          onClick={() => setActiveTab('feed')}
+          onClick={() => handleTabChange('feed')}
           icon={<Newspaper className="h-3.5 w-3.5" />}
           label="ニュース一覧"
         />
         <TabButton
           active={activeTab === 'clips'}
-          onClick={() => setActiveTab('clips')}
+          onClick={() => handleTabChange('clips')}
           icon={<Bookmark className="h-3.5 w-3.5" />}
           label={`クリップ${clips.length > 0 ? ` (${clips.length})` : ''}`}
         />
       </div>
 
+      {/* ソースフィルター */}
+      {activeTab === 'feed' && feedSources.length > 1 && (
+        <SourceFilter
+          sources={feedSources.map((s) => ({ id: s.id, name: s.name }))}
+          selected={selectedSources}
+          onToggle={toggleSource}
+        />
+      )}
+      {activeTab === 'clips' && clipSources.length > 1 && (
+        <SourceFilter
+          sources={clipSources.map((name) => ({ id: name, name }))}
+          selected={selectedSources}
+          onToggle={toggleSource}
+        />
+      )}
+
       <div className="flex-1 overflow-auto py-2">
         {activeTab === 'feed' && (
           <FeedTab
-            items={items}
+            items={filteredItems}
             loading={feedLoading}
             error={feedError}
             clippedUrls={clippedUrls}
@@ -90,7 +150,9 @@ export function News() {
             onClip={clip}
           />
         )}
-        {activeTab === 'clips' && <ClipsTab clips={clips} onUnclip={unclip} />}
+        {activeTab === 'clips' && (
+          <ClipsTab clips={filteredClips} onUnclip={unclip} />
+        )}
       </div>
     </div>
   );
@@ -124,6 +186,38 @@ function TabButton({
       {icon}
       {label}
     </button>
+  );
+}
+
+function SourceFilter({
+  sources,
+  selected,
+  onToggle,
+}: {
+  sources: { id: string; name: string }[];
+  selected: Set<string>;
+  onToggle: (id: string) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1.5 py-2 flex-wrap shrink-0">
+      {sources.map((source) => {
+        const active = selected.has(source.id);
+        return (
+          <button
+            key={source.id}
+            onClick={() => onToggle(source.id)}
+            className={cn(
+              'px-2.5 py-1 rounded-full text-xs font-medium transition-colors border',
+              active
+                ? 'bg-primary text-primary-foreground border-primary'
+                : 'bg-transparent text-muted-foreground border-border hover:border-primary/50 hover:text-foreground'
+            )}
+          >
+            {source.name}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

@@ -97,6 +97,17 @@ fn parse_item(item: roxmltree::Node) -> NewsFeedItem {
         .or_else(|| child_text("published"))
         .or_else(|| child_text("updated"));
 
+    // サムネイル抽出ヘルパー: HTML 文字列から最初の <img src="..."> を取得
+    let extract_img_src = |html: &str| -> Option<String> {
+        regex::Regex::new(r#"<img\b[^>]*\bsrc="(https?://[^"]+)"[^>]*/?>"#)
+            .ok()
+            .and_then(|re| {
+                re.captures(html)
+                    .and_then(|c| c.get(1))
+                    .map(|m| m.as_str().to_string())
+            })
+    };
+
     let thumbnail_url = item
         .children()
         .find(|n| {
@@ -116,6 +127,20 @@ fn parse_item(item: roxmltree::Node) -> NewsFeedItem {
                 })
                 .and_then(|n| n.attribute("url"))
                 .map(|s| s.to_string())
+        })
+        .or_else(|| {
+            // content:encoded → description の順で HTML 内の img src を探す
+            let content_ns = "http://purl.org/rss/1.0/modules/content/";
+            let html = item
+                .children()
+                .find(|n| {
+                    let tag = n.tag_name();
+                    tag.namespace() == Some(content_ns) && tag.name() == "encoded"
+                })
+                .and_then(|n| n.text())
+                .map(|s| s.to_string())
+                .or_else(|| child_text("description"));
+            html.as_deref().and_then(extract_img_src)
         });
 
     NewsFeedItem {
@@ -203,6 +228,19 @@ pub async fn fetch_news_html(
     // 相対 URL 解決用のベース URL
     let base = url::Url::parse(&url).ok();
 
+    // ループ外で正規表現をプリコンパイル
+    // <noscript>/<script> ブロック除去（dotall モード）
+    let noscript_re =
+        regex::Regex::new(r"(?si)<(?:noscript|script)[^>]*>.*?</(?:noscript|script)>").ok();
+    // img src 属性抽出
+    let img_src_re = regex::Regex::new(r#"<img\b[^>]*\bsrc="([^"]+)"[^>]*/?>"#).ok();
+    // すべての HTML タグ除去
+    let all_tags_re = regex::Regex::new(r"<[^>]+>").ok();
+    // 日本語日付（タイトルから除去用）
+    let date_strip_re = regex::Regex::new(r"\d{4}年\d{1,2}月\d{1,2}日[\d:]*").ok();
+    // 日本語日付（published_at 抽出用）
+    let date_capture_re = regex::Regex::new(r"(\d{4}年\d{1,2}月\d{1,2}日)").ok();
+
     let items: Vec<NewsFeedItem> = document
         .select(&item_sel)
         .filter_map(|el| {
@@ -214,50 +252,99 @@ pub async fn fetch_news_html(
                 .map(|u| u.to_string())
                 .unwrap_or(href);
 
-            // タイトル: title_selector があればその要素のテキスト、なければ item のテキスト
+            // inner_html を取得し、<noscript>/<script> ブロックを除去
+            // （noscript 内にリテラル <img> 文字列が含まれるサイト対策）
+            let inner = el.inner_html();
+            let no_script = noscript_re
+                .as_ref()
+                .map(|re| re.replace_all(&inner, " ").to_string())
+                .unwrap_or_else(|| inner.clone());
+
+            // サムネイル: DOM の img 子要素（透明プレースホルダーを除外）
+            //           → noscript 除去前の inner から img src を検索（noscript 内の実画像対応）
+            let resolve = |s: &str| {
+                base.as_ref()
+                    .and_then(|b| b.join(s).ok())
+                    .map(|u| u.to_string())
+                    .unwrap_or_else(|| s.to_string())
+            };
+            let is_placeholder = |s: &str| s.contains("transparent") || s.contains("1px");
+            let thumbnail_url = thumb_sel
+                .as_ref()
+                .and_then(|sel| {
+                    // 透明プレースホルダーを除いた最初の img を取得
+                    el.select(sel).find_map(|img| {
+                        let src = img
+                            .value()
+                            .attr("src")
+                            .or_else(|| img.value().attr("data-src"))
+                            .or_else(|| img.value().attr("data-lazy-src"))?;
+                        if is_placeholder(src) {
+                            None
+                        } else {
+                            Some(resolve(src))
+                        }
+                    })
+                })
+                .or_else(|| {
+                    // noscript 除去前の inner から全 img src を検索し、プレースホルダー以外を使用
+                    img_src_re.as_ref().and_then(|re| {
+                        re.captures_iter(&inner)
+                            .filter_map(|c| c.get(1).map(|m| m.as_str().to_string()))
+                            .find(|src| !is_placeholder(src))
+                            .map(|src| resolve(&src))
+                    })
+                });
+
+            // タイトル: title_selector → noscript 除去済み HTML をテキスト化して日付除去
             let title = if let Some(ref sel) = title_sel {
                 el.select(sel)
                     .next()
                     .map(|t| t.text().collect::<String>().trim().to_string())
             } else {
-                // 日本語日付パターン（"2026年4月5日"）を除去してタイトルを抽出
-                let raw = el
-                    .text()
-                    .collect::<Vec<_>>()
-                    .join(" ")
-                    .split_whitespace()
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                let cleaned = regex::Regex::new(r"\d{4}年\d{1,2}月\d{1,2}日[\d:]*")
-                    .ok()
-                    .map(|re| re.replace_all(&raw, "").trim().to_string())
-                    .unwrap_or(raw);
-                Some(cleaned)
+                // HTML タグをすべて除去してプレーンテキスト化
+                let plain = all_tags_re
+                    .as_ref()
+                    .map(|re| re.replace_all(&no_script, " ").to_string())
+                    .unwrap_or_default();
+                // 基本的な HTML エンティティをデコード
+                let decoded = plain
+                    .replace("&nbsp;", " ")
+                    .replace("&amp;", "&")
+                    .replace("&lt;", "<")
+                    .replace("&gt;", ">")
+                    .replace("&quot;", "\"")
+                    .replace("&#39;", "'");
+                // 日本語日付パターンを除去してタイトルを正規化
+                let cleaned = date_strip_re
+                    .as_ref()
+                    .map(|re| re.replace_all(&decoded, "").to_string())
+                    .unwrap_or(decoded);
+                let t = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
+                if t.is_empty() { None } else { Some(t) }
             }
             .filter(|s| !s.is_empty())?;
 
-            // サムネイル: thumb_selector があればその要素の src / data-src 属性
-            let thumbnail_url = thumb_sel.as_ref().and_then(|sel| {
-                el.select(sel).next().and_then(|img| {
-                    img.value()
-                        .attr("src")
-                        .or_else(|| img.value().attr("data-src"))
-                        .map(|s| {
-                            base.as_ref()
-                                .and_then(|b| b.join(s).ok())
-                                .map(|u| u.to_string())
-                                .unwrap_or_else(|| s.to_string())
-                        })
+            // 日付: date_selector → inner_html 全テキストからの日本語日付パターン
+            let published_at = date_sel
+                .as_ref()
+                .and_then(|sel| {
+                    el.select(sel)
+                        .next()
+                        .map(|d| d.text().collect::<String>().trim().to_string())
+                        .filter(|s| !s.is_empty())
                 })
-            });
-
-            // 日付: date_selector があればその要素のテキスト
-            let published_at = date_sel.as_ref().and_then(|sel| {
-                el.select(sel)
-                    .next()
-                    .map(|d| d.text().collect::<String>().trim().to_string())
-                    .filter(|s| !s.is_empty())
-            });
+                .or_else(|| {
+                    let all_text = all_tags_re
+                        .as_ref()
+                        .map(|re| re.replace_all(&inner, " ").to_string())
+                        .unwrap_or_default();
+                    date_capture_re.as_ref().and_then(|re| {
+                        re.captures(&all_text)
+                            .and_then(|c| c.get(1))
+                            .map(|m| m.as_str().to_string())
+                    })
+                });
 
             Some(NewsFeedItem {
                 id: item_url.clone(),

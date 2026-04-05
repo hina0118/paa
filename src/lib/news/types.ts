@@ -23,6 +23,17 @@ export interface NewsSource {
    * RSS を持たないサイトへの対応に使用。
    */
   htmlSelectors?: HtmlSelectors;
+  /**
+   * RSS にサムネイルが含まれない場合に記事 URL へ付加してサムネイル URL を生成する。
+   * 例: "TN/001.jpg" → `${articleUrl}TN/001.jpg`
+   */
+  thumbnailSuffix?: string;
+  /**
+   * 記事 URL から正規表現でキャプチャしてサムネイル URL を生成する。
+   * template 内の "$1" が最初のキャプチャグループに置換される。
+   * 例: { pattern: '/(\\d+)\\.html$', template: 'https://example.com/img/$1/list.jpg' }
+   */
+  thumbnailUrlBuilder?: { pattern: string; template: string };
 }
 
 /** 各ソースから取得した正規化済みニュース記事 */

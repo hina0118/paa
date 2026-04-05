@@ -33,12 +33,12 @@ export function NewsClipCard({ clip, onUnclip }: NewsClipCardProps) {
         >
           <p className="text-sm font-medium leading-snug line-clamp-2 group-hover:text-primary transition-colors flex items-center gap-1.5">
             {clip.title}
-            <ExternalLink className="h-3 w-3 shrink-0 inline text-muted-foreground/40" />
+            <ExternalLink className="h-3 w-3 shrink-0 inline text-muted-foreground/60" />
           </p>
         </button>
 
         <button
-          className="shrink-0 p-1.5 rounded-md text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-colors"
+          className="shrink-0 p-1.5 rounded-md text-muted-foreground/70 hover:text-destructive hover:bg-destructive/10 transition-colors"
           onClick={() => onUnclip(clip.id, clip.url)}
           title="クリップを削除"
           aria-label="クリップを削除"

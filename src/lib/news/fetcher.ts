@@ -12,13 +12,31 @@ interface RawFeedItem {
 }
 
 function toNewsItem(source: NewsSource, item: RawFeedItem): NewsItem {
+  const thumbnailUrl =
+    item.thumbnail_url ??
+    (source.thumbnailSuffix && item.url
+      ? item.url.replace(/\/?$/, '/') + source.thumbnailSuffix
+      : undefined) ??
+    (source.thumbnailUrlBuilder && item.url
+      ? (() => {
+          const m = item.url.match(
+            new RegExp(source.thumbnailUrlBuilder!.pattern)
+          );
+          return m
+            ? source
+                .thumbnailUrlBuilder!.template.replace('$1', m[1] ?? '')
+                .replace('$2', m[2] ?? '')
+            : undefined;
+        })()
+      : undefined);
+
   return {
     id: `${source.id}:${item.id}`,
     title: item.title,
     url: item.url,
     description: item.description,
     publishedAt: item.published_at,
-    thumbnailUrl: item.thumbnail_url,
+    thumbnailUrl,
     sourceId: source.id,
     sourceName: source.name,
   };

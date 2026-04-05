@@ -10,30 +10,39 @@ import type { NewsSource } from '../types';
 import { denfamiSource } from './denfami';
 import { fourGamerSource } from './4gamer';
 import { famitsuSource } from './famitsu';
-import { gamewithSource } from './gamewith';
 import { gamesparkSource } from './gamespark';
 import { insideSource } from './inside';
 import { automatonSource } from './automaton';
 import { gamerSource } from './gamer';
+import { dengekiHobbySource } from './dengeki-hobby';
+import { hobbyWatchSource } from './hobby-watch';
+import { hobbyManiaxSource } from './hobby-maniax';
+import { hjwebSource } from './hjweb';
 
 export {
   denfamiSource,
   fourGamerSource,
   famitsuSource,
-  gamewithSource,
   gamesparkSource,
   insideSource,
   automatonSource,
   gamerSource,
+  dengekiHobbySource,
+  hobbyWatchSource,
+  hobbyManiaxSource,
+  hjwebSource,
 };
 
 export const allNewsSources: NewsSource[] = [
   denfamiSource,
   fourGamerSource,
   famitsuSource,
-  gamewithSource,
   gamesparkSource,
   insideSource,
   automatonSource,
   gamerSource,
+  dengekiHobbySource,
+  hobbyWatchSource,
+  hobbyManiaxSource,
+  hjwebSource,
 ];

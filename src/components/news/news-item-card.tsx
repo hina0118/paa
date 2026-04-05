@@ -68,7 +68,7 @@ export function NewsItemCard({
             className="w-full h-full object-cover"
           />
         ) : (
-          <Newspaper className="h-6 w-6 text-muted-foreground/40" />
+          <Newspaper className="h-6 w-6 text-muted-foreground/50" />
         )}
       </button>
 
@@ -82,7 +82,7 @@ export function NewsItemCard({
           <p className="text-sm font-medium leading-snug line-clamp-2 group-hover:text-primary transition-colors">
             {item.title}
           </p>
-          <ExternalLink className="h-3.5 w-3.5 shrink-0 mt-0.5 text-muted-foreground/40 group-hover:text-primary/60 transition-colors" />
+          <ExternalLink className="h-3.5 w-3.5 shrink-0 mt-0.5 text-muted-foreground/60 group-hover:text-primary/70 transition-colors" />
         </div>
         {description && (
           <p className="mt-1 text-xs text-muted-foreground line-clamp-2">
@@ -108,7 +108,7 @@ export function NewsItemCard({
             'shrink-0 p-1.5 rounded-md transition-colors',
             isClipped
               ? 'text-primary'
-              : 'text-muted-foreground/40 hover:text-primary/70 hover:bg-muted/60'
+              : 'text-muted-foreground/70 hover:text-primary hover:bg-muted/60'
           )}
           onClick={handleClip}
           disabled={isClipping || isClipped}
