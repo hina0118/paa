@@ -1,5 +1,6 @@
 import { RefreshCw, Newspaper, Bookmark } from 'lucide-react';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/ui/page-header';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -139,7 +140,7 @@ export function News() {
         />
       )}
 
-      <div className="flex-1 overflow-auto py-2">
+      <div className="flex-1 min-h-0">
         {activeTab === 'feed' && (
           <FeedTab
             items={filteredItems}
@@ -236,6 +237,14 @@ function FeedTab({
   clippingUrl: string | null;
   onClip: (item: ReturnType<typeof useNews>['items'][number]) => void;
 }) {
+  const parentRef = useRef<HTMLDivElement>(null);
+  const virtualizer = useVirtualizer({
+    count: items.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 88,
+    overscan: 8,
+  });
+
   if (error) {
     return (
       <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive mt-2">
@@ -246,7 +255,7 @@ function FeedTab({
 
   if (loading && items.length === 0) {
     return (
-      <div className="space-y-1">
+      <div className="space-y-1 py-2">
         {Array.from({ length: 10 }).map((_, i) => (
           <div key={i} className="flex items-start gap-3 px-4 py-3">
             <Skeleton className="w-24 h-16 rounded-md shrink-0" />
@@ -271,16 +280,37 @@ function FeedTab({
   }
 
   return (
-    <div className="divide-y divide-border/50">
-      {items.map((item) => (
-        <NewsItemCard
-          key={item.id}
-          item={item}
-          isClipped={clippedUrls.has(item.url)}
-          isClipping={clippingUrl === item.url}
-          onClip={onClip}
-        />
-      ))}
+    <div ref={parentRef} className="h-full overflow-auto">
+      <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+        {virtualizer.getVirtualItems().map((virtualItem) => {
+          const item = items[virtualItem.index];
+          return (
+            <div
+              key={virtualItem.key}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                transform: `translateY(${virtualItem.start}px)`,
+              }}
+            >
+              <div
+                className={
+                  virtualItem.index > 0 ? 'border-t border-border/50' : ''
+                }
+              >
+                <NewsItemCard
+                  item={item}
+                  isClipped={clippedUrls.has(item.url)}
+                  isClipping={clippingUrl === item.url}
+                  onClip={onClip}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -292,6 +322,14 @@ function ClipsTab({
   clips: ReturnType<typeof useNewsClips>['clips'];
   onUnclip: (id: number, url: string) => void;
 }) {
+  const parentRef = useRef<HTMLDivElement>(null);
+  const virtualizer = useVirtualizer({
+    count: clips.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 130,
+    overscan: 5,
+  });
+
   if (clips.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
@@ -305,10 +343,32 @@ function ClipsTab({
   }
 
   return (
-    <div className="divide-y divide-border/50">
-      {clips.map((clip) => (
-        <NewsClipCard key={clip.id} clip={clip} onUnclip={onUnclip} />
-      ))}
+    <div ref={parentRef} className="h-full overflow-auto">
+      <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+        {virtualizer.getVirtualItems().map((virtualItem) => {
+          const clip = clips[virtualItem.index];
+          return (
+            <div
+              key={virtualItem.key}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                transform: `translateY(${virtualItem.start}px)`,
+              }}
+            >
+              <div
+                className={
+                  virtualItem.index > 0 ? 'border-t border-border/50' : ''
+                }
+              >
+                <NewsClipCard clip={clip} onUnclip={onUnclip} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

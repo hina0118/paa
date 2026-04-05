@@ -1,5 +1,6 @@
 import { ExternalLink, Newspaper, Bookmark, Loader2 } from 'lucide-react';
 import { openUrl } from '@tauri-apps/plugin-opener';
+import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import type { NewsItem } from '@/lib/news/types';
 
@@ -48,6 +49,8 @@ export function NewsItemCard({
     onClip?.(item);
   };
 
+  const [imgError, setImgError] = useState(false);
+
   const description = item.description
     ? stripHtml(item.description).slice(0, 120)
     : '';
@@ -61,11 +64,12 @@ export function NewsItemCard({
         tabIndex={-1}
         aria-label={`${item.title}を開く`}
       >
-        {item.thumbnailUrl ? (
+        {item.thumbnailUrl && !imgError ? (
           <img
             src={item.thumbnailUrl}
             alt=""
             className="w-full h-full object-cover"
+            onError={() => setImgError(true)}
           />
         ) : (
           <Newspaper className="h-6 w-6 text-muted-foreground/50" />

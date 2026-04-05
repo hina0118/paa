@@ -183,6 +183,16 @@ pub async fn fetch_news_feed(url: String) -> Result<Vec<NewsFeedItem>, String> {
 // HTML スクレイピングによるニュース取得
 // =============================================================================
 
+/// "2026年04月01日 (水)" → "2026-04-01" に正規化する
+fn normalize_jp_date(s: &str) -> Option<String> {
+    let re = regex::Regex::new(r"(\d{4})年(\d{1,2})月(\d{1,2})日").ok()?;
+    let c = re.captures(s)?;
+    let y: u32 = c[1].parse().ok()?;
+    let m: u32 = c[2].parse().ok()?;
+    let d: u32 = c[3].parse().ok()?;
+    Some(format!("{y}-{m:02}-{d:02}"))
+}
+
 /// HTML スクレイピング用セレクタ設定（フロントエンドから受け取る）
 #[derive(Debug, Deserialize)]
 pub struct HtmlScrapeSelectors {
@@ -334,6 +344,7 @@ pub async fn fetch_news_html(
                         .map(|d| d.text().collect::<String>().trim().to_string())
                         .filter(|s| !s.is_empty())
                 })
+                .and_then(|s| normalize_jp_date(&s).or(Some(s)))
                 .or_else(|| {
                     let all_text = all_tags_re
                         .as_ref()
@@ -342,7 +353,7 @@ pub async fn fetch_news_html(
                     date_capture_re.as_ref().and_then(|re| {
                         re.captures(&all_text)
                             .and_then(|c| c.get(1))
-                            .map(|m| m.as_str().to_string())
+                            .and_then(|m| normalize_jp_date(m.as_str()))
                     })
                 });
 

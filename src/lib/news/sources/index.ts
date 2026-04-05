@@ -18,6 +18,7 @@ import { dengekiHobbySource } from './dengeki-hobby';
 import { hobbyWatchSource } from './hobby-watch';
 import { hobbyManiaxSource } from './hobby-maniax';
 import { hjwebSource } from './hjweb';
+import { bandaiHobbySource } from './bandai-hobby';
 
 export {
   denfamiSource,
@@ -31,6 +32,7 @@ export {
   hobbyWatchSource,
   hobbyManiaxSource,
   hjwebSource,
+  bandaiHobbySource,
 };
 
 export const allNewsSources: NewsSource[] = [
@@ -45,4 +47,5 @@ export const allNewsSources: NewsSource[] = [
   hobbyWatchSource,
   hobbyManiaxSource,
   hjwebSource,
+  bandaiHobbySource,
 ];
