@@ -10,6 +10,7 @@ import {
   ChevronDown,
   BookOpen,
   Truck,
+  Newspaper,
 } from 'lucide-react';
 import { useNavigation } from '@/contexts/use-navigation';
 import type { Screen } from '@/contexts/navigation-context-value';
@@ -21,6 +22,7 @@ import { ThemeToggle } from '@/components/ui/theme-toggle';
 /** サイドバーナビゲーションで表示する画面（Screen のサブセット） */
 type NavigationScreen = Extract<
   Screen,
+  | 'news'
   | 'orders'
   | 'deliveries'
   | 'batch'
@@ -64,6 +66,7 @@ type TableItem = {
 };
 
 const navigationItems: NavigationItem[] = [
+  { name: 'ニュース', icon: Newspaper, id: 'news' },
   { name: '商品一覧', icon: ShoppingCart, id: 'orders' },
   { name: '配送状況', icon: Truck, id: 'deliveries' },
   { name: 'バッチ処理', icon: Layers, id: 'batch' },

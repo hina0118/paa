@@ -1,6 +1,7 @@
 import { createContext } from 'react';
 
 export type Screen =
+  | 'news'
   | 'orders'
   | 'deliveries'
   | 'batch'
