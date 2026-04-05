@@ -1,9 +1,13 @@
-import { ExternalLink, Newspaper } from 'lucide-react';
+import { ExternalLink, Newspaper, Bookmark, Loader2 } from 'lucide-react';
 import { openUrl } from '@tauri-apps/plugin-opener';
+import { cn } from '@/lib/utils';
 import type { NewsItem } from '@/lib/news/types';
 
 interface NewsItemCardProps {
   item: NewsItem;
+  isClipped?: boolean;
+  isClipping?: boolean;
+  onClip?: (item: NewsItem) => void;
 }
 
 /** HTML タグと主要な HTML エンティティを除去してプレーンテキストに変換 */
@@ -27,11 +31,21 @@ function formatDate(dateStr?: string): string {
   return `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}`;
 }
 
-export function NewsItemCard({ item }: NewsItemCardProps) {
+export function NewsItemCard({
+  item,
+  isClipped = false,
+  isClipping = false,
+  onClip,
+}: NewsItemCardProps) {
   const handleClick = () => {
     if (item.url) {
       openUrl(item.url).catch(console.error);
     }
+  };
+
+  const handleClip = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onClip?.(item);
   };
 
   const description = item.description
@@ -39,13 +53,14 @@ export function NewsItemCard({ item }: NewsItemCardProps) {
     : '';
 
   return (
-    <button
-      className="w-full flex items-start gap-3 px-4 py-3 text-left rounded-lg hover:bg-muted/50 transition-colors group"
-      onClick={handleClick}
-      title={item.title}
-    >
+    <div className="flex items-start gap-3 px-4 py-3 group">
       {/* サムネイル */}
-      <div className="shrink-0 w-24 h-16 rounded-md overflow-hidden bg-muted flex items-center justify-center">
+      <button
+        className="shrink-0 w-24 h-16 rounded-md overflow-hidden bg-muted flex items-center justify-center hover:opacity-90 transition-opacity"
+        onClick={handleClick}
+        tabIndex={-1}
+        aria-label={`${item.title}を開く`}
+      >
         {item.thumbnailUrl ? (
           <img
             src={item.thumbnailUrl}
@@ -55,10 +70,14 @@ export function NewsItemCard({ item }: NewsItemCardProps) {
         ) : (
           <Newspaper className="h-6 w-6 text-muted-foreground/40" />
         )}
-      </div>
+      </button>
 
       {/* コンテンツ */}
-      <div className="flex-1 min-w-0">
+      <button
+        className="flex-1 min-w-0 text-left"
+        onClick={handleClick}
+        title={item.title}
+      >
         <div className="flex items-start justify-between gap-2">
           <p className="text-sm font-medium leading-snug line-clamp-2 group-hover:text-primary transition-colors">
             {item.title}
@@ -80,7 +99,32 @@ export function NewsItemCard({ item }: NewsItemCardProps) {
             </span>
           )}
         </div>
-      </div>
-    </button>
+      </button>
+
+      {/* クリップボタン */}
+      {onClip && (
+        <button
+          className={cn(
+            'shrink-0 p-1.5 rounded-md transition-colors',
+            isClipped
+              ? 'text-primary'
+              : 'text-muted-foreground/40 hover:text-primary/70 hover:bg-muted/60'
+          )}
+          onClick={handleClip}
+          disabled={isClipping || isClipped}
+          title={isClipped ? 'クリップ済み' : 'クリップする'}
+          aria-label={isClipped ? 'クリップ済み' : 'クリップする'}
+        >
+          {isClipping ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Bookmark
+              className="h-4 w-4"
+              fill={isClipped ? 'currentColor' : 'none'}
+            />
+          )}
+        </button>
+      )}
+    </div>
   );
 }

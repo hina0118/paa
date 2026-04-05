@@ -45,12 +45,20 @@ fn is_sqlite_version_supported(version: &str) -> bool {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let migrations = || {
-        vec![Migration {
-            version: 1,
-            description: "init",
-            sql: include_str!("../migrations/001_init.sql"),
-            kind: MigrationKind::Up,
-        }]
+        vec![
+            Migration {
+                version: 1,
+                description: "init",
+                sql: include_str!("../migrations/001_init.sql"),
+                kind: MigrationKind::Up,
+            },
+            Migration {
+                version: 2,
+                description: "news_clips",
+                sql: include_str!("../migrations/002_news_clips.sql"),
+                kind: MigrationKind::Up,
+            },
+        ]
     };
 
     tauri::Builder::default()
@@ -708,6 +716,10 @@ pub fn run() {
             commands::close_screen_overlay,
             commands::capture_and_ocr,
             commands::fetch_news_feed,
+            commands::clip_news_article,
+            commands::get_news_clips,
+            commands::delete_news_clip,
+            commands::get_clipped_urls,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
