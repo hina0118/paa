@@ -6,6 +6,8 @@ use std::time::Duration;
 use tauri::Manager;
 
 const MEDIA_NS: &str = "http://search.yahoo.com/mrss/";
+/// Dublin Core 名前空間（RDF/RSS 1.0 の dc:date など）
+const DC_NS: &str = "http://purl.org/dc/elements/1.1/";
 /// 記事本文の Gemini 送信上限文字数
 const ARTICLE_CONTENT_LIMIT: usize = 3000;
 /// 記事フェッチのタイムアウト秒数
@@ -28,6 +30,8 @@ pub struct NewsFeedItem {
 }
 
 fn parse_item(item: roxmltree::Node) -> NewsFeedItem {
+    let is_atom = item.has_tag_name("entry");
+
     let child_text = |tag: &str| -> Option<String> {
         item.children()
             .find(|n| n.has_tag_name(tag))
@@ -38,24 +42,60 @@ fn parse_item(item: roxmltree::Node) -> NewsFeedItem {
 
     let title = child_text("title").unwrap_or_default();
 
-    let url = child_text("link")
+    // Atom: <link href="..."/>、RSS: <link>テキスト</link> or <guid>
+    let url = if is_atom {
+        item.children()
+            .find(|n| {
+                n.has_tag_name("link")
+                    && n.attribute("rel").map_or(true, |r| r == "alternate")
+            })
+            .and_then(|n| n.attribute("href"))
+            .map(|s| s.to_string())
+            .unwrap_or_default()
+    } else {
+        child_text("link")
+            .or_else(|| {
+                item.children()
+                    .find(|n| n.has_tag_name("guid"))
+                    .filter(|n| {
+                        n.attribute("isPermaLink")
+                            .map(|v| v != "false")
+                            .unwrap_or(true)
+                    })
+                    .and_then(|n| n.text())
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+            })
+            .unwrap_or_default()
+    };
+
+    let id = if is_atom {
+        child_text("id").unwrap_or_else(|| url.clone())
+    } else {
+        child_text("guid").unwrap_or_else(|| url.clone())
+    };
+
+    let description = if is_atom {
+        child_text("summary").or_else(|| child_text("content"))
+    } else {
+        child_text("description")
+    };
+
+    // 日付: pubDate (RSS2) → dc:date (RDF/RSS1) → published/updated (Atom)
+    let published_at = child_text("pubDate")
         .or_else(|| {
+            // Dublin Core dc:date（ファミ通・Game Spark・インサイド・Gamer 等）
             item.children()
-                .find(|n| n.has_tag_name("guid"))
-                .filter(|n| {
-                    n.attribute("isPermaLink")
-                        .map(|v| v != "false")
-                        .unwrap_or(true)
+                .find(|n| {
+                    let tag = n.tag_name();
+                    tag.namespace() == Some(DC_NS) && tag.name() == "date"
                 })
                 .and_then(|n| n.text())
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
         })
-        .unwrap_or_default();
-
-    let id = child_text("guid").unwrap_or_else(|| url.clone());
-    let description = child_text("description");
-    let published_at = child_text("pubDate");
+        .or_else(|| child_text("published"))
+        .or_else(|| child_text("updated"));
 
     let thumbnail_url = item
         .children()
@@ -104,9 +144,10 @@ pub async fn fetch_news_feed(url: String) -> Result<Vec<NewsFeedItem>, String> {
     let doc = roxmltree::Document::parse(&text)
         .map_err(|e| format!("XMLの解析に失敗しました: {e}"))?;
 
+    // RSS 2.0/1.0 は <item>、Atom は <entry>
     let items = doc
         .descendants()
-        .filter(|n| n.has_tag_name("item"))
+        .filter(|n| n.has_tag_name("item") || n.has_tag_name("entry"))
         .map(parse_item)
         .collect();
 
