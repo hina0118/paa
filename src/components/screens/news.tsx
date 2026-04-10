@@ -23,6 +23,7 @@ export function News() {
     items,
     loading: feedLoading,
     error: feedError,
+    lastUpdatedAt,
     refresh: refreshFeed,
   } = useNews(allNewsSources);
   const {
@@ -95,6 +96,15 @@ export function News() {
   return (
     <div className="container mx-auto h-full flex flex-col px-6">
       <PageHeader title="ニュース" description={description} icon={Newspaper}>
+        {lastUpdatedAt && (
+          <span className="text-xs text-muted-foreground">
+            最終更新:{' '}
+            {lastUpdatedAt.toLocaleTimeString('ja-JP', {
+              hour: '2-digit',
+              minute: '2-digit',
+            })}
+          </span>
+        )}
         <Button
           variant="outline"
           size="sm"
