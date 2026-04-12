@@ -281,7 +281,11 @@ fn extract_very_old_items(body: &str) -> Vec<OrderItem> {
         // match_end は閉じ `"` の直後（行末 \r\n の前）なので、lines() で空行をスキップする
         let match_end = cap.get(0).map(|m| m.end()).unwrap_or(0);
         let after = &body[match_end..];
-        let next_line = after.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
+        let next_line = after
+            .lines()
+            .find(|l| !l.trim().is_empty())
+            .unwrap_or("")
+            .trim();
 
         // 次の行から `; ￥ 価格` または `; ¥ 価格` を抽出
         let unit_price = extract_price_from_detail_line(next_line).unwrap_or(0);
@@ -324,14 +328,14 @@ fn parse_legacy_all_orders(body: &str) -> Result<Vec<OrderInfo>, String> {
     let order_number_re =
         Regex::new(&format!(r"注文番号[：:]\s*{}", ORDER_NUMBER_RE)).map_err(|e| e.to_string())?;
     let date_re = Regex::new(r"注文日[：:]\s*(\d{4}/\d{2}/\d{2})").map_err(|e| e.to_string())?;
-    let total_re =
-        Regex::new(r"注文合計[：:]\s*[￥¥]\s*([\d,]+)").map_err(|e| e.to_string())?;
+    let total_re = Regex::new(r"注文合計[：:]\s*[￥¥]\s*([\d,]+)").map_err(|e| e.to_string())?;
     let subtotal_re =
         Regex::new(r"商品の小計[：:]\s*[￥¥]\s*([\d,]+)").map_err(|e| e.to_string())?;
     let shipping_re =
         Regex::new(r"配送料・手数料[：:]\s*[￥¥]\s*([\d,]+)").map_err(|e| e.to_string())?;
 
-    let separator = "================================================================================";
+    let separator =
+        "================================================================================";
     let mut orders = Vec::new();
 
     for section in body.split(separator) {
@@ -454,9 +458,7 @@ fn extract_legacy_items(section: &str) -> Vec<OrderItem> {
                 let next = lines[j].trim();
                 // 全角・半角yen記号の両方に対応
                 // 全角（￥）・半角（¥）yen記号の両方に対応
-                let price_str = next
-                    .strip_prefix('￥')
-                    .or_else(|| next.strip_prefix('¥'));
+                let price_str = next.strip_prefix('￥').or_else(|| next.strip_prefix('¥'));
 
                 if let Some(price_raw) = price_str {
                     if let Some(unit_price) = parse_amount(price_raw.trim()) {
@@ -678,7 +680,10 @@ mod tests {
         let body = legacy_single_order();
         let result = parser.parse(&body).unwrap();
         assert_eq!(result.items.len(), 2);
-        assert_eq!(result.items[0].name, "パール金属 製氷皿 M 21個取 ボックス付");
+        assert_eq!(
+            result.items[0].name,
+            "パール金属 製氷皿 M 21個取 ボックス付"
+        );
         assert_eq!(result.items[0].unit_price, 382);
         assert_eq!(result.items[1].name, "トイレクイックル 20枚 × 3個");
         assert_eq!(result.items[1].unit_price, 1089);
@@ -866,7 +871,10 @@ mod tests {
         );
         assert_eq!(result.items[0].unit_price, 4949);
         assert_eq!(result.items[0].quantity, 1);
-        assert_eq!(result.items[1].name, "モンスターハンターポータブル 3rd HD Ver.");
+        assert_eq!(
+            result.items[1].name,
+            "モンスターハンターポータブル 3rd HD Ver."
+        );
         assert_eq!(result.items[1].unit_price, 3894);
     }
 

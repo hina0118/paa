@@ -187,7 +187,11 @@ fn el_text_by_sel(parent: ElementRef<'_>, selector_str: &str) -> Option<String> 
         .collect::<String>()
         .trim()
         .to_string();
-    if text.is_empty() { None } else { Some(text) }
+    if text.is_empty() {
+        None
+    } else {
+        Some(text)
+    }
 }
 
 /// 要素内テキストから数量を抽出する（デフォルト 1）
@@ -283,10 +287,7 @@ fn parse_quantity_from_text(text: &str) -> Option<i64> {
     // 「（N個）」
     if let Some(pos) = text.find('（') {
         let after = &text[pos + '（'.len_utf8()..];
-        let num_str: String = after
-            .chars()
-            .take_while(|c| c.is_ascii_digit())
-            .collect();
+        let num_str: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
         if let Ok(n) = num_str.parse::<i64>() {
             return Some(n);
         }

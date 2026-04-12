@@ -361,17 +361,14 @@ fn is_order_detail_url(url: &str) -> bool {
 /// URL の `orderID` クエリパラメータを取り出す
 fn extract_order_id_from_url(url: &str) -> Option<String> {
     // 簡易クエリパース: "orderID=XXX-XXXXXXX-XXXXXXX"
-    url.split('?')
-        .nth(1)?
-        .split('&')
-        .find_map(|param| {
-            let (key, value) = param.split_once('=')?;
-            if key == "orderID" {
-                Some(value.to_string())
-            } else {
-                None
-            }
-        })
+    url.split('?').nth(1)?.split('&').find_map(|param| {
+        let (key, value) = param.split_once('=')?;
+        if key == "orderID" {
+            Some(value.to_string())
+        } else {
+            None
+        }
+    })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -405,7 +402,9 @@ mod tests {
 
     #[test]
     fn test_is_order_detail_url_false_product() {
-        assert!(!is_order_detail_url("https://www.amazon.co.jp/dp/B07XYZ1234"));
+        assert!(!is_order_detail_url(
+            "https://www.amazon.co.jp/dp/B07XYZ1234"
+        ));
     }
 
     #[test]
