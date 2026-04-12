@@ -30,6 +30,7 @@ export function Batch() {
     progress: surugayaProgress,
     openLoginWindow,
     startFetch,
+    startRefetchAll: startSurugayaRefetchAll,
     cancelFetch,
   } = useSurugayaSession();
   const {
@@ -177,6 +178,16 @@ export function Batch() {
     }
   };
 
+  const handleStartSurugayaRefetchAll = async () => {
+    try {
+      await startSurugayaRefetchAll();
+    } catch (err) {
+      toastError(
+        `駿河屋マイページ全件再取得の開始に失敗しました: ${formatError(err)}`
+      );
+    }
+  };
+
   // --- Amazon order fetch handlers ---
   const handleOpenAmazonLogin = async () => {
     try {
@@ -228,8 +239,8 @@ export function Batch() {
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            メールパース → 駿河屋HTMLパース → 商品名解析 → 配送状況確認
-            をまとめて順番に実行します。
+            駿河屋HTMLフェッチ → メールパース（駿河屋・Amazon HTML パース含む）
+            → 商品名解析 → 配送状況確認 をまとめて順番に実行します。
             各ステップの成否に関わらず次のステップへ進みます。
           </p>
           {isPipelineRunning && pipelineCurrentStep && (
@@ -418,7 +429,7 @@ export function Batch() {
       <BatchSection
         title="5. 駿河屋マイページHTML取得"
         controlTitle="マイページ取得コントロール"
-        controlDescription="駿河屋マイページにアクセスして注文HTMLを取得します"
+        controlDescription="駿河屋マイページにアクセスして注文HTMLを取得・保存します（パースは「メールパース」で実行）"
         isRunning={isFetching}
         progress={surugayaProgress}
         onStart={handleStartSurugayaFetch}
@@ -446,8 +457,27 @@ export function Batch() {
             >
               ログインウィンドウを開く
             </Button>
+            <Button
+              onClick={handleStartSurugayaRefetchAll}
+              disabled={
+                isPipelineRunning ||
+                isSyncing ||
+                isParsing ||
+                isProductNameParsing ||
+                isChecking ||
+                isFetching ||
+                isAmazonFetching
+              }
+              variant="outline"
+              size="sm"
+            >
+              全件再取得
+            </Button>
             <p className="text-xs text-muted-foreground">
               まずログインウィンドウを開いて駿河屋にログインしてから、取得開始を押してください。
+              取得済みのページは再アクセスしません。パースは「2.
+              メールパース」と同じタイミングで自動実行されます。
+              HTMLが更新されている場合は「全件再取得」を使用してください。
             </p>
           </div>
         }
@@ -545,10 +575,14 @@ export function Batch() {
           <ol className="list-decimal list-inside space-y-1 ml-2">
             <li>Gmail同期でメールを取得</li>
             <li>
+              駿河屋マイページHTML取得（駿河屋ご利用時のみ・事前にログイン必要）
+            </li>
+            <li>
               Amazon注文詳細HTML取得（Amazonご利用時のみ・事前にログイン必要）
             </li>
             <li>
-              メールパースで注文情報を抽出（Amazon注文詳細HTMLのパースも同時実行）
+              メールパースで注文情報を抽出（駿河屋・Amazon
+              の保存済みHTMLパースも同時実行）
             </li>
             <li>商品名解析（AI）でメーカー情報を抽出</li>
             <li>配送状況確認で各荷物の現在状況を記録</li>

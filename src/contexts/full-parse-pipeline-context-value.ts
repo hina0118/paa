@@ -17,8 +17,8 @@ export type PipelineStep =
 
 /** 各ステップの日本語ラベル */
 export const PIPELINE_STEP_LABELS: Record<PipelineStep, string> = {
-  parse: 'メールパース',
-  surugaya: '駿河屋HTMLパース',
+  surugaya: '駿河屋HTMLフェッチ',
+  parse: 'メールパース（HTML含む）',
   product_parse: '商品名解析',
   delivery_check: '配送状況確認',
 };

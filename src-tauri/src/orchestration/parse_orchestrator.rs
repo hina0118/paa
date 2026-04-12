@@ -11,8 +11,9 @@ use crate::batch_runner::{BatchProgressEvent, BatchRunner};
 use crate::parsers::EmailRow;
 use crate::parsers::{
     EmailParseContext, EmailParseTask, HtmlParseContext, HtmlParseInput, HtmlParseTask,
-    ShopSettingsCache, EMAIL_PARSE_EVENT_NAME, EMAIL_PARSE_TASK_NAME, HTML_PARSE_EVENT_NAME,
-    HTML_PARSE_TASK_NAME,
+    ShopSettingsCache, SurugayaHtmlParseContext, SurugayaHtmlParseInput, SurugayaHtmlParseTask,
+    EMAIL_PARSE_EVENT_NAME, EMAIL_PARSE_TASK_NAME, HTML_PARSE_EVENT_NAME, HTML_PARSE_TASK_NAME,
+    SURUGAYA_HTML_PARSE_EVENT_NAME, SURUGAYA_HTML_PARSE_TASK_NAME,
 };
 use crate::repository::{
     ParseRepository, ShopSettingsRepository, SqliteParseRepository, SqliteShopSettingsRepository,
@@ -189,13 +190,88 @@ async fn run_batch_parse_task_with<A: BatchCommandsApp>(
         }
     }
 
-    // HTML パース（Amazon 注文詳細）
+    // 駿河屋 HTML パース
     // html_content が保存済みのレコードをすべてパースする。冪等なので何度でも再実行可能。
+    if !parse_state.is_cancelled() {
+        run_surugaya_html_parse_step(app, &pool, &parse_state, batch_size).await;
+    }
+
+    // Amazon 注文詳細 HTML パース
     if !parse_state.is_cancelled() {
         run_html_parse_step(app, &pool, &parse_state, batch_size).await;
     }
 
     parse_state.finish();
+}
+
+/// 駿河屋マイページ HTML のパースステップ
+async fn run_surugaya_html_parse_step<A: BatchCommandsApp>(
+    app: &A,
+    pool: &SqlitePool,
+    parse_state: &crate::parsers::ParseState,
+    batch_size: usize,
+) {
+    let targets: Vec<(i64, String, String)> = match sqlx::query_as(
+        "SELECT id, url, html_content FROM htmls \
+         WHERE html_content IS NOT NULL \
+           AND url LIKE 'https://www.suruga-ya.jp/pcmypage/%' \
+         ORDER BY id",
+    )
+    .fetch_all(pool)
+    .await
+    {
+        Ok(rows) => rows,
+        Err(e) => {
+            log::error!("[surugaya_html_parse] Failed to fetch html targets: {e}");
+            return;
+        }
+    };
+
+    if targets.is_empty() {
+        log::info!("[surugaya_html_parse] No stored HTML to parse");
+        let complete_event = BatchProgressEvent::complete(
+            SURUGAYA_HTML_PARSE_TASK_NAME,
+            0,
+            0,
+            0,
+            "パース対象の HTML がありません".to_string(),
+        );
+        app.emit_event(SURUGAYA_HTML_PARSE_EVENT_NAME, complete_event);
+        return;
+    }
+
+    log::info!("[surugaya_html_parse] {} HTML(s) to parse", targets.len());
+
+    let inputs: Vec<SurugayaHtmlParseInput> = targets
+        .into_iter()
+        .map(|(html_id, url, html_content)| SurugayaHtmlParseInput {
+            html_id,
+            url,
+            html_content,
+        })
+        .collect();
+
+    let task = SurugayaHtmlParseTask;
+    let context = SurugayaHtmlParseContext {
+        pool: Arc::new(pool.clone()),
+    };
+    let runner = BatchRunner::new(task, batch_size, 0);
+
+    match runner
+        .run(app, inputs, &context, || parse_state.is_cancelled())
+        .await
+    {
+        Ok(result) => {
+            log::info!(
+                "[surugaya_html_parse] Completed: success={}, failed={}",
+                result.success_count,
+                result.failed_count
+            );
+        }
+        Err(e) => {
+            log::error!("[surugaya_html_parse] BatchRunner failed: {e}");
+        }
+    }
 }
 
 /// Amazon 注文詳細 HTML のパースステップ

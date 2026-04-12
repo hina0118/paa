@@ -100,7 +100,18 @@ export function SurugayaSessionProvider({ children }: { children: ReactNode }) {
     setIsFetching(true);
     setProgress(null);
     try {
-      await invoke('start_surugaya_mypage_fetch');
+      await invoke('start_surugaya_mypage_fetch', { forceRefetch: false });
+    } catch (error) {
+      setIsFetching(false);
+      throw error;
+    }
+  }, []);
+
+  const startRefetchAll = useCallback(async () => {
+    setIsFetching(true);
+    setProgress(null);
+    try {
+      await invoke('start_surugaya_mypage_fetch', { forceRefetch: true });
     } catch (error) {
       setIsFetching(false);
       throw error;
@@ -118,7 +129,14 @@ export function SurugayaSessionProvider({ children }: { children: ReactNode }) {
 
   return (
     <SurugayaSessionContext.Provider
-      value={{ isFetching, progress, openLoginWindow, startFetch, cancelFetch }}
+      value={{
+        isFetching,
+        progress,
+        openLoginWindow,
+        startFetch,
+        startRefetchAll,
+        cancelFetch,
+      }}
     >
       {children}
     </SurugayaSessionContext.Provider>

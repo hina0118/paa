@@ -1,7 +1,8 @@
 //! UI 一括パースパイプライン。
 //!
 //! `start_full_parse_pipeline` コマンドから呼ばれ、
-//! ① メールパース → ② 駿河屋HTMLパース → ③ 商品名パース → ④ 配送確認
+//! ① 駿河屋HTMLフェッチ → ② メールパース（駿河屋・Amazon HTML パース含む）
+//! → ③ 商品名パース → ④ 配送確認
 //! をベストエフォート方式で順番に実行する。
 //!
 //! 各ステップの実装は [`super::pipeline_steps`] で共通化されており、
@@ -37,20 +38,20 @@ pub enum PipelineStep {
 pub async fn run_full_parse_pipeline(app: tauri::AppHandle, pool: SqlitePool) {
     log::info!("[UI Pipeline] Starting full parse pipeline");
 
-    // Step 1: メールパース
-    emit_step_started(&app, PipelineStep::Parse);
-    let parse_outcome = run_parse_step(&app, &pool).await;
-    log::info!(
-        "[UI Pipeline] Step 1/4 parse: {}",
-        outcome_label(&parse_outcome)
-    );
-
-    // Step 2: 駿河屋HTMLパース
+    // Step 1: 駿河屋HTMLフェッチ（surugaya-session ウィンドウが開いていない場合はスキップ）
     emit_step_started(&app, PipelineStep::Surugaya);
     let surugaya_outcome = run_surugaya_step(&app, &pool).await;
     log::info!(
-        "[UI Pipeline] Step 2/4 surugaya: {}",
+        "[UI Pipeline] Step 1/4 surugaya_fetch: {}",
         outcome_label(&surugaya_outcome)
+    );
+
+    // Step 2: メールパース（駿河屋・Amazon の保存済み HTML パースも含む）
+    emit_step_started(&app, PipelineStep::Parse);
+    let parse_outcome = run_parse_step(&app, &pool).await;
+    log::info!(
+        "[UI Pipeline] Step 2/4 parse: {}",
+        outcome_label(&parse_outcome)
     );
 
     // Step 3: 商品名パース
