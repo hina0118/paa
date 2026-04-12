@@ -129,9 +129,9 @@ pub(crate) async fn run_parse_step(app: &tauri::AppHandle, pool: &SqlitePool) ->
     }
 }
 
-/// 駿河屋マイページ取得ステップ。
+/// 駿河屋マイページ HTML フェッチステップ（差分取得）。
 /// `surugaya-session` ウィンドウが開いていない場合は Skipped を返す。
-/// 実行件数を返せないため常に `StepOutcome::Unknown` を返す（後続ステップは継続する）。
+/// パース処理は `run_parse_step` 内の `run_surugaya_html_parse_step` で行う。
 #[allow(dead_code)]
 pub(crate) async fn run_surugaya_step(app: &tauri::AppHandle, pool: &SqlitePool) -> StepOutcome {
     use crate::commands::{surugaya_session, SurugayaSessionState};
@@ -159,8 +159,9 @@ pub(crate) async fn run_surugaya_step(app: &tauri::AppHandle, pool: &SqlitePool)
         return StepOutcome::Skipped;
     }
 
-    log::info!("[Pipeline] Surugaya mypage fetch step");
-    let result = surugaya_session::run_mypage_batch(app, pool, &win, &session_state).await;
+    log::info!("[Pipeline] Surugaya mypage fetch step (diff only)");
+    // force_refetch = false: 差分取得のみ（パイプラインは効率優先）
+    let result = surugaya_session::run_mypage_batch(app, pool, &win, &session_state, false).await;
     session_state.finish();
 
     let (cancelled, error) = match result {

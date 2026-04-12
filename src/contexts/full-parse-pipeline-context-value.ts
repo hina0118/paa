@@ -9,16 +9,11 @@
 import { createContext } from 'react';
 
 /** バックエンドの `PipelineStep` enum に対応する型 */
-export type PipelineStep =
-  | 'parse'
-  | 'surugaya'
-  | 'product_parse'
-  | 'delivery_check';
+export type PipelineStep = 'parse' | 'product_parse' | 'delivery_check';
 
 /** 各ステップの日本語ラベル */
 export const PIPELINE_STEP_LABELS: Record<PipelineStep, string> = {
-  parse: 'メールパース',
-  surugaya: '駿河屋HTMLパース',
+  parse: 'メールパース（HTML含む）',
   product_parse: '商品名解析',
   delivery_check: '配送状況確認',
 };

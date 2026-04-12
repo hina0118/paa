@@ -20,8 +20,6 @@ use std::time::Duration;
 use sqlx::SqlitePool;
 use tauri::{AppHandle, Emitter, Listener, Manager, WebviewUrl, WebviewWindowBuilder};
 
-use crate::{plugins::surugaya_mp::html_parser, repository::SqliteOrderRepository};
-
 // ─────────────────────────────────────────────────────────────────────────────
 // 状態管理
 // ─────────────────────────────────────────────────────────────────────────────
@@ -121,13 +119,13 @@ pub async fn open_surugaya_login_window(app_handle: AppHandle) -> Result<(), Str
 /// 駿河屋マイページ取得バッチを開始
 ///
 /// `surugaya-session` ウィンドウが開いていない（未ログイン）場合はエラーを返す。
-/// 取得対象は `htmls` テーブルの駿河屋マイページ URL の全レコード。
-/// パーサーは都度更新されるため、メールパースと同様に毎回全量を再パースする。
+/// `force_refetch = true` の場合は取得済み HTML も含めて全件再取得する。
 #[tauri::command]
 pub async fn start_surugaya_mypage_fetch(
     app_handle: AppHandle,
     pool: tauri::State<'_, SqlitePool>,
     session_state: tauri::State<'_, SurugayaSessionState>,
+    force_refetch: Option<bool>,
 ) -> Result<(), String> {
     let win = app_handle
         .get_webview_window("surugaya-session")
@@ -138,9 +136,11 @@ pub async fn start_surugaya_mypage_fetch(
     let pool_clone = pool.inner().clone();
     let app_clone = app_handle.clone();
     let state_clone = session_state.inner().clone();
+    let force_refetch = force_refetch.unwrap_or(false);
 
     tokio::spawn(async move {
-        let result = run_mypage_batch(&app_clone, &pool_clone, &win, &state_clone).await;
+        let result =
+            run_mypage_batch(&app_clone, &pool_clone, &win, &state_clone, force_refetch).await;
         state_clone.finish();
 
         #[derive(serde::Serialize, Clone)]
@@ -203,19 +203,32 @@ pub(crate) async fn run_mypage_batch(
     pool: &SqlitePool,
     win: &tauri::WebviewWindow,
     state: &SurugayaSessionState,
+    force_refetch: bool,
 ) -> Result<bool, String> {
-    // パーサーは都度更新されるため、全量を再パース対象とする（メールパースと同方針）
-    let targets: Vec<(i64, String)> = sqlx::query_as(
+    // force_refetch = true: 取得済みを含む全件を対象とする（HTML 更新時に使用）
+    // force_refetch = false: html_content IS NULL のみ（差分取得・デフォルト）
+    let sql = if force_refetch {
         "SELECT id, url FROM htmls \
          WHERE url LIKE 'https://www.suruga-ya.jp/pcmypage/%' \
-         ORDER BY id",
-    )
-    .fetch_all(pool)
-    .await
-    .map_err(|e| format!("Failed to fetch target htmls: {e}"))?;
+         ORDER BY id"
+    } else {
+        "SELECT id, url FROM htmls \
+         WHERE html_content IS NULL \
+           AND url LIKE 'https://www.suruga-ya.jp/pcmypage/%' \
+         ORDER BY id"
+    };
+
+    let targets: Vec<(i64, String)> = sqlx::query_as(sql)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("Failed to fetch target htmls: {e}"))?;
 
     let total = targets.len();
-    log::info!("[surugaya_session] {} mypage(s) to fetch", total);
+    log::info!(
+        "[surugaya_session] {} mypage(s) to fetch (force_refetch={})",
+        total,
+        force_refetch
+    );
 
     for (i, (html_id, url)) in targets.into_iter().enumerate() {
         if state.should_cancel() {
@@ -223,7 +236,6 @@ pub(crate) async fn run_mypage_batch(
             return Ok(true);
         }
 
-        // 進捗イベント
         let _ = app.emit(
             "surugaya:fetch_progress",
             serde_json::json!({ "current": i + 1, "total": total, "url": &url }),
@@ -237,66 +249,21 @@ pub(crate) async fn run_mypage_batch(
             }
         };
 
-        // HTML をパース
-        let mypage_info = match html_parser::parse_mypage_html(&html) {
-            Ok(info) => info,
-            Err(e) => {
-                log::warn!("[surugaya_session] Failed to parse {}: {e}", url);
-                continue;
-            }
-        };
-
-        // トランザクションで DB 更新
-        let mut tx = pool
-            .begin()
+        // htmls テーブルに html_content を保存（パースは run_batch_parse_task で行う）
+        if let Err(e) = sqlx::query("UPDATE htmls SET html_content = ? WHERE id = ?")
+            .bind(&html)
+            .bind(html_id)
+            .execute(pool)
             .await
-            .map_err(|e| format!("Failed to begin tx: {e}"))?;
-
-        // 既存注文に items / delivery_info を追加・更新
-        if let Err(e) = SqliteOrderRepository::save_order_in_tx(
-            &mut tx,
-            &mypage_info.order_info,
-            None,
-            Some("suruga-ya.jp".to_string()),
-            None,
-        )
-        .await
         {
-            log::warn!("[surugaya_session] save_order failed for {}: {e}", url);
-            // save_order_in_tx が失敗した場合は、このトランザクション全体をロールバックし、
-            // analysis_status を completed に更新しないようにする
-            if let Err(rollback_err) = tx.rollback().await {
-                log::error!(
-                    "[surugaya_session] Failed to rollback tx after save_order error for {}: {rollback_err}",
-                    url
-                );
-            }
-            // 現在処理中の HTML のみスキップし、次の HTML の処理を続行する
+            log::warn!(
+                "[surugaya_session] Failed to save html_content for {}: {e}",
+                url
+            );
             continue;
         }
 
-        // htmls テーブルを更新（html_content 保存 + analysis_status = completed）
-        if let Err(e) = sqlx::query(
-            "UPDATE htmls SET html_content = ?, analysis_status = 'completed' WHERE id = ?",
-        )
-        .bind(&html)
-        .bind(html_id)
-        .execute(&mut *tx)
-        .await
-        {
-            log::warn!("[surugaya_session] Failed to update htmls {}: {e}", url);
-        }
-
-        tx.commit()
-            .await
-            .map_err(|e| format!("Failed to commit: {e}"))?;
-
-        log::info!(
-            "[surugaya_session] Processed {} ({}/{})",
-            mypage_info.trade_code,
-            i + 1,
-            total
-        );
+        log::info!("[surugaya_session] Fetched HTML ({}/{})", i + 1, total);
     }
 
     Ok(false)

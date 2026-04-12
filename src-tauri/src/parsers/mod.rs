@@ -46,6 +46,12 @@ pub use html_parse_task::{
     HTML_PARSE_TASK_NAME,
 };
 
+pub mod surugaya_html_parse_task;
+pub use surugaya_html_parse_task::{
+    SurugayaHtmlParseContext, SurugayaHtmlParseInput, SurugayaHtmlParseOutput,
+    SurugayaHtmlParseTask, SURUGAYA_HTML_PARSE_EVENT_NAME, SURUGAYA_HTML_PARSE_TASK_NAME,
+};
+
 /// パース状態管理（`BatchRunState` の薄いラッパー）
 ///
 /// 進捗テーブル削除後はメモリのみで状態を管理する。
