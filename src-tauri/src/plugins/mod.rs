@@ -380,6 +380,13 @@ mod tests {
     }
 
     #[test]
+    fn test_find_plugin_yodobashi_cancel() {
+        let registry = build_registry();
+        let plugin = find_plugin(&registry, "yodobashi_cancel");
+        assert!(plugin.is_some());
+    }
+
+    #[test]
     fn test_find_plugin_unknown_returns_none() {
         let registry = build_registry();
         let plugin = find_plugin(&registry, "unknown_parser");
