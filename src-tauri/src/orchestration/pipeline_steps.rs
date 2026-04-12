@@ -161,8 +161,7 @@ pub(crate) async fn run_surugaya_step(app: &tauri::AppHandle, pool: &SqlitePool)
 
     log::info!("[Pipeline] Surugaya mypage fetch step (diff only)");
     // force_refetch = false: 差分取得のみ（パイプラインは効率優先）
-    let result =
-        surugaya_session::run_mypage_batch(app, pool, &win, &session_state, false).await;
+    let result = surugaya_session::run_mypage_batch(app, pool, &win, &session_state, false).await;
     session_state.finish();
 
     let (cancelled, error) = match result {

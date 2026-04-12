@@ -20,7 +20,6 @@ use std::time::Duration;
 use sqlx::SqlitePool;
 use tauri::{AppHandle, Emitter, Listener, Manager, WebviewUrl, WebviewWindowBuilder};
 
-
 // ─────────────────────────────────────────────────────────────────────────────
 // 状態管理
 // ─────────────────────────────────────────────────────────────────────────────
@@ -138,8 +137,7 @@ pub async fn start_amazon_order_fetch(
 
     tokio::spawn(async move {
         let result =
-            run_order_fetch_batch(&app_clone, &pool_clone, &win, &state_clone, force_refetch)
-                .await;
+            run_order_fetch_batch(&app_clone, &pool_clone, &win, &state_clone, force_refetch).await;
         state_clone.finish();
 
         #[derive(serde::Serialize, Clone)]
@@ -313,7 +311,6 @@ fn is_order_detail_url(url: &str) -> bool {
     (url.contains("your-orders/order-details") || url.contains("gp/your-account/order-details"))
         && url.contains("orderID")
 }
-
 
 // ─────────────────────────────────────────────────────────────────────────────
 // テスト

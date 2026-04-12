@@ -20,7 +20,6 @@ use std::time::Duration;
 use sqlx::SqlitePool;
 use tauri::{AppHandle, Emitter, Listener, Manager, WebviewUrl, WebviewWindowBuilder};
 
-
 // ─────────────────────────────────────────────────────────────────────────────
 // 状態管理
 // ─────────────────────────────────────────────────────────────────────────────

@@ -63,8 +63,7 @@ impl BatchTask for HtmlParseTask {
         let order_number = extract_order_id_from_url(&input.url)
             .ok_or_else(|| format!("Cannot extract orderID from URL: {}", input.url))?;
 
-        let order_info =
-            html_parser::parse_order_detail_html(&input.html_content, &order_number)?;
+        let order_info = html_parser::parse_order_detail_html(&input.html_content, &order_number)?;
 
         let mut tx = ctx
             .pool
@@ -118,8 +117,7 @@ mod tests {
 
     #[test]
     fn test_extract_order_id_standard() {
-        let url =
-            "https://www.amazon.co.jp/your-orders/order-details?orderID=123-4567890-1234567";
+        let url = "https://www.amazon.co.jp/your-orders/order-details?orderID=123-4567890-1234567";
         assert_eq!(
             extract_order_id_from_url(url),
             Some("123-4567890-1234567".to_string())
