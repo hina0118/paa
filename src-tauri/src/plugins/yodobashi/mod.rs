@@ -20,7 +20,7 @@ pub struct YodobashiPlugin;
 #[async_trait]
 impl VendorPlugin for YodobashiPlugin {
     fn parser_types(&self) -> &[&str] {
-        &["yodobashi_confirm", "yodobashi_cancel"]
+        &["yodobashi_confirm", "yodobashi_cancel", "yodobashi_send"]
     }
 
     fn priority(&self) -> i32 {
@@ -30,6 +30,7 @@ impl VendorPlugin for YodobashiPlugin {
     fn get_parser(&self, parser_type: &str) -> Option<Box<dyn EmailParser>> {
         match parser_type {
             "yodobashi_confirm" => Some(Box::new(parsers::confirm::YodobashiConfirmParser)),
+            "yodobashi_send" => Some(Box::new(parsers::send::YodobashiSendParser)),
             _ => None,
         }
     }
@@ -58,6 +59,14 @@ impl VendorPlugin for YodobashiPlugin {
                 parser_type: "yodobashi_cancel".to_string(),
                 subject_filters: Some(vec![
                     "ヨドバシ・ドット・コム：ご注文内容変更のご連絡".to_string()
+                ]),
+            },
+            DefaultShopSetting {
+                shop_name: "ヨドバシ・ドット・コム".to_string(),
+                sender_address: "otodoke@yodobashi.com".to_string(),
+                parser_type: "yodobashi_send".to_string(),
+                subject_filters: Some(vec![
+                    "ヨドバシ・ドット・コム：ご注文商品出荷のお知らせ".to_string()
                 ]),
             },
         ]
