@@ -239,9 +239,10 @@ export function Batch() {
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            駿河屋HTMLフェッチ → メールパース（駿河屋・Amazon HTML パース含む）
-            → 商品名解析 → 配送状況確認 をまとめて順番に実行します。
+            メールパース（駿河屋・Amazon の保存済み HTML パース含む） →
+            商品名解析 → 配送状況確認 をまとめて順番に実行します。
             各ステップの成否に関わらず次のステップへ進みます。
+            HTMLフェッチ（5・6番）は事前に手動で実行してください。
           </p>
           {isPipelineRunning && pipelineCurrentStep && (
             <p className="text-sm font-medium text-primary">
