@@ -22,6 +22,7 @@ pub mod premium_bandai;
 pub mod sagawa;
 pub mod surugaya;
 pub mod surugaya_mp;
+pub mod yodobashi;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // inventory による自動登録
@@ -368,6 +369,13 @@ mod tests {
     fn test_find_plugin_amazon_confirm() {
         let registry = build_registry();
         let plugin = find_plugin(&registry, "amazon_confirm");
+        assert!(plugin.is_some());
+    }
+
+    #[test]
+    fn test_find_plugin_yodobashi_confirm() {
+        let registry = build_registry();
+        let plugin = find_plugin(&registry, "yodobashi_confirm");
         assert!(plugin.is_some());
     }
 
