@@ -63,13 +63,24 @@ impl BatchTask for HtmlParseTask {
         let order_number = extract_order_id_from_url(&input.url)
             .ok_or_else(|| format!("Cannot extract orderID from URL: {}", input.url))?;
 
-        let order_info = html_parser::parse_order_detail_html(&input.html_content, &order_number)?;
-
         let mut tx = ctx
             .pool
             .begin()
             .await
             .map_err(|e| format!("Failed to begin tx: {e}"))?;
+
+        if html_parser::is_cancelled_order(&input.html_content) {
+            apply_cancelled_order(&mut tx, &order_number).await?;
+            tx.commit()
+                .await
+                .map_err(|e| format!("Failed to commit: {e}"))?;
+            return Ok(HtmlParseOutput {
+                html_id: input.html_id,
+                order_number,
+            });
+        }
+
+        let order_info = html_parser::parse_order_detail_html(&input.html_content, &order_number)?;
 
         SqliteOrderRepository::save_order_in_tx(
             &mut tx,
@@ -89,6 +100,57 @@ impl BatchTask for HtmlParseTask {
             order_number,
         })
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// キャンセル処理
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// キャンセル済み HTML の処理: 既存注文のアイテムを削除し配送ステータスを更新する
+async fn apply_cancelled_order(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    order_number: &str,
+) -> Result<(), String> {
+    let order: Option<(i64,)> =
+        sqlx::query_as("SELECT id FROM orders WHERE order_number = ? AND shop_domain = 'amazon.co.jp' LIMIT 1")
+            .bind(order_number)
+            .fetch_optional(tx.as_mut())
+            .await
+            .map_err(|e| format!("DB error: {e}"))?;
+
+    let Some((order_id,)) = order else {
+        log::warn!(
+            "[html_parse] キャンセル済み注文が未登録: order_number={}",
+            order_number
+        );
+        return Ok(());
+    };
+
+    sqlx::query("DELETE FROM items WHERE order_id = ?")
+        .bind(order_id)
+        .execute(tx.as_mut())
+        .await
+        .map_err(|e| format!("Failed to delete items: {e}"))?;
+
+    sqlx::query(
+        r#"
+        UPDATE deliveries
+        SET delivery_status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+        WHERE order_id = ?
+        "#,
+    )
+    .bind(order_id)
+    .execute(tx.as_mut())
+    .await
+    .map_err(|e| format!("Failed to update deliveries: {e}"))?;
+
+    log::info!(
+        "[html_parse] キャンセル適用: order_number={} order_id={}",
+        order_number,
+        order_id
+    );
+
+    Ok(())
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
