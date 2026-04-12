@@ -99,7 +99,18 @@ export function AmazonSessionProvider({ children }: { children: ReactNode }) {
     setIsFetching(true);
     setProgress(null);
     try {
-      await invoke('start_amazon_order_fetch');
+      await invoke('start_amazon_order_fetch', { forceRefetch: false });
+    } catch (error) {
+      setIsFetching(false);
+      throw error;
+    }
+  }, []);
+
+  const startRefetchAll = useCallback(async () => {
+    setIsFetching(true);
+    setProgress(null);
+    try {
+      await invoke('start_amazon_order_fetch', { forceRefetch: true });
     } catch (error) {
       setIsFetching(false);
       throw error;
@@ -117,7 +128,14 @@ export function AmazonSessionProvider({ children }: { children: ReactNode }) {
 
   return (
     <AmazonSessionContext.Provider
-      value={{ isFetching, progress, openLoginWindow, startFetch, cancelFetch }}
+      value={{
+        isFetching,
+        progress,
+        openLoginWindow,
+        startFetch,
+        startRefetchAll,
+        cancelFetch,
+      }}
     >
       {children}
     </AmazonSessionContext.Provider>

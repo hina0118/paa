@@ -117,12 +117,13 @@ pub async fn open_amazon_login_window(app_handle: AppHandle) -> Result<(), Strin
 /// Amazon 注文詳細取得バッチを開始
 ///
 /// `amazon-session` ウィンドウが開いていない（未ログイン）場合はエラーを返す。
-/// 取得対象は `htmls` テーブルの Amazon 注文詳細 URL の全レコード。
+/// `force_refetch = true` の場合は取得済み HTML も含めて全件再取得する。
 #[tauri::command]
 pub async fn start_amazon_order_fetch(
     app_handle: AppHandle,
     pool: tauri::State<'_, SqlitePool>,
     session_state: tauri::State<'_, AmazonSessionState>,
+    force_refetch: Option<bool>,
 ) -> Result<(), String> {
     let win = app_handle
         .get_webview_window("amazon-session")
@@ -133,9 +134,12 @@ pub async fn start_amazon_order_fetch(
     let pool_clone = pool.inner().clone();
     let app_clone = app_handle.clone();
     let state_clone = session_state.inner().clone();
+    let force_refetch = force_refetch.unwrap_or(false);
 
     tokio::spawn(async move {
-        let result = run_order_fetch_batch(&app_clone, &pool_clone, &win, &state_clone).await;
+        let result =
+            run_order_fetch_batch(&app_clone, &pool_clone, &win, &state_clone, force_refetch)
+                .await;
         state_clone.finish();
 
         #[derive(serde::Serialize, Clone)]
@@ -195,24 +199,33 @@ pub(crate) async fn run_order_fetch_batch(
     pool: &SqlitePool,
     win: &tauri::WebviewWindow,
     state: &AmazonSessionState,
+    force_refetch: bool,
 ) -> Result<bool, String> {
-    // html_content IS NULL = まだ WebView で取得していない URL のみ対象とする。
-    // 取得済み（html_content が保存済み）の URL は再アクセス不要のためスキップ。
-    let targets: Vec<(i64, String)> = sqlx::query_as(
+    // force_refetch = true: 取得済みを含む全件を対象とする（HTML 更新時に使用）
+    // force_refetch = false: html_content IS NULL のみ（差分取得・デフォルト）
+    let sql = if force_refetch {
+        "SELECT id, url FROM htmls \
+         WHERE (url LIKE 'https://www.amazon.co.jp/your-orders/order-details%' \
+             OR url LIKE 'https://www.amazon.co.jp/gp/your-account/order-details%') \
+         ORDER BY id"
+    } else {
         "SELECT id, url FROM htmls \
          WHERE html_content IS NULL \
            AND (url LIKE 'https://www.amazon.co.jp/your-orders/order-details%' \
              OR url LIKE 'https://www.amazon.co.jp/gp/your-account/order-details%') \
-         ORDER BY id",
-    )
-    .fetch_all(pool)
-    .await
-    .map_err(|e| format!("Failed to fetch target htmls: {e}"))?;
+         ORDER BY id"
+    };
+
+    let targets: Vec<(i64, String)> = sqlx::query_as(sql)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("Failed to fetch target htmls: {e}"))?;
 
     let total = targets.len();
     log::info!(
-        "[amazon_session] {} order detail page(s) pending fetch",
-        total
+        "[amazon_session] {} order detail page(s) to fetch (force_refetch={})",
+        total,
+        force_refetch
     );
 
     for (i, (html_id, url)) in targets.into_iter().enumerate() {

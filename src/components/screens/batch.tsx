@@ -37,6 +37,7 @@ export function Batch() {
     progress: amazonProgress,
     openLoginWindow: openAmazonLoginWindow,
     startFetch: startAmazonFetch,
+    startRefetchAll: startAmazonRefetchAll,
     cancelFetch: cancelAmazonFetch,
   } = useAmazonSession();
   const {
@@ -200,6 +201,16 @@ export function Batch() {
       await cancelAmazonFetch();
     } catch (err) {
       toastError(`Amazon注文詳細取得の中止に失敗しました: ${formatError(err)}`);
+    }
+  };
+
+  const handleStartAmazonRefetchAll = async () => {
+    try {
+      await startAmazonRefetchAll();
+    } catch (err) {
+      toastError(
+        `Amazon注文詳細全件再取得の開始に失敗しました: ${formatError(err)}`
+      );
     }
   };
 
@@ -475,11 +486,28 @@ export function Batch() {
             >
               ログインウィンドウを開く
             </Button>
+            <Button
+              onClick={handleStartAmazonRefetchAll}
+              disabled={
+                isPipelineRunning ||
+                isSyncing ||
+                isParsing ||
+                isProductNameParsing ||
+                isChecking ||
+                isFetching ||
+                isAmazonFetching
+              }
+              variant="outline"
+              size="sm"
+            >
+              全件再取得
+            </Button>
             <p className="text-xs text-muted-foreground">
               まずログインウィンドウを開いて Amazon.co.jp
               にログインしてから、取得開始を押してください。
               取得済みのページは再アクセスしません。パースは「2.
               メールパース」と同じタイミングで自動実行されます。
+              HTMLが更新されている場合は「全件再取得」を使用してください。
             </p>
           </div>
         }
