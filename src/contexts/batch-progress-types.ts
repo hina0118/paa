@@ -42,6 +42,7 @@ export const TASK_NAMES = {
   PRODUCT_NAME_PARSE: '商品名パース',
   DELIVERY_CHECK: '配送状況確認',
   SURUGAYA_MYPAGE_FETCH: '駿河屋マイページ取得',
+  AMAZON_ORDER_FETCH: 'Amazon注文詳細取得',
 } as const;
 
 /**

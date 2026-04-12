@@ -3,6 +3,7 @@ import { useSync } from '@/contexts/use-sync';
 import { useParse } from '@/contexts/use-parse';
 import { useDeliveryCheck } from '@/contexts/use-delivery-check';
 import { useSurugayaSession } from '@/contexts/use-surugaya-session';
+import { useAmazonSession } from '@/contexts/use-amazon-session';
 import { useFullParsePipeline } from '@/contexts/use-full-parse-pipeline';
 import { PIPELINE_STEP_LABELS } from '@/contexts/full-parse-pipeline-context-value';
 import { useNavigation } from '@/contexts/use-navigation';
@@ -31,6 +32,13 @@ export function Batch() {
     startFetch,
     cancelFetch,
   } = useSurugayaSession();
+  const {
+    isFetching: isAmazonFetching,
+    progress: amazonProgress,
+    openLoginWindow: openAmazonLoginWindow,
+    startFetch: startAmazonFetch,
+    cancelFetch: cancelAmazonFetch,
+  } = useAmazonSession();
   const {
     isSyncing,
     progress: syncProgress,
@@ -168,6 +176,33 @@ export function Batch() {
     }
   };
 
+  // --- Amazon order fetch handlers ---
+  const handleOpenAmazonLogin = async () => {
+    try {
+      await openAmazonLoginWindow();
+    } catch (err) {
+      toastError(
+        `Amazonログインウィンドウの起動に失敗しました: ${formatError(err)}`
+      );
+    }
+  };
+
+  const handleStartAmazonFetch = async () => {
+    try {
+      await startAmazonFetch();
+    } catch (err) {
+      toastError(`Amazon注文詳細取得の開始に失敗しました: ${formatError(err)}`);
+    }
+  };
+
+  const handleCancelAmazonFetch = async () => {
+    try {
+      await cancelAmazonFetch();
+    } catch (err) {
+      toastError(`Amazon注文詳細取得の中止に失敗しました: ${formatError(err)}`);
+    }
+  };
+
   return (
     <div className="container mx-auto pt-0 pb-10 px-6 space-y-6">
       <PageHeader title="バッチ処理" icon={Layers} />
@@ -199,7 +234,8 @@ export function Batch() {
               isParsing ||
               isProductNameParsing ||
               isChecking ||
-              isFetching
+              isFetching ||
+              isAmazonFetching
             }
             className="w-full sm:w-auto"
           >
@@ -401,6 +437,48 @@ export function Batch() {
             </Button>
             <p className="text-xs text-muted-foreground">
               まずログインウィンドウを開いて駿河屋にログインしてから、取得開始を押してください。
+            </p>
+          </div>
+        }
+      />
+
+      {/* 6. Amazon注文詳細取得 */}
+      <BatchSection
+        title="6. Amazon注文詳細取得"
+        controlTitle="注文詳細取得コントロール"
+        controlDescription="Amazon.co.jp の注文詳細ページにアクセスして商品情報を取得します"
+        isRunning={isAmazonFetching}
+        progress={amazonProgress}
+        onStart={handleStartAmazonFetch}
+        onCancel={handleCancelAmazonFetch}
+        startLabel="取得開始"
+        runningLabel="取得中..."
+        startDisabled={
+          isPipelineRunning ||
+          isSyncing ||
+          isParsing ||
+          isProductNameParsing ||
+          isChecking ||
+          isFetching
+        }
+        completeMessage="Amazon注文詳細取得が完了しました"
+        progressTitle="取得進捗"
+        showBatchNumber={false}
+        showCounts={false}
+        extraContent={
+          <div className="space-y-2">
+            <Button
+              onClick={handleOpenAmazonLogin}
+              disabled={isAmazonFetching}
+              variant="outline"
+              size="sm"
+            >
+              ログインウィンドウを開く
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              まずログインウィンドウを開いて Amazon.co.jp
+              にログインしてから、取得開始を押してください。
+              商品情報が未取得の注文詳細ページを順番に取得します。
             </p>
           </div>
         }

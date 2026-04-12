@@ -36,8 +36,10 @@ pub struct EmailParseInput {
     pub email_id: i64,
     /// メッセージID
     pub message_id: String,
-    /// メール本文（プレーンテキスト）
+    /// メール本文（`get_body_for_parse` による HTML 優先選択結果）
     pub body_plain: String,
+    /// メール本文 plain text そのまま（`body_html` が存在する場合も上書きしない生テキスト）
+    pub body_plain_raw: String,
     /// 送信元アドレス
     pub from_address: Option<String>,
     /// 件名
@@ -49,10 +51,12 @@ pub struct EmailParseInput {
 impl From<EmailRow> for EmailParseInput {
     fn from(row: EmailRow) -> Self {
         let body = crate::parsers::get_body_for_parse(&row);
+        let body_plain_raw = row.body_plain.as_deref().unwrap_or("").to_string();
         Self {
             email_id: row.email_id,
             message_id: row.message_id,
             body_plain: body,
+            body_plain_raw,
             from_address: row.from_address,
             subject: row.subject,
             internal_date: row.internal_date,
@@ -449,6 +453,14 @@ where
                     }
                 };
 
+                // prefer_plain_text() が true のプラグインには HTML 優先選択前の
+                // body_plain_raw を渡す（Amazon 等のプレーンテキストパーサー向け）。
+                let body_for_dispatch = if plugin.prefer_plain_text() {
+                    &input.body_plain_raw
+                } else {
+                    &input.body_plain
+                };
+
                 match plugin
                     .dispatch(
                         parser_type,
@@ -456,7 +468,7 @@ where
                         input.from_address.as_deref(),
                         shop_name,
                         input.internal_date,
-                        &input.body_plain,
+                        body_for_dispatch,
                         &mut tx,
                     )
                     .await
@@ -920,6 +932,7 @@ mod tests {
                     email_id: 1,
                     message_id: "m".to_string(),
                     body_plain: "body".to_string(),
+                    body_plain_raw: "body".to_string(),
                     from_address: None,
                     subject: Some("x".to_string()),
                     internal_date: None,

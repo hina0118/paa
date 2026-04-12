@@ -227,6 +227,10 @@ pub fn run() {
             app.manage(commands::SurugayaSessionState::new());
             log::info!("Surugaya session state initialized");
 
+            // Initialize amazon session state
+            app.manage(commands::AmazonSessionState::new());
+            log::info!("Amazon session state initialized");
+
             // Initialize and start scheduler
             {
                 let scheduler_config = config::load(&app_config_dir)
@@ -711,6 +715,10 @@ pub fn run() {
             commands::start_surugaya_mypage_fetch,
             commands::cancel_surugaya_mypage_fetch,
             commands::get_surugaya_mypage_fetch_status,
+            commands::open_amazon_login_window,
+            commands::start_amazon_order_fetch,
+            commands::cancel_amazon_order_fetch,
+            commands::get_amazon_order_fetch_status,
             commands::start_full_parse_pipeline,
             commands::show_screen_overlay,
             commands::close_screen_overlay,

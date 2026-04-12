@@ -9,6 +9,7 @@
 //! - `alternate_domains()` はプラグイン側で管理（DMM の mail/mono 二重チェック等）
 
 // pub mod にすることでリンカーがモジュールを保持し、inventory::submit! の静的初期化が LTO でも除外されない
+pub mod amazon;
 pub mod amiami;
 pub mod animate;
 pub mod dmm;
@@ -204,6 +205,14 @@ pub trait VendorPlugin: Send + Sync {
     ///
     /// DB に同レコードが存在しない場合に自動挿入される（`ensure_default_settings` で利用）。
     fn default_shop_settings(&self) -> Vec<DefaultShopSetting>;
+
+    /// `true` を返すプラグインには `body_html` ではなく `body_plain` が渡される。
+    ///
+    /// デフォルトは `false`（HTML 優先）。
+    /// Amazon 等のプレーンテキストパーサーは `true` をオーバーライドする。
+    fn prefer_plain_text(&self) -> bool {
+        false
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -352,6 +361,13 @@ mod tests {
     fn test_find_plugin_hobbysearch_cancel() {
         let registry = build_registry();
         let plugin = find_plugin(&registry, "hobbysearch_cancel");
+        assert!(plugin.is_some());
+    }
+
+    #[test]
+    fn test_find_plugin_amazon_confirm() {
+        let registry = build_registry();
+        let plugin = find_plugin(&registry, "amazon_confirm");
         assert!(plugin.is_some());
     }
 
