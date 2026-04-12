@@ -1,11 +1,16 @@
 //! Amazon.co.jp プラグイン
 //!
-//! Amazon.co.jp からの注文確認メールをパースして保存する。
+//! Amazon.co.jp からの注文確認メール・配達完了メールをパースして保存する。
 //!
-//! # 対応フォーマット
+//! # 対応フォーマット（注文確認）
 //! - 新フォーマット（件名: `注文済み:`）
 //! - 旧フォーマット・単一注文（件名: `Amazon.co.jp ご注文の確認`）
 //! - 旧フォーマット・複数注文（件名: `Amazon.co.jpでのご注文`）
+//!
+//! # 対応フォーマット（配達完了）
+//! - 件名: `ご注文商品はお住まいの建物内の宅配ボックスに配達しました。`
+//! - 件名: `配達完了:` / `配達完了：`
+//! - 件名: `配達済み:` / `配達済み：`
 
 pub mod html_parser;
 pub mod parsers;
@@ -24,7 +29,7 @@ pub struct AmazonPlugin;
 #[async_trait]
 impl VendorPlugin for AmazonPlugin {
     fn parser_types(&self) -> &[&str] {
-        &["amazon_confirm"]
+        &["amazon_confirm", "amazon_delivery_complete"]
     }
 
     fn priority(&self) -> i32 {
@@ -47,16 +52,30 @@ impl VendorPlugin for AmazonPlugin {
     }
 
     fn default_shop_settings(&self) -> Vec<DefaultShopSetting> {
-        vec![DefaultShopSetting {
-            shop_name: "Amazon.co.jp".to_string(),
-            sender_address: "auto-confirm@amazon.co.jp".to_string(),
-            parser_type: "amazon_confirm".to_string(),
-            subject_filters: Some(vec![
-                "Amazon.co.jp ご注文の確認".to_string(),
-                "Amazon.co.jpでのご注文".to_string(),
-                "注文済み:".to_string(),
-            ]),
-        }]
+        vec![
+            DefaultShopSetting {
+                shop_name: "Amazon.co.jp".to_string(),
+                sender_address: "auto-confirm@amazon.co.jp".to_string(),
+                parser_type: "amazon_confirm".to_string(),
+                subject_filters: Some(vec![
+                    "Amazon.co.jp ご注文の確認".to_string(),
+                    "Amazon.co.jpでのご注文".to_string(),
+                    "注文済み:".to_string(),
+                ]),
+            },
+            DefaultShopSetting {
+                shop_name: "Amazon.co.jp".to_string(),
+                sender_address: "order-update@amazon.co.jp".to_string(),
+                parser_type: "amazon_delivery_complete".to_string(),
+                subject_filters: Some(vec![
+                    "ご注文商品はお住まいの建物内の宅配ボックスに配達しました".to_string(),
+                    "配達完了:".to_string(),
+                    "配達完了：".to_string(),
+                    "配達済み:".to_string(),
+                    "配達済み：".to_string(),
+                ]),
+            },
+        ]
     }
 
     async fn dispatch(
@@ -69,6 +88,10 @@ impl VendorPlugin for AmazonPlugin {
         body: &str,
         tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     ) -> Result<DispatchOutcome, DispatchError> {
+        if parser_type == "amazon_delivery_complete" {
+            return dispatch_delivery_complete(email_id, body, tx).await;
+        }
+
         if parser_type != "amazon_confirm" {
             return Err(DispatchError::ParseFailed(format!(
                 "amazon: 未対応の parser_type '{parser_type}'"
@@ -141,6 +164,97 @@ impl VendorPlugin for AmazonPlugin {
     }
 }
 
+/// Amazon 配達完了メールを処理する
+async fn dispatch_delivery_complete(
+    email_id: i64,
+    body: &str,
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+) -> Result<DispatchOutcome, DispatchError> {
+    let info = parsers::delivery_complete::parse(body).map_err(DispatchError::ParseFailed)?;
+
+    log::debug!(
+        "[amazon_delivery_complete] email_id={} order_number={}",
+        email_id,
+        info.order_number,
+    );
+
+    // 注文番号で orders を検索
+    let order: Option<(i64,)> =
+        sqlx::query_as("SELECT id FROM orders WHERE order_number = ? LIMIT 1")
+            .bind(&info.order_number)
+            .fetch_optional(tx.as_mut())
+            .await
+            .map_err(|e| DispatchError::SaveFailed(format!("DB error: {e}")))?;
+
+    let Some((order_id,)) = order else {
+        log::warn!(
+            "[amazon_delivery_complete] 注文番号に対応する order が未登録: order_number={}",
+            info.order_number,
+        );
+        return Ok(DispatchOutcome::DeliveryCompleted {
+            tracking_number: info.order_number,
+        });
+    };
+
+    // deliveries の有無を確認
+    let delivery: Option<(i64,)> =
+        sqlx::query_as("SELECT id FROM deliveries WHERE order_id = ? LIMIT 1")
+            .bind(order_id)
+            .fetch_optional(tx.as_mut())
+            .await
+            .map_err(|e| DispatchError::SaveFailed(format!("DB error: {e}")))?;
+
+    if let Some((delivery_id,)) = delivery {
+        // 既存レコードを更新
+        sqlx::query(
+            r#"
+            UPDATE deliveries
+            SET delivery_status = 'delivered',
+                actual_delivery = ?,
+                last_checked_at = CURRENT_TIMESTAMP,
+                updated_at      = CURRENT_TIMESTAMP
+            WHERE id = ?
+            "#,
+        )
+        .bind(info.delivered_at.as_deref())
+        .bind(delivery_id)
+        .execute(tx.as_mut())
+        .await
+        .map_err(|e| DispatchError::SaveFailed(format!("Failed to update deliveries: {e}")))?;
+
+        log::info!(
+            "[amazon_delivery_complete] updated: order_number={} delivery_id={}",
+            info.order_number,
+            delivery_id,
+        );
+    } else {
+        // Amazon は注文確認メール時点では delivery レコードを作成しないため、ここで新規作成する
+        sqlx::query(
+            r#"
+            INSERT INTO deliveries
+                (order_id, delivery_status, actual_delivery, last_checked_at)
+            VALUES
+                (?, 'delivered', ?, CURRENT_TIMESTAMP)
+            "#,
+        )
+        .bind(order_id)
+        .bind(info.delivered_at.as_deref())
+        .execute(tx.as_mut())
+        .await
+        .map_err(|e| DispatchError::SaveFailed(format!("Failed to insert deliveries: {e}")))?;
+
+        log::info!(
+            "[amazon_delivery_complete] inserted: order_number={} order_id={}",
+            info.order_number,
+            order_id,
+        );
+    }
+
+    Ok(DispatchOutcome::DeliveryCompleted {
+        tracking_number: info.order_number,
+    })
+}
+
 /// Amazon 注文詳細ページの URL を組み立てる
 fn order_detail_url(order_number: &str) -> String {
     format!(
@@ -161,6 +275,7 @@ mod tests {
     fn test_amazon_plugin_parser_types() {
         let plugin = AmazonPlugin;
         assert!(plugin.parser_types().contains(&"amazon_confirm"));
+        assert!(plugin.parser_types().contains(&"amazon_delivery_complete"));
     }
 
     #[test]
@@ -171,16 +286,25 @@ mod tests {
     #[test]
     fn test_amazon_default_shop_settings() {
         let settings = AmazonPlugin.default_shop_settings();
-        assert_eq!(settings.len(), 1);
+        assert_eq!(settings.len(), 2);
 
-        let s = &settings[0];
-        assert_eq!(s.sender_address, "auto-confirm@amazon.co.jp");
-        assert_eq!(s.parser_type, "amazon_confirm");
-
-        let filters = s.subject_filters.as_ref().unwrap();
+        let confirm = &settings[0];
+        assert_eq!(confirm.sender_address, "auto-confirm@amazon.co.jp");
+        assert_eq!(confirm.parser_type, "amazon_confirm");
+        let filters = confirm.subject_filters.as_ref().unwrap();
         assert!(filters.contains(&"Amazon.co.jp ご注文の確認".to_string()));
         assert!(filters.contains(&"Amazon.co.jpでのご注文".to_string()));
         assert!(filters.contains(&"注文済み:".to_string()));
+
+        let delivery = &settings[1];
+        assert_eq!(delivery.sender_address, "order-update@amazon.co.jp");
+        assert_eq!(delivery.parser_type, "amazon_delivery_complete");
+        let df = delivery.subject_filters.as_ref().unwrap();
+        assert!(df.contains(&"配達完了:".to_string()));
+        assert!(df.contains(&"配達完了：".to_string()));
+        assert!(df.contains(&"配達済み:".to_string()));
+        assert!(df.contains(&"配達済み：".to_string()));
+        assert!(df.iter().any(|f| f.contains("宅配ボックス")));
     }
 
     #[test]
