@@ -14,6 +14,13 @@ use crate::parsers::{OrderInfo, OrderItem};
 // パース関数
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Amazon 注文詳細 HTML がキャンセル済み注文を表しているか判定する
+///
+/// "キャンセル済み" の表示が含まれるページはキャンセルとして扱う。
+pub fn is_cancelled_order(html: &str) -> bool {
+    html.contains("キャンセル済み") || html.contains("注文のキャンセルが完了")
+}
+
 /// Amazon 注文詳細 HTML をパースして `OrderInfo` を返す
 ///
 /// `order_number` は URL の `orderID` パラメータから呼び出し元で抽出して渡す。
@@ -350,6 +357,24 @@ mod tests {
     #[test]
     fn test_parse_quantity_none() {
         assert_eq!(parse_quantity_from_text("no quantity"), None);
+    }
+
+    #[test]
+    fn test_is_cancelled_order_true() {
+        let html = "<html><body><span>キャンセル済み</span></body></html>";
+        assert!(is_cancelled_order(html));
+    }
+
+    #[test]
+    fn test_is_cancelled_order_completion_text() {
+        let html = "<html><body>注文のキャンセルが完了しました</body></html>";
+        assert!(is_cancelled_order(html));
+    }
+
+    #[test]
+    fn test_is_cancelled_order_false() {
+        let html = "<html><body><div class=\"yohtmlc-item\">商品A</div></body></html>";
+        assert!(!is_cancelled_order(html));
     }
 
     #[test]
