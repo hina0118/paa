@@ -1,3 +1,4 @@
+pub mod amazon_session;
 pub mod api_keys;
 pub mod config;
 pub mod delivery_check;
@@ -17,6 +18,7 @@ pub mod sync;
 pub mod ui_pipeline;
 pub mod window;
 
+pub use amazon_session::*;
 pub use api_keys::*;
 pub use config::*;
 pub use delivery_check::*;

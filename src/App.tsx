@@ -36,6 +36,7 @@ import { SyncProvider } from '@/contexts/sync-provider';
 import { ParseProvider } from '@/contexts/parse-provider';
 import { DeliveryCheckProvider } from '@/contexts/delivery-check-provider';
 import { SurugayaSessionProvider } from '@/contexts/surugaya-session-provider';
+import { AmazonSessionProvider } from '@/contexts/amazon-session-provider';
 import { FullParsePipelineProvider } from '@/contexts/full-parse-pipeline-provider';
 import { ThemeProvider } from '@/contexts/theme-provider';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -246,9 +247,11 @@ function App() {
           <ParseProvider>
             <DeliveryCheckProvider>
               <SurugayaSessionProvider>
-                <FullParsePipelineProvider>
-                  <AppContent />
-                </FullParsePipelineProvider>
+                <AmazonSessionProvider>
+                  <FullParsePipelineProvider>
+                    <AppContent />
+                  </FullParsePipelineProvider>
+                </AmazonSessionProvider>
               </SurugayaSessionProvider>
             </DeliveryCheckProvider>
           </ParseProvider>
