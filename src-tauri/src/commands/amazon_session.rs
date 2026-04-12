@@ -197,10 +197,13 @@ pub(crate) async fn run_order_fetch_batch(
     win: &tauri::WebviewWindow,
     state: &AmazonSessionState,
 ) -> Result<bool, String> {
+    // html_content IS NULL = まだ WebView で取得していない URL のみ対象とする。
+    // 取得済み（html_content が保存済み）の URL は再アクセス不要のためスキップ。
     let targets: Vec<(i64, String)> = sqlx::query_as(
         "SELECT id, url FROM htmls \
-         WHERE url LIKE 'https://www.amazon.co.jp/your-orders/order-details%' \
-            OR url LIKE 'https://www.amazon.co.jp/gp/your-account/order-details%' \
+         WHERE html_content IS NULL \
+           AND (url LIKE 'https://www.amazon.co.jp/your-orders/order-details%' \
+             OR url LIKE 'https://www.amazon.co.jp/gp/your-account/order-details%') \
          ORDER BY id",
     )
     .fetch_all(pool)
@@ -208,7 +211,10 @@ pub(crate) async fn run_order_fetch_batch(
     .map_err(|e| format!("Failed to fetch target htmls: {e}"))?;
 
     let total = targets.len();
-    log::info!("[amazon_session] {} order detail page(s) to fetch", total);
+    log::info!(
+        "[amazon_session] {} order detail page(s) pending fetch",
+        total
+    );
 
     for (i, (html_id, url)) in targets.into_iter().enumerate() {
         if state.should_cancel() {
