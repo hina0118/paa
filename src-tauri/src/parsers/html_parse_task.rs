@@ -111,12 +111,13 @@ async fn apply_cancelled_order(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     order_number: &str,
 ) -> Result<(), String> {
-    let order: Option<(i64,)> =
-        sqlx::query_as("SELECT id FROM orders WHERE order_number = ? AND shop_domain = 'amazon.co.jp' LIMIT 1")
-            .bind(order_number)
-            .fetch_optional(tx.as_mut())
-            .await
-            .map_err(|e| format!("DB error: {e}"))?;
+    let order: Option<(i64,)> = sqlx::query_as(
+        "SELECT id FROM orders WHERE order_number = ? AND shop_domain = 'amazon.co.jp' LIMIT 1",
+    )
+    .bind(order_number)
+    .fetch_optional(tx.as_mut())
+    .await
+    .map_err(|e| format!("DB error: {e}"))?;
 
     let Some((order_id,)) = order else {
         log::warn!(
