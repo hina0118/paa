@@ -170,8 +170,7 @@ async fn dispatch_delivery_complete(
     body: &str,
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
 ) -> Result<DispatchOutcome, DispatchError> {
-    let info =
-        parsers::delivery_complete::parse(body).map_err(DispatchError::ParseFailed)?;
+    let info = parsers::delivery_complete::parse(body).map_err(DispatchError::ParseFailed)?;
 
     log::debug!(
         "[amazon_delivery_complete] email_id={} order_number={}",

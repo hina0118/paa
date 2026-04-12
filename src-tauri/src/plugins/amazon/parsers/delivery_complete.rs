@@ -34,8 +34,7 @@ pub fn parse(body: &str) -> Result<AmazonDeliveryInfo, String> {
 /// 本文から Amazon 注文番号（NNN-NNNNNNN-NNNNNNN）を抽出する
 fn extract_order_number(body: &str) -> Option<String> {
     let re = Regex::new(r"\b(\d{3}-\d{7}-\d{7})\b").ok()?;
-    re.captures(body)
-        .map(|cap| cap[1].to_string())
+    re.captures(body).map(|cap| cap[1].to_string())
 }
 
 /// 本文から配達日時を抽出し "YYYY-MM-DD HH:MM:00" に変換する
@@ -45,8 +44,7 @@ fn extract_order_number(body: &str) -> Option<String> {
 /// - `2026年4月12日 14:30`
 fn extract_delivered_at(body: &str) -> Option<String> {
     // YYYY/MM/DD HH:MM 形式
-    let re_slash =
-        Regex::new(r"(\d{4})/(\d{1,2})/(\d{1,2})[^\d]+(\d{2}):(\d{2})").ok()?;
+    let re_slash = Regex::new(r"(\d{4})/(\d{1,2})/(\d{1,2})[^\d]+(\d{2}):(\d{2})").ok()?;
     if let Some(cap) = re_slash.captures(body) {
         return Some(format!(
             "{}-{:02}-{:02} {}:{}:00",
@@ -59,8 +57,7 @@ fn extract_delivered_at(body: &str) -> Option<String> {
     }
 
     // YYYY年M月D日 HH:MM 形式
-    let re_kanji =
-        Regex::new(r"(\d{4})年(\d{1,2})月(\d{1,2})日[^\d]+(\d{2}):(\d{2})").ok()?;
+    let re_kanji = Regex::new(r"(\d{4})年(\d{1,2})月(\d{1,2})日[^\d]+(\d{2}):(\d{2})").ok()?;
     if let Some(cap) = re_kanji.captures(body) {
         return Some(format!(
             "{}-{:02}-{:02} {}:{}:00",
