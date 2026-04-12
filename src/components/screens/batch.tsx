@@ -291,7 +291,7 @@ export function Batch() {
       <BatchSection
         title="2. メールパース"
         controlTitle="パースコントロール"
-        controlDescription="データベースからメールを取得して注文情報をパースします"
+        controlDescription="メールおよび保存済みAmazon注文詳細HTMLから注文情報をパースします"
         isRunning={isParsing}
         progress={parseProgress}
         onStart={handleStartParse}
@@ -442,11 +442,11 @@ export function Batch() {
         }
       />
 
-      {/* 6. Amazon注文詳細取得 */}
+      {/* 6. Amazon注文詳細HTML取得 */}
       <BatchSection
-        title="6. Amazon注文詳細取得"
-        controlTitle="注文詳細取得コントロール"
-        controlDescription="Amazon.co.jp の注文詳細ページにアクセスして商品情報を取得します"
+        title="6. Amazon注文詳細HTML取得"
+        controlTitle="HTML取得コントロール"
+        controlDescription="Amazon.co.jp の注文詳細ページにアクセスして HTML を取得・保存します（パースは「メールパース」で実行）"
         isRunning={isAmazonFetching}
         progress={amazonProgress}
         onStart={handleStartAmazonFetch}
@@ -478,7 +478,8 @@ export function Batch() {
             <p className="text-xs text-muted-foreground">
               まずログインウィンドウを開いて Amazon.co.jp
               にログインしてから、取得開始を押してください。
-              商品情報が未取得の注文詳細ページを順番に取得します。
+              取得済みのページは再アクセスしません。パースは「2.
+              メールパース」と同じタイミングで自動実行されます。
             </p>
           </div>
         }
@@ -515,7 +516,12 @@ export function Batch() {
           <p>バッチ処理は以下の順序で実行します：</p>
           <ol className="list-decimal list-inside space-y-1 ml-2">
             <li>Gmail同期でメールを取得</li>
-            <li>メールパースで注文情報を抽出</li>
+            <li>
+              Amazon注文詳細HTML取得（Amazonご利用時のみ・事前にログイン必要）
+            </li>
+            <li>
+              メールパースで注文情報を抽出（Amazon注文詳細HTMLのパースも同時実行）
+            </li>
             <li>商品名解析（AI）でメーカー情報を抽出</li>
             <li>配送状況確認で各荷物の現在状況を記録</li>
           </ol>

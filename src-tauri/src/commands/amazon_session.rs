@@ -20,7 +20,6 @@ use std::time::Duration;
 use sqlx::SqlitePool;
 use tauri::{AppHandle, Emitter, Listener, Manager, WebviewUrl, WebviewWindowBuilder};
 
-use crate::{plugins::amazon::html_parser, repository::SqliteOrderRepository};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 状態管理
@@ -227,15 +226,6 @@ pub(crate) async fn run_order_fetch_batch(
             serde_json::json!({ "current": i + 1, "total": total, "url": &url }),
         );
 
-        // URL から orderID を抽出
-        let order_number = match extract_order_id_from_url(&url) {
-            Some(id) => id,
-            None => {
-                log::warn!("[amazon_session] Cannot extract orderID from URL: {}", url);
-                continue;
-            }
-        };
-
         // WebView で HTML を取得
         let html = match fetch_one_html(app, win, &url).await {
             Ok(h) => h,
@@ -245,74 +235,21 @@ pub(crate) async fn run_order_fetch_batch(
             }
         };
 
-        // HTML をパース
-        let order_info = match html_parser::parse_order_detail_html(&html, &order_number) {
-            Ok(info) => info,
-            Err(e) => {
-                log::warn!("[amazon_session] Failed to parse {}: {e}", url);
-                continue;
-            }
-        };
-
-        if order_info.items.is_empty() {
-            log::warn!(
-                "[amazon_session] No items parsed for order {} ({})",
-                order_number,
-                url
-            );
-        }
-
-        // トランザクションで DB 更新
-        let mut tx = pool
-            .begin()
+        // htmls テーブルに html_content を保存（パースは run_batch_parse_task で行う）
+        if let Err(e) = sqlx::query("UPDATE htmls SET html_content = ? WHERE id = ?")
+            .bind(&html)
+            .bind(html_id)
+            .execute(pool)
             .await
-            .map_err(|e| format!("Failed to begin tx: {e}"))?;
-
-        if let Err(e) = SqliteOrderRepository::save_order_in_tx(
-            &mut tx,
-            &order_info,
-            None,
-            Some("amazon.co.jp".to_string()),
-            None,
-        )
-        .await
         {
             log::warn!(
-                "[amazon_session] save_order failed for order {} ({}): {e}",
-                order_number,
+                "[amazon_session] Failed to save html_content for {}: {e}",
                 url
             );
-            if let Err(rollback_err) = tx.rollback().await {
-                log::error!(
-                    "[amazon_session] Failed to rollback tx for {}: {rollback_err}",
-                    url
-                );
-            }
             continue;
         }
 
-        // htmls テーブルを更新（html_content 保存 + analysis_status = completed）
-        if let Err(e) = sqlx::query(
-            "UPDATE htmls SET html_content = ?, analysis_status = 'completed' WHERE id = ?",
-        )
-        .bind(&html)
-        .bind(html_id)
-        .execute(&mut *tx)
-        .await
-        {
-            log::warn!("[amazon_session] Failed to update htmls {}: {e}", url);
-        }
-
-        tx.commit()
-            .await
-            .map_err(|e| format!("Failed to commit: {e}"))?;
-
-        log::info!(
-            "[amazon_session] Processed order {} ({}/{})",
-            order_number,
-            i + 1,
-            total
-        );
+        log::info!("[amazon_session] Fetched HTML ({}/{})", i + 1, total);
     }
 
     Ok(false)
@@ -364,18 +301,6 @@ fn is_order_detail_url(url: &str) -> bool {
         && url.contains("orderID")
 }
 
-/// URL の `orderID` クエリパラメータを取り出す
-fn extract_order_id_from_url(url: &str) -> Option<String> {
-    // 簡易クエリパース: "orderID=XXX-XXXXXXX-XXXXXXX"
-    url.split('?').nth(1)?.split('&').find_map(|param| {
-        let (key, value) = param.split_once('=')?;
-        if key == "orderID" {
-            Some(value.to_string())
-        } else {
-            None
-        }
-    })
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // テスト
@@ -411,32 +336,6 @@ mod tests {
         assert!(!is_order_detail_url(
             "https://www.amazon.co.jp/dp/B07XYZ1234"
         ));
-    }
-
-    #[test]
-    fn test_extract_order_id_from_url() {
-        let url = "https://www.amazon.co.jp/your-orders/order-details?orderID=123-4567890-1234567";
-        assert_eq!(
-            extract_order_id_from_url(url),
-            Some("123-4567890-1234567".to_string())
-        );
-    }
-
-    #[test]
-    fn test_extract_order_id_with_extra_params() {
-        let url = "https://www.amazon.co.jp/your-orders/order-details?ref=ppx_yo_dt_b_order_details_fullpage&orderID=234-5678901-2345678";
-        assert_eq!(
-            extract_order_id_from_url(url),
-            Some("234-5678901-2345678".to_string())
-        );
-    }
-
-    #[test]
-    fn test_extract_order_id_missing() {
-        assert_eq!(
-            extract_order_id_from_url("https://www.amazon.co.jp/your-orders/orders"),
-            None
-        );
     }
 
     #[test]
