@@ -26,9 +26,8 @@ static ORDER_DATE_RE: Lazy<Regex> =
 /// `【ご注文金額】今回のお買い物合計金額　　　　      2,527 円`
 ///
 /// `[^\d]+` で数字以外を読み飛ばし、最初の数字グループを合計金額として取得する。
-static TOTAL_AMOUNT_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"【ご注文金額】[^\d]+([\d,]+)\s*円").expect("TOTAL_AMOUNT_RE")
-});
+static TOTAL_AMOUNT_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"【ご注文金額】[^\d]+([\d,]+)\s*円").expect("TOTAL_AMOUNT_RE"));
 
 /// `合計 1 点　   1,900 円` → (数量, 小計)
 static ITEM_TOTAL_RE: Lazy<Regex> =
@@ -64,15 +63,11 @@ fn extract_order_date(body: &str) -> Option<String> {
 }
 
 fn extract_total_amount(body: &str) -> Option<i64> {
-    TOTAL_AMOUNT_RE
-        .captures(body)
-        .map(|c| parse_amount(&c[1]))
+    TOTAL_AMOUNT_RE.captures(body).map(|c| parse_amount(&c[1]))
 }
 
 fn extract_shipping_fee(body: &str) -> Option<i64> {
-    SHIPPING_RE
-        .captures(body)
-        .map(|c| parse_amount(&c[1]))
+    SHIPPING_RE.captures(body).map(|c| parse_amount(&c[1]))
 }
 
 /// `【ご注文商品】` セクションから商品リストを抽出する
@@ -143,7 +138,11 @@ fn extract_items(body: &str) -> Vec<OrderItem> {
             if let Some(name) = current_name.take() {
                 let quantity: i64 = caps[1].parse().unwrap_or(1);
                 let subtotal = parse_amount(&caps[2]);
-                let unit_price = if quantity > 0 { subtotal / quantity } else { subtotal };
+                let unit_price = if quantity > 0 {
+                    subtotal / quantity
+                } else {
+                    subtotal
+                };
                 items.push(OrderItem {
                     name,
                     manufacturer: None,
@@ -324,23 +323,31 @@ mod tests {
 
     #[test]
     fn test_parse_wrapped_item_count() {
-        let order = YodobashiConfirmParser.parse(sample_confirm_wrapped()).unwrap();
+        let order = YodobashiConfirmParser
+            .parse(sample_confirm_wrapped())
+            .unwrap();
         assert_eq!(order.items.len(), 2);
     }
 
     #[test]
     fn test_parse_wrapped_item_names() {
-        let order = YodobashiConfirmParser.parse(sample_confirm_wrapped()).unwrap();
+        let order = YodobashiConfirmParser
+            .parse(sample_confirm_wrapped())
+            .unwrap();
         // 折り返し部分が連結されていること
         assert!(order.items[0].name.contains("データ用CD-R"));
         assert!(order.items[0].name.contains("R700S.SWPS.10E"));
-        assert!(order.items[1].name.contains("EXCERIA BASIC microSDHCカード"));
+        assert!(order.items[1]
+            .name
+            .contains("EXCERIA BASIC microSDHCカード"));
         assert!(order.items[1].name.contains("KMUB-A032G"));
     }
 
     #[test]
     fn test_parse_wrapped_item_prices() {
-        let order = YodobashiConfirmParser.parse(sample_confirm_wrapped()).unwrap();
+        let order = YodobashiConfirmParser
+            .parse(sample_confirm_wrapped())
+            .unwrap();
         assert_eq!(order.items[0].subtotal, 587);
         assert_eq!(order.items[1].subtotal, 1070);
     }
@@ -353,7 +360,8 @@ mod tests {
 
     #[test]
     fn test_parse_no_items_returns_error() {
-        let result = YodobashiConfirmParser.parse("【ご注文番号】 1234567890\n【ご注文商品】\n・配達料金：　　0 円");
+        let result = YodobashiConfirmParser
+            .parse("【ご注文番号】 1234567890\n【ご注文商品】\n・配達料金：　　0 円");
         assert!(result.is_err());
     }
 }

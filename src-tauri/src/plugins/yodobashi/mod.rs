@@ -49,7 +49,7 @@ impl VendorPlugin for YodobashiPlugin {
                 sender_address: "thanks_gochuumon@yodobashi.com".to_string(),
                 parser_type: "yodobashi_confirm".to_string(),
                 subject_filters: Some(vec![
-                    "ヨドバシ・ドット・コム：ご注文ありがとうございます".to_string(),
+                    "ヨドバシ・ドット・コム：ご注文ありがとうございます".to_string()
                 ]),
             },
             DefaultShopSetting {
@@ -57,7 +57,7 @@ impl VendorPlugin for YodobashiPlugin {
                 sender_address: "cancel@yodobashi.com".to_string(),
                 parser_type: "yodobashi_cancel".to_string(),
                 subject_filters: Some(vec![
-                    "ヨドバシ・ドット・コム：ご注文内容変更のご連絡".to_string(),
+                    "ヨドバシ・ドット・コム：ご注文内容変更のご連絡".to_string()
                 ]),
             },
         ]

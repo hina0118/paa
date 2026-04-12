@@ -16,9 +16,8 @@ pub struct YodobashiCancelParser;
 // ─── 正規表現 ────────────────────────────────────────────────────────────────
 
 /// `【変更対象のご注文番号】 7538892732`
-static ORDER_NUMBER_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"【変更対象のご注文番号】\s*(\d+)").expect("ORDER_NUMBER_RE")
-});
+static ORDER_NUMBER_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"【変更対象のご注文番号】\s*(\d+)").expect("ORDER_NUMBER_RE"));
 
 /// キャンセルセクションの数量・価格行
 /// `　　1 点　   880 円` → trimmed: `1 点　   880 円`
