@@ -11,6 +11,7 @@ import {
   BookOpen,
   Truck,
   Newspaper,
+  Ban,
 } from 'lucide-react';
 import { useNavigation } from '@/contexts/use-navigation';
 import type { Screen } from '@/contexts/navigation-context-value';
@@ -32,6 +33,7 @@ type NavigationScreen = Extract<
   | 'api-keys'
   | 'settings'
   | 'product-master'
+  | 'exclusion-patterns'
 >;
 
 type NavigationItem = {
@@ -76,6 +78,7 @@ const navigationItems: NavigationItem[] = [
   { name: 'APIキー設定', icon: Key, id: 'api-keys' },
   { name: '設定', icon: Settings, id: 'settings' },
   { name: '商品マスタ編集', icon: BookOpen, id: 'product-master' },
+  { name: '除外キーワード', icon: Ban, id: 'exclusion-patterns' },
 ];
 
 const tableItems: TableItem[] = [

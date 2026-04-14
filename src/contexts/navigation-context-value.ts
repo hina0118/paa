@@ -11,6 +11,7 @@ export type Screen =
   | 'api-keys'
   | 'settings'
   | 'product-master'
+  | 'exclusion-patterns'
   | 'table-emails'
   | 'table-orders'
   | 'table-items'

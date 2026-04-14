@@ -15,7 +15,7 @@ use crate::gemini::{
     create_product_parse_input, GeminiClient, ProductNameParseCache, ProductNameParseContext,
     ProductNameParseTask, PRODUCT_NAME_PARSE_EVENT_NAME, PRODUCT_NAME_PARSE_TASK_NAME,
 };
-use crate::repository::SqliteProductMasterRepository;
+use crate::repository::{SqliteExclusionPatternRepository, SqliteProductMasterRepository};
 
 /// スコープを抜けると自動的に `parse_state.finish()` を呼ぶ RAII ガード。
 struct ParseStateGuard<'a>(&'a ProductNameParseState);
@@ -115,6 +115,27 @@ async fn run_product_name_parse_task_with<A: BatchCommandsApp>(
                 return;
             }
         };
+
+    // 除外パターンにマッチするアイテムはGemini APIを呼ばずスキップ
+    let exclusion_patterns = SqliteExclusionPatternRepository::new(pool.clone())
+        .get_all()
+        .await
+        .unwrap_or_default();
+
+    let items: Vec<(String, Option<String>)> = items
+        .into_iter()
+        .filter(|(raw_name, _)| {
+            let excluded =
+                crate::repository::should_exclude_item(raw_name, None, &exclusion_patterns);
+            if excluded {
+                log::info!(
+                    "除外パターンにマッチしたため商品名パースをスキップ: '{}'",
+                    raw_name
+                );
+            }
+            !excluded
+        })
+        .collect();
 
     let total_items = items.len();
     log::info!(
