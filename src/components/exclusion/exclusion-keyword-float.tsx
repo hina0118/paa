@@ -134,7 +134,7 @@ export function ExclusionKeywordFloat() {
   if (!isOpen) {
     return (
       <button
-        className="fixed bottom-6 right-6 z-50 h-12 w-12 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:bg-primary/90 transition-colors"
+        className="fixed bottom-20 right-6 z-50 h-12 w-12 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:bg-primary/90 transition-colors"
         onClick={() => setIsOpen(true)}
         title="除外キーワードを管理"
       >
