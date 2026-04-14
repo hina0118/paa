@@ -4,6 +4,7 @@
 
 pub mod delivery;
 pub mod email;
+pub mod exclusion_patterns;
 pub mod order;
 pub mod overrides;
 pub mod parse;
@@ -56,6 +57,12 @@ pub use product_master::{
 
 // delivery
 pub use delivery::{PendingDelivery, SqliteDeliveryRepository};
+
+// exclusion_patterns
+pub use exclusion_patterns::{
+    load_all_patterns_in_tx, matches_exclusion_pattern, should_exclude_item, ExclusionPattern,
+    SqliteExclusionPatternRepository,
+};
 
 // overrides
 pub use overrides::{

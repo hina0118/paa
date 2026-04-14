@@ -58,6 +58,12 @@ pub fn run() {
                 sql: include_str!("../migrations/002_news_clips.sql"),
                 kind: MigrationKind::Up,
             },
+            Migration {
+                version: 3,
+                description: "item_exclusion_patterns",
+                sql: include_str!("../migrations/003_item_exclusion_patterns.sql"),
+                kind: MigrationKind::Up,
+            },
         ]
     };
 
@@ -729,6 +735,9 @@ pub fn run() {
             commands::get_news_clips,
             commands::delete_news_clip,
             commands::get_clipped_urls,
+            commands::list_exclusion_patterns,
+            commands::add_exclusion_pattern,
+            commands::delete_exclusion_pattern,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

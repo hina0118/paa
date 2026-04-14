@@ -609,7 +609,25 @@ impl SqliteOrderRepository {
             log::debug!("Updated order {} with new date info", order_id);
         }
 
+        // 除外パターンを読み込んでアイテムをフィルタリング
+        let exclusion_patterns = crate::repository::load_all_patterns_in_tx(tx)
+            .await
+            .unwrap_or_default();
+
         for item in &order_info.items {
+            if crate::repository::should_exclude_item(
+                &item.name,
+                shop_domain.as_deref(),
+                &exclusion_patterns,
+            ) {
+                log::info!(
+                    "除外パターンにマッチしたため保存をスキップ: item='{}' shop_domain={:?}",
+                    item.name,
+                    shop_domain
+                );
+                continue;
+            }
+
             let existing_item: Option<(i64,)> = sqlx::query_as(
                 r#"
                 SELECT id FROM items

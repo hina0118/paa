@@ -11,6 +11,7 @@ import {
   BookOpen,
   Truck,
   Newspaper,
+  Ban,
 } from 'lucide-react';
 import { useNavigation } from '@/contexts/use-navigation';
 import type { Screen } from '@/contexts/navigation-context-value';
@@ -18,6 +19,8 @@ import type { ComponentType } from 'react';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
+
+const FLOAT_SCREENS = new Set<Screen>(['exclusion-patterns']);
 
 /** サイドバーナビゲーションで表示する画面（Screen のサブセット） */
 type NavigationScreen = Extract<
@@ -32,6 +35,7 @@ type NavigationScreen = Extract<
   | 'api-keys'
   | 'settings'
   | 'product-master'
+  | 'exclusion-patterns'
 >;
 
 type NavigationItem = {
@@ -76,6 +80,7 @@ const navigationItems: NavigationItem[] = [
   { name: 'APIキー設定', icon: Key, id: 'api-keys' },
   { name: '設定', icon: Settings, id: 'settings' },
   { name: '商品マスタ編集', icon: BookOpen, id: 'product-master' },
+  { name: '除外キーワード', icon: Ban, id: 'exclusion-patterns' },
 ];
 
 const tableItems: TableItem[] = [
@@ -97,7 +102,8 @@ const tableItems: TableItem[] = [
 ];
 
 export function Sidebar() {
-  const { currentScreen, setCurrentScreen } = useNavigation();
+  const { currentScreen, setCurrentScreen, setExclusionFloatOpen } =
+    useNavigation();
   const [isTableSectionOpen, setIsTableSectionOpen] = useState(false);
 
   return (
@@ -126,7 +132,13 @@ export function Sidebar() {
                     )}
                     aria-current={isActive ? 'page' : undefined}
                     data-testid={item.id}
-                    onClick={() => setCurrentScreen(item.id)}
+                    onClick={() => {
+                      if (FLOAT_SCREENS.has(item.id)) {
+                        setExclusionFloatOpen(true);
+                      } else {
+                        setCurrentScreen(item.id);
+                      }
+                    }}
                   >
                     {isActive && (
                       <span

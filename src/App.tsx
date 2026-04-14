@@ -10,6 +10,8 @@ import { Settings } from '@/components/screens/settings';
 import { Backup } from '@/components/screens/backup';
 import { ShopSettings } from '@/components/screens/shop-settings';
 import { ProductMasterEdit } from '@/components/screens/product-master';
+import { ExclusionPatterns } from '@/components/screens/exclusion-patterns';
+import { ExclusionKeywordFloat } from '@/components/exclusion/exclusion-keyword-float';
 import { Delivery } from '@/components/screens/delivery';
 import { News } from '@/components/screens/news';
 import {
@@ -97,6 +99,8 @@ function AppContent() {
         return <Settings />;
       case 'product-master':
         return <ProductMasterEdit />;
+      case 'exclusion-patterns':
+        return <ExclusionPatterns />;
       case 'table-emails':
         return <EmailsTable />;
       case 'table-orders':
@@ -139,6 +143,7 @@ function AppContent() {
         <Sidebar />
         <main className="flex-1 min-w-0 overflow-auto">{renderScreen()}</main>
       </div>
+      <ExclusionKeywordFloat />
       <Toaster position="top-right" richColors />
     </div>
   );
