@@ -610,8 +610,9 @@ impl SqliteOrderRepository {
         }
 
         // 除外パターンを読み込んでアイテムをフィルタリング
-        let exclusion_patterns =
-            crate::repository::load_all_patterns_in_tx(tx).await.unwrap_or_default();
+        let exclusion_patterns = crate::repository::load_all_patterns_in_tx(tx)
+            .await
+            .unwrap_or_default();
 
         for item in &order_info.items {
             if crate::repository::should_exclude_item(

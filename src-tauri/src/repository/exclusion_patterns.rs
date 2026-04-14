@@ -35,8 +35,7 @@ pub fn should_exclude_item(
     patterns: &[ExclusionPattern],
 ) -> bool {
     patterns.iter().any(|p| {
-        let domain_matches =
-            p.shop_domain.is_none() || p.shop_domain.as_deref() == shop_domain;
+        let domain_matches = p.shop_domain.is_none() || p.shop_domain.as_deref() == shop_domain;
         domain_matches && matches_exclusion_pattern(item_name, p)
     })
 }
@@ -213,9 +212,21 @@ mod tests {
             note: None,
             created_at: String::new(),
         }];
-        assert!(should_exclude_item("アタック洗剤", Some("amazon.co.jp"), &patterns));
-        assert!(should_exclude_item("アタック洗剤", Some("yodobashi.com"), &patterns));
-        assert!(!should_exclude_item("ガンプラ", Some("amazon.co.jp"), &patterns));
+        assert!(should_exclude_item(
+            "アタック洗剤",
+            Some("amazon.co.jp"),
+            &patterns
+        ));
+        assert!(should_exclude_item(
+            "アタック洗剤",
+            Some("yodobashi.com"),
+            &patterns
+        ));
+        assert!(!should_exclude_item(
+            "ガンプラ",
+            Some("amazon.co.jp"),
+            &patterns
+        ));
     }
 
     #[test]
@@ -228,8 +239,16 @@ mod tests {
             note: None,
             created_at: String::new(),
         }];
-        assert!(should_exclude_item("アタック洗剤", Some("amazon.co.jp"), &patterns));
-        assert!(!should_exclude_item("アタック洗剤", Some("yodobashi.com"), &patterns));
+        assert!(should_exclude_item(
+            "アタック洗剤",
+            Some("amazon.co.jp"),
+            &patterns
+        ));
+        assert!(!should_exclude_item(
+            "アタック洗剤",
+            Some("yodobashi.com"),
+            &patterns
+        ));
     }
 
     #[tokio::test]
@@ -238,7 +257,12 @@ mod tests {
         let repo = SqliteExclusionPatternRepository::new(pool);
 
         let id = repo
-            .add(None, "洗剤".to_string(), "contains".to_string(), Some("日用品".to_string()))
+            .add(
+                None,
+                "洗剤".to_string(),
+                "contains".to_string(),
+                Some("日用品".to_string()),
+            )
             .await
             .expect("add");
 
