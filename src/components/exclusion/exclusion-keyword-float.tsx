@@ -4,6 +4,7 @@ import { Ban, Trash2, GripVertical, Minus, Plus } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { toastSuccess, toastError, formatError } from '@/lib/toast';
+import { useNavigation } from '@/contexts/use-navigation';
 
 interface ExclusionPattern {
   id: number;
@@ -25,7 +26,7 @@ interface Position {
 }
 
 export function ExclusionKeywordFloat() {
-  const [isOpen, setIsOpen] = useState(false);
+  const { exclusionFloatOpen, setExclusionFloatOpen } = useNavigation();
   const [isMinimized, setIsMinimized] = useState(false);
   const [position, setPosition] = useState<Position>({
     x: window.innerWidth - 320,
@@ -52,13 +53,14 @@ export function ExclusionKeywordFloat() {
   }, []);
 
   useEffect(() => {
-    if (isOpen) {
+    if (exclusionFloatOpen) {
       loadPatterns();
-      if (!isMinimized) {
-        setTimeout(() => inputRef.current?.focus(), 50);
-      }
+      setIsMinimized(false);
+      setTimeout(() => inputRef.current?.focus(), 50);
+    } else {
+      setKeyword('');
     }
-  }, [isOpen, isMinimized, loadPatterns]);
+  }, [exclusionFloatOpen, loadPatterns]);
 
   const handleAdd = async () => {
     if (!keyword.trim()) return;
@@ -131,17 +133,7 @@ export function ExclusionKeywordFloat() {
     };
   }, []);
 
-  if (!isOpen) {
-    return (
-      <button
-        className="fixed bottom-20 right-6 z-50 h-12 w-12 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:bg-primary/90 transition-colors"
-        onClick={() => setIsOpen(true)}
-        title="除外キーワードを管理"
-      >
-        <Ban className="h-5 w-5" />
-      </button>
-    );
-  }
+  if (!exclusionFloatOpen) return null;
 
   return (
     <div
@@ -166,7 +158,7 @@ export function ExclusionKeywordFloat() {
         </button>
         <button
           className="text-muted-foreground hover:text-foreground transition-colors p-0.5 rounded"
-          onClick={() => setIsOpen(false)}
+          onClick={() => setExclusionFloatOpen(false)}
           title="閉じる"
         >
           <Plus className="h-3.5 w-3.5 rotate-45" />

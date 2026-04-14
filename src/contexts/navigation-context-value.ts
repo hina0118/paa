@@ -33,6 +33,8 @@ export type NavigationContextType = {
   setCurrentScreen: (screen: Screen) => void;
   pendingOcrQuery: string | null;
   setPendingOcrQuery: (query: string | null) => void;
+  exclusionFloatOpen: boolean;
+  setExclusionFloatOpen: (open: boolean) => void;
 };
 
 export const NavigationContext = createContext<

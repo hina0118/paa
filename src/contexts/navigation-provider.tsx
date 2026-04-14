@@ -4,6 +4,7 @@ import { type Screen, NavigationContext } from './navigation-context-value';
 export function NavigationProvider({ children }: { children: ReactNode }) {
   const [currentScreen, setCurrentScreen] = useState<Screen>('orders');
   const [pendingOcrQuery, setPendingOcrQuery] = useState<string | null>(null);
+  const [exclusionFloatOpen, setExclusionFloatOpen] = useState(false);
 
   return (
     <NavigationContext.Provider
@@ -12,6 +13,8 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
         setCurrentScreen,
         pendingOcrQuery,
         setPendingOcrQuery,
+        exclusionFloatOpen,
+        setExclusionFloatOpen,
       }}
     >
       {children}
