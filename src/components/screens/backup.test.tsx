@@ -81,6 +81,9 @@ describe('Backup', () => {
         excluded_items_count: 1,
         excluded_orders_count: 2,
         tracking_check_logs_count: 7,
+        htmls_count: 4,
+        news_clips_count: 6,
+        item_exclusion_patterns_count: 3,
         image_files_count: 45,
         images_skipped: 0,
       });
@@ -104,7 +107,7 @@ describe('Backup', () => {
       await waitFor(() => {
         expect(
           screen.getByText(
-            /バックアップを保存しました（合計: 110件、画像ファイル: 45件）/
+            /バックアップを保存しました（合計: 123件、画像ファイル: 45件）/
           )
         ).toBeInTheDocument();
       });
@@ -158,6 +161,9 @@ describe('Backup', () => {
         excluded_items_count: 1,
         excluded_orders_count: 2,
         tracking_check_logs_count: 7,
+        htmls_count: 4,
+        news_clips_count: 6,
+        item_exclusion_patterns_count: 3,
         image_files_count: 45,
         images_skipped: 0,
         restore_point_saved: false,
@@ -173,7 +179,7 @@ describe('Backup', () => {
       await waitFor(() => {
         expect(
           screen.getByText(
-            /バックアップを保存しました（合計: 110件、画像ファイル: 45件）/
+            /バックアップを保存しました（合計: 123件、画像ファイル: 45件）/
           )
         ).toBeInTheDocument();
       });
@@ -239,6 +245,9 @@ describe('Backup', () => {
         excluded_items_inserted: 1,
         excluded_orders_inserted: 1,
         tracking_check_logs_inserted: 3,
+        htmls_inserted: 2,
+        news_clips_inserted: 5,
+        item_exclusion_patterns_inserted: 1,
         image_files_copied: 38,
       });
 
@@ -265,7 +274,7 @@ describe('Backup', () => {
       await waitFor(() => {
         expect(
           screen.getByText(
-            /インポートしました（合計: 85件、画像ファイル: 38件）/
+            /インポートしました（合計: 93件、画像ファイル: 38件）/
           )
         ).toBeInTheDocument();
       });
@@ -326,6 +335,9 @@ describe('Backup', () => {
         excluded_items_inserted: 1,
         excluded_orders_inserted: 1,
         tracking_check_logs_inserted: 3,
+        htmls_inserted: 2,
+        news_clips_inserted: 5,
+        item_exclusion_patterns_inserted: 1,
         image_files_copied: 38,
         restore_point_updated: false,
         restore_point_error: 'ファイルシステムエラー',
@@ -340,7 +352,7 @@ describe('Backup', () => {
       await waitFor(() => {
         expect(
           screen.getByText(
-            /インポートしました（合計: 85件、画像ファイル: 38件）/
+            /インポートしました（合計: 93件、画像ファイル: 38件）/
           )
         ).toBeInTheDocument();
       });
@@ -388,6 +400,9 @@ describe('Backup', () => {
         excluded_items_inserted: 1,
         excluded_orders_inserted: 1,
         tracking_check_logs_inserted: 3,
+        htmls_inserted: 2,
+        news_clips_inserted: 5,
+        item_exclusion_patterns_inserted: 1,
         image_files_copied: 38,
         restore_point_updated: false,
         restore_point_error: 'ディスク容量不足',
@@ -402,7 +417,7 @@ describe('Backup', () => {
       await waitFor(() => {
         expect(
           screen.getByText(
-            /インポートしました（合計: 85件、画像ファイル: 38件）/
+            /インポートしました（合計: 93件、画像ファイル: 38件）/
           )
         ).toBeInTheDocument();
       });

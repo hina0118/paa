@@ -11,8 +11,9 @@ use zip::write::FileOptions;
 use super::file_safety::{copy_restore_point_zip, is_safe_file_name, RESTORE_POINT_FILE_NAME};
 use super::manifest::{Manifest, MANIFEST_VERSION, MAX_IMAGE_ENTRY_SIZE, MAX_NDJSON_LINE_SIZE};
 use super::table_converters::{
-    EmailRow, ExcludedItemRow, ExcludedOrderRow, ExportResult, ItemOverrideRow, OrderOverrideRow,
-    ProductMasterRow, ShopSettingsRow, TrackingCheckLogRow,
+    EmailRow, ExcludedItemRow, ExcludedOrderRow, ExportResult, HtmlsRow, ItemExclusionPatternRow,
+    ItemOverrideRow, NewsClipRow, OrderOverrideRow, ProductMasterRow, ShopSettingsRow,
+    TrackingCheckLogRow,
 };
 
 /// メタデータをZIPにエクスポート
@@ -128,6 +129,33 @@ where
     .await
     .map_err(|e| format!("Failed to fetch tracking_check_logs: {e}"))?;
 
+    let htmls_rows: Vec<HtmlsRow> = sqlx::query_as(
+        r#"
+        SELECT id, url, html_content, analysis_status, created_at, updated_at FROM htmls
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("Failed to fetch htmls: {e}"))?;
+
+    let news_clips_rows: Vec<NewsClipRow> = sqlx::query_as(
+        r#"
+        SELECT id, title, url, source_name, published_at, summary, tags, clipped_at FROM news_clips
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("Failed to fetch news_clips: {e}"))?;
+
+    let item_exclusion_patterns_rows: Vec<ItemExclusionPatternRow> = sqlx::query_as(
+        r#"
+        SELECT id, shop_domain, keyword, match_type, note, created_at FROM item_exclusion_patterns
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("Failed to fetch item_exclusion_patterns: {e}"))?;
+
     // 2. JSON にシリアライズ（emails は後でストリーミング出力するため除外）
     let images_json = serde_json::to_string_pretty(&images_rows)
         .map_err(|e| format!("Failed to serialize images: {e}"))?;
@@ -145,6 +173,12 @@ where
         .map_err(|e| format!("Failed to serialize excluded_orders: {e}"))?;
     let tracking_check_logs_json = serde_json::to_string_pretty(&tracking_check_logs_rows)
         .map_err(|e| format!("Failed to serialize tracking_check_logs: {e}"))?;
+    let htmls_json = serde_json::to_string_pretty(&htmls_rows)
+        .map_err(|e| format!("Failed to serialize htmls: {e}"))?;
+    let news_clips_json = serde_json::to_string_pretty(&news_clips_rows)
+        .map_err(|e| format!("Failed to serialize news_clips: {e}"))?;
+    let item_exclusion_patterns_json = serde_json::to_string_pretty(&item_exclusion_patterns_rows)
+        .map_err(|e| format!("Failed to serialize item_exclusion_patterns: {e}"))?;
 
     let manifest = Manifest {
         version: MANIFEST_VERSION,
@@ -224,6 +258,27 @@ where
     zip_writer
         .write_all(tracking_check_logs_json.as_bytes())
         .map_err(|e| format!("Failed to write tracking_check_logs: {e}"))?;
+
+    zip_writer
+        .start_file("htmls.json", options)
+        .map_err(|e| format!("Failed to add htmls.json: {e}"))?;
+    zip_writer
+        .write_all(htmls_json.as_bytes())
+        .map_err(|e| format!("Failed to write htmls: {e}"))?;
+
+    zip_writer
+        .start_file("news_clips.json", options)
+        .map_err(|e| format!("Failed to add news_clips.json: {e}"))?;
+    zip_writer
+        .write_all(news_clips_json.as_bytes())
+        .map_err(|e| format!("Failed to write news_clips: {e}"))?;
+
+    zip_writer
+        .start_file("item_exclusion_patterns.json", options)
+        .map_err(|e| format!("Failed to add item_exclusion_patterns.json: {e}"))?;
+    zip_writer
+        .write_all(item_exclusion_patterns_json.as_bytes())
+        .map_err(|e| format!("Failed to write item_exclusion_patterns: {e}"))?;
 
     // emails: ストリーミングで NDJSON 出力（OOM 回避）
     zip_writer
@@ -306,6 +361,9 @@ where
         excluded_items_count: excluded_items_rows.len(),
         excluded_orders_count: excluded_orders_rows.len(),
         tracking_check_logs_count: tracking_check_logs_rows.len(),
+        htmls_count: htmls_rows.len(),
+        news_clips_count: news_clips_rows.len(),
+        item_exclusion_patterns_count: item_exclusion_patterns_rows.len(),
         image_files_count,
         images_skipped,
         restore_point_saved: false,
@@ -487,6 +545,51 @@ mod tests {
                 error_message   TEXT,
                 created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE (tracking_number)
+            );",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r"
+            CREATE TABLE IF NOT EXISTS htmls (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                url TEXT UNIQUE NOT NULL,
+                html_content TEXT,
+                analysis_status TEXT NOT NULL DEFAULT 'pending' CHECK(analysis_status IN ('pending', 'completed')),
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r"
+            CREATE TABLE IF NOT EXISTS news_clips (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                url TEXT NOT NULL,
+                source_name TEXT NOT NULL,
+                published_at TEXT,
+                summary TEXT,
+                tags TEXT NOT NULL DEFAULT '[]',
+                clipped_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (url)
+            );",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r"
+            CREATE TABLE IF NOT EXISTS item_exclusion_patterns (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                shop_domain TEXT,
+                keyword TEXT NOT NULL,
+                match_type TEXT NOT NULL DEFAULT 'contains' CHECK(match_type IN ('contains', 'starts_with', 'exact')),
+                note TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
             );",
         )
         .execute(&pool)

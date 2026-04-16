@@ -28,6 +28,9 @@ interface ExportResult {
   excluded_items_count: number;
   excluded_orders_count: number;
   tracking_check_logs_count: number;
+  htmls_count: number;
+  news_clips_count: number;
+  item_exclusion_patterns_count: number;
   image_files_count: number;
   images_skipped: number;
   restore_point_saved?: boolean;
@@ -45,6 +48,9 @@ interface ImportResult {
   excluded_items_inserted: number;
   excluded_orders_inserted: number;
   tracking_check_logs_inserted: number;
+  htmls_inserted: number;
+  news_clips_inserted: number;
+  item_exclusion_patterns_inserted: number;
   image_files_copied: number;
   restore_point_updated?: boolean | null;
   restore_point_path?: string | null;
@@ -109,6 +115,9 @@ export function Backup() {
         ['excluded_items', result.excluded_items_count],
         ['excluded_orders', result.excluded_orders_count],
         ['tracking_check_logs', result.tracking_check_logs_count],
+        ['htmls', result.htmls_count],
+        ['news_clips', result.news_clips_count],
+        ['item_exclusion_patterns', result.item_exclusion_patterns_count],
       ]);
       toastSuccess(
         `バックアップを保存しました（合計: ${total}件、画像ファイル: ${result.image_files_count}件）`,
@@ -168,6 +177,9 @@ export function Backup() {
         ['excluded_items', result.excluded_items_inserted],
         ['excluded_orders', result.excluded_orders_inserted],
         ['tracking_check_logs', result.tracking_check_logs_inserted],
+        ['htmls', result.htmls_inserted],
+        ['news_clips', result.news_clips_inserted],
+        ['item_exclusion_patterns', result.item_exclusion_patterns_inserted],
       ]);
       toastSuccess(
         `インポートしました（合計: ${total}件、画像ファイル: ${result.image_files_copied}件）`,
@@ -212,6 +224,9 @@ export function Backup() {
         ['excluded_items', result.excluded_items_inserted],
         ['excluded_orders', result.excluded_orders_inserted],
         ['tracking_check_logs', result.tracking_check_logs_inserted],
+        ['htmls', result.htmls_inserted],
+        ['news_clips', result.news_clips_inserted],
+        ['item_exclusion_patterns', result.item_exclusion_patterns_inserted],
       ]);
       toastSuccess(
         `復元しました（復元ポイント）（合計: ${total}件、画像ファイル: ${result.image_files_copied}件）`,
