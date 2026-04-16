@@ -132,14 +132,12 @@ where
     } else {
         Vec::new()
     };
-    let htmls_rows: Vec<JsonHtmlsRow> =
-        if zip_archive.file_names().any(|n| n == "htmls.json") {
-            let json = read_zip_entry(&mut zip_archive, "htmls.json")?;
-            serde_json::from_str(&json)
-                .map_err(|e| format!("Failed to parse htmls.json: {e}"))?
-        } else {
-            Vec::new()
-        };
+    let htmls_rows: Vec<JsonHtmlsRow> = if zip_archive.file_names().any(|n| n == "htmls.json") {
+        let json = read_zip_entry(&mut zip_archive, "htmls.json")?;
+        serde_json::from_str(&json).map_err(|e| format!("Failed to parse htmls.json: {e}"))?
+    } else {
+        Vec::new()
+    };
     let news_clips_rows: Vec<JsonNewsClipRow> =
         if zip_archive.file_names().any(|n| n == "news_clips.json") {
             let json = read_zip_entry(&mut zip_archive, "news_clips.json")?;

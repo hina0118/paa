@@ -177,9 +177,8 @@ where
         .map_err(|e| format!("Failed to serialize htmls: {e}"))?;
     let news_clips_json = serde_json::to_string_pretty(&news_clips_rows)
         .map_err(|e| format!("Failed to serialize news_clips: {e}"))?;
-    let item_exclusion_patterns_json =
-        serde_json::to_string_pretty(&item_exclusion_patterns_rows)
-            .map_err(|e| format!("Failed to serialize item_exclusion_patterns: {e}"))?;
+    let item_exclusion_patterns_json = serde_json::to_string_pretty(&item_exclusion_patterns_rows)
+        .map_err(|e| format!("Failed to serialize item_exclusion_patterns: {e}"))?;
 
     let manifest = Manifest {
         version: MANIFEST_VERSION,
