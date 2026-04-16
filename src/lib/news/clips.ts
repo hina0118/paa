@@ -1,5 +1,11 @@
 import { invoke } from '@tauri-apps/api/core';
 
+/** AI が抽出したイベント日付 */
+export interface ClipEvent {
+  date: string; // YYYY-MM-DD
+  label: string;
+}
+
 /** クリップ済み記事（フロントエンド用正規化型） */
 export interface NewsClip {
   id: number;
@@ -10,6 +16,7 @@ export interface NewsClip {
   summary?: string;
   tags: string[];
   clippedAt: string;
+  events: ClipEvent[];
 }
 
 /** Rust が返す snake_case の生型 */
@@ -22,6 +29,7 @@ interface RawNewsClip {
   summary?: string;
   tags: string[];
   clipped_at: string;
+  events: ClipEvent[];
 }
 
 function normalize(raw: RawNewsClip): NewsClip {
@@ -34,6 +42,7 @@ function normalize(raw: RawNewsClip): NewsClip {
     summary: raw.summary,
     tags: raw.tags,
     clippedAt: raw.clipped_at,
+    events: raw.events ?? [],
   };
 }
 
@@ -68,6 +77,12 @@ export async function getNewsClips(): Promise<NewsClip[]> {
 /** クリップを削除する */
 export async function deleteNewsClip(id: number): Promise<void> {
   await invoke('delete_news_clip', { id });
+}
+
+/** 既存クリップのイベント日付を AI で再抽出する */
+export async function refreshClipEvents(clipId: number): Promise<NewsClip> {
+  const raw = await invoke<RawNewsClip>('refresh_clip_events', { clipId });
+  return normalize(raw);
 }
 
 /** クリップ済み URL 一覧を取得する（ニュース一覧での既クリップ判定用） */

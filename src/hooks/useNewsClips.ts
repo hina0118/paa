@@ -7,6 +7,7 @@ import {
   getNewsClips,
   deleteNewsClip,
   getClippedUrls,
+  refreshClipEvents,
 } from '@/lib/news/clips';
 
 interface UseNewsClipsResult {
@@ -19,6 +20,7 @@ interface UseNewsClipsResult {
   clip: (item: NewsItem) => Promise<void>;
   unclip: (id: number, url: string) => Promise<void>;
   refresh: () => Promise<void>;
+  refreshEvents: (clipId: number) => Promise<void>;
 }
 
 export function useNewsClips(): UseNewsClipsResult {
@@ -93,5 +95,30 @@ export function useNewsClips(): UseNewsClipsResult {
     }
   }, []);
 
-  return { clips, clippedUrls, loading, clippingUrl, clip, unclip, refresh };
+  const refreshEvents = useCallback(async (clipId: number) => {
+    try {
+      const updated = await refreshClipEvents(clipId);
+      setClips((prev) => prev.map((c) => (c.id === clipId ? updated : c)));
+    } catch (e) {
+      const msg =
+        e instanceof Error
+          ? e.message
+          : typeof e === 'string'
+            ? e
+            : 'イベント取得に失敗しました';
+      toast.error(msg);
+      throw e;
+    }
+  }, []);
+
+  return {
+    clips,
+    clippedUrls,
+    loading,
+    clippingUrl,
+    clip,
+    unclip,
+    refresh,
+    refreshEvents,
+  };
 }

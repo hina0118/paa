@@ -383,6 +383,53 @@ pub async fn fetch_news_html(
 // クリップ機能
 // =============================================================================
 
+/// AI が抽出したイベント日付
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct NewsClipEvent {
+    pub date: String, // YYYY-MM-DD
+    pub label: String,
+}
+
+/// Gemini レスポンスのパース用（null 許容）
+#[derive(Debug, Deserialize)]
+struct RawClipEvent {
+    date: Option<String>,
+    label: Option<String>,
+}
+
+impl RawClipEvent {
+    fn into_event(self) -> Option<NewsClipEvent> {
+        let date = self.date.filter(|s| is_valid_date_key(s))?;
+        let label = self.label.filter(|s| !s.is_empty())?;
+        Some(NewsClipEvent { date, label })
+    }
+}
+
+/// YYYY-MM-DD 形式かつ実在する日付かを検証する
+fn is_valid_date_key(s: &str) -> bool {
+    // 長さと基本フォーマットチェック
+    if s.len() != 10 {
+        return false;
+    }
+    let parts: Vec<&str> = s.splitn(3, '-').collect();
+    if parts.len() != 3 {
+        return false;
+    }
+    let (Ok(y), Ok(m), Ok(d)) = (
+        parts[0].parse::<i32>(),
+        parts[1].parse::<u32>(),
+        parts[2].parse::<u32>(),
+    ) else {
+        return false;
+    };
+    // 年は 2000〜2100、月は 1〜12、日は 1〜31 の範囲チェック（簡易）
+    if !(2000..=2100).contains(&y) || !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+        return false;
+    }
+    // chrono で実在日付かチェック
+    chrono::NaiveDate::from_ymd_opt(y, m, d).is_some()
+}
+
 #[derive(Debug, Serialize)]
 pub struct NewsClip {
     pub id: i64,
@@ -393,6 +440,7 @@ pub struct NewsClip {
     pub summary: Option<String>,
     pub tags: Vec<String>,
     pub clipped_at: String,
+    pub events: Vec<NewsClipEvent>,
 }
 
 /// DB の生行をドメイン型に変換するヘルパー
@@ -406,6 +454,7 @@ type ClipRow = (
     Option<String>,
     String,
     String,
+    String, // events (JSON)
 );
 
 fn row_to_clip(row: ClipRow) -> NewsClip {
@@ -419,6 +468,7 @@ fn row_to_clip(row: ClipRow) -> NewsClip {
         summary: row.5,
         tags,
         clipped_at: row.7,
+        events: serde_json::from_str(&row.8).unwrap_or_default(),
     }
 }
 
@@ -485,16 +535,19 @@ async fn fetch_article_content(url: &str) -> Option<String> {
 struct GeminiSummaryResult {
     summary: String,
     tags: Vec<String>,
+    #[serde(default)]
+    events: Vec<RawClipEvent>,
 }
 
-/// Gemini API を呼び出して記事の要約とタグを生成する
+/// Gemini API を呼び出して記事の要約・タグ・イベント日付を生成する
 async fn summarize_with_gemini(
     api_key: &str,
     title: &str,
     content: &str,
-) -> Result<(String, Vec<String>), String> {
+) -> Result<(String, Vec<String>, Vec<NewsClipEvent>), String> {
     let prompt = format!(
-        "以下のゲーム・ホビー系ニュース記事を分析してください。\n\nタイトル: {title}\n\n本文:\n{content}\n\n次のJSON形式のみで回答してください（余分なテキスト不要）:\n{{\"summary\":\"記事の要約（100〜150文字）\",\"tags\":[\"タグ1\",\"タグ2\",\"タグ3\",\"タグ4\",\"タグ5\"]}}\n\nsummaryは日本語で簡潔に。tagsはゲームタイトル・シリーズ・ジャンル・ハード名・会社名などを5個程度。"
+        "以下のゲーム・ホビー系ニュース記事を分析してください。\n\n【本日の日付】{today}\n\nタイトル: {title}\n\n本文:\n{content}\n\n次のJSON形式のみで回答してください（余分なテキスト不要）:\n{{\"summary\":\"記事の要約（100〜150文字）\",\"tags\":[\"タグ1\",\"タグ2\",\"タグ3\",\"タグ4\",\"タグ5\"],\"events\":[{{\"date\":\"YYYY-MM-DD\",\"label\":\"イベントの説明\"}}]}}\n\nsummaryは日本語で簡潔に。tagsはゲームタイトル・シリーズ・ジャンル・ハード名・会社名など5個程度。eventsは記事内の具体的な日程（発売日・予約開始日・配信開始日など）をYYYY-MM-DD形式で。年が明示されていない場合は【本日の日付】を基準に補完すること。labelはゲームタイトル等の主語を含む簡潔な説明（例：「Nintendo Switch 2予約開始」「ドラゴンクエスト3発売」）。【重要】dateはYYYY-MM-DD形式の完全な日付のみ（年・月・日すべて必須）。不完全または不明な場合はそのイベントを含めないこと。日程情報がなければeventsは空配列。",
+        today = chrono::Utc::now().format("%Y-%m-%d")
     );
 
     let body = serde_json::json!({
@@ -544,7 +597,119 @@ async fn summarize_with_gemini(
     let result: GeminiSummaryResult =
         serde_json::from_str(text).map_err(|e| format!("AIレスポンスのJSONパースに失敗: {e}"))?;
 
-    Ok((result.summary, result.tags))
+    let raw_count = result.events.len();
+    let events: Vec<NewsClipEvent> = result
+        .events
+        .into_iter()
+        .filter_map(RawClipEvent::into_event)
+        .collect();
+
+    log::info!(
+        "[clip_events/summarize] title={:?} raw={} → valid={}",
+        title.chars().take(50).collect::<String>(),
+        raw_count,
+        events.len()
+    );
+    for ev in &events {
+        log::info!(
+            "[clip_events/summarize]   date={} label={:?}",
+            ev.date,
+            ev.label
+        );
+    }
+
+    Ok((result.summary, result.tags, events))
+}
+
+// -------------------------------------------------------
+// 要約テキストからイベント日付のみを抽出（既存クリップの backfill 用）
+// -------------------------------------------------------
+
+/// 要約・タイトルをもとに Gemini でイベント日付のみ抽出する
+async fn extract_events_with_gemini(
+    api_key: &str,
+    title: &str,
+    summary: &str,
+) -> Result<Vec<NewsClipEvent>, String> {
+    let prompt = format!(
+        "以下のゲーム・ホビー系ニュース記事のタイトルと要約から、具体的な日程情報を抽出してください。\n\n【本日の日付】{today}\n\nタイトル: {title}\n要約: {summary}\n\n次のJSON配列形式のみで回答してください（余分なテキスト不要）:\n[{{\"date\":\"YYYY-MM-DD\",\"label\":\"イベントの説明\"}}]\n\n【重要ルール】\n- dateは必ずYYYY-MM-DD形式の完全な日付（年・月・日すべて必須）\n- 年が明示されていない場合は【本日の日付】の年を基準に最も近い将来の日付として補完すること\n- dateがnullや年月日が不完全な場合はそのイベントを配列に含めないこと\n- labelはゲームタイトル等の主語を含む簡潔な説明（例：「Nintendo Switch 2予約開始」「ドラゴンクエスト3発売」）\n- 具体的な日付が見当たらない場合は空配列 [] を返してください",
+        today = chrono::Utc::now().format("%Y-%m-%d")
+    );
+
+    let body = serde_json::json!({
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "temperature": 0.1,
+            "maxOutputTokens": 512
+        }
+    })
+    .to_string();
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(GEMINI_TIMEOUT_SECS))
+        .build()
+        .map_err(|e| format!("HTTPクライアントの初期化に失敗: {e}"))?;
+
+    let response = client
+        .post("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent")
+        .header("Content-Type", "application/json")
+        .header("X-goog-api-key", api_key)
+        .body(body)
+        .send()
+        .await
+        .map_err(|e| format!("Gemini APIへの接続に失敗しました: {e}"))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        return Err(format!("Gemini API エラー (status {status})"));
+    }
+
+    let response_text = response
+        .text()
+        .await
+        .map_err(|e| format!("Gemini レスポンスの読み取りに失敗: {e}"))?;
+
+    let gemini_resp: serde_json::Value = serde_json::from_str(&response_text)
+        .map_err(|e| format!("Gemini レスポンスのパースに失敗: {e}"))?;
+
+    let text = gemini_resp["candidates"][0]["content"]["parts"][0]["text"]
+        .as_str()
+        .ok_or_else(|| "Gemini レスポンスからテキストを取得できませんでした".to_string())?;
+
+    log::info!("[clip_events/backfill] gemini raw text: {text}");
+
+    let raw: Vec<RawClipEvent> =
+        serde_json::from_str(text).map_err(|e| format!("AIレスポンスのJSONパースに失敗: {e}"))?;
+
+    let raw_count = raw.len();
+    let mut events = Vec::new();
+    for r in raw {
+        let date_str = r.date.clone().unwrap_or_else(|| "(null)".to_string());
+        let label_str = r.label.clone().unwrap_or_else(|| "(null)".to_string());
+        match r.into_event() {
+            Some(ev) => {
+                log::info!(
+                    "[clip_events/backfill]   OK   date={} label={:?}",
+                    ev.date,
+                    ev.label
+                );
+                events.push(ev);
+            }
+            None => {
+                log::info!("[clip_events/backfill]   DROP date={date_str:?} label={label_str:?}");
+            }
+        }
+    }
+
+    log::info!(
+        "[clip_events/backfill] title={:?} raw={} → valid={}",
+        title.chars().take(50).collect::<String>(),
+        raw_count,
+        events.len()
+    );
+
+    Ok(events)
 }
 
 // -------------------------------------------------------
@@ -575,27 +740,21 @@ pub async fn clip_news_article(
         .or(description)
         .unwrap_or_else(|| title.clone());
 
-    let (summary, tags) = summarize_with_gemini(&api_key, &title, &content).await?;
+    let (summary, tags, events) = summarize_with_gemini(&api_key, &title, &content).await?;
 
     let tags_json =
         serde_json::to_string(&tags).map_err(|e| format!("タグのシリアライズに失敗: {e}"))?;
+    let events_json =
+        serde_json::to_string(&events).map_err(|e| format!("イベントのシリアライズに失敗: {e}"))?;
 
-    let row: (
-        i64,
-        String,
-        String,
-        String,
-        Option<String>,
-        Option<String>,
-        String,
-        String,
-    ) = sqlx::query_as(
-        "INSERT INTO news_clips (title, url, source_name, published_at, summary, tags)
-             VALUES (?, ?, ?, ?, ?, ?)
+    let row: ClipRow = sqlx::query_as(
+        "INSERT INTO news_clips (title, url, source_name, published_at, summary, tags, events)
+             VALUES (?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(url) DO UPDATE SET
                summary = excluded.summary,
-               tags    = excluded.tags
-             RETURNING id, title, url, source_name, published_at, summary, tags, clipped_at",
+               tags    = excluded.tags,
+               events  = excluded.events
+             RETURNING id, title, url, source_name, published_at, summary, tags, clipped_at, events",
     )
     .bind(&title)
     .bind(&url)
@@ -603,6 +762,7 @@ pub async fn clip_news_article(
     .bind(&published_at)
     .bind(&summary)
     .bind(&tags_json)
+    .bind(&events_json)
     .fetch_one(pool.inner())
     .await
     .map_err(|e| format!("クリップの保存に失敗しました: {e}"))?;
@@ -610,11 +770,59 @@ pub async fn clip_news_article(
     Ok(row_to_clip(row))
 }
 
+/// 既存クリップのイベント日付を AI で再抽出して更新する（backfill 用）
+#[tauri::command]
+pub async fn refresh_clip_events(
+    pool: tauri::State<'_, SqlitePool>,
+    app_handle: tauri::AppHandle,
+    clip_id: i64,
+) -> Result<NewsClip, String> {
+    // クリップ取得
+    let row: ClipRow = sqlx::query_as(
+        "SELECT id, title, url, source_name, published_at, summary, tags, clipped_at, events
+             FROM news_clips WHERE id = ?",
+    )
+    .bind(clip_id)
+    .fetch_one(pool.inner())
+    .await
+    .map_err(|e| format!("クリップの取得に失敗しました: {e}"))?;
+
+    let clip = row_to_clip(row);
+
+    let summary = match &clip.summary {
+        Some(s) if !s.is_empty() => s.clone(),
+        _ => return Err("要約が存在しないためイベントを抽出できません".to_string()),
+    };
+
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("アプリデータディレクトリの取得に失敗: {e}"))?;
+
+    let api_key = crate::gemini::config::load_api_key(&app_data_dir)?;
+    let events = extract_events_with_gemini(&api_key, &clip.title, &summary).await?;
+
+    let events_json =
+        serde_json::to_string(&events).map_err(|e| format!("イベントのシリアライズに失敗: {e}"))?;
+
+    let updated_row: ClipRow = sqlx::query_as(
+        "UPDATE news_clips SET events = ? WHERE id = ?
+             RETURNING id, title, url, source_name, published_at, summary, tags, clipped_at, events",
+    )
+    .bind(&events_json)
+    .bind(clip_id)
+    .fetch_one(pool.inner())
+    .await
+    .map_err(|e| format!("クリップの更新に失敗しました: {e}"))?;
+
+    Ok(row_to_clip(updated_row))
+}
+
 /// クリップ一覧を clipped_at 降順で返す
 #[tauri::command]
 pub async fn get_news_clips(pool: tauri::State<'_, SqlitePool>) -> Result<Vec<NewsClip>, String> {
     let rows: Vec<ClipRow> = sqlx::query_as(
-        "SELECT id, title, url, source_name, published_at, summary, tags, clipped_at
+        "SELECT id, title, url, source_name, published_at, summary, tags, clipped_at, events
              FROM news_clips
              ORDER BY clipped_at DESC",
     )
