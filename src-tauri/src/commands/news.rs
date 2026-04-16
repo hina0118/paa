@@ -386,7 +386,7 @@ pub async fn fetch_news_html(
 /// AI が抽出したイベント日付
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct NewsClipEvent {
-    pub date: String,  // YYYY-MM-DD
+    pub date: String, // YYYY-MM-DD
     pub label: String,
 }
 
@@ -408,14 +408,20 @@ impl RawClipEvent {
 /// YYYY-MM-DD 形式かつ実在する日付かを検証する
 fn is_valid_date_key(s: &str) -> bool {
     // 長さと基本フォーマットチェック
-    if s.len() != 10 { return false; }
+    if s.len() != 10 {
+        return false;
+    }
     let parts: Vec<&str> = s.splitn(3, '-').collect();
-    if parts.len() != 3 { return false; }
+    if parts.len() != 3 {
+        return false;
+    }
     let (Ok(y), Ok(m), Ok(d)) = (
         parts[0].parse::<i32>(),
         parts[1].parse::<u32>(),
         parts[2].parse::<u32>(),
-    ) else { return false; };
+    ) else {
+        return false;
+    };
     // 年は 2000〜2100、月は 1〜12、日は 1〜31 の範囲チェック（簡易）
     if !(2000..=2100).contains(&y) || !(1..=12).contains(&m) || !(1..=31).contains(&d) {
         return false;
@@ -605,7 +611,11 @@ async fn summarize_with_gemini(
         events.len()
     );
     for ev in &events {
-        log::info!("[clip_events/summarize]   date={} label={:?}", ev.date, ev.label);
+        log::info!(
+            "[clip_events/summarize]   date={} label={:?}",
+            ev.date,
+            ev.label
+        );
     }
 
     Ok((result.summary, result.tags, events))
@@ -679,7 +689,11 @@ async fn extract_events_with_gemini(
         let label_str = r.label.clone().unwrap_or_else(|| "(null)".to_string());
         match r.into_event() {
             Some(ev) => {
-                log::info!("[clip_events/backfill]   OK   date={} label={:?}", ev.date, ev.label);
+                log::info!(
+                    "[clip_events/backfill]   OK   date={} label={:?}",
+                    ev.date,
+                    ev.label
+                );
                 events.push(ev);
             }
             None => {
