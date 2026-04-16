@@ -53,6 +53,8 @@ describe('NavigationContext', () => {
       'table-excluded-items',
       'table-excluded-orders',
       'table-tracking-check-logs',
+      'table-news-clips',
+      'table-item-exclusion-patterns',
     ] as const;
 
     tableScreens.forEach((screen) => {

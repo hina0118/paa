@@ -26,7 +26,9 @@ export type Screen =
   | 'table-order-overrides'
   | 'table-excluded-items'
   | 'table-excluded-orders'
-  | 'table-tracking-check-logs';
+  | 'table-tracking-check-logs'
+  | 'table-news-clips'
+  | 'table-item-exclusion-patterns';
 
 export type NavigationContextType = {
   currentScreen: Screen;
