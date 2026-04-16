@@ -18,6 +18,7 @@ pub mod goodsmile;
 pub mod hobbyjapan;
 pub mod hobbysearch;
 pub mod kids_dragon;
+pub mod kotobukiya;
 pub mod premium_bandai;
 pub mod sagawa;
 pub mod surugaya;
@@ -470,6 +471,15 @@ mod tests {
         let registry = build_registry();
         let furuichi_types = ["furuichi_confirm", "furuichi_send"];
         for pt in &furuichi_types {
+            assert!(find_plugin(&registry, pt).is_some(), "No plugin for {}", pt);
+        }
+    }
+
+    #[test]
+    fn test_all_kotobukiya_parser_types_have_plugin() {
+        let registry = build_registry();
+        let kotobukiya_types = ["kotobukiya_confirm"];
+        for pt in &kotobukiya_types {
             assert!(find_plugin(&registry, pt).is_some(), "No plugin for {}", pt);
         }
     }
