@@ -103,6 +103,32 @@ pub(super) type TrackingCheckLogRow = (
     String,
 );
 
+/// htmls テーブル行 (id, url, html_content, analysis_status, created_at, updated_at)
+pub(super) type HtmlsRow = (
+    i64,
+    String,
+    Option<String>,
+    String,
+    Option<String>,
+    Option<String>,
+);
+
+/// news_clips テーブル行 (id, title, url, source_name, published_at, summary, tags, clipped_at)
+pub(super) type NewsClipRow = (
+    i64,
+    String,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    String,
+    String,
+);
+
+/// item_exclusion_patterns テーブル行 (id, shop_domain, keyword, match_type, note, created_at)
+pub(super) type ItemExclusionPatternRow =
+    (i64, Option<String>, String, String, Option<String>, String);
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ExportResult {
     pub images_count: usize,
@@ -114,6 +140,9 @@ pub struct ExportResult {
     pub excluded_items_count: usize,
     pub excluded_orders_count: usize,
     pub tracking_check_logs_count: usize,
+    pub htmls_count: usize,
+    pub news_clips_count: usize,
+    pub item_exclusion_patterns_count: usize,
     pub image_files_count: usize,
     /// スキップした画像数（不正な file_name、サイズ超過、ファイル不存在）
     pub images_skipped: usize,
@@ -136,6 +165,9 @@ pub struct ImportResult {
     pub excluded_items_inserted: usize,
     pub excluded_orders_inserted: usize,
     pub tracking_check_logs_inserted: usize,
+    pub htmls_inserted: usize,
+    pub news_clips_inserted: usize,
+    pub item_exclusion_patterns_inserted: usize,
     pub image_files_copied: usize,
     /// app_data_dir 直下の復元ポイントZIPを更新できたか（インポート時）
     /// Some(true): 更新成功, Some(false): 更新失敗, None: 更新不要（restore_metadata）
@@ -264,4 +296,39 @@ pub(super) struct JsonTrackingCheckLogRow(
     pub(super) Option<String>, // location
     pub(super) Option<String>, // error_message
     pub(super) Option<String>, // created_at (インポート時に COALESCE(?, CURRENT_TIMESTAMP) で使用)
+);
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+pub(super) struct JsonHtmlsRow(
+    pub(super) i64,            // id (未使用)
+    pub(super) String,         // url
+    pub(super) Option<String>, // html_content
+    pub(super) String,         // analysis_status
+    pub(super) Option<String>, // created_at (未使用)
+    pub(super) Option<String>, // updated_at (未使用)
+);
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+pub(super) struct JsonNewsClipRow(
+    pub(super) i64,            // id (未使用)
+    pub(super) String,         // title
+    pub(super) String,         // url
+    pub(super) String,         // source_name
+    pub(super) Option<String>, // published_at
+    pub(super) Option<String>, // summary
+    pub(super) String,         // tags
+    pub(super) String,         // clipped_at
+);
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+pub(super) struct JsonItemExclusionPatternRow(
+    pub(super) i64,            // id (未使用)
+    pub(super) Option<String>, // shop_domain
+    pub(super) String,         // keyword
+    pub(super) String,         // match_type
+    pub(super) Option<String>, // note
+    pub(super) String,         // created_at
 );

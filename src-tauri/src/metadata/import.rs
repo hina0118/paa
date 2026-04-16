@@ -14,9 +14,9 @@ use super::manifest::{
     MAX_EMAILS_NDJSON_ENTRY_SIZE, MAX_IMAGE_ENTRY_SIZE, MAX_NDJSON_LINE_SIZE,
 };
 use super::table_converters::{
-    ImportResult, JsonEmailRow, JsonExcludedItemRow, JsonExcludedOrderRow, JsonImageRow,
-    JsonItemOverrideRow, JsonOrderOverrideRow, JsonProductMasterRow, JsonShopSettingsRow,
-    JsonTrackingCheckLogRow,
+    ImportResult, JsonEmailRow, JsonExcludedItemRow, JsonExcludedOrderRow, JsonHtmlsRow,
+    JsonImageRow, JsonItemExclusionPatternRow, JsonItemOverrideRow, JsonNewsClipRow,
+    JsonOrderOverrideRow, JsonProductMasterRow, JsonShopSettingsRow, JsonTrackingCheckLogRow,
 };
 
 /// ZIP からメタデータをインポート（INSERT OR IGNORE でマージ）
@@ -129,6 +129,32 @@ where
         let json = read_zip_entry(&mut zip_archive, "tracking_check_logs.json")?;
         serde_json::from_str(&json)
             .map_err(|e| format!("Failed to parse tracking_check_logs.json: {e}"))?
+    } else {
+        Vec::new()
+    };
+    let htmls_rows: Vec<JsonHtmlsRow> =
+        if zip_archive.file_names().any(|n| n == "htmls.json") {
+            let json = read_zip_entry(&mut zip_archive, "htmls.json")?;
+            serde_json::from_str(&json)
+                .map_err(|e| format!("Failed to parse htmls.json: {e}"))?
+        } else {
+            Vec::new()
+        };
+    let news_clips_rows: Vec<JsonNewsClipRow> =
+        if zip_archive.file_names().any(|n| n == "news_clips.json") {
+            let json = read_zip_entry(&mut zip_archive, "news_clips.json")?;
+            serde_json::from_str(&json)
+                .map_err(|e| format!("Failed to parse news_clips.json: {e}"))?
+        } else {
+            Vec::new()
+        };
+    let item_exclusion_patterns_rows: Vec<JsonItemExclusionPatternRow> = if zip_archive
+        .file_names()
+        .any(|n| n == "item_exclusion_patterns.json")
+    {
+        let json = read_zip_entry(&mut zip_archive, "item_exclusion_patterns.json")?;
+        serde_json::from_str(&json)
+            .map_err(|e| format!("Failed to parse item_exclusion_patterns.json: {e}"))?
     } else {
         Vec::new()
     };
@@ -447,6 +473,86 @@ where
         }
     }
 
+    let mut htmls_inserted = 0usize;
+    for row in &htmls_rows {
+        let result = sqlx::query(
+            r#"
+            INSERT OR IGNORE INTO htmls (url, html_content, analysis_status)
+            VALUES (?, ?, ?)
+            "#,
+        )
+        .bind(&row.1)
+        .bind(&row.2)
+        .bind(&row.3)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("Failed to insert html: {e}"))?;
+        if result.rows_affected() > 0 {
+            htmls_inserted += 1;
+        }
+    }
+
+    let mut news_clips_inserted = 0usize;
+    for row in &news_clips_rows {
+        let result = sqlx::query(
+            r#"
+            INSERT OR IGNORE INTO news_clips (title, url, source_name, published_at, summary, tags, clipped_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(&row.1)
+        .bind(&row.2)
+        .bind(&row.3)
+        .bind(&row.4)
+        .bind(&row.5)
+        .bind(&row.6)
+        .bind(&row.7)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("Failed to insert news_clip: {e}"))?;
+        if result.rows_affected() > 0 {
+            news_clips_inserted += 1;
+        }
+    }
+
+    // item_exclusion_patterns はスキーマ上 UNIQUE 制約なし。
+    // 既存行と重複しないよう (shop_domain, keyword, match_type) の組み合わせで存在確認してからINSERT。
+    let mut item_exclusion_patterns_inserted = 0usize;
+    for row in &item_exclusion_patterns_rows {
+        let exists: (i64,) = sqlx::query_as(
+            r#"
+            SELECT COUNT(*) FROM item_exclusion_patterns
+            WHERE (shop_domain IS ? OR (shop_domain IS NULL AND ? IS NULL))
+              AND keyword = ?
+              AND match_type = ?
+            "#,
+        )
+        .bind(&row.1)
+        .bind(&row.1)
+        .bind(&row.2)
+        .bind(&row.3)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| format!("Failed to check item_exclusion_pattern: {e}"))?;
+        if exists.0 == 0 {
+            sqlx::query(
+                r#"
+                INSERT INTO item_exclusion_patterns (shop_domain, keyword, match_type, note, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                "#,
+            )
+            .bind(&row.1)
+            .bind(&row.2)
+            .bind(&row.3)
+            .bind(&row.4)
+            .bind(&row.5)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| format!("Failed to insert item_exclusion_pattern: {e}"))?;
+            item_exclusion_patterns_inserted += 1;
+        }
+    }
+
     tx.commit()
         .await
         .map_err(|e| format!("Failed to commit transaction: {e}"))?;
@@ -509,6 +615,9 @@ where
         excluded_items_inserted,
         excluded_orders_inserted,
         tracking_check_logs_inserted,
+        htmls_inserted,
+        news_clips_inserted,
+        item_exclusion_patterns_inserted,
         image_files_copied,
         restore_point_updated: None,
         restore_point_path: None,
@@ -687,6 +796,51 @@ mod tests {
                 error_message   TEXT,
                 created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE (tracking_number)
+            );",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r"
+            CREATE TABLE IF NOT EXISTS htmls (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                url TEXT UNIQUE NOT NULL,
+                html_content TEXT,
+                analysis_status TEXT NOT NULL DEFAULT 'pending' CHECK(analysis_status IN ('pending', 'completed')),
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r"
+            CREATE TABLE IF NOT EXISTS news_clips (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                url TEXT NOT NULL,
+                source_name TEXT NOT NULL,
+                published_at TEXT,
+                summary TEXT,
+                tags TEXT NOT NULL DEFAULT '[]',
+                clipped_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (url)
+            );",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r"
+            CREATE TABLE IF NOT EXISTS item_exclusion_patterns (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                shop_domain TEXT,
+                keyword TEXT NOT NULL,
+                match_type TEXT NOT NULL DEFAULT 'contains' CHECK(match_type IN ('contains', 'starts_with', 'exact')),
+                note TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
             );",
         )
         .execute(&pool)
