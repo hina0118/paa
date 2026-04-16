@@ -1,5 +1,9 @@
 import { RefreshCw, Newspaper, Bookmark } from 'lucide-react';
 import { useState, useMemo, useRef } from 'react';
+import {
+  NewsClipCalendar,
+  getClipDateKey,
+} from '@/components/news/news-clip-calendar';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/ui/page-header';
@@ -33,6 +37,7 @@ export function News() {
     clip,
     unclip,
     refresh: refreshClips,
+    refreshEvents,
   } = useNewsClips();
 
   const handleRefresh = () => {
@@ -162,7 +167,11 @@ export function News() {
           />
         )}
         {activeTab === 'clips' && (
-          <ClipsTab clips={filteredClips} onUnclip={unclip} />
+          <ClipsTab
+            clips={filteredClips}
+            onUnclip={unclip}
+            onRefreshEvents={refreshEvents}
+          />
         )}
       </div>
     </div>
@@ -328,6 +337,57 @@ function FeedTab({
 function ClipsTab({
   clips,
   onUnclip,
+  onRefreshEvents,
+}: {
+  clips: ReturnType<typeof useNewsClips>['clips'];
+  onUnclip: (id: number, url: string) => void;
+  onRefreshEvents: (clipId: number) => Promise<void>;
+}) {
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+
+  const visibleClips = useMemo(
+    () =>
+      selectedDate === null
+        ? clips
+        : clips.filter((c) => getClipDateKey(c) === selectedDate),
+    [clips, selectedDate]
+  );
+
+  if (clips.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
+        <Bookmark className="h-10 w-10 mb-3 opacity-30" />
+        <p className="text-sm">クリップした記事がありません</p>
+        <p className="text-xs mt-1 opacity-70">
+          ニュース一覧のブックマークアイコンからクリップできます
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full gap-0">
+      {/* 左: クリップ一覧 (2/3) */}
+      <div className="flex-[2] min-w-0 h-full overflow-hidden">
+        <ClipsList clips={visibleClips} onUnclip={onUnclip} />
+      </div>
+
+      {/* 右: 月カレンダー (1/3) */}
+      <div className="flex-[1] min-w-0 h-full border-l border-border/50 px-2 py-1 overflow-y-auto">
+        <NewsClipCalendar
+          clips={clips}
+          selectedDate={selectedDate}
+          onSelectDate={setSelectedDate}
+          onRefreshEvents={onRefreshEvents}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ClipsList({
+  clips,
+  onUnclip,
 }: {
   clips: ReturnType<typeof useNewsClips>['clips'];
   onUnclip: (id: number, url: string) => void;
@@ -343,11 +403,8 @@ function ClipsTab({
   if (clips.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
-        <Bookmark className="h-10 w-10 mb-3 opacity-30" />
-        <p className="text-sm">クリップした記事がありません</p>
-        <p className="text-xs mt-1 opacity-70">
-          ニュース一覧のブックマークアイコンからクリップできます
-        </p>
+        <Bookmark className="h-8 w-8 mb-2 opacity-30" />
+        <p className="text-sm">この日の記事はありません</p>
       </div>
     );
   }
