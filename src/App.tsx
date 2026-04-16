@@ -30,6 +30,8 @@ import {
   ExcludedItemsTable,
   ExcludedOrdersTable,
   TrackingCheckLogsTable,
+  NewsClipsTable,
+  ItemExclusionPatternsTable,
 } from '@/components/screens/tables';
 import { TitleBar } from '@/components/layout/titlebar';
 import { NavigationProvider } from '@/contexts/navigation-provider';
@@ -131,6 +133,10 @@ function AppContent() {
         return <ExcludedOrdersTable />;
       case 'table-tracking-check-logs':
         return <TrackingCheckLogsTable />;
+      case 'table-news-clips':
+        return <NewsClipsTable />;
+      case 'table-item-exclusion-patterns':
+        return <ItemExclusionPatternsTable />;
       default:
         return <Orders />;
     }

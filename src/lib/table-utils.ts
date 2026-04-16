@@ -21,6 +21,8 @@ export const VALID_TABLES = [
   'excluded_items',
   'excluded_orders',
   'tracking_check_logs',
+  'news_clips',
+  'item_exclusion_patterns',
 ] as const;
 
 export type ValidTableName = (typeof VALID_TABLES)[number];

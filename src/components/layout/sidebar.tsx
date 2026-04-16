@@ -62,6 +62,8 @@ type TableScreen = Extract<
   | 'table-excluded-items'
   | 'table-excluded-orders'
   | 'table-tracking-check-logs'
+  | 'table-news-clips'
+  | 'table-item-exclusion-patterns'
 >;
 
 type TableItem = {
@@ -99,6 +101,8 @@ const tableItems: TableItem[] = [
   { name: '除外アイテム', id: 'table-excluded-items' },
   { name: '除外注文', id: 'table-excluded-orders' },
   { name: '配送確認ログ', id: 'table-tracking-check-logs' },
+  { name: 'ニュースクリップ', id: 'table-news-clips' },
+  { name: '除外キーワードパターン', id: 'table-item-exclusion-patterns' },
 ];
 
 export function Sidebar() {

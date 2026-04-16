@@ -23,6 +23,8 @@ describe('table-utils', () => {
       expect(VALID_TABLES).toContain('excluded_items');
       expect(VALID_TABLES).toContain('excluded_orders');
       expect(VALID_TABLES).toContain('tracking_check_logs');
+      expect(VALID_TABLES).toContain('news_clips');
+      expect(VALID_TABLES).toContain('item_exclusion_patterns');
     });
   });
 

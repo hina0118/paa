@@ -179,6 +179,35 @@ const COLUMN_LABELS: Record<string, Record<string, string>> = {
     reason: '除外理由',
     created_at: '作成日時',
   },
+  tracking_check_logs: {
+    id: 'ID',
+    tracking_number: '追跡番号',
+    checked_at: '確認日時',
+    check_status: 'チェック結果',
+    delivery_status: '配送ステータス',
+    description: '説明',
+    location: '場所',
+    error_message: 'エラーメッセージ',
+    created_at: '作成日時',
+  },
+  news_clips: {
+    id: 'ID',
+    title: 'タイトル',
+    url: 'URL',
+    source_name: '情報源',
+    published_at: '公開日時',
+    summary: '要約',
+    tags: 'タグ',
+    clipped_at: 'クリップ日時',
+  },
+  item_exclusion_patterns: {
+    id: 'ID',
+    shop_domain: 'ショップドメイン',
+    keyword: 'キーワード',
+    match_type: 'マッチ種別',
+    note: 'メモ',
+    created_at: '作成日時',
+  },
 };
 
 function getColumnLabel(tableName: string, column: string): string {

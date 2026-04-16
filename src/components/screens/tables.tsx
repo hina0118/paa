@@ -65,3 +65,18 @@ export function TrackingCheckLogsTable() {
     <TableViewer tableName="tracking_check_logs" title="配送確認ログテーブル" />
   );
 }
+
+export function NewsClipsTable() {
+  return (
+    <TableViewer tableName="news_clips" title="ニュースクリップテーブル" />
+  );
+}
+
+export function ItemExclusionPatternsTable() {
+  return (
+    <TableViewer
+      tableName="item_exclusion_patterns"
+      title="除外キーワードパターンテーブル"
+    />
+  );
+}
