@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Minus, Square, X, Minimize2 } from 'lucide-react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { cn } from '@/lib/utils';
+import appIcon from '@/assets/app-icon.png';
 
 export function TitleBar() {
   const [isMaximized, setIsMaximized] = useState(false);
@@ -64,6 +65,11 @@ export function TitleBar() {
       className="flex h-9 shrink-0 items-center border-b bg-background select-none"
       data-tauri-drag-region
     >
+      {/* アプリアイコン */}
+      <div className="flex items-center pl-2" data-tauri-drag-region>
+        <img src={appIcon} alt="paa" className="h-5 w-5" draggable={false} />
+      </div>
+
       {/* ドラッグ領域（フレックスで残りスペースを占有） */}
       <div className="flex-1" data-tauri-drag-region />
 

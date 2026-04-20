@@ -37,11 +37,11 @@ pub(super) fn copy_restore_point_zip(
         src_zip_path.canonicalize(),
         restore_point_path.canonicalize(),
     ) {
-        (Ok(src_canonical), Ok(dest_canonical)) => {
+        (Ok(src_canonical), Ok(dest_canonical))
             // 両方存在 → シンボリックリンクも考慮して比較
-            if src_canonical == dest_canonical {
-                return (true, None);
-            }
+            if src_canonical == dest_canonical =>
+        {
+            return (true, None);
         }
         (Ok(src_canonical), Err(_)) => {
             // destination が未作成 → parent の canonical + filename で比較

@@ -255,9 +255,7 @@ where
                     }
                 } else {
                     // API 結果を results に反映
-                    for ((idx, input), parsed) in
-                        cache_misses.iter().zip(parsed_products.into_iter())
-                    {
+                    for ((idx, input), parsed) in cache_misses.iter().zip(parsed_products) {
                         results[*idx] = Ok(ProductNameParseOutput {
                             input: input.clone(),
                             parsed,
