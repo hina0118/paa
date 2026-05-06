@@ -24,6 +24,7 @@ use crate::gmail_client::GmailClientTrait;
 use crate::repository::{EmailRepository, ShopSettingsRepository};
 use async_trait::async_trait;
 use std::marker::PhantomData;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -67,6 +68,8 @@ where
     pub shop_settings_repo: Arc<S>,
     /// ショップ設定キャッシュ
     pub shop_settings_cache: Arc<Mutex<ShopSettingsCacheForSync>>,
+    /// 全バッチ通算のDB保存件数
+    pub total_saved_count: Arc<AtomicUsize>,
 }
 
 /// Gmail同期タスク
@@ -355,6 +358,7 @@ where
         {
             Ok(fetch_result) => {
                 saved_count = fetch_result.saved_count;
+                context.total_saved_count.fetch_add(saved_count, Ordering::Relaxed);
                 log::info!(
                     "[{}] Batch {} complete: {} saved, {} skipped",
                     self.name(),
@@ -446,6 +450,7 @@ mod tests {
     use crate::gmail::client::ShopSettings;
     use crate::gmail_client::MockGmailClientTrait;
     use crate::repository::{MockEmailRepository, MockShopSettingsRepository};
+    use std::sync::atomic::AtomicUsize;
     use std::sync::Arc;
     use tokio::sync::Mutex;
 
@@ -570,6 +575,7 @@ mod tests {
             email_repo: Arc::new(email_repo),
             shop_settings_repo: Arc::new(shop_repo),
             shop_settings_cache: Arc::new(Mutex::new(ShopSettingsCacheForSync::default())),
+            total_saved_count: Arc::new(AtomicUsize::new(0)),
         };
 
         let task: GmailSyncTask<
@@ -619,6 +625,7 @@ mod tests {
             shop_settings_cache: Arc::new(Mutex::new(ShopSettingsCacheForSync {
                 enabled_shops: vec![dummy_shop_settings(1, "sender@example.com")],
             })),
+            total_saved_count: Arc::new(AtomicUsize::new(0)),
         };
 
         let task: GmailSyncTask<
@@ -692,6 +699,7 @@ mod tests {
             shop_settings_cache: Arc::new(Mutex::new(ShopSettingsCacheForSync {
                 enabled_shops: vec![dummy_shop_settings(1, "sender@example.com")],
             })),
+            total_saved_count: Arc::new(AtomicUsize::new(0)),
         };
 
         let task: GmailSyncTask<
@@ -763,6 +771,7 @@ mod tests {
                 // 対象メッセージがフィルタ除外されないようにする
                 enabled_shops: vec![dummy_shop_settings(1, "a@example.com")],
             })),
+            total_saved_count: Arc::new(AtomicUsize::new(0)),
         };
 
         let task: GmailSyncTask<
@@ -796,6 +805,7 @@ mod tests {
             shop_settings_cache: Arc::new(Mutex::new(ShopSettingsCacheForSync {
                 enabled_shops: vec![dummy_shop_settings(1, "a@example.com")],
             })),
+            total_saved_count: Arc::new(AtomicUsize::new(0)),
         };
 
         let task: GmailSyncTask<

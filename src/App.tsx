@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { DatabaseManager } from '@/lib/database';
 import { toastError } from '@/lib/toast';
 import { Orders } from '@/components/screens/orders';
@@ -14,25 +14,12 @@ import { ExclusionPatterns } from '@/components/screens/exclusion-patterns';
 import { ExclusionKeywordFloat } from '@/components/exclusion/exclusion-keyword-float';
 import { Delivery } from '@/components/screens/delivery';
 import { News } from '@/components/screens/news';
+import { TableViewer } from '@/components/tables/table-viewer';
 import {
-  EmailsTable,
-  OrdersTable,
-  ItemsTable,
-  ImagesTable,
-  DeliveriesTable,
-  HtmlsTable,
-  OrderEmailsTable,
-  OrderHtmlsTable,
-  ShopSettingsTable,
-  ProductMasterTable,
-  ItemOverridesTable,
-  OrderOverridesTable,
-  ExcludedItemsTable,
-  ExcludedOrdersTable,
-  TrackingCheckLogsTable,
-  NewsClipsTable,
-  ItemExclusionPatternsTable,
-} from '@/components/screens/tables';
+  type TableDefinition,
+  getTableDefinitions,
+  screenIdToTableName,
+} from '@/lib/table-definitions';
 import { TitleBar } from '@/components/layout/titlebar';
 import { EventTicker } from '@/components/layout/event-ticker';
 import { NavigationProvider } from '@/contexts/navigation-provider';
@@ -52,6 +39,11 @@ import { Toaster } from 'sonner';
 function AppContent() {
   const { currentScreen, setCurrentScreen, setPendingOcrQuery } =
     useNavigation();
+  const [tableDefs, setTableDefs] = useState<TableDefinition[]>([]);
+
+  useEffect(() => {
+    getTableDefinitions().then(setTableDefs).catch(console.error);
+  }, []);
 
   // ocr-result イベント: OCR結果を受信 → 商品一覧画面へ遷移
   useEffect(() => {
@@ -81,6 +73,16 @@ function AppContent() {
   }, [setCurrentScreen, setPendingOcrQuery]);
 
   const renderScreen = () => {
+    if (currentScreen.startsWith('table-')) {
+      const tableName = screenIdToTableName(currentScreen);
+      const def = tableDefs.find((d) => d.name === tableName);
+      return (
+        <TableViewer
+          tableName={tableName}
+          title={def ? `${def.label}テーブル` : `${tableName}テーブル`}
+        />
+      );
+    }
     switch (currentScreen) {
       case 'news':
         return <News />;
@@ -104,40 +106,6 @@ function AppContent() {
         return <ProductMasterEdit />;
       case 'exclusion-patterns':
         return <ExclusionPatterns />;
-      case 'table-emails':
-        return <EmailsTable />;
-      case 'table-orders':
-        return <OrdersTable />;
-      case 'table-items':
-        return <ItemsTable />;
-      case 'table-images':
-        return <ImagesTable />;
-      case 'table-deliveries':
-        return <DeliveriesTable />;
-      case 'table-htmls':
-        return <HtmlsTable />;
-      case 'table-order-emails':
-        return <OrderEmailsTable />;
-      case 'table-order-htmls':
-        return <OrderHtmlsTable />;
-      case 'table-shop-settings':
-        return <ShopSettingsTable />;
-      case 'table-product-master':
-        return <ProductMasterTable />;
-      case 'table-item-overrides':
-        return <ItemOverridesTable />;
-      case 'table-order-overrides':
-        return <OrderOverridesTable />;
-      case 'table-excluded-items':
-        return <ExcludedItemsTable />;
-      case 'table-excluded-orders':
-        return <ExcludedOrdersTable />;
-      case 'table-tracking-check-logs':
-        return <TrackingCheckLogsTable />;
-      case 'table-news-clips':
-        return <NewsClipsTable />;
-      case 'table-item-exclusion-patterns':
-        return <ItemExclusionPatternsTable />;
       default:
         return <Orders />;
     }

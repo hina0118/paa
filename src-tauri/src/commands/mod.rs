@@ -16,6 +16,7 @@ pub mod shop_settings;
 pub mod stats;
 pub mod surugaya_session;
 pub mod sync;
+pub mod table_definitions;
 pub mod ui_pipeline;
 pub mod window;
 
@@ -37,5 +38,6 @@ pub use shop_settings::*;
 pub use stats::*;
 pub use surugaya_session::*;
 pub use sync::*;
+pub use table_definitions::*;
 pub use ui_pipeline::*;
 pub use window::*;

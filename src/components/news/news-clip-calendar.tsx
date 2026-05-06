@@ -34,22 +34,9 @@ export function NewsClipCalendar({
 }: NewsClipCalendarProps) {
   const [refreshingId, setRefreshingId] = useState<number | null>(null);
 
-  const initialDate = useMemo(() => {
-    const dates = clips
-      .map((c) => getClipDateKey(c))
-      .filter((d): d is string => d !== null)
-      .sort();
-    const latest = dates[dates.length - 1];
-    if (latest) {
-      const [y, m] = latest.split('-').map(Number);
-      return { year: y, month: m - 1 };
-    }
-    const now = new Date();
-    return { year: now.getFullYear(), month: now.getMonth() };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const [viewYear, setViewYear] = useState(initialDate.year);
-  const [viewMonth, setViewMonth] = useState(initialDate.month);
+  const now = new Date();
+  const [viewYear, setViewYear] = useState(now.getFullYear());
+  const [viewMonth, setViewMonth] = useState(now.getMonth());
 
   // クリップ公開日ごとの件数
   const dateCounts = useMemo(() => {
