@@ -358,7 +358,9 @@ where
         {
             Ok(fetch_result) => {
                 saved_count = fetch_result.saved_count;
-                context.total_saved_count.fetch_add(saved_count, Ordering::Relaxed);
+                context
+                    .total_saved_count
+                    .fetch_add(saved_count, Ordering::Relaxed);
                 log::info!(
                     "[{}] Batch {} complete: {} saved, {} skipped",
                     self.name(),

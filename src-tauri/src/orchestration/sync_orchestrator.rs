@@ -278,10 +278,8 @@ async fn run_sync_core<A: BatchCommandsApp>(
                 saved,
             );
             if !sync_state.should_stop() {
-                let notification_body = format!(
-                    "同期完了：新たに{}件のメールを取り込みました",
-                    saved
-                );
+                let notification_body =
+                    format!("同期完了：新たに{}件のメールを取り込みました", saved);
                 app.notify("Gmail同期完了", &notification_body);
             }
         }
