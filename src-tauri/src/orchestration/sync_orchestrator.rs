@@ -1,5 +1,6 @@
 //! Gmail 同期オーケストレーション。
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use sqlx::sqlite::SqlitePool;
@@ -249,11 +250,13 @@ async fn run_sync_core<A: BatchCommandsApp>(
         SqliteShopSettingsRepository,
     >::new();
 
+    let total_saved_count = Arc::new(AtomicUsize::new(0));
     let context = GmailSyncContext {
         gmail_client: Arc::new(gmail_client),
         email_repo: Arc::new(email_repo),
         shop_settings_repo: Arc::new(shop_repo),
         shop_settings_cache: Arc::new(Mutex::new(ShopSettingsCacheForSync::default())),
+        total_saved_count: Arc::clone(&total_saved_count),
     };
 
     let timeout_minutes = config.sync.timeout_minutes.clamp(1, 120);
@@ -267,16 +270,16 @@ async fn run_sync_core<A: BatchCommandsApp>(
         .await
     {
         Ok(batch_result) => {
+            let saved = total_saved_count.load(Ordering::Relaxed);
             log::info!(
-                "Gmail sync ({mode_label}) completed: success={}, failed={}",
+                "Gmail sync ({mode_label}) completed: success={}, failed={}, saved={}",
                 batch_result.success_count,
-                batch_result.failed_count
+                batch_result.failed_count,
+                saved,
             );
             if !sync_state.should_stop() {
-                let notification_body = format!(
-                    "同期完了：新たに{}件のメールを取り込みました",
-                    batch_result.success_count
-                );
+                let notification_body =
+                    format!("同期完了：新たに{}件のメールを取り込みました", saved);
                 app.notify("Gmail同期完了", &notification_body);
             }
         }

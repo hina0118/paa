@@ -12,23 +12,7 @@ export type Screen =
   | 'settings'
   | 'product-master'
   | 'exclusion-patterns'
-  | 'table-emails'
-  | 'table-orders'
-  | 'table-items'
-  | 'table-images'
-  | 'table-deliveries'
-  | 'table-htmls'
-  | 'table-order-emails'
-  | 'table-order-htmls'
-  | 'table-shop-settings'
-  | 'table-product-master'
-  | 'table-item-overrides'
-  | 'table-order-overrides'
-  | 'table-excluded-items'
-  | 'table-excluded-orders'
-  | 'table-tracking-check-logs'
-  | 'table-news-clips'
-  | 'table-item-exclusion-patterns';
+  | `table-${string}`;
 
 export type NavigationContextType = {
   currentScreen: Screen;

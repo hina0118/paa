@@ -745,6 +745,7 @@ pub fn run() {
             commands::list_exclusion_patterns,
             commands::add_exclusion_pattern,
             commands::delete_exclusion_pattern,
+            commands::get_table_definitions,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
