@@ -102,7 +102,7 @@
 
 .ticker-track {
   display: inline-block;
-  animation: ticker-scroll 40s linear infinite;
+  animation: ticker-scroll 40s linear infinite; /* duration は JS で上書き */
 }
 
 .ticker-track:hover {
