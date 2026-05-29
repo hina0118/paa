@@ -233,6 +233,123 @@ export type E2EMockDb = {
   close: () => Promise<void>;
 };
 
+// ---- query_table_data mock for non-Tauri E2E environments ----
+
+type ColumnFilter = { column: string; value: string };
+type TableQueryParams = {
+  table_name: string;
+  page: number;
+  page_size: number;
+  filters: ColumnFilter[];
+  sort_column: string | null;
+  sort_direction: string;
+};
+type ColumnInfo = {
+  name: string;
+  label: string;
+  data_type: string;
+  is_pk: boolean;
+};
+type TableDataResponse = {
+  columns: ColumnInfo[];
+  rows: Record<string, unknown>[];
+  total_count: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+};
+
+const COLUMN_LABEL_MAP: Record<string, Record<string, string>> = {
+  shop_settings: {
+    id: 'ID',
+    shop_name: 'ショップ名',
+    sender_address: '送信元アドレス',
+    parser_type: 'パーサー種別',
+    is_enabled: '有効フラグ',
+    subject_filters: '件名フィルター',
+    created_at: '作成日時',
+    updated_at: '更新日時',
+  },
+  orders: {
+    id: 'ID',
+    shop_domain: 'ショップドメイン',
+    shop_name: 'ショップ名',
+    order_number: '注文番号',
+    order_date: '注文日',
+    created_at: '作成日時',
+    updated_at: '更新日時',
+  },
+};
+
+function getColumnLabel(table: string, column: string): string {
+  return COLUMN_LABEL_MAP[table]?.[column] ?? column;
+}
+
+function schemaToColumns(
+  schema: SchemaColumn[],
+  tableName: string
+): ColumnInfo[] {
+  return schema.map((col) => ({
+    name: col.name,
+    label: getColumnLabel(tableName, col.name),
+    data_type: col.type,
+    is_pk: col.pk > 0,
+  }));
+}
+
+function getRowsForTable(tableName: string): Record<string, unknown>[] {
+  if (tableName === 'shop_settings')
+    return SHOP_SETTINGS_ROWS as unknown as Record<string, unknown>[];
+  if (tableName === 'orders')
+    return MOCK_ORDERS_ROWS as unknown as Record<string, unknown>[];
+  return [];
+}
+
+export async function mockQueryTableData(
+  params: TableQueryParams
+): Promise<TableDataResponse> {
+  const schema = getSchemaForTable(params.table_name);
+  const columns = schemaToColumns(schema, params.table_name);
+  let rows = getRowsForTable(params.table_name);
+
+  // Apply filters (simple contains)
+  for (const f of params.filters) {
+    if (!f.value.trim()) continue;
+    const val = f.value.trim().toLowerCase();
+    rows = rows.filter((row) =>
+      String(row[f.column] ?? '')
+        .toLowerCase()
+        .includes(val)
+    );
+  }
+
+  // Apply sort
+  if (params.sort_column) {
+    const col = params.sort_column;
+    const dir = params.sort_direction === 'desc' ? -1 : 1;
+    rows = [...rows].sort((a, b) => {
+      const av = String(a[col] ?? '');
+      const bv = String(b[col] ?? '');
+      return av < bv ? -dir : av > bv ? dir : 0;
+    });
+  }
+
+  const totalCount = rows.length;
+  const pageSize = Math.max(1, params.page_size);
+  const totalPages = Math.ceil(totalCount / pageSize);
+  const offset = params.page * pageSize;
+  const pageRows = rows.slice(offset, offset + pageSize);
+
+  return {
+    columns,
+    rows: pageRows,
+    total_count: totalCount,
+    page: params.page,
+    page_size: pageSize,
+    total_pages: totalPages,
+  };
+}
+
 function getSchemaForTable(tableName: string): SchemaColumn[] {
   if (tableName === 'images') return IMAGES_SCHEMA;
   if (tableName === 'orders') return ORDERS_SCHEMA;

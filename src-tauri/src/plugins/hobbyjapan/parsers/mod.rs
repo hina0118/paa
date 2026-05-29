@@ -3,6 +3,7 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 
 pub mod confirm;
+pub mod send;
 
 /// `【オーダーID】HJ20260321_051302_88` パターン
 static ORDER_NUMBER_RE: Lazy<Regex> =
@@ -34,6 +35,14 @@ static SHIPPING_RE: Lazy<Regex> =
 /// `　注文金額合計：￥8,580` パターン
 static TOTAL_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"注文金額合計：[￥¥]([\d,]+)").expect("Invalid TOTAL_RE"));
+
+/// `【配送業者】日本郵便 ゆうパック` パターン
+static CARRIER_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"【配送業者】(.+)").expect("Invalid CARRIER_RE"));
+
+/// `【荷物お問い合わせ番号】560045430206` パターン
+static TRACKING_NUMBER_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"【荷物お問い合わせ番号】(\d+)").expect("Invalid TRACKING_NUMBER_RE"));
 
 /// メール本文をテキスト行のリストに変換する
 pub fn body_to_lines(body: &str) -> Vec<String> {
@@ -132,6 +141,22 @@ pub fn extract_shipping_fee(lines: &[&str]) -> Option<i64> {
         SHIPPING_RE
             .captures(line)
             .and_then(|c| c[1].replace(',', "").parse().ok())
+    })
+}
+
+/// `【配送業者】日本郵便 ゆうパック` から配送業者を抽出する
+pub fn extract_carrier(lines: &[&str]) -> Option<String> {
+    lines
+        .iter()
+        .find_map(|line| CARRIER_RE.captures(line).map(|c| c[1].trim().to_string()))
+}
+
+/// `【荷物お問い合わせ番号】560045430206` から追跡番号を抽出する
+pub fn extract_tracking_number(lines: &[&str]) -> Option<String> {
+    lines.iter().find_map(|line| {
+        TRACKING_NUMBER_RE
+            .captures(line)
+            .map(|c| c[1].trim().to_string())
     })
 }
 
