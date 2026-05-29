@@ -207,7 +207,12 @@ pub async fn query_table_data(
         })
         .collect();
 
-    let total_pages = total_count.div_ceil(u64::from(page_size));
+    let page_size_u64 = u64::from(page_size);
+    let total_pages = if page_size_u64 == 0 {
+        0
+    } else {
+        (total_count + page_size_u64 - 1) / page_size_u64
+    };
 
     Ok(TableDataResponse {
         columns,
