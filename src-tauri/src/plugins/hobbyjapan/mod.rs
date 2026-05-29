@@ -20,7 +20,7 @@ pub struct HjPlugin;
 #[async_trait]
 impl VendorPlugin for HjPlugin {
     fn parser_types(&self) -> &[&str] {
-        &["hj_confirm"]
+        &["hj_confirm", "hj_send"]
     }
 
     fn priority(&self) -> i32 {
@@ -30,6 +30,7 @@ impl VendorPlugin for HjPlugin {
     fn get_parser(&self, parser_type: &str) -> Option<Box<dyn EmailParser>> {
         match parser_type {
             "hj_confirm" => Some(Box::new(parsers::confirm::HjConfirmParser)),
+            "hj_send" => Some(Box::new(parsers::send::HjSendParser)),
             _ => None,
         }
     }
@@ -39,12 +40,24 @@ impl VendorPlugin for HjPlugin {
     }
 
     fn default_shop_settings(&self) -> Vec<DefaultShopSetting> {
-        vec![DefaultShopSetting {
-            shop_name: "HJ OnlineShop".to_string(),
-            sender_address: "shop@hobbyjapan.co.jp".to_string(),
-            parser_type: "hj_confirm".to_string(),
-            subject_filters: Some(vec!["【HJ OnlineShop】ご注文を受け付けました".to_string()]),
-        }]
+        vec![
+            DefaultShopSetting {
+                shop_name: "HJ OnlineShop".to_string(),
+                sender_address: "shop@hobbyjapan.co.jp".to_string(),
+                parser_type: "hj_confirm".to_string(),
+                subject_filters: Some(vec![
+                    "【HJ OnlineShop】ご注文を受け付けました".to_string()
+                ]),
+            },
+            DefaultShopSetting {
+                shop_name: "HJ OnlineShop".to_string(),
+                sender_address: "shop@hobbyjapan.co.jp".to_string(),
+                parser_type: "hj_send".to_string(),
+                subject_filters: Some(vec![
+                    "【HJ OnlineShop】ご注文品発送のお知らせ".to_string()
+                ]),
+            },
+        ]
     }
 
     #[allow(clippy::too_many_arguments)]
