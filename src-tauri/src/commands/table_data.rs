@@ -208,6 +208,8 @@ pub async fn query_table_data(
         .collect();
 
     let page_size_u64 = u64::from(page_size);
+    // div_ceil is stable since 1.73.0; project MSRV is 1.70.0 so we use manual arithmetic
+    #[allow(clippy::manual_checked_ops)]
     let total_pages = if page_size_u64 == 0 {
         0
     } else {
