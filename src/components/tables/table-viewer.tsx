@@ -25,6 +25,8 @@ import {
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { invoke } from '@tauri-apps/api/core';
+import { isTauriEnv } from '@/lib/database';
+import { mockQueryTableData } from '@/lib/e2e-mock-db';
 import { formatDateTime } from '@/lib/utils';
 
 type TableViewerProps = {
@@ -94,19 +96,22 @@ export function TableViewer({ tableName, title }: TableViewerProps) {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const result = await invoke<TableDataResponse>('query_table_data', {
-        params: {
-          table_name: tableName,
-          page,
-          page_size: pageSize,
-          filters: Object.entries(filters).map(([column, value]) => ({
-            column,
-            value,
-          })),
-          sort_column: sort.column ?? null,
-          sort_direction: sort.direction,
-        },
-      });
+      const queryParams = {
+        table_name: tableName,
+        page,
+        page_size: pageSize,
+        filters: Object.entries(filters).map(([column, value]) => ({
+          column,
+          value,
+        })),
+        sort_column: sort.column ?? null,
+        sort_direction: sort.direction,
+      };
+      const result = isTauriEnv()
+        ? await invoke<TableDataResponse>('query_table_data', {
+            params: queryParams,
+          })
+        : await mockQueryTableData(queryParams);
       setResponse(result);
     } catch (err) {
       toastError(`テーブルデータの読み込みに失敗しました: ${formatError(err)}`);
