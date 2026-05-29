@@ -31,12 +31,12 @@ impl EmailParser for HjSendParser {
             return Err("No items found".to_string());
         }
 
-        let carrier_url =
-            if carrier.contains("ゆうパック") || carrier.contains("ゆうパケット") {
-                Some(JAPANPOST_TRACKING_URL.to_string())
-            } else {
-                None
-            };
+        let carrier_url = if carrier.contains("ゆうパック") || carrier.contains("ゆうパケット")
+        {
+            Some(JAPANPOST_TRACKING_URL.to_string())
+        } else {
+            None
+        };
 
         let delivery_info = DeliveryInfo {
             carrier,

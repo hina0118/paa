@@ -91,7 +91,9 @@ pub async fn query_table_data(
         .map_err(|e| format!("Failed to get schema: {e}"))?;
 
     if schema_rows.is_empty() {
-        return Err(format!("Table \"{table}\" does not exist or has no columns"));
+        return Err(format!(
+            "Table \"{table}\" does not exist or has no columns"
+        ));
     }
 
     let columns: Vec<ColumnInfo> = schema_rows
@@ -165,8 +167,7 @@ pub async fn query_table_data(
 
     // SELECT with pagination
     let offset = params.page * page_size;
-    let data_sql =
-        format!("SELECT * FROM {table} {where_clause} {order_clause} LIMIT ? OFFSET ?");
+    let data_sql = format!("SELECT * FROM {table} {where_clause} {order_clause} LIMIT ? OFFSET ?");
     let mut data_query = sqlx::query(&data_sql);
     for v in &bind_values {
         data_query = data_query.bind(v);
