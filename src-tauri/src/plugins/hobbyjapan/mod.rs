@@ -45,17 +45,13 @@ impl VendorPlugin for HjPlugin {
                 shop_name: "HJ OnlineShop".to_string(),
                 sender_address: "shop@hobbyjapan.co.jp".to_string(),
                 parser_type: "hj_confirm".to_string(),
-                subject_filters: Some(vec![
-                    "【HJ OnlineShop】ご注文を受け付けました".to_string()
-                ]),
+                subject_filters: Some(vec!["【HJ OnlineShop】ご注文を受け付けました".to_string()]),
             },
             DefaultShopSetting {
                 shop_name: "HJ OnlineShop".to_string(),
                 sender_address: "shop@hobbyjapan.co.jp".to_string(),
                 parser_type: "hj_send".to_string(),
-                subject_filters: Some(vec![
-                    "【HJ OnlineShop】ご注文品発送のお知らせ".to_string()
-                ]),
+                subject_filters: Some(vec!["【HJ OnlineShop】ご注文品発送のお知らせ".to_string()]),
             },
         ]
     }
