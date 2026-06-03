@@ -14,6 +14,7 @@ pub mod batch_runner;
 pub mod clipboard_watcher;
 pub use batch_run_state::BatchRunState;
 pub mod commands;
+pub mod mcp;
 pub mod config;
 pub mod delivery_check;
 pub mod e2e_mocks;
@@ -216,6 +217,14 @@ pub fn run() {
 
             app.manage(pool.clone());
             log::info!("sqlx pool created for backend use");
+
+            // MCP SSE サーバーをバックグラウンドで起動（Tauri UI と同一プロセス・同一 DB プールを共有）
+            {
+                let mcp_pool = pool.clone();
+                let mcp_app = app.handle().clone();
+                tauri::async_runtime::spawn(mcp::start_sse_server(mcp_pool, mcp_app));
+                log::info!("MCP SSE server starting on port {}", mcp::MCP_PORT);
+            }
 
             // E2E シードはフロントエンドの initDb 完了後に seed_e2e_db コマンドで実行
 
