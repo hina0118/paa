@@ -24,6 +24,7 @@ pub mod gmail_client;
 pub mod google_search;
 pub mod image_utils;
 pub mod logic;
+pub mod mcp;
 pub mod metadata;
 pub mod orchestration;
 pub mod parsers;
@@ -216,6 +217,14 @@ pub fn run() {
 
             app.manage(pool.clone());
             log::info!("sqlx pool created for backend use");
+
+            // MCP SSE サーバーをバックグラウンドで起動（Tauri UI と同一プロセス・同一 DB プールを共有）
+            {
+                let mcp_pool = pool.clone();
+                let mcp_app = app.handle().clone();
+                tauri::async_runtime::spawn(mcp::start_sse_server(mcp_pool, mcp_app));
+                log::info!("MCP SSE server starting on port {}", mcp::MCP_PORT);
+            }
 
             // E2E シードはフロントエンドの initDb 完了後に seed_e2e_db コマンドで実行
 
