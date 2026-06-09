@@ -12,7 +12,7 @@ use hyper_util::client::legacy::Client;
 use hyper_util::rt::TokioExecutor;
 use std::time::Duration;
 
-const OCR_MODEL: &str = "gemini-2.0-flash-lite";
+const OCR_MODEL: &str = "gemini-2.5-flash-lite";
 const OCR_TIMEOUT_SECS: u64 = 30;
 
 /// 画像バイト列（PNG）をGemini Vision APIでOCR処理し、テキストを返す

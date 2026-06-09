@@ -566,7 +566,7 @@ async fn summarize_with_gemini(
         .map_err(|e| format!("HTTPクライアントの初期化に失敗: {e}"))?;
 
     let response = client
-        .post("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent")
+        .post("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent")
         .header("Content-Type", "application/json")
         .header("X-goog-api-key", api_key)
         .body(body)
@@ -652,7 +652,7 @@ async fn extract_events_with_gemini(
         .map_err(|e| format!("HTTPクライアントの初期化に失敗: {e}"))?;
 
     let response = client
-        .post("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent")
+        .post("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent")
         .header("Content-Type", "application/json")
         .header("X-goog-api-key", api_key)
         .body(body)
