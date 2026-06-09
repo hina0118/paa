@@ -225,12 +225,12 @@ impl GeminiClient {
         let http_client = Client::builder(TokioExecutor::new()).build(https);
 
         // セキュリティ: APIキーをログに出力しない
-        log::info!("GeminiClient created with model: gemini-2.0-flash-lite");
+        log::info!("GeminiClient created with model: gemini-2.5-flash-lite");
 
         Ok(Self {
             api_key,
             http_client,
-            model: "gemini-2.0-flash-lite".to_string(),
+            model: "gemini-2.5-flash-lite".to_string(),
         })
     }
 
@@ -604,7 +604,7 @@ mod tests {
                     .enable_http1()
                     .build(),
             ),
-            model: "gemini-2.0-flash-lite".to_string(),
+            model: "gemini-2.5-flash-lite".to_string(),
         };
 
         let prompt = client.build_prompt(&["KADOKAWA 1/7 レム".to_string()]);
@@ -627,7 +627,7 @@ mod tests {
                     .enable_http1()
                     .build(),
             ),
-            model: "gemini-2.0-flash-lite".to_string(),
+            model: "gemini-2.5-flash-lite".to_string(),
         };
 
         let prompt = client.build_prompt(&[
@@ -653,7 +653,7 @@ mod tests {
                     .enable_http1()
                     .build(),
             ),
-            model: "gemini-2.0-flash-lite".to_string(),
+            model: "gemini-2.5-flash-lite".to_string(),
         };
 
         let response_text = r#"[
@@ -693,7 +693,7 @@ mod tests {
                     .enable_http1()
                     .build(),
             ),
-            model: "gemini-2.0-flash-lite".to_string(),
+            model: "gemini-2.5-flash-lite".to_string(),
         };
 
         let invalid_json = "not valid json";
@@ -715,7 +715,7 @@ mod tests {
                     .enable_http1()
                     .build(),
             ),
-            model: "gemini-2.0-flash-lite".to_string(),
+            model: "gemini-2.5-flash-lite".to_string(),
         };
 
         // 配列形式だが要素がParsedProductの型と合わない
