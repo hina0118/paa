@@ -163,9 +163,7 @@ fn extract_trade_code_from_url(url: &str) -> Option<String> {
         .nth(1)?
         .split('&')
         .find_map(|kv| {
-            let mut parts = kv.splitn(2, '=');
-            let key = parts.next()?;
-            let val = parts.next()?;
+            let (key, val) = kv.split_once('=')?;
             if key == "trade_code" {
                 Some(val.to_string())
             } else {
