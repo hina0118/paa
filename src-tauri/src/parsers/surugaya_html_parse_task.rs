@@ -159,15 +159,12 @@ async fn apply_cancelled_order(
 /// `https://www.suruga-ya.jp/pcmypage/action_sell_search/detail?trade_code=M...`
 /// から `trade_code` の値を取得する
 fn extract_trade_code_from_url(url: &str) -> Option<String> {
-    url.split('?')
-        .nth(1)?
-        .split('&')
-        .find_map(|kv| {
-            let (key, val) = kv.split_once('=')?;
-            if key == "trade_code" {
-                Some(val.to_string())
-            } else {
-                None
-            }
-        })
+    url.split('?').nth(1)?.split('&').find_map(|kv| {
+        let (key, val) = kv.split_once('=')?;
+        if key == "trade_code" {
+            Some(val.to_string())
+        } else {
+            None
+        }
+    })
 }
