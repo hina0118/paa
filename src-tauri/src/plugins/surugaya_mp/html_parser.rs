@@ -13,6 +13,11 @@ use scraper::{Html, Selector};
 
 use crate::parsers::{DeliveryInfo, OrderInfo, OrderItem};
 
+/// HTMLにキャンセルを示すテキストが含まれているか判定する
+pub fn is_cancelled_order(html: &str) -> bool {
+    html.contains("ご注文がキャンセルされました")
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 出力型
 // ─────────────────────────────────────────────────────────────────────────────

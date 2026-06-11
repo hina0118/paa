@@ -60,13 +60,26 @@ impl BatchTask for SurugayaHtmlParseTask {
         input: Self::Input,
         ctx: &Self::Context,
     ) -> Result<Self::Output, String> {
-        let mypage_info = html_parser::parse_mypage_html(&input.html_content)?;
-
         let mut tx = ctx
             .pool
             .begin()
             .await
             .map_err(|e| format!("Failed to begin tx: {e}"))?;
+
+        if html_parser::is_cancelled_order(&input.html_content) {
+            let trade_code = extract_trade_code_from_url(&input.url)
+                .ok_or_else(|| format!("Cannot extract trade_code from URL: {}", input.url))?;
+            apply_cancelled_order(&mut tx, &trade_code).await?;
+            tx.commit()
+                .await
+                .map_err(|e| format!("Failed to commit: {e}"))?;
+            return Ok(SurugayaHtmlParseOutput {
+                html_id: input.html_id,
+                trade_code,
+            });
+        }
+
+        let mypage_info = html_parser::parse_mypage_html(&input.html_content)?;
 
         SqliteOrderRepository::save_order_in_tx(
             &mut tx,
@@ -86,4 +99,77 @@ impl BatchTask for SurugayaHtmlParseTask {
             trade_code: mypage_info.trade_code,
         })
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// キャンセル処理
+// ─────────────────────────────────────────────────────────────────────────────
+
+async fn apply_cancelled_order(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    trade_code: &str,
+) -> Result<(), String> {
+    let order: Option<(i64,)> = sqlx::query_as(
+        "SELECT id FROM orders WHERE order_number = ? AND shop_domain = 'suruga-ya.jp' LIMIT 1",
+    )
+    .bind(trade_code)
+    .fetch_optional(tx.as_mut())
+    .await
+    .map_err(|e| format!("DB error: {e}"))?;
+
+    let Some((order_id,)) = order else {
+        log::warn!(
+            "[surugaya_html_parse] キャンセル済み注文が未登録: trade_code={}",
+            trade_code
+        );
+        return Ok(());
+    };
+
+    sqlx::query("DELETE FROM items WHERE order_id = ?")
+        .bind(order_id)
+        .execute(tx.as_mut())
+        .await
+        .map_err(|e| format!("Failed to delete items: {e}"))?;
+
+    sqlx::query(
+        r#"
+        UPDATE deliveries
+        SET delivery_status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+        WHERE order_id = ?
+        "#,
+    )
+    .bind(order_id)
+    .execute(tx.as_mut())
+    .await
+    .map_err(|e| format!("Failed to update deliveries: {e}"))?;
+
+    log::info!(
+        "[surugaya_html_parse] キャンセル適用: trade_code={} order_id={}",
+        trade_code,
+        order_id
+    );
+
+    Ok(())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// URL ヘルパー
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `https://www.suruga-ya.jp/pcmypage/action_sell_search/detail?trade_code=M...`
+/// から `trade_code` の値を取得する
+fn extract_trade_code_from_url(url: &str) -> Option<String> {
+    url.split('?')
+        .nth(1)?
+        .split('&')
+        .find_map(|kv| {
+            let mut parts = kv.splitn(2, '=');
+            let key = parts.next()?;
+            let val = parts.next()?;
+            if key == "trade_code" {
+                Some(val.to_string())
+            } else {
+                None
+            }
+        })
 }
