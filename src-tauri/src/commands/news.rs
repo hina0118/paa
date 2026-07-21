@@ -555,7 +555,7 @@ async fn summarize_with_gemini(
         "generationConfig": {
             "responseMimeType": "application/json",
             "temperature": 0.1,
-            "maxOutputTokens": 512
+            "maxOutputTokens": 2048
         }
     })
     .to_string();
@@ -641,7 +641,7 @@ async fn extract_events_with_gemini(
         "generationConfig": {
             "responseMimeType": "application/json",
             "temperature": 0.1,
-            "maxOutputTokens": 512
+            "maxOutputTokens": 2048
         }
     })
     .to_string();

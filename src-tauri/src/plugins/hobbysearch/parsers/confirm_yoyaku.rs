@@ -173,4 +173,32 @@ mod tests {
         let address = order_info.delivery_address.unwrap();
         assert_eq!(address.name, "山田 太郎");
     }
+
+    #[test]
+    fn test_parse_confirm_yoyaku_single_item_with_plamatea() {
+        // グッドスマイルカンパニー PLAMATEA 系商品（(プラモデル) サフィックスあり）
+        let email = "[注文番号]  26-0616-1452\r\n\
+\r\n\
+[商品お届け先]  山田 太郎 様\r\n\
+                〒100-0001 東京都千代田区1-1-1\r\n\
+\r\n\
+[ご予約内容]\r\n\
+グッドスマイルカンパニー 586956 PLAMATEA ブラックハニー (プラモデル) PLAMATEA\r\n\
+単価：7,744円 × 個数：1 = 7,744円\r\n\
+\r\n\
+予約商品合計     7,744円\r\n";
+
+        let parser = HobbySearchConfirmYoyakuParser;
+        let result = parser.parse(email);
+        assert!(result.is_ok(), "parse failed: {:?}", result);
+        let order_info = result.unwrap();
+        assert_eq!(order_info.order_number, "26-0616-1452");
+        assert_eq!(order_info.items.len(), 1);
+        assert_eq!(
+            order_info.items[0].name,
+            "グッドスマイルカンパニー 586956 PLAMATEA ブラックハニー"
+        );
+        assert_eq!(order_info.items[0].unit_price, 7744);
+        assert_eq!(order_info.subtotal, Some(7744));
+    }
 }

@@ -174,4 +174,37 @@ mod tests {
         let address = order_info.delivery_address.unwrap();
         assert!(!address.name.is_empty());
     }
+
+    #[test]
+    fn test_parse_change_yoyaku_3items_with_cancel_note() {
+        // ※こちらの商品はキャンセルできません。行を含む3商品ケース
+        let email = "[注文番号]  26-0616-1834\r\n\
+\r\n\
+[商品お届け先]  山田 太郎 様\r\n\
+                〒100-0001 東京都千代田区1-1-1\r\n\
+\r\n\
+[ご予約内容]\r\n\
+タカラトミー 092575 RMZ-022 ムラサメライガー (組み立てキット) 1/100 ZOIDS\r\n\
+単価：5,984円 × 個数：1 = 5,984円\r\n\
+※こちらの商品はキャンセルできません。\r\n\
+\r\n\
+コトブキヤ KP879 PUNI☆MOFU レーシングトゥ with Honda Z50J-1 モンキー (プラモデル) 1/1、1/12 メガミデバイス\r\n\
+単価：6,545円 × 個数：1 = 6,545円\r\n\
+※こちらの商品はキャンセルできません。\r\n\
+\r\n\
+グッドスマイルカンパニー 586956 PLAMATEA ブラックハニー (プラモデル) PLAMATEA\r\n\
+単価：7,744円 × 個数：1 = 7,744円\r\n\
+\r\n\
+予約商品合計    20,273円\r\n";
+
+        let parser = HobbySearchChangeYoyakuParser;
+        let result = parser.parse(email);
+        assert!(result.is_ok(), "parse failed: {:?}", result);
+        let order_info = result.unwrap();
+        assert_eq!(order_info.items.len(), 3, "items: {:?}", order_info.items);
+        assert_eq!(order_info.items[0].name, "タカラトミー 092575 RMZ-022 ムラサメライガー (組み立てキット) 1/100 ZOIDS");
+        assert_eq!(order_info.items[1].name, "コトブキヤ KP879 PUNI☆MOFU レーシングトゥ with Honda Z50J-1 モンキー");
+        assert_eq!(order_info.items[2].name, "グッドスマイルカンパニー 586956 PLAMATEA ブラックハニー");
+        assert_eq!(order_info.items[2].unit_price, 7744);
+    }
 }

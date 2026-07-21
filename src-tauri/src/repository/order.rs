@@ -421,6 +421,12 @@ impl SqliteOrderRepository {
 
         let mut orders_to_delete: HashSet<i64> = HashSet::new();
 
+        log::info!(
+            "[apply_change_items] order_ids found: {:?} for new_order={}",
+            order_ids,
+            order_info.order_number
+        );
+
         for item in &order_info.items {
             let product_name = item.name.trim();
             let cancel_qty = item.quantity.max(0);
@@ -615,6 +621,12 @@ impl SqliteOrderRepository {
             .unwrap_or_default();
 
         for item in &order_info.items {
+            log::info!(
+                "[save_order_in_tx] Processing item='{}' price={} order_id={}",
+                item.name,
+                item.unit_price,
+                order_id
+            );
             if crate::repository::should_exclude_item(
                 &item.name,
                 shop_domain.as_deref(),
@@ -667,7 +679,7 @@ impl SqliteOrderRepository {
                 .await
                 .map_err(|e| format!("Failed to insert item: {e}"))?;
 
-                log::debug!("Added new item '{}' to order {}", item.name, order_id);
+                log::info!("[save_order_in_tx] Inserted item='{}' order_id={}", item.name, order_id);
             } else {
                 log::debug!("Item '{}' already exists for order {}", item.name, order_id);
             }
