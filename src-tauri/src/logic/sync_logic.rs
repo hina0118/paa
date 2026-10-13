@@ -6,6 +6,7 @@
 
 use crate::gmail::{GmailMessage, ShopSettings};
 use crate::gmail_client::GmailClientTrait;
+pub use crate::logic::subject_filter::CompiledShopSetting;
 
 /// Gmail検索クエリを構築する
 ///
@@ -165,52 +166,21 @@ const SKIP_SUBJECT_FILTER: bool = false;
 ///
 /// # Returns
 /// メッセージを保存すべき場合はtrue、そうでない場合はfalse
-pub fn should_save_message(msg: &GmailMessage, shop_settings: &[ShopSettings]) -> bool {
+pub fn should_save_message(msg: &GmailMessage, shop_settings: &[CompiledShopSetting]) -> bool {
     // Extract sender email address
-    let sender_email = match &msg.from_address {
-        Some(addr) => match extract_email_address(addr) {
-            Some(email) => email,
-            None => return false,
-        },
-        None => return false,
+    let Some(sender_email) = msg.from_address.as_deref().and_then(extract_email_address) else {
+        return false;
     };
 
-    // Find matching shop setting
     // 同じsender_addressで複数のShopSettingsが存在する場合があるため、
     // いずれかのエントリがマッチすればtrueを返す
-    for shop in shop_settings {
-        if !shop.sender_address.eq_ignore_ascii_case(&sender_email) {
-            continue;
-        }
-
+    shop_settings.iter().any(|shop| {
         #[cfg(debug_assertions)]
         if SKIP_SUBJECT_FILTER {
-            return true;
+            return shop.sender_address.eq_ignore_ascii_case(&sender_email);
         }
-
-        // If no subject filter is set, allow the message
-        if shop.subject_filters.is_none() {
-            return true;
-        }
-
-        // If subject filters are set, check if message subject matches any filter
-        let filters = shop.get_subject_filters();
-        if filters.is_empty() {
-            return true;
-        }
-
-        // Check if subject matches any filter
-        if let Some(subject) = &msg.subject {
-            if filters.iter().any(|filter| subject.contains(filter)) {
-                return true;
-            }
-        }
-
-        // Subject doesn't match this shop's filters; try next matching setting
-    }
-
-    // No matching shop setting found or none of the matching settings allowed the message
-    false
+        shop.matches(&sender_email, msg.subject.as_deref())
+    })
 }
 
 /// タイムスタンプをRFC3339形式の文字列に変換する
@@ -246,32 +216,6 @@ pub fn extract_sender_addresses(shop_settings: &[ShopSettings]) -> Vec<String> {
     addresses.sort();
     addresses.dedup();
     addresses
-}
-
-/// メッセージをショップ設定でフィルタリングする
-///
-/// # Arguments
-/// * `messages` - フィルタリング対象のメッセージリスト
-/// * `shop_settings` - 有効なショップ設定のリスト
-///
-/// # Returns
-/// (保存すべきメッセージへの参照, フィルタで除外されたメッセージ数)
-pub fn filter_messages_by_shop_settings<'a>(
-    messages: &'a [GmailMessage],
-    shop_settings: &[ShopSettings],
-) -> (Vec<&'a GmailMessage>, usize) {
-    let mut filtered_messages = Vec::new();
-    let mut filtered_out_count = 0;
-
-    for msg in messages {
-        if should_save_message(msg, shop_settings) {
-            filtered_messages.push(msg);
-        } else {
-            filtered_out_count += 1;
-        }
-    }
-
-    (filtered_messages, filtered_out_count)
 }
 
 /// GmailClientTraitを使用してメッセージのバッチを取得する
@@ -511,7 +455,10 @@ mod tests {
         let msg = create_test_message(Some("shop@example.com"), Some("注文確認"));
         let settings = vec![create_shop_setting("shop@example.com", None)];
 
-        assert!(should_save_message(&msg, &settings));
+        assert!(should_save_message(
+            &msg,
+            &CompiledShopSetting::compile_all(&settings)
+        ));
     }
 
     #[test]
@@ -522,7 +469,10 @@ mod tests {
             Some(vec!["注文確認".to_string()]),
         )];
 
-        assert!(should_save_message(&msg, &settings));
+        assert!(should_save_message(
+            &msg,
+            &CompiledShopSetting::compile_all(&settings)
+        ));
     }
 
     #[test]
@@ -533,7 +483,10 @@ mod tests {
             Some(vec!["注文確認".to_string()]),
         )];
 
-        assert!(!should_save_message(&msg, &settings));
+        assert!(!should_save_message(
+            &msg,
+            &CompiledShopSetting::compile_all(&settings)
+        ));
     }
 
     #[test]
@@ -541,7 +494,10 @@ mod tests {
         let msg = create_test_message(Some("other@example.com"), Some("注文確認"));
         let settings = vec![create_shop_setting("shop@example.com", None)];
 
-        assert!(!should_save_message(&msg, &settings));
+        assert!(!should_save_message(
+            &msg,
+            &CompiledShopSetting::compile_all(&settings)
+        ));
     }
 
     #[test]
@@ -549,7 +505,10 @@ mod tests {
         let msg = create_test_message(None, Some("注文確認"));
         let settings = vec![create_shop_setting("shop@example.com", None)];
 
-        assert!(!should_save_message(&msg, &settings));
+        assert!(!should_save_message(
+            &msg,
+            &CompiledShopSetting::compile_all(&settings)
+        ));
     }
 
     #[test]
@@ -557,7 +516,10 @@ mod tests {
         let msg = create_test_message(Some("shop@example.com"), Some("注文確認"));
         let settings: Vec<ShopSettings> = vec![];
 
-        assert!(!should_save_message(&msg, &settings));
+        assert!(!should_save_message(
+            &msg,
+            &CompiledShopSetting::compile_all(&settings)
+        ));
     }
 
     /// 同一 sender_address で複数 ShopSettings がある場合、件名が1件目と合わなくても
@@ -576,7 +538,10 @@ mod tests {
             ),
         ];
 
-        assert!(should_save_message(&msg, &settings));
+        assert!(should_save_message(
+            &msg,
+            &CompiledShopSetting::compile_all(&settings)
+        ));
     }
 
     /// 同一 sender の複数エントリのうち、2件目はフィルターなしで許可するケース
@@ -591,7 +556,10 @@ mod tests {
             create_shop_setting("shop@example.com", None), // 2件目はフィルターなし → 許可
         ];
 
-        assert!(should_save_message(&msg, &settings));
+        assert!(should_save_message(
+            &msg,
+            &CompiledShopSetting::compile_all(&settings)
+        ));
     }
 
     /// 同一 sender の全エントリで件名が一致しない場合は false
@@ -603,7 +571,10 @@ mod tests {
             create_shop_setting("shop@example.com", Some(vec!["キャンセル".to_string()])),
         ];
 
-        assert!(!should_save_message(&msg, &settings));
+        assert!(!should_save_message(
+            &msg,
+            &CompiledShopSetting::compile_all(&settings)
+        ));
     }
 
     // ==================== format_timestamp Tests ====================
@@ -662,75 +633,6 @@ mod tests {
         let addresses = extract_sender_addresses(&settings);
         assert_eq!(addresses.len(), 1);
         assert_eq!(addresses[0], "shop@example.com");
-    }
-
-    // ==================== filter_messages_by_shop_settings Tests ====================
-
-    #[test]
-    fn test_filter_messages_by_shop_settings_all_pass() {
-        let messages = vec![
-            create_test_message(Some("shop@example.com"), Some("注文確認メール")),
-            create_test_message(Some("shop@example.com"), Some("注文受付完了")),
-        ];
-        let settings = vec![create_shop_setting(
-            "shop@example.com",
-            Some(vec!["注文".to_string()]),
-        )];
-
-        let (filtered, filtered_out) =
-            super::filter_messages_by_shop_settings(&messages, &settings);
-
-        assert_eq!(filtered.len(), 2);
-        assert_eq!(filtered_out, 0);
-    }
-
-    #[test]
-    fn test_filter_messages_by_shop_settings_some_filtered() {
-        let messages = vec![
-            create_test_message(Some("shop@example.com"), Some("注文確認メール")),
-            create_test_message(Some("shop@example.com"), Some("キャンペーンのお知らせ")),
-        ];
-        let settings = vec![create_shop_setting(
-            "shop@example.com",
-            Some(vec!["注文".to_string()]),
-        )];
-
-        let (filtered, filtered_out) =
-            super::filter_messages_by_shop_settings(&messages, &settings);
-
-        assert_eq!(filtered.len(), 1);
-        assert_eq!(filtered_out, 1);
-        assert!(filtered[0].subject.as_ref().unwrap().contains("注文"));
-    }
-
-    #[test]
-    fn test_filter_messages_by_shop_settings_all_filtered() {
-        let messages = vec![
-            create_test_message(Some("other@example.com"), Some("注文確認メール")),
-            create_test_message(Some("shop@example.com"), Some("広告メール")),
-        ];
-        let settings = vec![create_shop_setting(
-            "shop@example.com",
-            Some(vec!["注文".to_string()]),
-        )];
-
-        let (filtered, filtered_out) =
-            super::filter_messages_by_shop_settings(&messages, &settings);
-
-        assert_eq!(filtered.len(), 0);
-        assert_eq!(filtered_out, 2);
-    }
-
-    #[test]
-    fn test_filter_messages_by_shop_settings_empty_messages() {
-        let messages: Vec<GmailMessage> = vec![];
-        let settings = vec![create_shop_setting("shop@example.com", None)];
-
-        let (filtered, filtered_out) =
-            super::filter_messages_by_shop_settings(&messages, &settings);
-
-        assert!(filtered.is_empty());
-        assert_eq!(filtered_out, 0);
     }
 
     // ==================== fetch_batch_with_client Tests ====================

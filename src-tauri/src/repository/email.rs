@@ -132,7 +132,7 @@ impl EmailRepository for SqliteEmailRepository {
         // このクエリでは ON CONFLICT DO UPDATE が発生した場合、既存行に対して UPDATE が実行され、
         // COALESCE により既存値がそのまま再代入されるケースでも、その行は更新されたものとしてカウントされるため
         // rows_affected は 1 となる想定である。
-        // saved は「新規のみ」ではなく「INSERT/UPDATE が行われた件数」。FetchResult/SyncProgressEvent の
+        // saved は「新規のみ」ではなく「INSERT/UPDATE が行われた件数」。GmailSyncContext::total_saved_count / SyncProgressEvent の
         // saved_count/newly_saved に伝播する。
         // 参考: https://www.sqlite.org/c3ref/changes.html
 
@@ -313,7 +313,7 @@ mod tests {
         let pool = setup_test_db().await;
         let repo = SqliteEmailRepository::new(pool);
 
-        let messages = vec![
+        let messages = [
             GmailMessage {
                 message_id: "test123".to_string(),
                 snippet: "Test snippet".to_string(),
@@ -386,7 +386,7 @@ mod tests {
         let repo = SqliteEmailRepository::new(pool);
 
         // 既存メッセージを3件保存
-        let existing = vec![
+        let existing = [
             GmailMessage {
                 message_id: "existing_1".to_string(),
                 snippet: "".to_string(),
@@ -479,7 +479,7 @@ mod tests {
         let pool = setup_test_db().await;
         let repo = SqliteEmailRepository::new(pool);
 
-        let messages = vec![
+        let messages = [
             GmailMessage {
                 message_id: "old".to_string(),
                 snippet: "".to_string(),
@@ -512,7 +512,7 @@ mod tests {
         let pool = setup_test_db().await;
         let repo = SqliteEmailRepository::new(pool);
 
-        let messages = vec![GmailMessage {
+        let messages = [GmailMessage {
             message_id: "zero_date".to_string(),
             snippet: "".to_string(),
             subject: None,

@@ -4,6 +4,7 @@
 //! 個人情報を含まないダミーデータを使用しています。
 
 use paa_lib::logic::email_parser::{extract_domain, get_candidate_parsers, is_valid_parser_type};
+use paa_lib::logic::subject_filter::CompiledShopSetting;
 use paa_lib::logic::sync_logic::{
     build_sync_query, extract_email_address, extract_sender_addresses, format_timestamp,
     should_save_message,
@@ -293,7 +294,7 @@ fn test_email_processing_workflow() {
         from_address: Some("order@hobbysearch.co.jp".to_string()),
     };
 
-    let should_save = should_save_message(&msg, &shop_settings);
+    let should_save = should_save_message(&msg, &CompiledShopSetting::compile_all(&shop_settings));
     assert!(should_save, "Message should be saved");
 
     // 4. ドメイン抽出
@@ -326,7 +327,10 @@ fn test_message_filtering_with_various_formats() {
         internal_date: 0,
         from_address: Some("shop@example.com".to_string()),
     };
-    assert!(should_save_message(&msg1, &shop_settings));
+    assert!(should_save_message(
+        &msg1,
+        &CompiledShopSetting::compile_all(&shop_settings)
+    ));
 
     // 件名が「確認」を含む
     let msg2 = GmailMessage {
@@ -338,7 +342,10 @@ fn test_message_filtering_with_various_formats() {
         internal_date: 0,
         from_address: Some("shop@example.com".to_string()),
     };
-    assert!(should_save_message(&msg2, &shop_settings));
+    assert!(should_save_message(
+        &msg2,
+        &CompiledShopSetting::compile_all(&shop_settings)
+    ));
 
     // 件名がフィルターに一致しない
     let msg3 = GmailMessage {
@@ -350,7 +357,10 @@ fn test_message_filtering_with_various_formats() {
         internal_date: 0,
         from_address: Some("shop@example.com".to_string()),
     };
-    assert!(!should_save_message(&msg3, &shop_settings));
+    assert!(!should_save_message(
+        &msg3,
+        &CompiledShopSetting::compile_all(&shop_settings)
+    ));
 
     // 送信者が異なる
     let msg4 = GmailMessage {
@@ -362,5 +372,8 @@ fn test_message_filtering_with_various_formats() {
         internal_date: 0,
         from_address: Some("other@example.com".to_string()),
     };
-    assert!(!should_save_message(&msg4, &shop_settings));
+    assert!(!should_save_message(
+        &msg4,
+        &CompiledShopSetting::compile_all(&shop_settings)
+    ));
 }

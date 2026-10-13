@@ -18,6 +18,7 @@
 
 use crate::batch_runner::BatchTask;
 use crate::logic::email_parser::extract_domain;
+pub use crate::logic::subject_filter::CompiledShopSetting;
 use crate::logic::sync_logic::extract_email_address;
 use crate::parsers::{EmailRow, OrderInfo, ParseState};
 use crate::plugins::{
@@ -96,72 +97,6 @@ pub struct ParseFailure {
     pub email_id: i64,
     /// 失敗理由
     pub reason: String,
-}
-
-/// 件名フィルターの1パターン（正規表現優先、無効な正規表現は部分一致にフォールバック）
-#[derive(Debug, Clone)]
-enum SubjectPattern {
-    Regex(regex::Regex),
-    Contains(String),
-}
-
-impl SubjectPattern {
-    fn is_match(&self, subject: &str) -> bool {
-        match self {
-            Self::Regex(re) => re.is_match(subject),
-            Self::Contains(s) => subject.contains(s.as_str()),
-        }
-    }
-}
-
-/// パース用に前処理済みのショップ設定
-///
-/// 件名フィルター（JSON 文字列）の解析と正規表現のコンパイルを設定読み込み時に1回だけ行い、
-/// メールごとの再解析・再コンパイルを避ける。
-#[derive(Debug, Clone)]
-pub struct CompiledShopSetting {
-    pub sender_address: String,
-    pub parser_type: String,
-    pub shop_name: String,
-    /// `None` はフィルターなし（未設定・JSON パースエラー・空リスト）＝全許可
-    subject_patterns: Option<Vec<SubjectPattern>>,
-}
-
-impl CompiledShopSetting {
-    pub fn new(
-        sender_address: String,
-        parser_type: String,
-        subject_filters: Option<&str>,
-        shop_name: String,
-    ) -> Self {
-        // JSON パースエラー時・空リストはフィルター無視（旧実装と同じ）
-        let subject_patterns = subject_filters
-            .and_then(|json| serde_json::from_str::<Vec<String>>(json).ok())
-            .filter(|list| !list.is_empty())
-            .map(|list| {
-                list.into_iter()
-                    .map(|f| match regex::Regex::new(&f) {
-                        Ok(re) => SubjectPattern::Regex(re),
-                        Err(_) => SubjectPattern::Contains(f),
-                    })
-                    .collect()
-            });
-        Self {
-            sender_address,
-            parser_type,
-            shop_name,
-            subject_patterns,
-        }
-    }
-
-    /// 件名がフィルターを通過するか（フィルターがあるのに件名がない場合は除外）
-    fn subject_matches(&self, subject: Option<&str>) -> bool {
-        match (&self.subject_patterns, subject) {
-            (None, _) => true,
-            (Some(_), None) => false,
-            (Some(patterns), Some(subj)) => patterns.iter().any(|p| p.is_match(subj)),
-        }
-    }
 }
 
 /// ショップ設定のキャッシュ
@@ -419,9 +354,8 @@ fn get_candidate_parsers<'a>(
 
     settings
         .iter()
-        // 送信元アドレスが完全一致するか確認（大文字小文字無視）
-        .filter(|s| s.sender_address.eq_ignore_ascii_case(&normalized_from))
-        .filter(|s| s.subject_matches(subject))
+        // 送信元アドレスが完全一致（大文字小文字無視）し、件名フィルターを通過するもの
+        .filter(|s| s.matches(&normalized_from, subject))
         .collect()
 }
 
@@ -523,14 +457,7 @@ where
 
         let settings: Vec<CompiledShopSetting> = enabled_settings
             .into_iter()
-            .map(|s| {
-                CompiledShopSetting::new(
-                    s.sender_address,
-                    s.parser_type,
-                    s.subject_filters.as_deref(),
-                    s.shop_name,
-                )
-            })
+            .map(CompiledShopSetting::from)
             .collect();
 
         // キャッシュに保存

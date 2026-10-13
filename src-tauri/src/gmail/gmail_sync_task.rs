@@ -50,8 +50,8 @@ pub struct GmailSyncOutput {
 /// ショップ設定のキャッシュ
 #[derive(Debug, Clone, Default)]
 pub struct ShopSettingsCacheForSync {
-    /// 有効なショップ設定のリスト（バッチ内で clone せず共有するため `Arc`）
-    pub enabled_shops: Arc<Vec<crate::gmail::ShopSettings>>,
+    /// 有効なショップ設定のリスト（件名フィルターはコンパイル済み。バッチ内で clone せず共有するため `Arc`）
+    pub enabled_shops: Arc<Vec<crate::logic::subject_filter::CompiledShopSetting>>,
 }
 
 /// Gmail同期のコンテキスト
@@ -205,7 +205,12 @@ where
 
         // キャッシュに保存
         let mut cache = context.shop_settings_cache.lock().await;
-        cache.enabled_shops = Arc::new(enabled_shops);
+        cache.enabled_shops = Arc::new(
+            enabled_shops
+                .into_iter()
+                .map(crate::logic::subject_filter::CompiledShopSetting::from)
+                .collect(),
+        );
 
         log::info!(
             "[{}] Shop settings loaded: {} entries",
@@ -634,7 +639,11 @@ mod tests {
             email_repo: Arc::new(email_repo),
             shop_settings_repo: Arc::new(shop_repo),
             shop_settings_cache: Arc::new(Mutex::new(ShopSettingsCacheForSync {
-                enabled_shops: Arc::new(vec![dummy_shop_settings(1, "sender@example.com")]),
+                enabled_shops: Arc::new(
+                    crate::logic::subject_filter::CompiledShopSetting::compile_all(&[
+                        dummy_shop_settings(1, "sender@example.com"),
+                    ]),
+                ),
             })),
             total_saved_count: Arc::new(AtomicUsize::new(0)),
         };
@@ -708,7 +717,11 @@ mod tests {
             email_repo: Arc::new(email_repo),
             shop_settings_repo: Arc::new(shop_repo),
             shop_settings_cache: Arc::new(Mutex::new(ShopSettingsCacheForSync {
-                enabled_shops: Arc::new(vec![dummy_shop_settings(1, "sender@example.com")]),
+                enabled_shops: Arc::new(
+                    crate::logic::subject_filter::CompiledShopSetting::compile_all(&[
+                        dummy_shop_settings(1, "sender@example.com"),
+                    ]),
+                ),
             })),
             total_saved_count: Arc::new(AtomicUsize::new(0)),
         };
@@ -780,7 +793,11 @@ mod tests {
             shop_settings_cache: Arc::new(Mutex::new(ShopSettingsCacheForSync {
                 // 既存テストと同様に有効なショップ設定を入れておき、
                 // 対象メッセージがフィルタ除外されないようにする
-                enabled_shops: Arc::new(vec![dummy_shop_settings(1, "a@example.com")]),
+                enabled_shops: Arc::new(
+                    crate::logic::subject_filter::CompiledShopSetting::compile_all(&[
+                        dummy_shop_settings(1, "a@example.com"),
+                    ]),
+                ),
             })),
             total_saved_count: Arc::new(AtomicUsize::new(0)),
         };
@@ -814,7 +831,11 @@ mod tests {
             email_repo: Arc::new(email_repo),
             shop_settings_repo: Arc::new(shop_repo),
             shop_settings_cache: Arc::new(Mutex::new(ShopSettingsCacheForSync {
-                enabled_shops: Arc::new(vec![dummy_shop_settings(1, "a@example.com")]),
+                enabled_shops: Arc::new(
+                    crate::logic::subject_filter::CompiledShopSetting::compile_all(&[
+                        dummy_shop_settings(1, "a@example.com"),
+                    ]),
+                ),
             })),
             total_saved_count: Arc::new(AtomicUsize::new(0)),
         };

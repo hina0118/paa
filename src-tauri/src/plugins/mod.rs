@@ -52,8 +52,8 @@ pub fn build_registry() -> Vec<Box<dyn VendorPlugin>> {
 ///
 /// プラグインは状態を持たないため、呼び出しごとに `build_registry()` で再構築する必要はない。
 pub fn registry() -> &'static [Box<dyn VendorPlugin>] {
-    static REGISTRY: std::sync::LazyLock<Vec<Box<dyn VendorPlugin>>> =
-        std::sync::LazyLock::new(build_registry);
+    static REGISTRY: once_cell::sync::Lazy<Vec<Box<dyn VendorPlugin>>> =
+        once_cell::sync::Lazy::new(build_registry);
     &REGISTRY
 }
 
