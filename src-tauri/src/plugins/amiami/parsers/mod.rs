@@ -77,9 +77,7 @@ static DIRECT_TOTAL_RE: Lazy<Regex> = Lazy::new(|| {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// メール本文をトリム済み行リストに変換する
-pub fn body_to_lines(body: &str) -> Vec<String> {
-    body.lines().map(|l| l.trim().to_string()).collect()
-}
+pub use crate::plugins::text::plain_to_lines as body_to_lines;
 
 /// `受注番号：739419973` 形式の注文番号を抽出する（楽天・直販 send 共通）
 pub fn extract_order_number(lines: &[&str]) -> Option<String> {

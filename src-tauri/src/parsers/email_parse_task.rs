@@ -455,76 +455,29 @@ async fn save_images_for_dispatch_outcome(
 /// - `OrderSaved` / `MultiOrderSaved` → cancel_applied = false（通常保存）
 /// - `CancelApplied` / `OrderNumberChanged` / `ConsolidationApplied` → cancel_applied = true（特殊適用済み）
 fn outcome_to_order_info(outcome: DispatchOutcome, email_id: i64) -> (OrderInfo, bool) {
+    // 特殊適用（キャンセル等）は注文番号のみを持つダミーの OrderInfo を返す
+    let applied = |order_number: String| {
+        (
+            OrderInfo {
+                order_number,
+                ..Default::default()
+            },
+            true,
+        )
+    };
     match outcome {
         DispatchOutcome::OrderSaved(order_info) => (*order_info, false),
-        DispatchOutcome::CancelApplied { order_number } => {
-            let info = OrderInfo {
-                order_number,
-                order_date: None,
-                delivery_address: None,
-                delivery_info: None,
-                items: vec![],
-                subtotal: None,
-                shipping_fee: None,
-                total_amount: None,
-            };
-            (info, true)
-        }
-        DispatchOutcome::OrderNumberChanged { new_order_number } => {
-            let info = OrderInfo {
-                order_number: new_order_number,
-                order_date: None,
-                delivery_address: None,
-                delivery_info: None,
-                items: vec![],
-                subtotal: None,
-                shipping_fee: None,
-                total_amount: None,
-            };
-            (info, true)
-        }
-        DispatchOutcome::ConsolidationApplied { new_order_number } => {
-            let info = OrderInfo {
-                order_number: new_order_number,
-                order_date: None,
-                delivery_address: None,
-                delivery_info: None,
-                items: vec![],
-                subtotal: None,
-                shipping_fee: None,
-                total_amount: None,
-            };
-            (info, true)
-        }
-        DispatchOutcome::DeliveryCompleted { tracking_number } => {
-            let info = OrderInfo {
-                order_number: tracking_number,
-                order_date: None,
-                delivery_address: None,
-                delivery_info: None,
-                items: vec![],
-                subtotal: None,
-                shipping_fee: None,
-                total_amount: None,
-            };
-            (info, true)
-        }
+        DispatchOutcome::CancelApplied { order_number } => applied(order_number),
+        DispatchOutcome::OrderNumberChanged { new_order_number } => applied(new_order_number),
+        DispatchOutcome::ConsolidationApplied { new_order_number } => applied(new_order_number),
+        DispatchOutcome::DeliveryCompleted { tracking_number } => applied(tracking_number),
         DispatchOutcome::MultiOrderSaved(orders) => {
             let first = orders.into_iter().next().unwrap_or_else(|| {
                 log::warn!(
                     "[email_parse_task] MultiOrderSaved with empty orders (email_id={})",
                     email_id
                 );
-                OrderInfo {
-                    order_number: String::new(),
-                    order_date: None,
-                    delivery_address: None,
-                    delivery_info: None,
-                    items: vec![],
-                    subtotal: None,
-                    shipping_fee: None,
-                    total_amount: None,
-                }
+                OrderInfo::default()
             });
             (first, false)
         }

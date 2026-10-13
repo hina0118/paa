@@ -8,6 +8,7 @@
 use once_cell::sync::Lazy;
 use regex::Regex;
 
+use super::{parse_amount, parse_yodobashi_date};
 use crate::parsers::{DeliveryInfo, EmailParser, OrderInfo, OrderItem};
 
 pub struct YodobashiSendParser;
@@ -45,14 +46,6 @@ static TRACKING_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"配達受付番号（伝票番号）：(\d+)").expect("TRACKING_RE"));
 
 // ─── ヘルパー ─────────────────────────────────────────────────────────────────
-
-fn parse_amount(s: &str) -> i64 {
-    s.replace(',', "").trim().parse().unwrap_or(0)
-}
-
-fn parse_yodobashi_date(year: &str, month: &str, day: &str) -> String {
-    format!("{}-{}-{} 00:00:00", year, month, day)
-}
 
 fn extract_order_number(body: &str) -> Option<String> {
     ORDER_NUMBER_RE

@@ -23,6 +23,7 @@ pub mod premium_bandai;
 pub mod sagawa;
 pub mod surugaya;
 pub mod surugaya_mp;
+pub mod text;
 pub mod yodobashi;
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -51,7 +51,7 @@ static TOTAL_RE: Lazy<Regex> =
 // ─── ヘルパー ─────────────────────────────────────────────────────────────────
 
 fn parse_amount(s: &str) -> i64 {
-    s.replace(',', "").parse().unwrap_or(0)
+    crate::plugins::text::parse_yen(s).unwrap_or(0)
 }
 
 /// 商品名末尾の全角括弧 `（...）` を除去する

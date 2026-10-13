@@ -45,9 +45,7 @@ static TRACKING_RE: Lazy<Regex> =
 ///
 /// ふるいちオンラインのメールはプレーンテキスト形式のため、HTML 変換は不要。
 /// 各行をトリムして返す。
-pub fn body_to_lines(body: &str) -> Vec<String> {
-    body.lines().map(|l| l.trim().to_string()).collect()
-}
+pub use crate::plugins::text::plain_to_lines as body_to_lines;
 
 /// `ご注文番号：100409780` から注文番号を抽出する
 pub fn extract_order_number(lines: &[&str]) -> Option<String> {

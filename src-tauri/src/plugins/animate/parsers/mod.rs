@@ -39,9 +39,7 @@ static TOTAL_RE: Lazy<Regex> =
 ///
 /// アニメイト通販のメールはプレーンテキスト形式のため、HTML 変換は不要。
 /// 各行をトリムして返す。
-pub fn body_to_lines(body: &str) -> Vec<String> {
-    body.lines().map(|l| l.trim().to_string()).collect()
-}
+pub use crate::plugins::text::plain_to_lines as body_to_lines;
 
 /// 注文番号を抽出する
 ///

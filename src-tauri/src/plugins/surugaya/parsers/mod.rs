@@ -62,9 +62,7 @@ static TOTAL_RE: Lazy<Regex> =
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// メール本文をトリム済み行リストに変換する
-pub fn body_to_lines(body: &str) -> Vec<String> {
-    body.lines().map(|l| l.trim().to_string()).collect()
-}
+pub use crate::plugins::text::plain_to_lines as body_to_lines;
 
 /// `取引番号:S2204166697` 形式の取引番号を抽出する（confirm / send 共通）
 pub fn extract_order_number(lines: &[&str]) -> Option<String> {

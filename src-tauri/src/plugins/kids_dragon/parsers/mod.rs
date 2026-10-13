@@ -108,7 +108,7 @@ pub fn extract_carrier(lines: &[&str]) -> Option<String> {
 fn parse_amount(line: &str) -> Option<i64> {
     AMOUNT_RE
         .captures(line)
-        .and_then(|caps| caps[1].replace(',', "").parse::<i64>().ok())
+        .and_then(|caps| crate::plugins::text::parse_yen(&caps[1]))
 }
 
 #[cfg(test)]

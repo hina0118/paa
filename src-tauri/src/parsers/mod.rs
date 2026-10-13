@@ -122,7 +122,7 @@ impl ParseState {
 }
 
 /// 注文情報を表す構造体
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct OrderInfo {
     /// 注文番号
     pub order_number: String,
