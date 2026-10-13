@@ -36,8 +36,8 @@ pub struct EmailParseInput {
     pub email_id: i64,
     /// メッセージID
     pub message_id: String,
-    /// メール本文（`get_body_for_parse` による HTML 優先選択結果）
-    pub body_plain: String,
+    /// メール本文 HTML（パース時は `body_for_parse` 経由で HTML 優先選択される）
+    pub body_html: Option<String>,
     /// メール本文 plain text そのまま（`body_html` が存在する場合も上書きしない生テキスト）
     pub body_plain_raw: String,
     /// 送信元アドレス
@@ -48,15 +48,25 @@ pub struct EmailParseInput {
     pub internal_date: Option<i64>,
 }
 
+impl EmailParseInput {
+    /// HTML 優先で選択したパース用本文（`get_body_for_parse` と同じ規則）
+    ///
+    /// 本文を 2 重に保持しないよう、選択結果は保存せず都度参照で返す。
+    pub fn body_for_parse(&self) -> &str {
+        crate::parsers::select_body_for_parse(
+            self.body_html.as_deref(),
+            Some(self.body_plain_raw.as_str()),
+        )
+    }
+}
+
 impl From<EmailRow> for EmailParseInput {
     fn from(row: EmailRow) -> Self {
-        let body = crate::parsers::get_body_for_parse(&row);
-        let body_plain_raw = row.body_plain.as_deref().unwrap_or("").to_string();
         Self {
             email_id: row.email_id,
             message_id: row.message_id,
-            body_plain: body,
-            body_plain_raw,
+            body_html: row.body_html,
+            body_plain_raw: row.body_plain.unwrap_or_default(),
             from_address: row.from_address,
             subject: row.subject,
             internal_date: row.internal_date,
@@ -456,9 +466,9 @@ where
                 // prefer_plain_text() が true のプラグインには HTML 優先選択前の
                 // body_plain_raw を渡す（Amazon 等のプレーンテキストパーサー向け）。
                 let body_for_dispatch = if plugin.prefer_plain_text() {
-                    &input.body_plain_raw
+                    input.body_plain_raw.as_str()
                 } else {
-                    &input.body_plain
+                    input.body_for_parse()
                 };
 
                 match plugin
@@ -931,7 +941,7 @@ mod tests {
                 vec![EmailParseInput {
                     email_id: 1,
                     message_id: "m".to_string(),
-                    body_plain: "body".to_string(),
+                    body_html: None,
                     body_plain_raw: "body".to_string(),
                     from_address: None,
                     subject: Some("x".to_string()),
@@ -962,9 +972,40 @@ mod tests {
         let input: EmailParseInput = row.into();
         assert_eq!(input.email_id, 123);
         assert_eq!(input.message_id, "msg-001");
-        assert_eq!(input.body_plain, "Hello");
+        assert_eq!(input.body_for_parse(), "Hello");
         assert_eq!(input.from_address, Some("test@example.com".to_string()));
         assert_eq!(input.subject, Some("Test Subject".to_string()));
         assert_eq!(input.internal_date, Some(1700000000000));
+    }
+
+    #[test]
+    fn test_body_for_parse_prefers_html_and_keeps_raw_plain() {
+        let row = EmailRow {
+            email_id: 1,
+            message_id: "m1".to_string(),
+            body_plain: Some("plain".to_string()),
+            body_html: Some("  <p>html</p>  ".to_string()),
+            from_address: None,
+            subject: None,
+            internal_date: None,
+        };
+        let input: EmailParseInput = row.into();
+        assert_eq!(input.body_for_parse(), "<p>html</p>");
+        assert_eq!(input.body_plain_raw, "plain");
+    }
+
+    #[test]
+    fn test_body_for_parse_ignores_blank_html() {
+        let row = EmailRow {
+            email_id: 1,
+            message_id: "m1".to_string(),
+            body_plain: Some("plain".to_string()),
+            body_html: Some("   ".to_string()),
+            from_address: None,
+            subject: None,
+            internal_date: None,
+        };
+        let input: EmailParseInput = row.into();
+        assert_eq!(input.body_for_parse(), "plain");
     }
 }

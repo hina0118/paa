@@ -19,12 +19,16 @@ pub struct EmailRow {
 
 /// body_html があれば使用、なければ body_plain を返す（タグ除去は行わない）。
 /// DMM 等は HTML から直接パースするため、HTML 優先で精度が上がる。
-pub fn get_body_for_parse(row: &EmailRow) -> String {
-    let html = row.body_html.as_deref().unwrap_or("").trim();
-    if !html.is_empty() {
-        return html.to_string();
+pub fn get_body_for_parse(row: &EmailRow) -> &str {
+    select_body_for_parse(row.body_html.as_deref(), row.body_plain.as_deref())
+}
+
+/// `get_body_for_parse` の選択規則（空白のみの HTML は無視して plain にフォールバック）
+pub(crate) fn select_body_for_parse<'a>(html: Option<&'a str>, plain: Option<&'a str>) -> &'a str {
+    match html.map(str::trim) {
+        Some(h) if !h.is_empty() => h,
+        _ => plain.unwrap_or(""),
     }
-    row.body_plain.as_deref().unwrap_or("").to_string()
 }
 
 // キャンセル情報（全店舗共通）

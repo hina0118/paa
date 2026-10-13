@@ -11,7 +11,6 @@
 use crate::gmail_client::GmailClientTrait;
 #[cfg(test)]
 use crate::logic::sync_logic::build_sync_query;
-use crate::repository::EmailRepository;
 use async_trait::async_trait;
 use google_gmail1::api::Scope;
 use google_gmail1::{hyper_rustls, Gmail};
@@ -897,44 +896,6 @@ pub async fn save_messages_to_db(
 
     Ok(FetchResult {
         fetched_count: messages.len(),
-        saved_count,
-        skipped_count,
-    })
-}
-
-/// EmailRepository経由でメッセージをDBに保存する（テスト可能なバージョン）
-///
-/// # Arguments
-/// * `repo` - EmailRepositoryを実装したリポジトリ
-/// * `messages` - 保存するメッセージリスト（所有権を取得し、in-placeでフィルタリング）
-/// * `shop_settings` - 有効なショップ設定（件名フィルタリングに使用）
-///
-/// # Returns
-/// FetchResult（保存数、スキップ数などの統計情報）
-pub async fn save_messages_to_db_with_repo(
-    repo: &dyn EmailRepository,
-    mut messages: Vec<GmailMessage>,
-    shop_settings: &[ShopSettings],
-) -> Result<FetchResult, String> {
-    let original_count = messages.len();
-    log::info!(
-        "Saving {} messages to database via repository",
-        original_count
-    );
-
-    // ショップ設定でin-placeフィルタリング（cloneを回避）
-    messages.retain(|msg| crate::logic::sync_logic::should_save_message(msg, shop_settings));
-    let filtered_count = original_count - messages.len();
-
-    // リポジトリ経由で保存
-    let (saved_count, skipped_count) = repo.save_messages(&messages).await?;
-
-    log::info!(
-        "Saved {saved_count} messages (inserted or updated), skipped {skipped_count}, filtered {filtered_count} by subject"
-    );
-
-    Ok(FetchResult {
-        fetched_count: original_count,
         saved_count,
         skipped_count,
     })

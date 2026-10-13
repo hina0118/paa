@@ -202,9 +202,18 @@ mod tests {
         assert!(result.is_ok(), "parse failed: {:?}", result);
         let order_info = result.unwrap();
         assert_eq!(order_info.items.len(), 3, "items: {:?}", order_info.items);
-        assert_eq!(order_info.items[0].name, "タカラトミー 092575 RMZ-022 ムラサメライガー (組み立てキット) 1/100 ZOIDS");
-        assert_eq!(order_info.items[1].name, "コトブキヤ KP879 PUNI☆MOFU レーシングトゥ with Honda Z50J-1 モンキー");
-        assert_eq!(order_info.items[2].name, "グッドスマイルカンパニー 586956 PLAMATEA ブラックハニー");
+        assert_eq!(
+            order_info.items[0].name,
+            "タカラトミー 092575 RMZ-022 ムラサメライガー (組み立てキット) 1/100 ZOIDS"
+        );
+        assert_eq!(
+            order_info.items[1].name,
+            "コトブキヤ KP879 PUNI☆MOFU レーシングトゥ with Honda Z50J-1 モンキー"
+        );
+        assert_eq!(
+            order_info.items[2].name,
+            "グッドスマイルカンパニー 586956 PLAMATEA ブラックハニー"
+        );
         assert_eq!(order_info.items[2].unit_price, 7744);
     }
 }

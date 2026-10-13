@@ -30,7 +30,10 @@ pub trait EmailRepository: Send + Sync {
     /// 重複（既存 message_id）の場合も UPDATE が実行されるため、saved にカウントされる。
     /// skipped は rows_affected=0 のときのみ（SQLite の changes() は UPDATE でマッチ行数を返すため、通常は 0）。
     /// ログ／メトリクスで saved を「新規のみ」と解釈しないこと。
-    async fn save_messages(&self, messages: &[GmailMessage]) -> Result<(usize, usize), String>;
+    async fn save_messages<'a>(
+        &self,
+        messages: &[&'a GmailMessage],
+    ) -> Result<(usize, usize), String>;
 
     /// 既存のメッセージIDを取得
     async fn get_existing_message_ids(&self) -> Result<Vec<String>, String>;
@@ -117,7 +120,10 @@ impl EmailStatsRepository for SqliteEmailStatsRepository {
 
 #[async_trait]
 impl EmailRepository for SqliteEmailRepository {
-    async fn save_messages(&self, messages: &[GmailMessage]) -> Result<(usize, usize), String> {
+    async fn save_messages<'a>(
+        &self,
+        messages: &[&'a GmailMessage],
+    ) -> Result<(usize, usize), String> {
         let mut saved = 0;
         let mut skipped = 0;
 
@@ -329,12 +335,18 @@ mod tests {
         ];
 
         // 保存
-        let (saved, skipped) = repo.save_messages(&messages).await.unwrap();
+        let (saved, skipped) = repo
+            .save_messages(&messages.iter().collect::<Vec<_>>())
+            .await
+            .unwrap();
         assert_eq!(saved, 2);
         assert_eq!(skipped, 0);
 
         // 重複保存: ON CONFLICT DO UPDATE により UPDATE が実行され、saved としてカウントされる
-        let (saved, skipped) = repo.save_messages(&messages).await.unwrap();
+        let (saved, skipped) = repo
+            .save_messages(&messages.iter().collect::<Vec<_>>())
+            .await
+            .unwrap();
         assert_eq!(saved, 2);
         assert_eq!(skipped, 0);
 
@@ -403,7 +415,9 @@ mod tests {
                 from_address: None,
             },
         ];
-        repo.save_messages(&existing).await.unwrap();
+        repo.save_messages(&existing.iter().collect::<Vec<_>>())
+            .await
+            .unwrap();
 
         // 全既存ID → 空を返す
         let all_existing = vec![
@@ -485,7 +499,9 @@ mod tests {
                 from_address: None,
             },
         ];
-        repo.save_messages(&messages).await.unwrap();
+        repo.save_messages(&messages.iter().collect::<Vec<_>>())
+            .await
+            .unwrap();
 
         let result = repo.get_latest_internal_date().await.unwrap();
         assert_eq!(result, Some(1704153600000));
@@ -505,7 +521,9 @@ mod tests {
             internal_date: 0,
             from_address: None,
         }];
-        repo.save_messages(&messages).await.unwrap();
+        repo.save_messages(&messages.iter().collect::<Vec<_>>())
+            .await
+            .unwrap();
 
         // internal_date = 0 のみの場合は None を返す（フル同期へフォールバック）
         let result = repo.get_latest_internal_date().await.unwrap();

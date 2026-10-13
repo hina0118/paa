@@ -679,7 +679,11 @@ impl SqliteOrderRepository {
                 .await
                 .map_err(|e| format!("Failed to insert item: {e}"))?;
 
-                log::info!("[save_order_in_tx] Inserted item='{}' order_id={}", item.name, order_id);
+                log::info!(
+                    "[save_order_in_tx] Inserted item='{}' order_id={}",
+                    item.name,
+                    order_id
+                );
             } else {
                 log::debug!("Item '{}' already exists for order {}", item.name, order_id);
             }
