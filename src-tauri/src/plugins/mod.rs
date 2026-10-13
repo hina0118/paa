@@ -47,6 +47,15 @@ pub fn build_registry() -> Vec<Box<dyn VendorPlugin>> {
         .collect()
 }
 
+/// プロセス内で共有するプラグインレジストリ（初回アクセス時に1回だけ構築）
+///
+/// プラグインは状態を持たないため、呼び出しごとに `build_registry()` で再構築する必要はない。
+pub fn registry() -> &'static [Box<dyn VendorPlugin>] {
+    static REGISTRY: std::sync::LazyLock<Vec<Box<dyn VendorPlugin>>> =
+        std::sync::LazyLock::new(build_registry);
+    &REGISTRY
+}
+
 /// `parser_type` に対応するプラグインを返す
 ///
 /// 複数のプラグインが同一の `parser_type` に対応する場合は `priority()` が最大のものを返す。

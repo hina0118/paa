@@ -616,9 +616,13 @@ impl SqliteOrderRepository {
         }
 
         // 除外パターンを読み込んでアイテムをフィルタリング
-        let exclusion_patterns = crate::repository::load_all_patterns_in_tx(tx)
+        // メールパース中は with_preloaded_patterns で事前読み込み済みのパターンを使う
+        let exclusion_patterns = crate::repository::load_patterns_for_save(tx)
             .await
-            .unwrap_or_default();
+            .unwrap_or_else(|e| {
+                log::warn!("Failed to load exclusion patterns, saving without exclusion: {e}");
+                Default::default()
+            });
 
         for item in &order_info.items {
             log::info!(

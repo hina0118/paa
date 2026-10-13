@@ -4,7 +4,7 @@
 //! 外部依存を持たないため、テストが容易です。
 
 use crate::logic::sync_logic::extract_email_address;
-use crate::plugins::{build_registry, find_plugin};
+use crate::plugins::{find_plugin, registry};
 
 /// パーサータイプ名からパーサーが存在するかチェックする
 ///
@@ -17,8 +17,7 @@ use crate::plugins::{build_registry, find_plugin};
 /// # Returns
 /// レジストリにプラグインが存在する場合は true
 pub fn is_valid_parser_type(parser_type: &str) -> bool {
-    let registry = build_registry();
-    find_plugin(&registry, parser_type).is_some()
+    find_plugin(registry(), parser_type).is_some()
 }
 
 /// 送信者アドレスと件名からパーサータイプの候補を取得する
