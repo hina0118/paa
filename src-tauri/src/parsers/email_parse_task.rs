@@ -639,32 +639,19 @@ where
             results.len()
         );
 
-        let mut saved_count = 0;
-
-        for result in results {
-            match result {
-                Ok(_output) => {
-                    // 確認・変更は process_batch で即時 save_order 済み。
-                    // キャンセルは apply_cancel 済み。いずれも after_batch での保存は不要。
-                    saved_count += 1;
-                }
-                Err(e) => {
-                    // パース失敗: BatchRunnerがすでに失敗をカウントしているのでここではログのみ
-                    log::debug!("[{}] Parse failed: {}", self.name(), e);
-                }
-            }
+        // 確認・変更は process_batch で即時 save_order 済み。
+        // キャンセルは apply_cancel 済み。いずれも after_batch での保存は不要なので集計のみ行う。
+        // 失敗は BatchRunner がすでにカウントしているのでここではログのみ。
+        for e in results.iter().filter_map(|r| r.as_ref().err()) {
+            log::debug!("[{}] Parse failed: {}", self.name(), e);
         }
-
-        // 成功件数と失敗件数をログ
         let success = results.iter().filter(|r| r.is_ok()).count();
-        let failed = results.iter().filter(|r| r.is_err()).count();
         log::info!(
-            "[{}] Batch {} complete: {} parsed, {} failed, {} saved",
+            "[{}] Batch {} complete: {} parsed, {} failed",
             self.name(),
             batch_number,
             success,
-            failed,
-            saved_count
+            results.len() - success
         );
 
         Ok(())

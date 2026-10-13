@@ -625,7 +625,7 @@ impl SqliteOrderRepository {
             });
 
         for item in &order_info.items {
-            log::info!(
+            log::debug!(
                 "[save_order_in_tx] Processing item='{}' price={} order_id={}",
                 item.name,
                 item.unit_price,
@@ -659,31 +659,9 @@ impl SqliteOrderRepository {
             .map_err(|e| format!("Failed to check existing item: {e}"))?;
 
             if existing_item.is_none() {
-                let item_name_normalized = {
-                    let n = normalize_product_name(&item.name);
-                    if n.is_empty() {
-                        None
-                    } else {
-                        Some(n)
-                    }
-                };
-                sqlx::query(
-                    r#"
-                    INSERT INTO items (order_id, item_name, item_name_normalized, brand, price, quantity)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    "#,
-                )
-                .bind(order_id)
-                .bind(&item.name)
-                .bind(item_name_normalized.as_deref())
-                .bind(&item.manufacturer)
-                .bind(item.unit_price)
-                .bind(item.quantity)
-                .execute(tx.as_mut())
-                .await
-                .map_err(|e| format!("Failed to insert item: {e}"))?;
+                Self::insert_item_in_tx(tx, order_id, item).await?;
 
-                log::info!(
+                log::debug!(
                     "[save_order_in_tx] Inserted item='{}' order_id={}",
                     item.name,
                     order_id
@@ -749,43 +727,28 @@ impl SqliteOrderRepository {
         }
 
         if let Some(email_id_val) = email_id {
-            let existing_link: Option<(i64,)> = sqlx::query_as(
-                r#"
-                SELECT order_id FROM order_emails
-                WHERE order_id = ? AND email_id = ?
-                LIMIT 1
-                "#,
-            )
-            .bind(order_id)
-            .bind(email_id_val)
-            .fetch_optional(tx.as_mut())
-            .await
-            .map_err(|e| format!("Failed to check existing order_email link: {e}"))?;
-
-            if existing_link.is_none() {
-                sqlx::query(
-                    r#"
-                    INSERT INTO order_emails (order_id, email_id)
-                    VALUES (?, ?)
-                    "#,
-                )
-                .bind(order_id)
-                .bind(email_id_val)
-                .execute(tx.as_mut())
-                .await
-                .map_err(|e| format!("Failed to link order to email: {e}"))?;
-
-                log::debug!("Linked order {} to email {}", order_id, email_id_val);
-            } else {
-                log::debug!(
-                    "Order {} is already linked to email {}",
-                    order_id,
-                    email_id_val
-                );
-            }
+            Self::link_order_email_in_tx(tx, order_id, email_id_val).await?;
         }
 
         Ok(order_id)
+    }
+
+    /// 注文とメールを紐付ける（既に紐付いていれば何もしない）
+    ///
+    /// `order_emails` は UNIQUE (order_id, email_id) のため、存在確認 SELECT をせず
+    /// INSERT OR IGNORE の1文で済ませる。
+    pub(crate) async fn link_order_email_in_tx(
+        tx: &mut sqlx::Transaction<'_, Sqlite>,
+        order_id: i64,
+        email_id: i64,
+    ) -> Result<(), String> {
+        sqlx::query("INSERT OR IGNORE INTO order_emails (order_id, email_id) VALUES (?, ?)")
+            .bind(order_id)
+            .bind(email_id)
+            .execute(tx.as_mut())
+            .await
+            .map_err(|e| format!("Failed to link order to email: {e}"))?;
+        Ok(())
     }
 
     /// マイページ URL を `htmls` / `order_htmls` テーブルに登録する
@@ -839,30 +802,34 @@ impl SqliteOrderRepository {
         log::debug!("Replaced items for order {} (split first order)", order_id);
 
         for item in &order_info.items {
-            let item_name_normalized = {
-                let n = normalize_product_name(&item.name);
-                if n.is_empty() {
-                    None
-                } else {
-                    Some(n)
-                }
-            };
-            sqlx::query(
-                r#"
-                INSERT INTO items (order_id, item_name, item_name_normalized, brand, price, quantity)
-                VALUES (?, ?, ?, ?, ?, ?)
-                "#,
-            )
-            .bind(order_id)
-            .bind(&item.name)
-            .bind(item_name_normalized.as_deref())
-            .bind(&item.manufacturer)
-            .bind(item.unit_price)
-            .bind(item.quantity)
-            .execute(tx.as_mut())
-            .await
-            .map_err(|e| format!("Failed to insert item: {e}"))?;
+            Self::insert_item_in_tx(tx, order_id, item).await?;
         }
+        Ok(())
+    }
+
+    /// 商品を1件 INSERT する（item_name_normalized は空文字なら NULL）
+    async fn insert_item_in_tx(
+        tx: &mut sqlx::Transaction<'_, Sqlite>,
+        order_id: i64,
+        item: &crate::parsers::OrderItem,
+    ) -> Result<(), String> {
+        let item_name_normalized =
+            Some(normalize_product_name(&item.name)).filter(|n| !n.is_empty());
+        sqlx::query(
+            r#"
+            INSERT INTO items (order_id, item_name, item_name_normalized, brand, price, quantity)
+            VALUES (?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(order_id)
+        .bind(&item.name)
+        .bind(item_name_normalized.as_deref())
+        .bind(&item.manufacturer)
+        .bind(item.unit_price)
+        .bind(item.quantity)
+        .execute(tx.as_mut())
+        .await
+        .map_err(|e| format!("Failed to insert item: {e}"))?;
         Ok(())
     }
 
@@ -1014,32 +981,7 @@ impl SqliteOrderRepository {
             }
         }
 
-        let existing_link: Option<(i64,)> = sqlx::query_as(
-            r#"
-            SELECT order_id FROM order_emails
-            WHERE order_id = ? AND email_id = ?
-            LIMIT 1
-            "#,
-        )
-        .bind(order_id)
-        .bind(email_id)
-        .fetch_optional(tx.as_mut())
-        .await
-        .map_err(|e| format!("Failed to check order_email link: {e}"))?;
-
-        if existing_link.is_none() {
-            sqlx::query(
-                r#"
-                INSERT INTO order_emails (order_id, email_id)
-                VALUES (?, ?)
-                "#,
-            )
-            .bind(order_id)
-            .bind(email_id)
-            .execute(tx.as_mut())
-            .await
-            .map_err(|e| format!("Failed to link order to email: {e}"))?;
-        }
+        Self::link_order_email_in_tx(tx, order_id, email_id).await?;
 
         Ok(order_id)
     }
@@ -1115,32 +1057,7 @@ impl SqliteOrderRepository {
             order_id
         );
 
-        let existing_link: Option<(i64,)> = sqlx::query_as(
-            r#"
-            SELECT order_id FROM order_emails
-            WHERE order_id = ? AND email_id = ?
-            LIMIT 1
-            "#,
-        )
-        .bind(order_id)
-        .bind(email_id)
-        .fetch_optional(tx.as_mut())
-        .await
-        .map_err(|e| format!("Failed to check order_email link: {e}"))?;
-
-        if existing_link.is_none() {
-            sqlx::query(
-                r#"
-                INSERT INTO order_emails (order_id, email_id)
-                VALUES (?, ?)
-                "#,
-            )
-            .bind(order_id)
-            .bind(email_id)
-            .execute(tx.as_mut())
-            .await
-            .map_err(|e| format!("Failed to link order to email: {e}"))?;
-        }
+        Self::link_order_email_in_tx(tx, order_id, email_id).await?;
 
         Ok(order_id)
     }
@@ -1190,22 +1107,7 @@ impl SqliteOrderRepository {
             consolidation_info.new_order_number
         );
 
-        let existing_link: Option<(i64,)> = sqlx::query_as(
-            r#"SELECT order_id FROM order_emails WHERE order_id = ? AND email_id = ? LIMIT 1"#,
-        )
-        .bind(first_order_id)
-        .bind(email_id)
-        .fetch_optional(tx.as_mut())
-        .await
-        .map_err(|e| format!("Failed to check order_email link: {e}"))?;
-        if existing_link.is_none() {
-            sqlx::query("INSERT INTO order_emails (order_id, email_id) VALUES (?, ?)")
-                .bind(first_order_id)
-                .bind(email_id)
-                .execute(tx.as_mut())
-                .await
-                .map_err(|e| format!("Failed to link order to email: {e}"))?;
-        }
+        Self::link_order_email_in_tx(tx, first_order_id, email_id).await?;
 
         for &order_id in &order_ids[1..] {
             sqlx::query("DELETE FROM items WHERE order_id = ?")
@@ -1342,37 +1244,7 @@ impl SqliteOrderRepository {
         }
 
         if let Some(email_id_val) = email_id {
-            let existing_link: Option<(i64,)> = sqlx::query_as(
-                r#"
-                SELECT order_id FROM order_emails
-                WHERE order_id = ? AND email_id = ?
-                LIMIT 1
-                "#,
-            )
-            .bind(order_id)
-            .bind(email_id_val)
-            .fetch_optional(tx.as_mut())
-            .await
-            .map_err(|e| format!("Failed to check order_email link: {e}"))?;
-
-            if existing_link.is_none() {
-                sqlx::query(
-                    r#"
-                    INSERT INTO order_emails (order_id, email_id)
-                    VALUES (?, ?)
-                    "#,
-                )
-                .bind(order_id)
-                .bind(email_id_val)
-                .execute(tx.as_mut())
-                .await
-                .map_err(|e| format!("Failed to link order to email: {e}"))?;
-                log::debug!(
-                    "Linked order {} to email {} (send mail)",
-                    order_id,
-                    email_id_val
-                );
-            }
+            Self::link_order_email_in_tx(tx, order_id, email_id_val).await?;
         }
 
         Ok(order_id)
@@ -1413,24 +1285,7 @@ impl SqliteOrderRepository {
                     .map_err(|e| format!("Failed to update order date: {e}"))?;
                 }
                 if let Some(email_id_val) = email_id {
-                    let existing_link: Option<(i64,)> = sqlx::query_as(
-                        r#"SELECT order_id FROM order_emails WHERE order_id = ? AND email_id = ? LIMIT 1"#,
-                    )
-                    .bind(existing_id)
-                    .bind(email_id_val)
-                    .fetch_optional(tx.as_mut())
-                    .await
-                    .map_err(|e| format!("Failed to check order_email link: {e}"))?;
-                    if existing_link.is_none() {
-                        sqlx::query(
-                            r#"INSERT INTO order_emails (order_id, email_id) VALUES (?, ?)"#,
-                        )
-                        .bind(existing_id)
-                        .bind(email_id_val)
-                        .execute(tx.as_mut())
-                        .await
-                        .map_err(|e| format!("Failed to link order to email: {e}"))?;
-                    }
+                    Self::link_order_email_in_tx(tx, existing_id, email_id_val).await?;
                 }
                 log::info!(
                     "Split first order: updated existing order {} (order_number={})",
