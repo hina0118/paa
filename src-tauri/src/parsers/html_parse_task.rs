@@ -15,10 +15,13 @@ use crate::repository::SqliteOrderRepository;
 pub const HTML_PARSE_TASK_NAME: &str = "HTMLパース";
 pub const HTML_PARSE_EVENT_NAME: &str = "batch-progress";
 
+const AMAZON_DOMAIN: &str = "amazon.co.jp";
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 入出力・コンテキスト型
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// 保存済み HTML パースの入力（Amazon・駿河屋共通）
 #[derive(Clone)]
 pub struct HtmlParseInput {
     pub html_id: i64,
@@ -31,6 +34,7 @@ pub struct HtmlParseOutput {
     pub order_number: String,
 }
 
+/// 保存済み HTML パースのコンテキスト（Amazon・駿河屋共通）
 pub struct HtmlParseContext {
     pub pool: Arc<SqlitePool>,
 }
@@ -70,7 +74,7 @@ impl BatchTask for HtmlParseTask {
             .map_err(|e| format!("Failed to begin tx: {e}"))?;
 
         if html_parser::is_cancelled_order(&input.html_content) {
-            apply_cancelled_order(&mut tx, &order_number).await?;
+            apply_cancelled_order(&mut tx, &order_number, AMAZON_DOMAIN).await?;
             tx.commit()
                 .await
                 .map_err(|e| format!("Failed to commit: {e}"))?;
@@ -86,7 +90,7 @@ impl BatchTask for HtmlParseTask {
             &mut tx,
             &order_info,
             None,
-            Some("amazon.co.jp".to_string()),
+            Some(AMAZON_DOMAIN.to_string()),
             None,
         )
         .await?;
@@ -107,21 +111,25 @@ impl BatchTask for HtmlParseTask {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// キャンセル済み HTML の処理: 既存注文のアイテムを削除し配送ステータスを更新する
-async fn apply_cancelled_order(
+///
+/// Amazon / 駿河屋の保存済み HTML パースで共通に使う。
+pub(crate) async fn apply_cancelled_order(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     order_number: &str,
+    shop_domain: &str,
 ) -> Result<(), String> {
-    let order: Option<(i64,)> = sqlx::query_as(
-        "SELECT id FROM orders WHERE order_number = ? AND shop_domain = 'amazon.co.jp' LIMIT 1",
-    )
-    .bind(order_number)
-    .fetch_optional(tx.as_mut())
-    .await
-    .map_err(|e| format!("DB error: {e}"))?;
+    let order: Option<(i64,)> =
+        sqlx::query_as("SELECT id FROM orders WHERE order_number = ? AND shop_domain = ? LIMIT 1")
+            .bind(order_number)
+            .bind(shop_domain)
+            .fetch_optional(tx.as_mut())
+            .await
+            .map_err(|e| format!("DB error: {e}"))?;
 
     let Some((order_id,)) = order else {
         log::warn!(
-            "[html_parse] キャンセル済み注文が未登録: order_number={}",
+            "[html_parse] キャンセル済み注文が未登録: shop_domain={} order_number={}",
+            shop_domain,
             order_number
         );
         return Ok(());
@@ -146,7 +154,8 @@ async fn apply_cancelled_order(
     .map_err(|e| format!("Failed to update deliveries: {e}"))?;
 
     log::info!(
-        "[html_parse] キャンセル適用: order_number={} order_id={}",
+        "[html_parse] キャンセル適用: shop_domain={} order_number={} order_id={}",
+        shop_domain,
         order_number,
         order_id
     );
