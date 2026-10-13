@@ -24,38 +24,11 @@ use tauri::{AppHandle, Emitter, Listener, Manager, WebviewUrl, WebviewWindowBuil
 // 状態管理
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// マイページ取得バッチの実行状態（`BatchRunState` の薄いラッパー）
-#[derive(Clone, Default)]
-pub struct SurugayaSessionState(crate::BatchRunState);
-
-impl SurugayaSessionState {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub(crate) fn try_start(&self) -> Result<(), String> {
-        self.0
-            .try_start()
-            .map_err(|_| "マイページ取得は既に実行中です。".to_string())
-    }
-
-    pub(crate) fn finish(&self) {
-        self.0.finish();
-    }
-
-    fn request_cancel(&self) {
-        self.0.request_cancel();
-    }
-
-    fn should_cancel(&self) -> bool {
-        self.0.should_cancel()
-    }
-
-    /// 実行中かどうかを返す（`get_surugaya_mypage_fetch_status` コマンド用）
-    fn is_running(&self) -> bool {
-        self.0.is_running()
-    }
-}
+crate::batch_run_state::define_batch_state!(
+    /// マイページ取得バッチの実行状態（`BatchRunState` の薄いラッパー）
+    SurugayaSessionState,
+    "マイページ取得は既に実行中です。"
+);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tauri コマンド

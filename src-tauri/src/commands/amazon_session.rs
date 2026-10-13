@@ -24,37 +24,11 @@ use tauri::{AppHandle, Emitter, Listener, Manager, WebviewUrl, WebviewWindowBuil
 // 状態管理
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// 注文詳細取得バッチの実行状態（`BatchRunState` の薄いラッパー）
-#[derive(Clone, Default)]
-pub struct AmazonSessionState(crate::BatchRunState);
-
-impl AmazonSessionState {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub(crate) fn try_start(&self) -> Result<(), String> {
-        self.0
-            .try_start()
-            .map_err(|_| "Amazon 注文取得は既に実行中です。".to_string())
-    }
-
-    pub(crate) fn finish(&self) {
-        self.0.finish();
-    }
-
-    fn request_cancel(&self) {
-        self.0.request_cancel();
-    }
-
-    fn should_cancel(&self) -> bool {
-        self.0.should_cancel()
-    }
-
-    fn is_running(&self) -> bool {
-        self.0.is_running()
-    }
-}
+crate::batch_run_state::define_batch_state!(
+    /// 注文詳細取得バッチの実行状態（`BatchRunState` の薄いラッパー）
+    AmazonSessionState,
+    "Amazon 注文取得は既に実行中です。"
+);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tauri コマンド
