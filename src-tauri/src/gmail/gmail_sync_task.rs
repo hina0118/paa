@@ -23,6 +23,7 @@ use crate::gmail::client::GmailMessage;
 use crate::gmail_client::GmailClientTrait;
 use crate::repository::{EmailRepository, ShopSettingsRepository};
 use async_trait::async_trait;
+use futures::stream::{self, StreamExt};
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -86,6 +87,11 @@ where
 {
     _phantom: PhantomData<(C, E, S)>,
 }
+
+/// Gmail API（メタデータ・本文取得）の同時実行数
+///
+/// Gmail API のユーザー単位クォータ（250 units/秒、messages.get は 5 units）を超えないよう控えめに設定する。
+const GMAIL_FETCH_CONCURRENCY: usize = 4;
 
 /// タスク名
 pub const GMAIL_SYNC_TASK_NAME: &str = "メール同期";
@@ -224,14 +230,24 @@ where
         let enabled_shops = Arc::clone(&context.shop_settings_cache.lock().await.enabled_shops);
 
         // Phase 1: メタデータ取得 + フィルタリング
+        // API 呼び出しは GMAIL_FETCH_CONCURRENCY 件まで並行実行する（結果の順序は入力順を保持）
         let mut candidates: Vec<(String, usize)> = Vec::new(); // (message_id, results内のindex)
 
-        for input in &inputs {
-            match context
-                .gmail_client
-                .get_message_metadata(&input.message_id)
-                .await
-            {
+        // ID は先に Vec へ所有で集める（参照を取るクロージャを await 越しに保持すると
+        // async_trait の Send 推論が通らないため）
+        let client = context.gmail_client.as_ref();
+        let ids: Vec<String> = inputs
+            .iter()
+            .map(|input| input.message_id.clone())
+            .collect();
+        let metadata_results: Vec<_> = stream::iter(ids)
+            .map(|id| async move { client.get_message_metadata(&id).await })
+            .buffered(GMAIL_FETCH_CONCURRENCY)
+            .collect()
+            .await;
+
+        for (input, metadata_result) in inputs.iter().zip(metadata_results) {
+            match metadata_result {
                 Ok(metadata) => {
                     if crate::logic::sync_logic::should_save_message(&metadata, &enabled_shops) {
                         // フィルタ通過 → Phase 2 で本文取得する候補
@@ -283,8 +299,15 @@ where
         );
 
         // Phase 2: 候補のみ本文(full)を取得
-        for (message_id, idx) in candidates {
-            match context.gmail_client.get_message(&message_id).await {
+        let full_ids: Vec<String> = candidates.iter().map(|(id, _)| id.clone()).collect();
+        let full_results: Vec<_> = stream::iter(full_ids)
+            .map(|id| async move { client.get_message(&id).await })
+            .buffered(GMAIL_FETCH_CONCURRENCY)
+            .collect()
+            .await;
+
+        for ((message_id, idx), full_result) in candidates.into_iter().zip(full_results) {
+            match full_result {
                 Ok(full_message) => {
                     results[idx] = Ok(GmailSyncOutput {
                         message: full_message,
