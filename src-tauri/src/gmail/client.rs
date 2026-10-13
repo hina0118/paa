@@ -20,7 +20,6 @@ use hyper_util::rt::TokioExecutor;
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqlitePool;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager};
 use yup_oauth2 as oauth2;
 
@@ -136,23 +135,9 @@ pub struct UpdateShopSettings {
 /// 2. `is_running`
 ///
 /// This ordering must be maintained consistently throughout the codebase.
-#[derive(Clone)]
-pub struct SyncState {
-    pub should_cancel: Arc<Mutex<bool>>,
-    pub is_running: Arc<Mutex<bool>>,
-    /// 直近のエラーメッセージ（エラー時のみ。try_start でクリア）
-    pub last_error: Arc<Mutex<Option<String>>>,
-}
-
-impl Default for SyncState {
-    fn default() -> Self {
-        Self {
-            should_cancel: Arc::new(Mutex::new(false)),
-            is_running: Arc::new(Mutex::new(false)),
-            last_error: Arc::new(Mutex::new(None)),
-        }
-    }
-}
+/// Gmail 同期の多重実行ガード・キャンセル制御用状態（`BatchRunState` の薄いラッパー）
+#[derive(Clone, Default)]
+pub struct SyncState(crate::BatchRunState);
 
 impl SyncState {
     pub fn new() -> Self {
@@ -160,104 +145,46 @@ impl SyncState {
     }
 
     pub fn request_cancel(&self) {
-        if let Ok(mut cancel) = self.should_cancel.lock() {
-            *cancel = true;
-        }
+        self.0.request_cancel();
     }
 
     pub fn should_stop(&self) -> bool {
-        self.should_cancel.lock().map(|c| *c).unwrap_or(false)
+        self.0.should_cancel()
     }
 
     /// エラーを記録（get_sync_status で error として返す）
     pub fn set_error(&self, msg: &str) {
-        if let Ok(mut err) = self.last_error.lock() {
-            *err = Some(msg.to_string());
-        }
+        self.0.set_error(msg);
     }
 
     /// 直近のエラーメッセージを取得する
     pub fn last_error(&self) -> Option<String> {
-        self.last_error.lock().ok().and_then(|g| g.clone())
+        self.0.last_error()
     }
 
-    /// エラーをクリア（try_start で呼ぶ）
+    /// エラーをクリア
     pub fn clear_error(&self) {
-        if let Ok(mut err) = self.last_error.lock() {
-            *err = None;
-        }
+        self.0.clear_error();
     }
 
     /// 強制的に idle にリセット（reset_sync_status コマンド用）
     pub fn force_idle(&self) {
-        if let Ok(mut running) = self.is_running.lock() {
-            *running = false;
-        }
-        self.clear_error();
+        self.0.force_idle();
     }
 
-    #[allow(dead_code)]
-    pub fn reset(&self) {
-        if let Ok(mut cancel) = self.should_cancel.lock() {
-            *cancel = false;
-        }
-    }
-
-    #[allow(dead_code)]
     pub fn is_running(&self) -> bool {
-        self.is_running.lock().map(|r| *r).unwrap_or(false)
+        self.0.is_running()
     }
 
-    #[allow(dead_code)]
-    pub fn set_running(&self, running: bool) {
-        if let Ok(mut is_running) = self.is_running.lock() {
-            *is_running = running;
-        }
-    }
-
-    /// Atomically check if not running, reset cancellation flag, and set to running.
-    /// Returns true if successfully started, false if already running.
-    ///
-    /// # Locking behavior
-    /// This method acquires *both* `should_cancel` and `is_running` locks and updates
-    /// them while holding the locks to avoid races with `request_cancel`. The locks
-    /// are always taken in the same order (`should_cancel` then `is_running`) and no
-    /// other method holds both locks simultaneously, so this does not introduce
-    /// deadlock risk.
+    /// 未実行なら実行中にしてキャンセルフラグと直近エラーをクリアし `true` を返す。
+    /// 既に実行中なら何もせず `false` を返す。
     pub fn try_start(&self) -> bool {
-        // First, acquire the cancellation flag lock.
-        let mut cancel = if let Ok(guard) = self.should_cancel.lock() {
-            guard
-        } else {
-            log::error!(
-                "Failed to acquire should_cancel lock in try_start (mutex poisoned or unavailable)"
-            );
-            return false;
-        };
+        self.0.try_start().is_ok()
+    }
 
-        // Then, acquire the running state lock. Lock order is consistent to avoid deadlocks.
-        let mut is_running = if let Ok(guard) = self.is_running.lock() {
-            guard
-        } else {
-            log::error!(
-                "Failed to acquire is_running lock in try_start (mutex poisoned or unavailable)"
-            );
-            return false;
-        };
-
-        // If we're already running, do not change any flags.
-        if *is_running {
-            return false;
-        }
-
-        // Start running, clear any pending cancellation, and clear last error.
-        *is_running = true;
-        *cancel = false;
-        drop(is_running);
-        drop(cancel);
-        self.clear_error();
-
-        true
+    /// 同期完了時に呼ぶ（通常は `SyncGuard` の drop 経由）
+    pub fn finish(&self) {
+        self.0.finish();
     }
 }
 
@@ -275,20 +202,7 @@ impl<'a> SyncGuard<'a> {
 
 impl Drop for SyncGuard<'_> {
     fn drop(&mut self) {
-        // Attempt to clear the running flag. If the mutex is poisoned due to a panic,
-        // recover the inner value and clear the flag so future syncs are not blocked.
-        match self.sync_state.is_running.lock() {
-            Ok(mut is_running) => {
-                *is_running = false;
-            }
-            Err(poisoned) => {
-                log::warn!(
-                    "Mutex for running flag was poisoned in SyncGuard::drop; clearing flag anyway"
-                );
-                let mut is_running = poisoned.into_inner();
-                *is_running = false;
-            }
-        }
+        self.sync_state.finish();
     }
 }
 
@@ -1230,17 +1144,6 @@ mod tests {
     }
 
     #[test]
-    fn test_sync_state_reset() {
-        let sync_state = SyncState::new();
-
-        sync_state.request_cancel();
-        assert!(sync_state.should_stop());
-
-        sync_state.reset();
-        assert!(!sync_state.should_stop());
-    }
-
-    #[test]
     fn test_sync_metadata_structure() {
         let metadata = SyncMetadata {
             sync_status: "idle".to_string(),
@@ -1408,94 +1311,6 @@ mod tests {
         assert_eq!(metadata.total_synced_count, 0);
         assert_eq!(metadata.batch_size, 50);
         assert!(metadata.oldest_fetched_date.is_none());
-    }
-
-    #[test]
-    fn test_sync_state_is_running() {
-        let state = SyncState::new();
-        assert!(!state.is_running());
-
-        state.set_running(true);
-        assert!(state.is_running());
-
-        state.set_running(false);
-        assert!(!state.is_running());
-    }
-
-    #[test]
-    fn test_sync_state_set_running() {
-        let state = SyncState::new();
-
-        // Initially not running
-        assert!(!state.is_running());
-
-        // Set to running
-        state.set_running(true);
-        assert!(state.is_running());
-
-        // Set back to not running
-        state.set_running(false);
-        assert!(!state.is_running());
-    }
-
-    #[test]
-    fn test_sync_state_reset_clears_cancel_flag() {
-        let state = SyncState::new();
-
-        // Request cancel
-        state.request_cancel();
-        assert!(state.should_stop());
-
-        // Reset should clear the cancel flag
-        state.reset();
-        assert!(!state.should_stop());
-    }
-
-    #[test]
-    fn test_sync_state_reset_when_not_cancelled() {
-        let state = SyncState::new();
-
-        // Reset when not cancelled should have no effect
-        state.reset();
-        assert!(!state.should_stop());
-    }
-
-    #[test]
-    fn test_sync_state_multiple_resets() {
-        let state = SyncState::new();
-
-        // Cancel, reset, cancel, reset
-        state.request_cancel();
-        assert!(state.should_stop());
-
-        state.reset();
-        assert!(!state.should_stop());
-
-        state.request_cancel();
-        assert!(state.should_stop());
-
-        state.reset();
-        assert!(!state.should_stop());
-    }
-
-    #[test]
-    fn test_sync_state_running_and_cancel_independent() {
-        let state = SyncState::new();
-
-        // Set running doesn't affect cancel state
-        state.set_running(true);
-        assert!(state.is_running());
-        assert!(!state.should_stop());
-
-        // Request cancel doesn't affect running state
-        state.request_cancel();
-        assert!(state.is_running());
-        assert!(state.should_stop());
-
-        // Reset cancel doesn't affect running state
-        state.reset();
-        assert!(state.is_running());
-        assert!(!state.should_stop());
     }
 
     #[test]
