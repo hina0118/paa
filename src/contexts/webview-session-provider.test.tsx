@@ -98,13 +98,14 @@ describe('WebviewSessionProvider', () => {
 
     act(() => {
       listeners['surugaya:fetch_progress']({
-        payload: { current: 0, total: 4, url: 'https://example.com/1' },
+        payload: { current: 1, total: 4, url: 'https://example.com/1' },
       });
     });
     expect(result.current.progress?.task_name).toBe(
       TASK_NAMES.SURUGAYA_MYPAGE_FETCH
     );
     expect(result.current.progress?.processed_count).toBe(1);
+    expect(result.current.progress?.progress_percent).toBe(25);
 
     act(() => {
       listeners['surugaya:fetch_complete']({

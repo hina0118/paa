@@ -40,8 +40,8 @@ function toProgress(
   isComplete: boolean
 ): BatchProgress {
   const { current, total, url } = payload;
-  // `current` is treated as a 0-based index from the backend; convert to a processed count.
-  const processed = total > 0 ? Math.min(current + 1, total) : 0;
+  // バックエンドは取得中ページの 1 始まりの番号（`i + 1`）を `current` として送る
+  const processed = total > 0 ? Math.min(current, total) : 0;
   return {
     task_name: taskName,
     batch_number: processed,
