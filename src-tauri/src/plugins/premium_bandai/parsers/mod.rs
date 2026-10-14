@@ -205,7 +205,7 @@ pub fn extract_order_number(lines: &[&str]) -> Option<String> {
                 .iter()
                 .map(|l| l.trim())
                 .find(|t| !t.is_empty())
-                .and_then(&try_5digit)
+                .and_then(try_5digit)
             {
                 return Some(v);
             }
