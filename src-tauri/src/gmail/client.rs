@@ -11,7 +11,6 @@
 use crate::gmail_client::GmailClientTrait;
 #[cfg(test)]
 use crate::logic::sync_logic::build_sync_query;
-use crate::repository::EmailRepository;
 use async_trait::async_trait;
 use google_gmail1::api::Scope;
 use google_gmail1::{hyper_rustls, Gmail};
@@ -21,7 +20,6 @@ use hyper_util::rt::TokioExecutor;
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqlitePool;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager};
 use yup_oauth2 as oauth2;
 
@@ -66,16 +64,6 @@ pub struct GmailMessage {
     pub body_html: Option<String>,
     pub internal_date: i64,
     pub from_address: Option<String>,
-}
-
-/// Gmail 同期の保存結果。saved_count は INSERT または ON CONFLICT DO UPDATE で rows_affected>0 の件数
-/// （重複も更新されるため「新規のみ」ではない）。skipped_count は rows_affected=0 の件数（通常は 0）。
-#[derive(Debug, Serialize, Deserialize)]
-#[allow(clippy::struct_field_names)]
-pub struct FetchResult {
-    pub fetched_count: usize,
-    pub saved_count: usize,
-    pub skipped_count: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -147,23 +135,9 @@ pub struct UpdateShopSettings {
 /// 2. `is_running`
 ///
 /// This ordering must be maintained consistently throughout the codebase.
-#[derive(Clone)]
-pub struct SyncState {
-    pub should_cancel: Arc<Mutex<bool>>,
-    pub is_running: Arc<Mutex<bool>>,
-    /// 直近のエラーメッセージ（エラー時のみ。try_start でクリア）
-    pub last_error: Arc<Mutex<Option<String>>>,
-}
-
-impl Default for SyncState {
-    fn default() -> Self {
-        Self {
-            should_cancel: Arc::new(Mutex::new(false)),
-            is_running: Arc::new(Mutex::new(false)),
-            last_error: Arc::new(Mutex::new(None)),
-        }
-    }
-}
+/// Gmail 同期の多重実行ガード・キャンセル制御用状態（`BatchRunState` の薄いラッパー）
+#[derive(Clone, Default)]
+pub struct SyncState(crate::BatchRunState);
 
 impl SyncState {
     pub fn new() -> Self {
@@ -171,104 +145,46 @@ impl SyncState {
     }
 
     pub fn request_cancel(&self) {
-        if let Ok(mut cancel) = self.should_cancel.lock() {
-            *cancel = true;
-        }
+        self.0.request_cancel();
     }
 
     pub fn should_stop(&self) -> bool {
-        self.should_cancel.lock().map(|c| *c).unwrap_or(false)
+        self.0.should_cancel()
     }
 
     /// エラーを記録（get_sync_status で error として返す）
     pub fn set_error(&self, msg: &str) {
-        if let Ok(mut err) = self.last_error.lock() {
-            *err = Some(msg.to_string());
-        }
+        self.0.set_error(msg);
     }
 
     /// 直近のエラーメッセージを取得する
     pub fn last_error(&self) -> Option<String> {
-        self.last_error.lock().ok().and_then(|g| g.clone())
+        self.0.last_error()
     }
 
-    /// エラーをクリア（try_start で呼ぶ）
+    /// エラーをクリア
     pub fn clear_error(&self) {
-        if let Ok(mut err) = self.last_error.lock() {
-            *err = None;
-        }
+        self.0.clear_error();
     }
 
     /// 強制的に idle にリセット（reset_sync_status コマンド用）
     pub fn force_idle(&self) {
-        if let Ok(mut running) = self.is_running.lock() {
-            *running = false;
-        }
-        self.clear_error();
+        self.0.force_idle();
     }
 
-    #[allow(dead_code)]
-    pub fn reset(&self) {
-        if let Ok(mut cancel) = self.should_cancel.lock() {
-            *cancel = false;
-        }
-    }
-
-    #[allow(dead_code)]
     pub fn is_running(&self) -> bool {
-        self.is_running.lock().map(|r| *r).unwrap_or(false)
+        self.0.is_running()
     }
 
-    #[allow(dead_code)]
-    pub fn set_running(&self, running: bool) {
-        if let Ok(mut is_running) = self.is_running.lock() {
-            *is_running = running;
-        }
-    }
-
-    /// Atomically check if not running, reset cancellation flag, and set to running.
-    /// Returns true if successfully started, false if already running.
-    ///
-    /// # Locking behavior
-    /// This method acquires *both* `should_cancel` and `is_running` locks and updates
-    /// them while holding the locks to avoid races with `request_cancel`. The locks
-    /// are always taken in the same order (`should_cancel` then `is_running`) and no
-    /// other method holds both locks simultaneously, so this does not introduce
-    /// deadlock risk.
+    /// 未実行なら実行中にしてキャンセルフラグと直近エラーをクリアし `true` を返す。
+    /// 既に実行中なら何もせず `false` を返す。
     pub fn try_start(&self) -> bool {
-        // First, acquire the cancellation flag lock.
-        let mut cancel = if let Ok(guard) = self.should_cancel.lock() {
-            guard
-        } else {
-            log::error!(
-                "Failed to acquire should_cancel lock in try_start (mutex poisoned or unavailable)"
-            );
-            return false;
-        };
+        self.0.try_start().is_ok()
+    }
 
-        // Then, acquire the running state lock. Lock order is consistent to avoid deadlocks.
-        let mut is_running = if let Ok(guard) = self.is_running.lock() {
-            guard
-        } else {
-            log::error!(
-                "Failed to acquire is_running lock in try_start (mutex poisoned or unavailable)"
-            );
-            return false;
-        };
-
-        // If we're already running, do not change any flags.
-        if *is_running {
-            return false;
-        }
-
-        // Start running, clear any pending cancellation, and clear last error.
-        *is_running = true;
-        *cancel = false;
-        drop(is_running);
-        drop(cancel);
-        self.clear_error();
-
-        true
+    /// 同期完了時に呼ぶ（通常は `SyncGuard` の drop 経由）
+    pub fn finish(&self) {
+        self.0.finish();
     }
 }
 
@@ -286,20 +202,7 @@ impl<'a> SyncGuard<'a> {
 
 impl Drop for SyncGuard<'_> {
     fn drop(&mut self) {
-        // Attempt to clear the running flag. If the mutex is poisoned due to a panic,
-        // recover the inner value and clear the flag so future syncs are not blocked.
-        match self.sync_state.is_running.lock() {
-            Ok(mut is_running) => {
-                *is_running = false;
-            }
-            Err(poisoned) => {
-                log::warn!(
-                    "Mutex for running flag was poisoned in SyncGuard::drop; clearing flag anyway"
-                );
-                let mut is_running = poisoned.into_inner();
-                *is_running = false;
-            }
-        }
+        self.sync_state.finish();
     }
 }
 
@@ -408,58 +311,6 @@ impl GmailClient {
         })?;
 
         Ok(auth)
-    }
-
-    #[allow(dead_code)]
-    pub async fn fetch_messages(&self, query: &str) -> Result<Vec<GmailMessage>, String> {
-        let mut all_messages = Vec::new();
-        let mut page_token: Option<String> = None;
-
-        loop {
-            let mut req = self
-                .hub
-                .users()
-                .messages_list("me")
-                .q(query)
-                .include_spam_trash(true);
-
-            if let Some(token) = page_token {
-                req = req.page_token(&token);
-            }
-
-            let (_, result) = req
-                .doit()
-                .await
-                .map_err(|e| format!("Failed to list messages: {e}"))?;
-
-            if let Some(messages) = result.messages {
-                // メッセージIDを収集
-                let message_ids: Vec<String> =
-                    messages.iter().filter_map(|msg| msg.id.clone()).collect();
-
-                log::info!(
-                    "Fetching {} messages in parallel batches",
-                    message_ids.len()
-                );
-
-                // 順次処理でメッセージを取得
-                // 注: 並列処理はライフタイムの問題とGmail API制限により複雑
-                // 将来的な改善: tokio::spawn + Arc<Mutex<Hub>>の使用を検討
-                for message_id in message_ids {
-                    match self.get_message(&message_id).await {
-                        Ok(msg) => all_messages.push(msg),
-                        Err(e) => log::warn!("Failed to fetch message {message_id}: {e}"),
-                    }
-                }
-            }
-
-            page_token = result.next_page_token;
-            if page_token.is_none() {
-                break;
-            }
-        }
-
-        Ok(all_messages)
     }
 
     async fn get_message(&self, message_id: &str) -> Result<GmailMessage, String> {
@@ -829,117 +680,6 @@ impl GmailClientTrait for GmailClient {
     }
 }
 
-pub async fn save_messages_to_db(
-    pool: &SqlitePool,
-    messages: &[GmailMessage],
-    shop_settings: &[ShopSettings],
-) -> Result<FetchResult, String> {
-    log::info!("Saving {} messages to database using sqlx", messages.len());
-
-    let mut saved_count = 0;
-    let mut skipped_count = 0;
-    let mut filtered_count = 0;
-
-    // トランザクションを使用してバッチ処理
-    let mut tx = pool
-        .begin()
-        .await
-        .map_err(|e| format!("Failed to begin transaction: {e}"))?;
-
-    for msg in messages {
-        // Check subject filter (use the logic module version for consistency)
-        if !crate::logic::sync_logic::should_save_message(msg, shop_settings) {
-            filtered_count += 1;
-            log::debug!(
-                "Message {} filtered out by subject filter (subject: {:?})",
-                msg.message_id,
-                msg.subject
-            );
-            continue;
-        }
-
-        let result = sqlx::query(
-            r"
-            INSERT INTO emails (message_id, body_plain, body_html, internal_date, from_address, subject)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-            ON CONFLICT(message_id) DO UPDATE SET
-                body_plain = COALESCE(excluded.body_plain, body_plain),
-                body_html = COALESCE(excluded.body_html, body_html),
-                internal_date = COALESCE(excluded.internal_date, internal_date),
-                from_address = COALESCE(excluded.from_address, from_address),
-                subject = COALESCE(excluded.subject, subject)
-            ",
-        )
-        .bind(&msg.message_id)
-        .bind(&msg.body_plain)
-        .bind(&msg.body_html)
-        .bind(msg.internal_date)
-        .bind(&msg.from_address)
-        .bind(&msg.subject)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| format!("Failed to insert message {}: {}", msg.message_id, e))?;
-
-        if result.rows_affected() > 0 {
-            saved_count += 1;
-        } else {
-            skipped_count += 1;
-        }
-    }
-
-    tx.commit()
-        .await
-        .map_err(|e| format!("Failed to commit transaction: {e}"))?;
-
-    log::info!(
-        "Saved {saved_count} messages (inserted or updated), skipped {skipped_count}, filtered {filtered_count} by subject"
-    );
-
-    Ok(FetchResult {
-        fetched_count: messages.len(),
-        saved_count,
-        skipped_count,
-    })
-}
-
-/// EmailRepository経由でメッセージをDBに保存する（テスト可能なバージョン）
-///
-/// # Arguments
-/// * `repo` - EmailRepositoryを実装したリポジトリ
-/// * `messages` - 保存するメッセージリスト（所有権を取得し、in-placeでフィルタリング）
-/// * `shop_settings` - 有効なショップ設定（件名フィルタリングに使用）
-///
-/// # Returns
-/// FetchResult（保存数、スキップ数などの統計情報）
-pub async fn save_messages_to_db_with_repo(
-    repo: &dyn EmailRepository,
-    mut messages: Vec<GmailMessage>,
-    shop_settings: &[ShopSettings],
-) -> Result<FetchResult, String> {
-    let original_count = messages.len();
-    log::info!(
-        "Saving {} messages to database via repository",
-        original_count
-    );
-
-    // ショップ設定でin-placeフィルタリング（cloneを回避）
-    messages.retain(|msg| crate::logic::sync_logic::should_save_message(msg, shop_settings));
-    let filtered_count = original_count - messages.len();
-
-    // リポジトリ経由で保存
-    let (saved_count, skipped_count) = repo.save_messages(&messages).await?;
-
-    log::info!(
-        "Saved {saved_count} messages (inserted or updated), skipped {skipped_count}, filtered {filtered_count} by subject"
-    );
-
-    Ok(FetchResult {
-        fetched_count: original_count,
-        saved_count,
-        skipped_count,
-    })
-}
-
 /// Helper function to format timestamp as RFC3339 (used by tests)
 #[cfg(test)]
 fn format_timestamp(internal_date: i64) -> String {
@@ -1283,41 +1023,8 @@ pub async fn delete_shop_setting(pool: &SqlitePool, id: i64) -> Result<(), Strin
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
-    use std::str::FromStr;
 
     // Helper function to create an in-memory test database
-    async fn create_test_db() -> sqlx::SqlitePool {
-        let options = SqliteConnectOptions::from_str("sqlite::memory:")
-            .unwrap()
-            .create_if_missing(true);
-
-        let pool = SqlitePoolOptions::new()
-            .connect_with(options)
-            .await
-            .expect("Failed to create test database");
-
-        // Create emails table
-        sqlx::query(
-            r"
-            CREATE TABLE IF NOT EXISTS emails (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                message_id TEXT UNIQUE NOT NULL,
-                body_plain TEXT,
-                body_html TEXT,
-                internal_date INTEGER NOT NULL,
-                from_address TEXT,
-                subject TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-            ",
-        )
-        .execute(&pool)
-        .await
-        .expect("Failed to create emails table");
-
-        pool
-    }
 
     #[test]
     fn test_gmail_message_structure() {
@@ -1336,19 +1043,6 @@ mod tests {
         assert!(message.body_plain.is_some());
         assert!(message.body_html.is_some());
         assert_eq!(message.internal_date, 1234567890000);
-    }
-
-    #[test]
-    fn test_fetch_result_structure() {
-        let result = FetchResult {
-            fetched_count: 10,
-            saved_count: 8,
-            skipped_count: 2,
-        };
-
-        assert_eq!(result.fetched_count, 10);
-        assert_eq!(result.saved_count, 8);
-        assert_eq!(result.skipped_count, 2);
     }
 
     #[test]
@@ -1398,254 +1092,6 @@ mod tests {
     }
 
     #[test]
-    fn test_sync_state_reset() {
-        let sync_state = SyncState::new();
-
-        sync_state.request_cancel();
-        assert!(sync_state.should_stop());
-
-        sync_state.reset();
-        assert!(!sync_state.should_stop());
-    }
-
-    #[tokio::test]
-    async fn test_save_messages_to_db_empty() {
-        let pool = create_test_db().await;
-        let messages: Vec<GmailMessage> = vec![];
-        let shop_settings: Vec<ShopSettings> = vec![];
-
-        let result = save_messages_to_db(&pool, &messages, &shop_settings)
-            .await
-            .expect("Failed to save empty messages");
-
-        assert_eq!(result.fetched_count, 0);
-        assert_eq!(result.saved_count, 0);
-        assert_eq!(result.skipped_count, 0);
-    }
-
-    #[tokio::test]
-    async fn test_save_messages_to_db_single() {
-        let pool = create_test_db().await;
-
-        let message = GmailMessage {
-            message_id: "msg001".to_string(),
-            snippet: "Test message".to_string(),
-            body_plain: Some("Plain text".to_string()),
-            body_html: Some("<html>HTML</html>".to_string()),
-            internal_date: 1609459200000, // 2021-01-01
-            from_address: Some("test@example.com".to_string()),
-            subject: Some("Test subject".to_string()),
-        };
-
-        let shop_settings = vec![ShopSettings {
-            id: 1,
-            shop_name: "Test Shop".to_string(),
-            sender_address: "test@example.com".to_string(),
-            parser_type: "test".to_string(),
-            subject_filters: None,
-            is_enabled: true,
-            created_at: "2021-01-01 00:00:00".to_string(),
-            updated_at: "2021-01-01 00:00:00".to_string(),
-        }];
-
-        let result = save_messages_to_db(&pool, &[message], &shop_settings)
-            .await
-            .expect("Failed to save message");
-
-        assert_eq!(result.fetched_count, 1);
-        assert_eq!(result.saved_count, 1);
-        assert_eq!(result.skipped_count, 0);
-
-        // Verify the message was saved
-        let row: (String, i64) = sqlx::query_as(
-            "SELECT message_id, internal_date FROM emails WHERE message_id = 'msg001'",
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("Failed to fetch saved message");
-
-        assert_eq!(row.0, "msg001");
-        assert_eq!(row.1, 1609459200000);
-    }
-
-    #[tokio::test]
-    async fn test_save_messages_to_db_duplicate() {
-        let pool = create_test_db().await;
-
-        let message = GmailMessage {
-            message_id: "msg002".to_string(),
-            snippet: "Test message".to_string(),
-            body_plain: Some("Plain text".to_string()),
-            body_html: Some("<html>HTML</html>".to_string()),
-            internal_date: 1609459200000,
-            from_address: Some("test@example.com".to_string()),
-            subject: Some("Test subject".to_string()),
-        };
-
-        let shop_settings = vec![ShopSettings {
-            id: 1,
-            shop_name: "Test Shop".to_string(),
-            sender_address: "test@example.com".to_string(),
-            parser_type: "test".to_string(),
-            subject_filters: None,
-            is_enabled: true,
-            created_at: "2021-01-01 00:00:00".to_string(),
-            updated_at: "2021-01-01 00:00:00".to_string(),
-        }];
-
-        // Save first time
-        let result1 = save_messages_to_db(&pool, std::slice::from_ref(&message), &shop_settings)
-            .await
-            .expect("Failed to save message first time");
-
-        assert_eq!(result1.saved_count, 1);
-        assert_eq!(result1.skipped_count, 0);
-
-        // Save second time: ON CONFLICT DO UPDATE により UPDATE が実行され、saved としてカウントされる
-        let result2 = save_messages_to_db(&pool, &[message], &shop_settings)
-            .await
-            .expect("Failed to save message second time");
-
-        assert_eq!(result2.saved_count, 1);
-        assert_eq!(result2.skipped_count, 0);
-    }
-
-    #[tokio::test]
-    async fn test_save_messages_to_db_batch() {
-        let pool = create_test_db().await;
-
-        let messages = vec![
-            GmailMessage {
-                message_id: "msg003".to_string(),
-                snippet: "Message 1".to_string(),
-                body_plain: Some("Body 1".to_string()),
-                body_html: None,
-                internal_date: 1609459200000,
-                from_address: Some("test@example.com".to_string()),
-                subject: Some("Test subject 1".to_string()),
-            },
-            GmailMessage {
-                message_id: "msg004".to_string(),
-                snippet: "Message 2".to_string(),
-                body_plain: None,
-                body_html: Some("<html>Body 2</html>".to_string()),
-                internal_date: 1609545600000,
-                from_address: Some("test@example.com".to_string()),
-                subject: Some("Test subject 2".to_string()),
-            },
-            GmailMessage {
-                message_id: "msg005".to_string(),
-                snippet: "Message 3".to_string(),
-                body_plain: Some("Body 3".to_string()),
-                body_html: Some("<html>Body 3</html>".to_string()),
-                internal_date: 1609632000000,
-                from_address: Some("test@example.com".to_string()),
-                subject: Some("Test subject 3".to_string()),
-            },
-        ];
-
-        let shop_settings = vec![ShopSettings {
-            id: 1,
-            shop_name: "Test Shop".to_string(),
-            sender_address: "test@example.com".to_string(),
-            parser_type: "test".to_string(),
-            subject_filters: None,
-            is_enabled: true,
-            created_at: "2021-01-01 00:00:00".to_string(),
-            updated_at: "2021-01-01 00:00:00".to_string(),
-        }];
-
-        let result = save_messages_to_db(&pool, &messages, &shop_settings)
-            .await
-            .expect("Failed to save batch");
-
-        assert_eq!(result.fetched_count, 3);
-        assert_eq!(result.saved_count, 3);
-        assert_eq!(result.skipped_count, 0);
-
-        // Verify count in database
-        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM emails")
-            .fetch_one(&pool)
-            .await
-            .expect("Failed to count emails");
-
-        assert_eq!(count.0, 3);
-    }
-
-    #[tokio::test]
-    async fn test_save_messages_to_db_partial_duplicate() {
-        let pool = create_test_db().await;
-
-        let shop_settings = vec![ShopSettings {
-            id: 1,
-            shop_name: "Test Shop".to_string(),
-            sender_address: "test@example.com".to_string(),
-            parser_type: "test".to_string(),
-            subject_filters: None,
-            is_enabled: true,
-            created_at: "2021-01-01 00:00:00".to_string(),
-            updated_at: "2021-01-01 00:00:00".to_string(),
-        }];
-
-        // First batch
-        let messages1 = vec![
-            GmailMessage {
-                message_id: "msg006".to_string(),
-                snippet: "Message 1".to_string(),
-                body_plain: Some("Body 1".to_string()),
-                body_html: None,
-                internal_date: 1609459200000,
-                from_address: Some("test@example.com".to_string()),
-                subject: Some("Test subject 1".to_string()),
-            },
-            GmailMessage {
-                message_id: "msg007".to_string(),
-                snippet: "Message 2".to_string(),
-                body_plain: Some("Body 2".to_string()),
-                body_html: None,
-                internal_date: 1609545600000,
-                from_address: Some("test@example.com".to_string()),
-                subject: Some("Test subject 2".to_string()),
-            },
-        ];
-
-        save_messages_to_db(&pool, &messages1, &shop_settings)
-            .await
-            .expect("Failed to save first batch");
-
-        // Second batch with one duplicate
-        let messages2 = vec![
-            GmailMessage {
-                message_id: "msg007".to_string(), // Duplicate
-                snippet: "Message 2".to_string(),
-                body_plain: Some("Body 2".to_string()),
-                body_html: None,
-                internal_date: 1609545600000,
-                from_address: Some("test@example.com".to_string()),
-                subject: Some("Test subject 2".to_string()),
-            },
-            GmailMessage {
-                message_id: "msg008".to_string(), // New
-                snippet: "Message 3".to_string(),
-                body_plain: Some("Body 3".to_string()),
-                body_html: None,
-                internal_date: 1609632000000,
-                from_address: Some("test@example.com".to_string()),
-                subject: Some("Test subject 3".to_string()),
-            },
-        ];
-
-        let result = save_messages_to_db(&pool, &messages2, &shop_settings)
-            .await
-            .expect("Failed to save second batch");
-
-        assert_eq!(result.fetched_count, 2);
-        // 重複(msg007)も新規(msg008)も ON CONFLICT DO UPDATE で rows_affected=1 のため saved としてカウント
-        assert_eq!(result.saved_count, 2);
-        assert_eq!(result.skipped_count, 0);
-    }
-
-    #[test]
     fn test_sync_metadata_structure() {
         let metadata = SyncMetadata {
             sync_status: "idle".to_string(),
@@ -1667,251 +1113,6 @@ mod tests {
     }
 
     // エラーハンドリングテスト
-
-    #[tokio::test]
-    async fn test_save_messages_db_constraint_violation() {
-        let pool = create_test_db().await;
-
-        let shop_settings = vec![ShopSettings {
-            id: 1,
-            shop_name: "Test Shop".to_string(),
-            sender_address: "test@example.com".to_string(),
-            parser_type: "test".to_string(),
-            subject_filters: None,
-            is_enabled: true,
-            created_at: "2021-01-01 00:00:00".to_string(),
-            updated_at: "2021-01-01 00:00:00".to_string(),
-        }];
-
-        // 正常にメッセージを保存
-        let message = GmailMessage {
-            message_id: "msg_unique".to_string(),
-            snippet: "Test message".to_string(),
-            body_plain: Some("Plain text".to_string()),
-            body_html: Some("<html>HTML</html>".to_string()),
-            internal_date: 1609459200000,
-            from_address: Some("test@example.com".to_string()),
-            subject: Some("Test subject".to_string()),
-        };
-
-        let result1 = save_messages_to_db(&pool, std::slice::from_ref(&message), &shop_settings)
-            .await
-            .expect("Failed to save first message");
-
-        assert_eq!(result1.saved_count, 1);
-
-        // 同じmessage_idで再度保存: ON CONFLICT DO UPDATE により UPDATE が実行され、saved としてカウントされる
-        let result2 = save_messages_to_db(&pool, &[message], &shop_settings)
-            .await
-            .expect("Should handle duplicate gracefully");
-
-        assert_eq!(result2.saved_count, 1);
-        assert_eq!(result2.skipped_count, 0);
-    }
-
-    #[tokio::test]
-    async fn test_save_messages_invalid_internal_date() {
-        let pool = create_test_db().await;
-
-        let shop_settings = vec![ShopSettings {
-            id: 1,
-            shop_name: "Test Shop".to_string(),
-            sender_address: "test@example.com".to_string(),
-            parser_type: "test".to_string(),
-            subject_filters: None,
-            is_enabled: true,
-            created_at: "2021-01-01 00:00:00".to_string(),
-            updated_at: "2021-01-01 00:00:00".to_string(),
-        }];
-
-        // internal_dateが負の値（無効なタイムスタンプ）
-        let message = GmailMessage {
-            message_id: "msg_invalid_date".to_string(),
-            snippet: "Test message".to_string(),
-            body_plain: Some("Plain text".to_string()),
-            body_html: Some("<html>HTML</html>".to_string()),
-            internal_date: -1, // 無効な値
-            from_address: Some("test@example.com".to_string()),
-            subject: Some("Test subject".to_string()),
-        };
-
-        // データベース制約によっては保存される可能性があるが、
-        // アプリケーションロジックでバリデーションを行う場合はエラーになる
-        let result = save_messages_to_db(&pool, &[message], &shop_settings).await;
-
-        // この場合、SQLiteは負の値も許容するため成功する
-        assert!(result.is_ok());
-        if let Ok(res) = result {
-            assert_eq!(res.saved_count, 1);
-        }
-    }
-
-    #[tokio::test]
-    async fn test_save_messages_empty_message_id() {
-        let pool = create_test_db().await;
-
-        let shop_settings = vec![ShopSettings {
-            id: 1,
-            shop_name: "Test Shop".to_string(),
-            sender_address: "test@example.com".to_string(),
-            parser_type: "test".to_string(),
-            subject_filters: None,
-            is_enabled: true,
-            created_at: "2021-01-01 00:00:00".to_string(),
-            updated_at: "2021-01-01 00:00:00".to_string(),
-        }];
-
-        // message_idが空文字列
-        let message = GmailMessage {
-            message_id: String::new(),
-            snippet: "Test message".to_string(),
-            body_plain: Some("Plain text".to_string()),
-            body_html: Some("<html>HTML</html>".to_string()),
-            internal_date: 1609459200000,
-            from_address: Some("test@example.com".to_string()),
-            subject: Some("Test subject".to_string()),
-        };
-
-        let result = save_messages_to_db(&pool, &[message], &shop_settings).await;
-
-        // SQLiteはNOT NULL制約でも空文字列を許容する
-        assert!(result.is_ok());
-        if let Ok(res) = result {
-            assert_eq!(res.saved_count, 1);
-        }
-    }
-
-    #[tokio::test]
-    async fn test_save_messages_very_large_body() {
-        let pool = create_test_db().await;
-
-        let shop_settings = vec![ShopSettings {
-            id: 1,
-            shop_name: "Test Shop".to_string(),
-            sender_address: "test@example.com".to_string(),
-            parser_type: "test".to_string(),
-            subject_filters: None,
-            is_enabled: true,
-            created_at: "2021-01-01 00:00:00".to_string(),
-            updated_at: "2021-01-01 00:00:00".to_string(),
-        }];
-
-        // 非常に大きなボディ（1MB）
-        let large_body = "x".repeat(1024 * 1024);
-
-        let message = GmailMessage {
-            message_id: "msg_large_body".to_string(),
-            snippet: "Test message".to_string(),
-            body_plain: Some(large_body.clone()),
-            body_html: Some(large_body),
-            internal_date: 1609459200000,
-            from_address: Some("test@example.com".to_string()),
-            subject: Some("Test subject".to_string()),
-        };
-
-        let result = save_messages_to_db(&pool, &[message], &shop_settings).await;
-
-        // 大きなデータも保存できる
-        assert!(result.is_ok());
-        if let Ok(res) = result {
-            assert_eq!(res.saved_count, 1);
-        }
-    }
-
-    #[tokio::test]
-    async fn test_save_messages_unicode_content() {
-        let pool = create_test_db().await;
-
-        let shop_settings = vec![ShopSettings {
-            id: 1,
-            shop_name: "Test Shop".to_string(),
-            sender_address: "test@example.com".to_string(),
-            parser_type: "test".to_string(),
-            subject_filters: None,
-            is_enabled: true,
-            created_at: "2021-01-01 00:00:00".to_string(),
-            updated_at: "2021-01-01 00:00:00".to_string(),
-        }];
-
-        // Unicode文字を含むメッセージ
-        let message = GmailMessage {
-            message_id: "msg_unicode".to_string(),
-            snippet: "テストメッセージ 🎉".to_string(),
-            body_plain: Some("こんにちは、世界！\n你好世界！\n안녕하세요！".to_string()),
-            body_html: Some("<html>🌍 Unicode HTML 🌏</html>".to_string()),
-            internal_date: 1609459200000,
-            from_address: Some("test@example.com".to_string()),
-            subject: Some("テスト件名".to_string()),
-        };
-
-        let result = save_messages_to_db(&pool, std::slice::from_ref(&message), &shop_settings)
-            .await
-            .expect("Failed to save unicode message");
-
-        assert_eq!(result.saved_count, 1);
-
-        // データベースから取得して検証
-        let row: (String, Option<String>) = sqlx::query_as(
-            "SELECT message_id, body_plain FROM emails WHERE message_id = 'msg_unicode'",
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("Failed to fetch");
-
-        assert_eq!(row.0, "msg_unicode");
-        assert!(row.1.is_some());
-        assert!(row.1.unwrap().contains("こんにちは"));
-    }
-
-    #[tokio::test]
-    async fn test_save_messages_special_characters() {
-        let pool = create_test_db().await;
-
-        let shop_settings = vec![ShopSettings {
-            id: 1,
-            shop_name: "Test Shop".to_string(),
-            sender_address: "test@example.com".to_string(),
-            parser_type: "test".to_string(),
-            subject_filters: None,
-            is_enabled: true,
-            created_at: "2021-01-01 00:00:00".to_string(),
-            updated_at: "2021-01-01 00:00:00".to_string(),
-        }];
-
-        // 特殊文字を含むメッセージ（SQL injection対策テスト）
-        let message = GmailMessage {
-            message_id: "msg'; DROP TABLE emails; --".to_string(),
-            snippet: "Test <script>alert('xss')</script>".to_string(),
-            body_plain: Some("Plain text with 'quotes' and \"double quotes\"".to_string()),
-            body_html: Some("<html><body onload='alert(1)'>HTML</body></html>".to_string()),
-            internal_date: 1609459200000,
-            from_address: Some("test@example.com".to_string()),
-            subject: Some("Test'; DROP TABLE--".to_string()),
-        };
-
-        let result = save_messages_to_db(&pool, std::slice::from_ref(&message), &shop_settings)
-            .await
-            .expect("Failed to save message with special characters");
-
-        assert_eq!(result.saved_count, 1);
-
-        // テーブルが削除されていないことを確認
-        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM emails")
-            .fetch_one(&pool)
-            .await
-            .expect("Table should still exist");
-
-        assert_eq!(count.0, 1);
-
-        // データが正しく保存されていることを確認
-        let row: (String,) = sqlx::query_as("SELECT message_id FROM emails WHERE message_id = ?")
-            .bind("msg'; DROP TABLE emails; --")
-            .fetch_one(&pool)
-            .await
-            .expect("Failed to fetch");
-
-        assert_eq!(row.0, "msg'; DROP TABLE emails; --");
-    }
 
     // ヘルパー関数のテスト
 
@@ -2022,28 +1223,6 @@ mod tests {
     }
 
     #[test]
-    fn test_fetch_result_calculation() {
-        // FetchResultの計算ロジックをテスト
-        let fetched = 100;
-        let saved = 85;
-        let skipped = fetched - saved;
-
-        let result = FetchResult {
-            fetched_count: fetched,
-            saved_count: saved,
-            skipped_count: skipped,
-        };
-
-        assert_eq!(result.fetched_count, 100);
-        assert_eq!(result.saved_count, 85);
-        assert_eq!(result.skipped_count, 15);
-        assert_eq!(
-            result.saved_count + result.skipped_count,
-            result.fetched_count
-        );
-    }
-
-    #[test]
     fn test_gmail_message_with_none_values() {
         // body_plainとbody_htmlがNoneの場合
         let message = GmailMessage {
@@ -2080,120 +1259,6 @@ mod tests {
         assert_eq!(metadata.total_synced_count, 0);
         assert_eq!(metadata.batch_size, 50);
         assert!(metadata.oldest_fetched_date.is_none());
-    }
-
-    #[test]
-    fn test_sync_state_is_running() {
-        let state = SyncState::new();
-        assert!(!state.is_running());
-
-        state.set_running(true);
-        assert!(state.is_running());
-
-        state.set_running(false);
-        assert!(!state.is_running());
-    }
-
-    #[test]
-    fn test_sync_state_set_running() {
-        let state = SyncState::new();
-
-        // Initially not running
-        assert!(!state.is_running());
-
-        // Set to running
-        state.set_running(true);
-        assert!(state.is_running());
-
-        // Set back to not running
-        state.set_running(false);
-        assert!(!state.is_running());
-    }
-
-    #[test]
-    fn test_sync_state_reset_clears_cancel_flag() {
-        let state = SyncState::new();
-
-        // Request cancel
-        state.request_cancel();
-        assert!(state.should_stop());
-
-        // Reset should clear the cancel flag
-        state.reset();
-        assert!(!state.should_stop());
-    }
-
-    #[test]
-    fn test_sync_state_reset_when_not_cancelled() {
-        let state = SyncState::new();
-
-        // Reset when not cancelled should have no effect
-        state.reset();
-        assert!(!state.should_stop());
-    }
-
-    #[test]
-    fn test_sync_state_multiple_resets() {
-        let state = SyncState::new();
-
-        // Cancel, reset, cancel, reset
-        state.request_cancel();
-        assert!(state.should_stop());
-
-        state.reset();
-        assert!(!state.should_stop());
-
-        state.request_cancel();
-        assert!(state.should_stop());
-
-        state.reset();
-        assert!(!state.should_stop());
-    }
-
-    #[test]
-    fn test_sync_state_running_and_cancel_independent() {
-        let state = SyncState::new();
-
-        // Set running doesn't affect cancel state
-        state.set_running(true);
-        assert!(state.is_running());
-        assert!(!state.should_stop());
-
-        // Request cancel doesn't affect running state
-        state.request_cancel();
-        assert!(state.is_running());
-        assert!(state.should_stop());
-
-        // Reset cancel doesn't affect running state
-        state.reset();
-        assert!(state.is_running());
-        assert!(!state.should_stop());
-    }
-
-    #[test]
-    fn test_fetch_result_all_fields() {
-        let result = FetchResult {
-            fetched_count: 100,
-            saved_count: 95,
-            skipped_count: 5,
-        };
-
-        assert_eq!(result.fetched_count, 100);
-        assert_eq!(result.saved_count, 95);
-        assert_eq!(result.skipped_count, 5);
-    }
-
-    #[test]
-    fn test_fetch_result_zero_values() {
-        let result = FetchResult {
-            fetched_count: 0,
-            saved_count: 0,
-            skipped_count: 0,
-        };
-
-        assert_eq!(result.fetched_count, 0);
-        assert_eq!(result.saved_count, 0);
-        assert_eq!(result.skipped_count, 0);
     }
 
     #[test]

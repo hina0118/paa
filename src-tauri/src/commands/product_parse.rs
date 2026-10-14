@@ -3,33 +3,11 @@ use tauri::Manager;
 
 use crate::orchestration;
 
-/// 商品名パースの多重実行ガード・キャンセル制御用状態（`BatchRunState` の薄いラッパー）
-#[derive(Clone, Default)]
-pub struct ProductNameParseState(crate::BatchRunState);
-
-impl ProductNameParseState {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn try_start(&self) -> Result<(), String> {
-        self.0
-            .try_start()
-            .map_err(|_| "商品名解析は既に実行中です。完了するまでお待ちください。".to_string())
-    }
-
-    pub fn finish(&self) {
-        self.0.finish();
-    }
-
-    pub fn request_cancel(&self) {
-        self.0.request_cancel();
-    }
-
-    pub fn should_cancel(&self) -> bool {
-        self.0.should_cancel()
-    }
-}
+crate::batch_run_state::define_batch_state!(
+    /// 商品名パースの多重実行ガード・キャンセル制御用状態（`BatchRunState` の薄いラッパー）
+    ProductNameParseState,
+    "商品名解析は既に実行中です。完了するまでお待ちください。"
+);
 
 /// product_master に未登録の商品名を Gemini API で解析して登録
 /// `BatchRunner<ProductNameParseTask>` を使用

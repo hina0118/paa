@@ -19,12 +19,16 @@ pub struct EmailRow {
 
 /// body_html があれば使用、なければ body_plain を返す（タグ除去は行わない）。
 /// DMM 等は HTML から直接パースするため、HTML 優先で精度が上がる。
-pub fn get_body_for_parse(row: &EmailRow) -> String {
-    let html = row.body_html.as_deref().unwrap_or("").trim();
-    if !html.is_empty() {
-        return html.to_string();
+pub fn get_body_for_parse(row: &EmailRow) -> &str {
+    select_body_for_parse(row.body_html.as_deref(), row.body_plain.as_deref())
+}
+
+/// `get_body_for_parse` の選択規則（空白のみの HTML は無視して plain にフォールバック）
+pub(crate) fn select_body_for_parse<'a>(html: Option<&'a str>, plain: Option<&'a str>) -> &'a str {
+    match html.map(str::trim) {
+        Some(h) if !h.is_empty() => h,
+        _ => plain.unwrap_or(""),
     }
-    row.body_plain.as_deref().unwrap_or("").to_string()
 }
 
 // キャンセル情報（全店舗共通）
@@ -71,12 +75,6 @@ impl ParseState {
         self.0.try_start()
     }
 
-    /// 後方互換のエイリアス（`try_start` を推奨）
-    #[deprecated(note = "Use try_start() instead")]
-    pub fn start(&self) -> Result<(), String> {
-        self.try_start()
-    }
-
     pub fn finish(&self) {
         self.0.finish();
     }
@@ -118,7 +116,7 @@ impl ParseState {
 }
 
 /// 注文情報を表す構造体
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct OrderInfo {
     /// 注文番号
     pub order_number: String,

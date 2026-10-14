@@ -5,4 +5,5 @@
 //! （ログ出力などの限定的な副作用は含まれます）。
 
 pub mod email_parser;
+pub mod subject_filter;
 pub mod sync_logic;

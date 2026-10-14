@@ -18,10 +18,11 @@
 
 use crate::batch_runner::BatchTask;
 use crate::logic::email_parser::extract_domain;
+pub use crate::logic::subject_filter::CompiledShopSetting;
 use crate::logic::sync_logic::extract_email_address;
 use crate::parsers::{EmailRow, OrderInfo, ParseState};
 use crate::plugins::{
-    build_registry, find_plugin, save_images_for_order, DispatchError, DispatchOutcome,
+    find_plugin, registry, save_images_for_order, DispatchError, DispatchOutcome,
 };
 use crate::repository::{ParseRepository, ShopSettingsRepository};
 use async_trait::async_trait;
@@ -36,8 +37,8 @@ pub struct EmailParseInput {
     pub email_id: i64,
     /// メッセージID
     pub message_id: String,
-    /// メール本文（`get_body_for_parse` による HTML 優先選択結果）
-    pub body_plain: String,
+    /// メール本文 HTML（パース時は `body_for_parse` 経由で HTML 優先選択される）
+    pub body_html: Option<String>,
     /// メール本文 plain text そのまま（`body_html` が存在する場合も上書きしない生テキスト）
     pub body_plain_raw: String,
     /// 送信元アドレス
@@ -48,15 +49,25 @@ pub struct EmailParseInput {
     pub internal_date: Option<i64>,
 }
 
+impl EmailParseInput {
+    /// HTML 優先で選択したパース用本文（`get_body_for_parse` と同じ規則）
+    ///
+    /// 本文を 2 重に保持しないよう、選択結果は保存せず都度参照で返す。
+    pub fn body_for_parse(&self) -> &str {
+        crate::parsers::select_body_for_parse(
+            self.body_html.as_deref(),
+            Some(self.body_plain_raw.as_str()),
+        )
+    }
+}
+
 impl From<EmailRow> for EmailParseInput {
     fn from(row: EmailRow) -> Self {
-        let body = crate::parsers::get_body_for_parse(&row);
-        let body_plain_raw = row.body_plain.as_deref().unwrap_or("").to_string();
         Self {
             email_id: row.email_id,
             message_id: row.message_id,
-            body_plain: body,
-            body_plain_raw,
+            body_html: row.body_html,
+            body_plain_raw: row.body_plain.unwrap_or_default(),
             from_address: row.from_address,
             subject: row.subject,
             internal_date: row.internal_date,
@@ -91,8 +102,7 @@ pub struct ParseFailure {
 /// ショップ設定のキャッシュ
 #[derive(Debug, Clone, Default)]
 pub struct ShopSettingsCache {
-    /// (sender_address, parser_type, subject_filters, shop_name) のリスト
-    pub settings: Vec<(String, String, Option<String>, String)>,
+    pub settings: Vec<CompiledShopSetting>,
 }
 
 /// メールパースのコンテキスト
@@ -145,261 +155,17 @@ where
             _phantom: PhantomData,
         }
     }
-}
 
-impl<P, S> Default for EmailParseTask<P, S>
-where
-    P: ParseRepository + 'static,
-    S: ShopSettingsRepository + 'static,
-{
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// ショップ設定から候補パーサーを取得
-///
-/// 旧実装 (`logic/email_parser.rs`) と同じロジックを使用:
-/// - from_address からメールアドレスを抽出して正規化
-/// - sender_address と完全一致（大文字小文字無視）でチェック
-fn get_candidate_parsers(
-    settings: &[(String, String, Option<String>, String)],
-    from_address: Option<&str>,
-    subject: Option<&str>,
-) -> Vec<(String, String)> {
-    // from_addressからメールアドレスを抽出して正規化
-    let normalized_from = match from_address {
-        Some(addr) => match extract_email_address(addr) {
-            Some(email) => email,
-            None => return vec![], // 有効なメールアドレスが抽出できない場合は空を返す
-        },
-        None => return vec![],
-    };
-
-    settings
-        .iter()
-        .filter(|(sender_address, _, subject_filters, _)| {
-            // 送信元アドレスが完全一致するか確認（大文字小文字無視）
-            if !sender_address.eq_ignore_ascii_case(&normalized_from) {
-                return false;
-            }
-
-            // 件名フィルターがある場合はチェック
-            if let Some(filters) = subject_filters {
-                // JSON形式のフィルターをパース
-                let filter_list: Vec<String> = match serde_json::from_str(filters) {
-                    Ok(list) => list,
-                    Err(_) => {
-                        // JSONパースエラー時はフィルター無視（旧実装と同じ）
-                        return true;
-                    }
-                };
-
-                // 空のフィルターリストは「フィルターなし＝全許可」
-                if filter_list.is_empty() {
-                    return true;
-                }
-
-                // 件名がない場合は除外
-                let subj = match subject {
-                    Some(s) => s,
-                    None => return false,
-                };
-
-                // いずれかのフィルターに一致すればOK（正規表現優先、失敗時は部分一致にフォールバック）
-                if !filter_list.iter().any(|filter| {
-                    regex::Regex::new(filter)
-                        .map(|re| re.is_match(subj))
-                        .unwrap_or_else(|_| subj.contains(filter))
-                }) {
-                    return false;
-                }
-            }
-
-            true
-        })
-        .map(|(_, parser_type, _, shop_name)| (parser_type.clone(), shop_name.clone()))
-        .collect()
-}
-
-/// `DispatchOutcome` に含まれるすべての `OrderInfo` に対して画像保存を実行する
-///
-/// `tx.commit()` 後に呼び出すことで、トランザクションの RESERVED LOCK と
-/// 画像 INSERT の競合（SQLITE_BUSY / "database is locked"）を回避する。
-///
-/// - `OrderSaved` → 1件分の画像を登録
-/// - `MultiOrderSaved` → 全注文の画像を登録（先頭だけでなく全件）
-/// - `CancelApplied` / `OrderNumberChanged` / `ConsolidationApplied` → 画像なしのためスキップ
-async fn save_images_for_dispatch_outcome(
-    outcome: &DispatchOutcome,
-    image_save_ctx: &Option<(std::sync::Arc<sqlx::SqlitePool>, std::path::PathBuf)>,
-) {
-    match outcome {
-        DispatchOutcome::OrderSaved(order_info) => {
-            save_images_for_order(order_info, image_save_ctx).await;
-        }
-        DispatchOutcome::MultiOrderSaved(orders) => {
-            for order_info in orders {
-                save_images_for_order(order_info, image_save_ctx).await;
-            }
-        }
-        _ => {}
-    }
-}
-
-/// `DispatchOutcome` を `EmailParseOutput` 組み立てに必要な `(OrderInfo, cancel_applied)` に変換する
-///
-/// - `OrderSaved` / `MultiOrderSaved` → cancel_applied = false（通常保存）
-/// - `CancelApplied` / `OrderNumberChanged` / `ConsolidationApplied` → cancel_applied = true（特殊適用済み）
-fn outcome_to_order_info(outcome: DispatchOutcome, email_id: i64) -> (OrderInfo, bool) {
-    match outcome {
-        DispatchOutcome::OrderSaved(order_info) => (*order_info, false),
-        DispatchOutcome::CancelApplied { order_number } => {
-            let info = OrderInfo {
-                order_number,
-                order_date: None,
-                delivery_address: None,
-                delivery_info: None,
-                items: vec![],
-                subtotal: None,
-                shipping_fee: None,
-                total_amount: None,
-            };
-            (info, true)
-        }
-        DispatchOutcome::OrderNumberChanged { new_order_number } => {
-            let info = OrderInfo {
-                order_number: new_order_number,
-                order_date: None,
-                delivery_address: None,
-                delivery_info: None,
-                items: vec![],
-                subtotal: None,
-                shipping_fee: None,
-                total_amount: None,
-            };
-            (info, true)
-        }
-        DispatchOutcome::ConsolidationApplied { new_order_number } => {
-            let info = OrderInfo {
-                order_number: new_order_number,
-                order_date: None,
-                delivery_address: None,
-                delivery_info: None,
-                items: vec![],
-                subtotal: None,
-                shipping_fee: None,
-                total_amount: None,
-            };
-            (info, true)
-        }
-        DispatchOutcome::DeliveryCompleted { tracking_number } => {
-            let info = OrderInfo {
-                order_number: tracking_number,
-                order_date: None,
-                delivery_address: None,
-                delivery_info: None,
-                items: vec![],
-                subtotal: None,
-                shipping_fee: None,
-                total_amount: None,
-            };
-            (info, true)
-        }
-        DispatchOutcome::MultiOrderSaved(orders) => {
-            let first = orders.into_iter().next().unwrap_or_else(|| {
-                log::warn!(
-                    "[email_parse_task] MultiOrderSaved with empty orders (email_id={})",
-                    email_id
-                );
-                OrderInfo {
-                    order_number: String::new(),
-                    order_date: None,
-                    delivery_address: None,
-                    delivery_info: None,
-                    items: vec![],
-                    subtotal: None,
-                    shipping_fee: None,
-                    total_amount: None,
-                }
-            });
-            (first, false)
-        }
-    }
-}
-
-#[async_trait]
-impl<P, S> BatchTask for EmailParseTask<P, S>
-where
-    P: ParseRepository + 'static,
-    S: ShopSettingsRepository + 'static,
-{
-    type Input = EmailParseInput;
-    type Output = EmailParseOutput;
-    type Context = EmailParseContext<P, S>;
-
-    fn name(&self) -> &str {
-        EMAIL_PARSE_TASK_NAME
-    }
-
-    fn event_name(&self) -> &str {
-        EMAIL_PARSE_EVENT_NAME
-    }
-
-    /// バッチ処理前にショップ設定を取得してキャッシュ
-    async fn before_batch(
+    /// メールを1件ずつパースして保存する（`process_batch` の本体）
+    async fn parse_inputs(
         &self,
-        _inputs: &[Self::Input],
-        context: &Self::Context,
-    ) -> Result<(), String> {
-        log::debug!("[{}] before_batch: Loading shop settings", self.name());
-
-        // ショップ設定を取得
-        let enabled_settings = context
-            .shop_settings_repo
-            .get_enabled()
-            .await
-            .map_err(|e| format!("Failed to fetch shop settings: {e}"))?;
-
-        if enabled_settings.is_empty() {
-            return Err("No enabled shop settings found".to_string());
-        }
-
-        let settings: Vec<(String, String, Option<String>, String)> = enabled_settings
-            .into_iter()
-            .map(|s| {
-                (
-                    s.sender_address,
-                    s.parser_type,
-                    s.subject_filters,
-                    s.shop_name,
-                )
-            })
-            .collect();
-
-        // キャッシュに保存
-        let mut cache = context.shop_settings_cache.lock().await;
-        cache.settings = settings;
-
-        log::info!(
-            "[{}] Shop settings loaded: {} entries",
-            self.name(),
-            cache.settings.len()
-        );
-
-        Ok(())
-    }
-
-    /// メールをパース（VendorPlugin レジストリ経由）
-    async fn process_batch(
-        &self,
-        inputs: Vec<Self::Input>,
-        context: &Self::Context,
-    ) -> Vec<Result<Self::Output, String>> {
-        let mut results: Vec<Result<Self::Output, String>> = Vec::with_capacity(inputs.len());
+        inputs: Vec<EmailParseInput>,
+        context: &EmailParseContext<P, S>,
+    ) -> Vec<Result<EmailParseOutput, String>> {
+        let mut results: Vec<Result<EmailParseOutput, String>> = Vec::with_capacity(inputs.len());
         let cache = context.shop_settings_cache.lock().await;
         let settings = &cache.settings;
-        let registry = build_registry();
+        let registry = registry();
 
         'input_loop: for input in inputs {
             // 候補パーサーを取得
@@ -425,8 +191,10 @@ where
             let mut last_error = String::new();
             let mut dispatch_outcome: Option<(DispatchOutcome, String)> = None; // (outcome, shop_name)
 
-            'parser_loop: for (parser_type, shop_name) in &candidate_parsers {
-                let plugin = match find_plugin(&registry, parser_type) {
+            'parser_loop: for setting in &candidate_parsers {
+                let parser_type = setting.parser_type.as_str();
+                let shop_name = setting.shop_name.as_str();
+                let plugin = match find_plugin(registry, parser_type) {
                     Some(p) => p,
                     None => {
                         log::warn!(
@@ -456,9 +224,9 @@ where
                 // prefer_plain_text() が true のプラグインには HTML 優先選択前の
                 // body_plain_raw を渡す（Amazon 等のプレーンテキストパーサー向け）。
                 let body_for_dispatch = if plugin.prefer_plain_text() {
-                    &input.body_plain_raw
+                    input.body_plain_raw.as_str()
                 } else {
-                    &input.body_plain
+                    input.body_for_parse()
                 };
 
                 match plugin
@@ -487,7 +255,7 @@ where
                             parser_type,
                             input.email_id
                         );
-                        dispatch_outcome = Some((outcome, shop_name.clone()));
+                        dispatch_outcome = Some((outcome, shop_name.to_string()));
                         break 'parser_loop;
                     }
                     Err(DispatchError::ParseFailed(e)) => {
@@ -557,6 +325,185 @@ where
 
         results
     }
+}
+
+impl<P, S> Default for EmailParseTask<P, S>
+where
+    P: ParseRepository + 'static,
+    S: ShopSettingsRepository + 'static,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// ショップ設定から候補パーサーを取得
+///
+/// 旧実装 (`logic/email_parser.rs`) と同じロジックを使用:
+/// - from_address からメールアドレスを抽出して正規化
+/// - sender_address と完全一致（大文字小文字無視）でチェック
+fn get_candidate_parsers<'a>(
+    settings: &'a [CompiledShopSetting],
+    from_address: Option<&str>,
+    subject: Option<&str>,
+) -> Vec<&'a CompiledShopSetting> {
+    // from_addressからメールアドレスを抽出して正規化
+    let Some(normalized_from) = from_address.and_then(extract_email_address) else {
+        return vec![]; // 有効なメールアドレスが抽出できない場合は空を返す
+    };
+
+    settings
+        .iter()
+        // 送信元アドレスが完全一致（大文字小文字無視）し、件名フィルターを通過するもの
+        .filter(|s| s.matches(&normalized_from, subject))
+        .collect()
+}
+
+/// `DispatchOutcome` に含まれるすべての `OrderInfo` に対して画像保存を実行する
+///
+/// `tx.commit()` 後に呼び出すことで、トランザクションの RESERVED LOCK と
+/// 画像 INSERT の競合（SQLITE_BUSY / "database is locked"）を回避する。
+///
+/// - `OrderSaved` → 1件分の画像を登録
+/// - `MultiOrderSaved` → 全注文の画像を登録（先頭だけでなく全件）
+/// - `CancelApplied` / `OrderNumberChanged` / `ConsolidationApplied` → 画像なしのためスキップ
+async fn save_images_for_dispatch_outcome(
+    outcome: &DispatchOutcome,
+    image_save_ctx: &Option<(std::sync::Arc<sqlx::SqlitePool>, std::path::PathBuf)>,
+) {
+    match outcome {
+        DispatchOutcome::OrderSaved(order_info) => {
+            save_images_for_order(order_info, image_save_ctx).await;
+        }
+        DispatchOutcome::MultiOrderSaved(orders) => {
+            for order_info in orders {
+                save_images_for_order(order_info, image_save_ctx).await;
+            }
+        }
+        _ => {}
+    }
+}
+
+/// `DispatchOutcome` を `EmailParseOutput` 組み立てに必要な `(OrderInfo, cancel_applied)` に変換する
+///
+/// - `OrderSaved` / `MultiOrderSaved` → cancel_applied = false（通常保存）
+/// - `CancelApplied` / `OrderNumberChanged` / `ConsolidationApplied` → cancel_applied = true（特殊適用済み）
+fn outcome_to_order_info(outcome: DispatchOutcome, email_id: i64) -> (OrderInfo, bool) {
+    // 特殊適用（キャンセル等）は注文番号のみを持つダミーの OrderInfo を返す
+    let applied = |order_number: String| {
+        (
+            OrderInfo {
+                order_number,
+                ..Default::default()
+            },
+            true,
+        )
+    };
+    match outcome {
+        DispatchOutcome::OrderSaved(order_info) => (*order_info, false),
+        DispatchOutcome::CancelApplied { order_number } => applied(order_number),
+        DispatchOutcome::OrderNumberChanged { new_order_number } => applied(new_order_number),
+        DispatchOutcome::ConsolidationApplied { new_order_number } => applied(new_order_number),
+        DispatchOutcome::DeliveryCompleted { tracking_number } => applied(tracking_number),
+        DispatchOutcome::MultiOrderSaved(orders) => {
+            let first = orders.into_iter().next().unwrap_or_else(|| {
+                log::warn!(
+                    "[email_parse_task] MultiOrderSaved with empty orders (email_id={})",
+                    email_id
+                );
+                OrderInfo::default()
+            });
+            (first, false)
+        }
+    }
+}
+
+#[async_trait]
+impl<P, S> BatchTask for EmailParseTask<P, S>
+where
+    P: ParseRepository + 'static,
+    S: ShopSettingsRepository + 'static,
+{
+    type Input = EmailParseInput;
+    type Output = EmailParseOutput;
+    type Context = EmailParseContext<P, S>;
+
+    fn name(&self) -> &str {
+        EMAIL_PARSE_TASK_NAME
+    }
+
+    fn event_name(&self) -> &str {
+        EMAIL_PARSE_EVENT_NAME
+    }
+
+    /// バッチ処理前にショップ設定を取得してキャッシュ
+    async fn before_batch(
+        &self,
+        _inputs: &[Self::Input],
+        context: &Self::Context,
+    ) -> Result<(), String> {
+        log::debug!("[{}] before_batch: Loading shop settings", self.name());
+
+        // ショップ設定を取得
+        let enabled_settings = context
+            .shop_settings_repo
+            .get_enabled()
+            .await
+            .map_err(|e| format!("Failed to fetch shop settings: {e}"))?;
+
+        if enabled_settings.is_empty() {
+            return Err("No enabled shop settings found".to_string());
+        }
+
+        let settings: Vec<CompiledShopSetting> = enabled_settings
+            .into_iter()
+            .map(CompiledShopSetting::from)
+            .collect();
+
+        // キャッシュに保存
+        let mut cache = context.shop_settings_cache.lock().await;
+        cache.settings = settings;
+
+        log::info!(
+            "[{}] Shop settings loaded: {} entries",
+            self.name(),
+            cache.settings.len()
+        );
+
+        Ok(())
+    }
+
+    /// メールをパース（VendorPlugin レジストリ経由）
+    ///
+    /// 注文保存ごとに除外パターンを DB から読み直さないよう、バッチ開始時に1回読み込んで
+    /// `with_preloaded_patterns` のスコープ内で処理する。
+    async fn process_batch(
+        &self,
+        inputs: Vec<Self::Input>,
+        context: &Self::Context,
+    ) -> Vec<Result<Self::Output, String>> {
+        let patterns =
+            crate::repository::SqliteExclusionPatternRepository::new(context.pool.as_ref().clone())
+                .get_all()
+                .await;
+        match patterns {
+            Ok(patterns) => {
+                crate::repository::with_preloaded_patterns(
+                    Arc::new(patterns),
+                    self.parse_inputs(inputs, context),
+                )
+                .await
+            }
+            Err(e) => {
+                // 読み込み失敗時は従来どおり注文保存ごとに tx 内で読み込む
+                log::warn!(
+                    "[{}] Failed to preload exclusion patterns: {e}",
+                    self.name()
+                );
+                self.parse_inputs(inputs, context).await
+            }
+        }
+    }
 
     /// パース結果をDBに保存
     async fn after_batch(
@@ -572,32 +519,19 @@ where
             results.len()
         );
 
-        let mut saved_count = 0;
-
-        for result in results {
-            match result {
-                Ok(_output) => {
-                    // 確認・変更は process_batch で即時 save_order 済み。
-                    // キャンセルは apply_cancel 済み。いずれも after_batch での保存は不要。
-                    saved_count += 1;
-                }
-                Err(e) => {
-                    // パース失敗: BatchRunnerがすでに失敗をカウントしているのでここではログのみ
-                    log::debug!("[{}] Parse failed: {}", self.name(), e);
-                }
-            }
+        // 確認・変更は process_batch で即時 save_order 済み。
+        // キャンセルは apply_cancel 済み。いずれも after_batch での保存は不要なので集計のみ行う。
+        // 失敗は BatchRunner がすでにカウントしているのでここではログのみ。
+        for e in results.iter().filter_map(|r| r.as_ref().err()) {
+            log::debug!("[{}] Parse failed: {}", self.name(), e);
         }
-
-        // 成功件数と失敗件数をログ
         let success = results.iter().filter(|r| r.is_ok()).count();
-        let failed = results.iter().filter(|r| r.is_err()).count();
         log::info!(
-            "[{}] Batch {} complete: {} parsed, {} failed, {} saved",
+            "[{}] Batch {} complete: {} parsed, {} failed",
             self.name(),
             batch_number,
             success,
-            failed,
-            saved_count
+            results.len() - success
         );
 
         Ok(())
@@ -635,14 +569,28 @@ mod tests {
             .expect("Failed to create test pool")
     }
 
+    fn compile(settings: &[(String, String, Option<String>, String)]) -> Vec<CompiledShopSetting> {
+        settings
+            .iter()
+            .map(|(addr, parser_type, filters, shop_name)| {
+                CompiledShopSetting::new(
+                    addr.clone(),
+                    parser_type.clone(),
+                    filters.as_deref(),
+                    shop_name.clone(),
+                )
+            })
+            .collect()
+    }
+
     #[test]
     fn test_get_candidate_parsers_no_match() {
-        let settings = vec![(
+        let settings = compile(&[(
             "shop@example.com".to_string(),
             "hobbysearch_confirm".to_string(),
             None,
             "TestShop".to_string(),
-        )];
+        )]);
 
         let result = get_candidate_parsers(&settings, Some("other@test.com"), None);
         assert!(result.is_empty());
@@ -650,29 +598,27 @@ mod tests {
 
     #[test]
     fn test_get_candidate_parsers_match() {
-        let settings = vec![(
+        let settings = compile(&[(
             "shop@example.com".to_string(),
             "hobbysearch_confirm".to_string(),
             None,
             "TestShop".to_string(),
-        )];
+        )]);
 
         let result = get_candidate_parsers(&settings, Some("shop@example.com"), None);
         assert_eq!(result.len(), 1);
-        assert_eq!(
-            result[0],
-            ("hobbysearch_confirm".to_string(), "TestShop".to_string())
-        );
+        assert_eq!(result[0].parser_type, "hobbysearch_confirm");
+        assert_eq!(result[0].shop_name, "TestShop");
     }
 
     #[test]
     fn test_get_candidate_parsers_with_subject_filter() {
-        let settings = vec![(
+        let settings = compile(&[(
             "shop@example.com".to_string(),
             "hobbysearch_confirm".to_string(),
             Some(r#"["注文確認","発送"]"#.to_string()), // JSON形式
             "TestShop".to_string(),
-        )];
+        )]);
 
         // 件名が一致
         let result = get_candidate_parsers(
@@ -693,48 +639,48 @@ mod tests {
 
     #[test]
     fn test_get_candidate_parsers_from_address_none_returns_empty() {
-        let settings = vec![(
+        let settings = compile(&[(
             "shop@example.com".to_string(),
             "hobbysearch_confirm".to_string(),
             None,
             "TestShop".to_string(),
-        )];
+        )]);
         let result = get_candidate_parsers(&settings, None, Some("x"));
         assert!(result.is_empty());
     }
 
     #[test]
     fn test_get_candidate_parsers_invalid_email_returns_empty() {
-        let settings = vec![(
+        let settings = compile(&[(
             "shop@example.com".to_string(),
             "hobbysearch_confirm".to_string(),
             None,
             "TestShop".to_string(),
-        )];
+        )]);
         let result = get_candidate_parsers(&settings, Some("not-an-email"), None);
         assert!(result.is_empty());
     }
 
     #[test]
     fn test_get_candidate_parsers_sender_case_insensitive() {
-        let settings = vec![(
+        let settings = compile(&[(
             "Shop@Example.com".to_string(),
             "hobbysearch_confirm".to_string(),
             None,
             "TestShop".to_string(),
-        )];
+        )]);
         let result = get_candidate_parsers(&settings, Some("shop@example.com"), None);
         assert_eq!(result.len(), 1);
     }
 
     #[test]
     fn test_get_candidate_parsers_subject_filter_invalid_json_is_ignored() {
-        let settings = vec![(
+        let settings = compile(&[(
             "shop@example.com".to_string(),
             "hobbysearch_confirm".to_string(),
             Some("not json".to_string()),
             "TestShop".to_string(),
-        )];
+        )]);
 
         // JSON パースエラー時はフィルター無視（旧実装互換）→ sender が合えば通す
         let result = get_candidate_parsers(&settings, Some("shop@example.com"), None);
@@ -743,12 +689,12 @@ mod tests {
 
     #[test]
     fn test_get_candidate_parsers_subject_filter_empty_list_allows_all() {
-        let settings = vec![(
+        let settings = compile(&[(
             "shop@example.com".to_string(),
             "hobbysearch_confirm".to_string(),
             Some("[]".to_string()),
             "TestShop".to_string(),
-        )];
+        )]);
 
         let result = get_candidate_parsers(&settings, Some("shop@example.com"), None);
         assert_eq!(result.len(), 1);
@@ -756,12 +702,12 @@ mod tests {
 
     #[test]
     fn test_get_candidate_parsers_subject_filter_requires_subject_when_non_empty() {
-        let settings = vec![(
+        let settings = compile(&[(
             "shop@example.com".to_string(),
             "hobbysearch_confirm".to_string(),
             Some(r#"["注文確認"]"#.to_string()),
             "TestShop".to_string(),
-        )];
+        )]);
 
         // 件名が無い場合は除外
         let result = get_candidate_parsers(&settings, Some("shop@example.com"), None);
@@ -770,12 +716,12 @@ mod tests {
 
     #[test]
     fn test_get_candidate_parsers_subject_filter_regex_match() {
-        let settings = vec![(
+        let settings = compile(&[(
             "shop@example.com".to_string(),
             "hobbysearch_confirm".to_string(),
             Some(r#"["ご注文番号：.*"]"#.to_string()),
             "TestShop".to_string(),
-        )];
+        )]);
 
         // 正規表現パターンが件名に一致する場合
         let result = get_candidate_parsers(
@@ -788,12 +734,12 @@ mod tests {
 
     #[test]
     fn test_get_candidate_parsers_subject_filter_regex_no_match() {
-        let settings = vec![(
+        let settings = compile(&[(
             "shop@example.com".to_string(),
             "hobbysearch_confirm".to_string(),
             Some(r#"["ご注文番号：.*"]"#.to_string()),
             "TestShop".to_string(),
-        )];
+        )]);
 
         // 正規表現パターンが件名に一致しない場合
         let result = get_candidate_parsers(
@@ -806,12 +752,12 @@ mod tests {
 
     #[test]
     fn test_get_candidate_parsers_subject_filter_invalid_regex_falls_back_to_contains() {
-        let settings = vec![(
+        let settings = compile(&[(
             "shop@example.com".to_string(),
             "hobbysearch_confirm".to_string(),
             Some(r#"["[invalid"]"#.to_string()), // 無効な正規表現
             "TestShop".to_string(),
-        )];
+        )]);
 
         // 無効な正規表現でも部分一致にフォールバックして動作する
         let result = get_candidate_parsers(
@@ -900,9 +846,9 @@ mod tests {
 
         let cache = context.shop_settings_cache.lock().await;
         assert_eq!(cache.settings.len(), 2);
-        assert_eq!(cache.settings[0].0, "shop@example.com");
-        assert_eq!(cache.settings[0].1, "hobbysearch_confirm");
-        assert_eq!(cache.settings[0].3, "TestShop");
+        assert_eq!(cache.settings[0].sender_address, "shop@example.com");
+        assert_eq!(cache.settings[0].parser_type, "hobbysearch_confirm");
+        assert_eq!(cache.settings[0].shop_name, "TestShop");
     }
 
     #[tokio::test]
@@ -912,7 +858,7 @@ mod tests {
             parse_repo: Arc::new(MockParseRepository::new()),
             shop_settings_repo: Arc::new(MockShopSettingsRepository::new()),
             shop_settings_cache: Arc::new(Mutex::new(ShopSettingsCache {
-                settings: vec![(
+                settings: vec![CompiledShopSetting::new(
                     "shop@example.com".to_string(),
                     "hobbysearch_confirm".to_string(),
                     None,
@@ -931,7 +877,7 @@ mod tests {
                 vec![EmailParseInput {
                     email_id: 1,
                     message_id: "m".to_string(),
-                    body_plain: "body".to_string(),
+                    body_html: None,
                     body_plain_raw: "body".to_string(),
                     from_address: None,
                     subject: Some("x".to_string()),
@@ -962,9 +908,40 @@ mod tests {
         let input: EmailParseInput = row.into();
         assert_eq!(input.email_id, 123);
         assert_eq!(input.message_id, "msg-001");
-        assert_eq!(input.body_plain, "Hello");
+        assert_eq!(input.body_for_parse(), "Hello");
         assert_eq!(input.from_address, Some("test@example.com".to_string()));
         assert_eq!(input.subject, Some("Test Subject".to_string()));
         assert_eq!(input.internal_date, Some(1700000000000));
+    }
+
+    #[test]
+    fn test_body_for_parse_prefers_html_and_keeps_raw_plain() {
+        let row = EmailRow {
+            email_id: 1,
+            message_id: "m1".to_string(),
+            body_plain: Some("plain".to_string()),
+            body_html: Some("  <p>html</p>  ".to_string()),
+            from_address: None,
+            subject: None,
+            internal_date: None,
+        };
+        let input: EmailParseInput = row.into();
+        assert_eq!(input.body_for_parse(), "<p>html</p>");
+        assert_eq!(input.body_plain_raw, "plain");
+    }
+
+    #[test]
+    fn test_body_for_parse_ignores_blank_html() {
+        let row = EmailRow {
+            email_id: 1,
+            message_id: "m1".to_string(),
+            body_plain: Some("plain".to_string()),
+            body_html: Some("   ".to_string()),
+            from_address: None,
+            subject: None,
+            internal_date: None,
+        };
+        let input: EmailParseInput = row.into();
+        assert_eq!(input.body_for_parse(), "plain");
     }
 }

@@ -60,7 +60,8 @@ pub use delivery::{PendingDelivery, SqliteDeliveryRepository};
 
 // exclusion_patterns
 pub use exclusion_patterns::{
-    load_all_patterns_in_tx, matches_exclusion_pattern, should_exclude_item, ExclusionPattern,
+    load_all_patterns_in_tx, load_patterns_for_save, matches_exclusion_pattern,
+    should_exclude_item, with_preloaded_patterns, ExclusionPattern,
     SqliteExclusionPatternRepository,
 };
 

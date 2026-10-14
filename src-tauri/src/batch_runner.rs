@@ -64,7 +64,7 @@ impl<R: Runtime> BatchEventEmitter for tauri::AppHandle<R> {
 #[async_trait]
 pub trait BatchTask: Send + Sync {
     /// 入力データの型
-    type Input: Send + Clone;
+    type Input: Send;
     /// 出力データの型
     type Output: Send;
     /// コンテキスト（DBプールやAPIクライアントなど）の型
@@ -307,10 +307,10 @@ impl BatchProgressEvent {
 }
 
 /// バッチ処理の結果
+///
+/// 各アイテムの出力は `after_batch` で処理済みのため保持しない（件数のみ返す）。
 #[derive(Debug, Clone)]
-pub struct BatchResult<O> {
-    /// 処理結果のリスト
-    pub outputs: Vec<O>,
+pub struct BatchResult {
     /// 成功件数
     pub success_count: usize,
     /// 失敗件数
@@ -371,7 +371,7 @@ impl<T: BatchTask> BatchRunner<T> {
         inputs: Vec<T::Input>,
         context: &T::Context,
         should_cancel: impl Fn() -> bool,
-    ) -> Result<BatchResult<T::Output>, String> {
+    ) -> Result<BatchResult, String> {
         let total_items = inputs.len();
         let task_name = self.task.name();
         let event_name = self.task.event_name();
@@ -397,19 +397,24 @@ impl<T: BatchTask> BatchRunner<T> {
             );
             emitter.emit_event(event_name, event);
             return Ok(BatchResult {
-                outputs: Vec::new(),
                 success_count: 0,
                 failed_count: 0,
             });
         }
 
-        let mut outputs: Vec<T::Output> = Vec::with_capacity(total_items);
         let mut success_count: usize = 0;
         let mut failed_count: usize = 0;
         let mut processed_count: usize = 0;
         let mut batch_number: usize = 0;
 
-        for chunk in inputs.chunks(self.batch_size) {
+        // 入力は所有権ごと受け取っているため、バッチ単位で move して clone を避ける
+        let mut remaining = inputs.into_iter();
+        loop {
+            let chunk: Vec<T::Input> = remaining.by_ref().take(self.batch_size.max(1)).collect();
+            if chunk.is_empty() {
+                break;
+            }
+
             // キャンセルチェック
             if should_cancel() {
                 log::info!("[{}] Processing cancelled by user", task_name);
@@ -422,7 +427,6 @@ impl<T: BatchTask> BatchRunner<T> {
                 );
                 emitter.emit_event(event_name, event);
                 return Ok(BatchResult {
-                    outputs,
                     success_count,
                     failed_count,
                 });
@@ -447,7 +451,6 @@ impl<T: BatchTask> BatchRunner<T> {
                     );
                     emitter.emit_event(event_name, event);
                     return Ok(BatchResult {
-                        outputs,
                         success_count,
                         failed_count,
                     });
@@ -477,7 +480,7 @@ impl<T: BatchTask> BatchRunner<T> {
             let batch_size = chunk.len();
 
             // before_batch フックを呼び出し
-            if let Err(e) = self.task.before_batch(chunk, context).await {
+            if let Err(e) = self.task.before_batch(&chunk, context).await {
                 log::error!("[{}] before_batch failed: {}", task_name, e);
                 let event = BatchProgressEvent::error(
                     task_name,
@@ -492,8 +495,7 @@ impl<T: BatchTask> BatchRunner<T> {
             }
 
             // process_batch でバッチ処理を実行
-            let chunk_vec: Vec<T::Input> = chunk.to_vec();
-            let batch_results = self.task.process_batch(chunk_vec, context).await;
+            let batch_results = self.task.process_batch(chunk, context).await;
 
             // 結果を集計
             let mut batch_success = 0;
@@ -538,9 +540,6 @@ impl<T: BatchTask> BatchRunner<T> {
                 emitter.emit_event(event_name, event);
                 return Err(e);
             }
-
-            // 成功した結果を outputs に追加
-            outputs.extend(batch_results.into_iter().flatten());
 
             // 進捗イベントを送信
             let event = BatchProgressEvent::progress(
@@ -588,7 +587,6 @@ impl<T: BatchTask> BatchRunner<T> {
         );
 
         Ok(BatchResult {
-            outputs,
             success_count,
             failed_count,
         })
@@ -743,8 +741,6 @@ mod tests {
         let emitter = NoopEmitter;
 
         let result = runner.run(&emitter, vec![], &(), || false).await.unwrap();
-
-        assert_eq!(result.outputs.len(), 0);
         assert_eq!(result.success_count, 0);
         assert_eq!(result.failed_count, 0);
     }
@@ -759,10 +755,6 @@ mod tests {
 
         let inputs = vec![0, 1, 2, 3];
         let result = runner.run(&emitter, inputs, &(), || false).await.unwrap();
-
-        assert_eq!(result.outputs.len(), 4);
-        assert_eq!(result.outputs[0], "Result for 0");
-        assert_eq!(result.outputs[3], "Result for 3");
         assert_eq!(result.success_count, 4);
         assert_eq!(result.failed_count, 0);
     }
@@ -777,10 +769,6 @@ mod tests {
 
         let inputs = vec![0, 1, 2, 3];
         let result = runner.run(&emitter, inputs, &(), || false).await.unwrap();
-
-        assert_eq!(result.outputs.len(), 2);
-        assert_eq!(result.outputs[0], "Result for 0");
-        assert_eq!(result.outputs[1], "Result for 2");
         assert_eq!(result.success_count, 2);
         assert_eq!(result.failed_count, 2);
     }
@@ -805,7 +793,6 @@ mod tests {
             .unwrap();
 
         // 1バッチ目(0,1)は処理、2バッチ目でキャンセル
-        assert_eq!(result.outputs.len(), 2);
         assert_eq!(result.success_count, 2);
         assert_eq!(result.failed_count, 0);
     }

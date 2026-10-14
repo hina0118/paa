@@ -7,13 +7,11 @@ use tokio::sync::Mutex;
 
 use super::error_handler::ErrorReporter;
 use super::{BatchCommandsApp, TauriBatchCommandsApp};
-use crate::batch_runner::{BatchProgressEvent, BatchRunner};
+use crate::batch_runner::{BatchProgressEvent, BatchRunner, BatchTask};
 use crate::parsers::EmailRow;
 use crate::parsers::{
     EmailParseContext, EmailParseTask, HtmlParseContext, HtmlParseInput, HtmlParseTask,
-    ShopSettingsCache, SurugayaHtmlParseContext, SurugayaHtmlParseInput, SurugayaHtmlParseTask,
-    EMAIL_PARSE_EVENT_NAME, EMAIL_PARSE_TASK_NAME, HTML_PARSE_EVENT_NAME, HTML_PARSE_TASK_NAME,
-    SURUGAYA_HTML_PARSE_EVENT_NAME, SURUGAYA_HTML_PARSE_TASK_NAME,
+    ShopSettingsCache, SurugayaHtmlParseTask, EMAIL_PARSE_EVENT_NAME, EMAIL_PARSE_TASK_NAME,
 };
 use crate::repository::{
     ParseRepository, ShopSettingsRepository, SqliteParseRepository, SqliteShopSettingsRepository,
@@ -211,67 +209,16 @@ async fn run_surugaya_html_parse_step<A: BatchCommandsApp>(
     parse_state: &crate::parsers::ParseState,
     batch_size: usize,
 ) {
-    let targets: Vec<(i64, String, String)> = match sqlx::query_as(
-        "SELECT id, url, html_content FROM htmls \
-         WHERE html_content IS NOT NULL \
-           AND url LIKE 'https://www.suruga-ya.jp/pcmypage/%' \
-         ORDER BY id",
+    run_stored_html_parse_step(
+        app,
+        pool,
+        parse_state,
+        batch_size,
+        SurugayaHtmlParseTask,
+        "surugaya_html_parse",
+        "url LIKE 'https://www.suruga-ya.jp/pcmypage/%'",
     )
-    .fetch_all(pool)
-    .await
-    {
-        Ok(rows) => rows,
-        Err(e) => {
-            log::error!("[surugaya_html_parse] Failed to fetch html targets: {e}");
-            return;
-        }
-    };
-
-    if targets.is_empty() {
-        log::info!("[surugaya_html_parse] No stored HTML to parse");
-        let complete_event = BatchProgressEvent::complete(
-            SURUGAYA_HTML_PARSE_TASK_NAME,
-            0,
-            0,
-            0,
-            "パース対象の HTML がありません".to_string(),
-        );
-        app.emit_event(SURUGAYA_HTML_PARSE_EVENT_NAME, complete_event);
-        return;
-    }
-
-    log::info!("[surugaya_html_parse] {} HTML(s) to parse", targets.len());
-
-    let inputs: Vec<SurugayaHtmlParseInput> = targets
-        .into_iter()
-        .map(|(html_id, url, html_content)| SurugayaHtmlParseInput {
-            html_id,
-            url,
-            html_content,
-        })
-        .collect();
-
-    let task = SurugayaHtmlParseTask;
-    let context = SurugayaHtmlParseContext {
-        pool: Arc::new(pool.clone()),
-    };
-    let runner = BatchRunner::new(task, batch_size, 0);
-
-    match runner
-        .run(app, inputs, &context, || parse_state.is_cancelled())
-        .await
-    {
-        Ok(result) => {
-            log::info!(
-                "[surugaya_html_parse] Completed: success={}, failed={}",
-                result.success_count,
-                result.failed_count
-            );
-        }
-        Err(e) => {
-            log::error!("[surugaya_html_parse] BatchRunner failed: {e}");
-        }
-    }
+    .await;
 }
 
 /// Amazon 注文詳細 HTML のパースステップ
@@ -281,37 +228,61 @@ async fn run_html_parse_step<A: BatchCommandsApp>(
     parse_state: &crate::parsers::ParseState,
     batch_size: usize,
 ) {
-    let targets: Vec<(i64, String, String)> = match sqlx::query_as(
-        "SELECT id, url, html_content FROM htmls \
-         WHERE html_content IS NOT NULL \
-           AND (url LIKE 'https://www.amazon.co.jp/your-orders/order-details%' \
-             OR url LIKE 'https://www.amazon.co.jp/gp/your-account/order-details%') \
-         ORDER BY id",
+    run_stored_html_parse_step(
+        app,
+        pool,
+        parse_state,
+        batch_size,
+        HtmlParseTask,
+        "html_parse",
+        "(url LIKE 'https://www.amazon.co.jp/your-orders/order-details%' \
+          OR url LIKE 'https://www.amazon.co.jp/gp/your-account/order-details%')",
     )
-    .fetch_all(pool)
-    .await
-    {
+    .await;
+}
+
+/// `htmls` テーブルに保存済みの HTML をパースする共通ステップ
+///
+/// `url_condition` は対象 URL を絞り込む SQL 条件（固定文字列のみ渡すこと）。
+async fn run_stored_html_parse_step<A, T>(
+    app: &A,
+    pool: &SqlitePool,
+    parse_state: &crate::parsers::ParseState,
+    batch_size: usize,
+    task: T,
+    log_tag: &str,
+    url_condition: &'static str,
+) where
+    A: BatchCommandsApp,
+    T: BatchTask<Input = HtmlParseInput, Context = HtmlParseContext>,
+{
+    let query = format!(
+        "SELECT id, url, html_content FROM htmls \
+         WHERE html_content IS NOT NULL AND {url_condition} \
+         ORDER BY id"
+    );
+    let targets: Vec<(i64, String, String)> = match sqlx::query_as(&query).fetch_all(pool).await {
         Ok(rows) => rows,
         Err(e) => {
-            log::error!("[html_parse] Failed to fetch html targets: {e}");
+            log::error!("[{log_tag}] Failed to fetch html targets: {e}");
             return;
         }
     };
 
     if targets.is_empty() {
-        log::info!("[html_parse] No stored HTML to parse");
+        log::info!("[{log_tag}] No stored HTML to parse");
         let complete_event = BatchProgressEvent::complete(
-            HTML_PARSE_TASK_NAME,
+            task.name(),
             0,
             0,
             0,
             "パース対象の HTML がありません".to_string(),
         );
-        app.emit_event(HTML_PARSE_EVENT_NAME, complete_event);
+        app.emit_event(task.event_name(), complete_event);
         return;
     }
 
-    log::info!("[html_parse] {} HTML(s) to parse", targets.len());
+    log::info!("[{log_tag}] {} HTML(s) to parse", targets.len());
 
     let inputs: Vec<HtmlParseInput> = targets
         .into_iter()
@@ -322,7 +293,6 @@ async fn run_html_parse_step<A: BatchCommandsApp>(
         })
         .collect();
 
-    let task = HtmlParseTask;
     let context = HtmlParseContext {
         pool: Arc::new(pool.clone()),
     };
@@ -334,13 +304,13 @@ async fn run_html_parse_step<A: BatchCommandsApp>(
     {
         Ok(result) => {
             log::info!(
-                "[html_parse] Completed: success={}, failed={}",
+                "[{log_tag}] Completed: success={}, failed={}",
                 result.success_count,
                 result.failed_count
             );
         }
         Err(e) => {
-            log::error!("[html_parse] BatchRunner failed: {e}");
+            log::error!("[{log_tag}] BatchRunner failed: {e}");
         }
     }
 }
@@ -397,5 +367,45 @@ mod tests {
         let emitted = app.emitted_events.lock().unwrap();
         assert!(!emitted.is_empty());
         assert_eq!(emitted[0], EMAIL_PARSE_EVENT_NAME);
+    }
+
+    #[tokio::test]
+    async fn stored_html_steps_select_only_their_own_urls() {
+        let pool = create_pool().await;
+        sqlx::query(
+            "CREATE TABLE htmls (id INTEGER PRIMARY KEY, url TEXT NOT NULL, html_content TEXT)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        // Amazon 注文詳細 URL（orderID が無いため process は失敗するが、対象には選ばれる）
+        sqlx::query(
+            "INSERT INTO htmls (url, html_content) VALUES \
+             ('https://www.amazon.co.jp/your-orders/order-details', '<html></html>'), \
+             ('https://www.suruga-ya.jp/pcmypage/x', NULL)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let tmp = tempfile::TempDir::new().unwrap();
+        let new_app = || FakeApp {
+            config_dir: tmp.path().to_path_buf(),
+            data_dir: Some(tmp.path().to_path_buf()),
+            emitted_events: std::sync::Mutex::new(Vec::new()),
+            notify_count: std::sync::atomic::AtomicUsize::new(0),
+            fail_create_gmail_client: false,
+        };
+        let parse_state = crate::parsers::ParseState::new();
+
+        // Amazon: 1件処理 → 進捗 + 完了の 2 イベント
+        let app = new_app();
+        run_html_parse_step(&app, &pool, &parse_state, 10).await;
+        assert_eq!(app.emitted_events.lock().unwrap().len(), 2);
+
+        // 駿河屋: html_content が NULL の行は対象外 → 「対象なし」完了イベントのみ
+        let app = new_app();
+        run_surugaya_html_parse_step(&app, &pool, &parse_state, 10).await;
+        assert_eq!(app.emitted_events.lock().unwrap().len(), 1);
     }
 }

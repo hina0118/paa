@@ -23,6 +23,7 @@ pub mod premium_bandai;
 pub mod sagawa;
 pub mod surugaya;
 pub mod surugaya_mp;
+pub mod text;
 pub mod yodobashi;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -45,6 +46,15 @@ pub fn build_registry() -> Vec<Box<dyn VendorPlugin>> {
         .into_iter()
         .map(|r| (r.factory)())
         .collect()
+}
+
+/// プロセス内で共有するプラグインレジストリ（初回アクセス時に1回だけ構築）
+///
+/// プラグインは状態を持たないため、呼び出しごとに `build_registry()` で再構築する必要はない。
+pub fn registry() -> &'static [Box<dyn VendorPlugin>] {
+    static REGISTRY: once_cell::sync::Lazy<Vec<Box<dyn VendorPlugin>>> =
+        once_cell::sync::Lazy::new(build_registry);
+    &REGISTRY
 }
 
 /// `parser_type` に対応するプラグインを返す

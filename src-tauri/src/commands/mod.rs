@@ -19,6 +19,7 @@ pub mod sync;
 pub mod table_data;
 pub mod table_definitions;
 pub mod ui_pipeline;
+pub mod webview_session;
 pub mod window;
 
 pub use amazon_session::*;

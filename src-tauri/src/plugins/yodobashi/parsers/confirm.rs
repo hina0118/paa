@@ -9,6 +9,7 @@
 use once_cell::sync::Lazy;
 use regex::Regex;
 
+use super::{parse_amount, parse_yodobashi_date};
 use crate::parsers::{EmailParser, OrderInfo, OrderItem};
 
 pub struct YodobashiConfirmParser;
@@ -36,17 +37,6 @@ static ITEM_TOTAL_RE: Lazy<Regex> =
 /// `・配達料金：　　0 円`
 static SHIPPING_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"・配達料金：\s*([\d,]+)\s*円").expect("SHIPPING_RE"));
-
-// ─── ヘルパー ─────────────────────────────────────────────────────────────────
-
-fn parse_amount(s: &str) -> i64 {
-    s.replace(',', "").trim().parse().unwrap_or(0)
-}
-
-/// `2019年06月12日` → `"2019-06-12 00:00:00"`
-fn parse_yodobashi_date(year: &str, month: &str, day: &str) -> String {
-    format!("{}-{}-{} 00:00:00", year, month, day)
-}
 
 // ─── 各フィールドの抽出 ───────────────────────────────────────────────────────
 

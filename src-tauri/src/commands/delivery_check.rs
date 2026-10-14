@@ -2,37 +2,11 @@ use sqlx::sqlite::SqlitePool;
 
 use crate::orchestration;
 
-/// 配送状況確認バッチの多重実行ガード・キャンセル制御用状態（`BatchRunState` の薄いラッパー）
-#[derive(Clone, Default)]
-pub struct DeliveryCheckState(crate::BatchRunState);
-
-impl DeliveryCheckState {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// バッチを開始する（既に実行中なら Err）
-    pub fn try_start(&self) -> Result<(), String> {
-        self.0
-            .try_start()
-            .map_err(|_| "配送状況確認は既に実行中です。完了するまでお待ちください。".to_string())
-    }
-
-    /// バッチ完了時に呼ぶ
-    pub fn finish(&self) {
-        self.0.finish();
-    }
-
-    /// キャンセルを要求する
-    pub fn request_cancel(&self) {
-        self.0.request_cancel();
-    }
-
-    /// `BatchRunner` の `should_cancel` クロージャ用
-    pub fn should_cancel(&self) -> bool {
-        self.0.should_cancel()
-    }
-}
+crate::batch_run_state::define_batch_state!(
+    /// 配送状況確認バッチの多重実行ガード・キャンセル制御用状態（`BatchRunState` の薄いラッパー）
+    DeliveryCheckState,
+    "配送状況確認は既に実行中です。完了するまでお待ちください。"
+);
 
 /// 配送状況確認バッチを開始
 #[tauri::command]

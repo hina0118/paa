@@ -3,8 +3,9 @@
 //! このモジュールはメールパースに関する純粋関数を提供します。
 //! 外部依存を持たないため、テストが容易です。
 
+use crate::logic::subject_filter::SubjectFilter;
 use crate::logic::sync_logic::extract_email_address;
-use crate::plugins::{build_registry, find_plugin};
+use crate::plugins::{find_plugin, registry};
 
 /// パーサータイプ名からパーサーが存在するかチェックする
 ///
@@ -17,8 +18,7 @@ use crate::plugins::{build_registry, find_plugin};
 /// # Returns
 /// レジストリにプラグインが存在する場合は true
 pub fn is_valid_parser_type(parser_type: &str) -> bool {
-    let registry = build_registry();
-    find_plugin(&registry, parser_type).is_some()
+    find_plugin(registry(), parser_type).is_some()
 }
 
 /// 送信者アドレスと件名からパーサータイプの候補を取得する
@@ -48,38 +48,13 @@ pub fn get_candidate_parsers<'a>(
 
     shop_settings
         .iter()
-        .filter_map(|(addr, parser_type, subject_filters_json)| {
-            // 送信元アドレスが完全一致するか確認（大文字小文字無視、allocなし）
-            if !addr.eq_ignore_ascii_case(&normalized_from) {
-                return None;
-            }
-
-            // 件名フィルターがない場合は、アドレス一致だけでOK
-            let Some(filters_json) = subject_filters_json else {
-                return Some(parser_type.as_str());
-            };
-
-            // 件名フィルターがある場合は、件名も確認
-            let Ok(filters) = serde_json::from_str::<Vec<String>>(filters_json) else {
-                return Some(parser_type.as_str()); // JSONパースエラー時はフィルター無視
-            };
-
-            // 空のフィルターリストは「フィルターなし＝全許可」と同じ扱い
-            // (should_save_message や ShopSettings::get_subject_filters との整合性)
-            if filters.is_empty() {
-                return Some(parser_type.as_str());
-            }
-
-            // 件名がない場合は除外
-            let subj = subject?;
-
-            // いずれかのフィルターに一致すればOK
-            if filters.iter().any(|filter| subj.contains(filter)) {
-                Some(parser_type.as_str())
-            } else {
-                None
-            }
+        .filter(|(addr, _, subject_filters_json)| {
+            // 送信元アドレスが完全一致（大文字小文字無視）し、件名フィルターを通過するもの
+            // （件名フィルターの規則は Gmail 同期・バッチパースと共通の SubjectFilter に従う）
+            addr.eq_ignore_ascii_case(&normalized_from)
+                && SubjectFilter::from_json(subject_filters_json.as_deref()).matches(subject)
         })
+        .map(|(_, parser_type, _)| parser_type.as_str())
         .filter(|parser_type| {
             *parser_type != "hobbysearch_cancel"
                 && *parser_type != "dmm_cancel"

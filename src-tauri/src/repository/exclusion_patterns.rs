@@ -16,7 +16,11 @@ type ExclusionPatternDbRow = (i64, Option<String>, String, String, Option<String
 
 /// item_name がパターンにマッチするか（大文字小文字を区別しない）
 pub fn matches_exclusion_pattern(item_name: &str, pattern: &ExclusionPattern) -> bool {
-    let name_lower = item_name.to_lowercase();
+    matches_lowercased(&item_name.to_lowercase(), pattern)
+}
+
+/// 小文字化済みの item_name に対してマッチ判定する（パターンごとの再小文字化を避ける）
+fn matches_lowercased(name_lower: &str, pattern: &ExclusionPattern) -> bool {
     let keyword_lower = pattern.keyword.to_lowercase();
     match pattern.match_type.as_str() {
         "starts_with" => name_lower.starts_with(&keyword_lower),
@@ -34,10 +38,37 @@ pub fn should_exclude_item(
     shop_domain: Option<&str>,
     patterns: &[ExclusionPattern],
 ) -> bool {
+    let name_lower = item_name.to_lowercase();
     patterns.iter().any(|p| {
         let domain_matches = p.shop_domain.is_none() || p.shop_domain.as_deref() == shop_domain;
-        domain_matches && matches_exclusion_pattern(item_name, p)
+        domain_matches && matches_lowercased(&name_lower, p)
     })
+}
+
+tokio::task_local! {
+    /// バッチ処理中に事前読み込みした除外パターン（`with_preloaded_patterns` のスコープ内でのみ有効）
+    static PRELOADED_PATTERNS: std::sync::Arc<Vec<ExclusionPattern>>;
+}
+
+/// `patterns` を事前読み込み済みパターンとして `fut` を実行する
+///
+/// スコープ内の `load_patterns_for_save` は DB を読まずにこのパターンを返す。
+/// メールパースのように注文保存を大量に繰り返す処理で、注文ごとの SELECT を避けるために使う。
+pub async fn with_preloaded_patterns<F: std::future::Future>(
+    patterns: std::sync::Arc<Vec<ExclusionPattern>>,
+    fut: F,
+) -> F::Output {
+    PRELOADED_PATTERNS.scope(patterns, fut).await
+}
+
+/// 注文保存用の除外パターンを取得する（事前読み込み済みならそれを使い、なければ tx 内で読む）
+pub async fn load_patterns_for_save(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+) -> Result<std::sync::Arc<Vec<ExclusionPattern>>, String> {
+    if let Ok(patterns) = PRELOADED_PATTERNS.try_with(std::sync::Arc::clone) {
+        return Ok(patterns);
+    }
+    load_all_patterns_in_tx(tx).await.map(std::sync::Arc::new)
 }
 
 /// 除外パターンのDB操作
@@ -290,5 +321,36 @@ mod tests {
 
         let all = repo.get_all().await.expect("get_all");
         assert!(all.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_load_patterns_for_save_uses_preloaded_patterns_in_scope() {
+        // テーブルが無い DB: スコープ外では読み込みエラー、スコープ内では DB を読まずに返す
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+
+        let mut tx = pool.begin().await.unwrap();
+        assert!(load_patterns_for_save(&mut tx).await.is_err());
+        drop(tx);
+
+        let preloaded = std::sync::Arc::new(vec![ExclusionPattern {
+            id: 1,
+            shop_domain: None,
+            keyword: "送料".to_string(),
+            match_type: "contains".to_string(),
+            note: None,
+            created_at: String::new(),
+        }]);
+        let loaded = with_preloaded_patterns(preloaded, async {
+            let mut tx = pool.begin().await.unwrap();
+            load_patterns_for_save(&mut tx).await
+        })
+        .await
+        .expect("preloaded patterns");
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].keyword, "送料");
     }
 }

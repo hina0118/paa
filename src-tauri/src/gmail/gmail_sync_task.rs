@@ -23,6 +23,7 @@ use crate::gmail::client::GmailMessage;
 use crate::gmail_client::GmailClientTrait;
 use crate::repository::{EmailRepository, ShopSettingsRepository};
 use async_trait::async_trait;
+use futures::stream::{self, StreamExt};
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -49,8 +50,8 @@ pub struct GmailSyncOutput {
 /// ショップ設定のキャッシュ
 #[derive(Debug, Clone, Default)]
 pub struct ShopSettingsCacheForSync {
-    /// 有効なショップ設定のリスト
-    pub enabled_shops: Vec<crate::gmail::ShopSettings>,
+    /// 有効なショップ設定のリスト（件名フィルターはコンパイル済み。バッチ内で clone せず共有するため `Arc`）
+    pub enabled_shops: Arc<Vec<crate::logic::subject_filter::CompiledShopSetting>>,
 }
 
 /// Gmail同期のコンテキスト
@@ -86,6 +87,11 @@ where
 {
     _phantom: PhantomData<(C, E, S)>,
 }
+
+/// Gmail API（メタデータ・本文取得）の同時実行数
+///
+/// Gmail API のユーザー単位クォータ（250 units/秒、messages.get は 5 units）を超えないよう控えめに設定する。
+const GMAIL_FETCH_CONCURRENCY: usize = 4;
 
 /// タスク名
 pub const GMAIL_SYNC_TASK_NAME: &str = "メール同期";
@@ -199,7 +205,12 @@ where
 
         // キャッシュに保存
         let mut cache = context.shop_settings_cache.lock().await;
-        cache.enabled_shops = enabled_shops;
+        cache.enabled_shops = Arc::new(
+            enabled_shops
+                .into_iter()
+                .map(crate::logic::subject_filter::CompiledShopSetting::from)
+                .collect(),
+        );
 
         log::info!(
             "[{}] Shop settings loaded: {} entries",
@@ -221,19 +232,27 @@ where
     ) -> Vec<Result<Self::Output, String>> {
         let mut results: Vec<Result<Self::Output, String>> = Vec::with_capacity(inputs.len());
 
-        let cache = context.shop_settings_cache.lock().await;
-        let enabled_shops = cache.enabled_shops.clone();
-        drop(cache);
+        let enabled_shops = Arc::clone(&context.shop_settings_cache.lock().await.enabled_shops);
 
         // Phase 1: メタデータ取得 + フィルタリング
+        // API 呼び出しは GMAIL_FETCH_CONCURRENCY 件まで並行実行する（結果の順序は入力順を保持）
         let mut candidates: Vec<(String, usize)> = Vec::new(); // (message_id, results内のindex)
 
-        for input in &inputs {
-            match context
-                .gmail_client
-                .get_message_metadata(&input.message_id)
-                .await
-            {
+        // ID は先に Vec へ所有で集める（参照を取るクロージャを await 越しに保持すると
+        // async_trait の Send 推論が通らないため）
+        let client = context.gmail_client.as_ref();
+        let ids: Vec<String> = inputs
+            .iter()
+            .map(|input| input.message_id.clone())
+            .collect();
+        let metadata_results: Vec<_> = stream::iter(ids)
+            .map(|id| async move { client.get_message_metadata(&id).await })
+            .buffered(GMAIL_FETCH_CONCURRENCY)
+            .collect()
+            .await;
+
+        for (input, metadata_result) in inputs.iter().zip(metadata_results) {
+            match metadata_result {
                 Ok(metadata) => {
                     if crate::logic::sync_logic::should_save_message(&metadata, &enabled_shops) {
                         // フィルタ通過 → Phase 2 で本文取得する候補
@@ -285,8 +304,15 @@ where
         );
 
         // Phase 2: 候補のみ本文(full)を取得
-        for (message_id, idx) in candidates {
-            match context.gmail_client.get_message(&message_id).await {
+        let full_ids: Vec<String> = candidates.iter().map(|(id, _)| id.clone()).collect();
+        let full_results: Vec<_> = stream::iter(full_ids)
+            .map(|id| async move { client.get_message(&id).await })
+            .buffered(GMAIL_FETCH_CONCURRENCY)
+            .collect()
+            .await;
+
+        for ((message_id, idx), full_result) in candidates.into_iter().zip(full_results) {
+            match full_result {
                 Ok(full_message) => {
                     results[idx] = Ok(GmailSyncOutput {
                         message: full_message,
@@ -323,20 +349,16 @@ where
             results.len()
         );
 
-        let enabled_shops = {
-            let cache = context.shop_settings_cache.lock().await;
-            cache.enabled_shops.clone()
-        };
-
         let mut saved_count = 0;
         let mut save_errors = 0;
 
         // 成功したメッセージを収集（メタデータ段階でフィルタ除外されたものは除く）
-        let messages: Vec<GmailMessage> = results
+        // フィルタ判定は process_batch のメタデータ段階で済んでいるため、ここでは再判定しない。
+        let messages: Vec<&GmailMessage> = results
             .iter()
             .filter_map(|r| r.as_ref().ok())
             .filter(|o| !o.filtered_out)
-            .map(|o| o.message.clone())
+            .map(|o| &o.message)
             .collect();
 
         if messages.is_empty() {
@@ -349,15 +371,9 @@ where
         }
 
         // DBに保存
-        match crate::gmail::client::save_messages_to_db_with_repo(
-            context.email_repo.as_ref(),
-            messages,
-            &enabled_shops,
-        )
-        .await
-        {
-            Ok(fetch_result) => {
-                saved_count = fetch_result.saved_count;
+        match context.email_repo.save_messages(&messages).await {
+            Ok((saved, skipped)) => {
+                saved_count = saved;
                 context
                     .total_saved_count
                     .fetch_add(saved_count, Ordering::Relaxed);
@@ -365,8 +381,8 @@ where
                     "[{}] Batch {} complete: {} saved, {} skipped",
                     self.name(),
                     batch_number,
-                    fetch_result.saved_count,
-                    fetch_result.skipped_count
+                    saved,
+                    skipped
                 );
             }
             Err(e) => {
@@ -412,9 +428,7 @@ where
             .await?;
 
         // ショップ設定を取得
-        let cache = context.shop_settings_cache.lock().await;
-        let enabled_shops = cache.enabled_shops.clone();
-        drop(cache);
+        let enabled_shops = Arc::clone(&context.shop_settings_cache.lock().await.enabled_shops);
 
         // フィルタリング判定
         if !crate::logic::sync_logic::should_save_message(&metadata, &enabled_shops) {
@@ -625,7 +639,11 @@ mod tests {
             email_repo: Arc::new(email_repo),
             shop_settings_repo: Arc::new(shop_repo),
             shop_settings_cache: Arc::new(Mutex::new(ShopSettingsCacheForSync {
-                enabled_shops: vec![dummy_shop_settings(1, "sender@example.com")],
+                enabled_shops: Arc::new(
+                    crate::logic::subject_filter::CompiledShopSetting::compile_all(&[
+                        dummy_shop_settings(1, "sender@example.com"),
+                    ]),
+                ),
             })),
             total_saved_count: Arc::new(AtomicUsize::new(0)),
         };
@@ -699,7 +717,11 @@ mod tests {
             email_repo: Arc::new(email_repo),
             shop_settings_repo: Arc::new(shop_repo),
             shop_settings_cache: Arc::new(Mutex::new(ShopSettingsCacheForSync {
-                enabled_shops: vec![dummy_shop_settings(1, "sender@example.com")],
+                enabled_shops: Arc::new(
+                    crate::logic::subject_filter::CompiledShopSetting::compile_all(&[
+                        dummy_shop_settings(1, "sender@example.com"),
+                    ]),
+                ),
             })),
             total_saved_count: Arc::new(AtomicUsize::new(0)),
         };
@@ -771,7 +793,11 @@ mod tests {
             shop_settings_cache: Arc::new(Mutex::new(ShopSettingsCacheForSync {
                 // 既存テストと同様に有効なショップ設定を入れておき、
                 // 対象メッセージがフィルタ除外されないようにする
-                enabled_shops: vec![dummy_shop_settings(1, "a@example.com")],
+                enabled_shops: Arc::new(
+                    crate::logic::subject_filter::CompiledShopSetting::compile_all(&[
+                        dummy_shop_settings(1, "a@example.com"),
+                    ]),
+                ),
             })),
             total_saved_count: Arc::new(AtomicUsize::new(0)),
         };
@@ -805,7 +831,11 @@ mod tests {
             email_repo: Arc::new(email_repo),
             shop_settings_repo: Arc::new(shop_repo),
             shop_settings_cache: Arc::new(Mutex::new(ShopSettingsCacheForSync {
-                enabled_shops: vec![dummy_shop_settings(1, "a@example.com")],
+                enabled_shops: Arc::new(
+                    crate::logic::subject_filter::CompiledShopSetting::compile_all(&[
+                        dummy_shop_settings(1, "a@example.com"),
+                    ]),
+                ),
             })),
             total_saved_count: Arc::new(AtomicUsize::new(0)),
         };

@@ -30,10 +30,10 @@ pub trait EmailRepository: Send + Sync {
     /// 重複（既存 message_id）の場合も UPDATE が実行されるため、saved にカウントされる。
     /// skipped は rows_affected=0 のときのみ（SQLite の changes() は UPDATE でマッチ行数を返すため、通常は 0）。
     /// ログ／メトリクスで saved を「新規のみ」と解釈しないこと。
-    async fn save_messages(&self, messages: &[GmailMessage]) -> Result<(usize, usize), String>;
-
-    /// 既存のメッセージIDを取得
-    async fn get_existing_message_ids(&self) -> Result<Vec<String>, String>;
+    async fn save_messages<'a>(
+        &self,
+        messages: &[&'a GmailMessage],
+    ) -> Result<(usize, usize), String>;
 
     /// 指定されたメッセージIDのうち、emails テーブルに存在しないもののみを返す。
     /// メモリ効率のため、SQL の NOT IN を使用して DB 側でフィルタリングする。
@@ -117,7 +117,10 @@ impl EmailStatsRepository for SqliteEmailStatsRepository {
 
 #[async_trait]
 impl EmailRepository for SqliteEmailRepository {
-    async fn save_messages(&self, messages: &[GmailMessage]) -> Result<(usize, usize), String> {
+    async fn save_messages<'a>(
+        &self,
+        messages: &[&'a GmailMessage],
+    ) -> Result<(usize, usize), String> {
         let mut saved = 0;
         let mut skipped = 0;
 
@@ -126,7 +129,7 @@ impl EmailRepository for SqliteEmailRepository {
         // このクエリでは ON CONFLICT DO UPDATE が発生した場合、既存行に対して UPDATE が実行され、
         // COALESCE により既存値がそのまま再代入されるケースでも、その行は更新されたものとしてカウントされるため
         // rows_affected は 1 となる想定である。
-        // saved は「新規のみ」ではなく「INSERT/UPDATE が行われた件数」。FetchResult/SyncProgressEvent の
+        // saved は「新規のみ」ではなく「INSERT/UPDATE が行われた件数」。GmailSyncContext::total_saved_count / SyncProgressEvent の
         // saved_count/newly_saved に伝播する。
         // 参考: https://www.sqlite.org/c3ref/changes.html
 
@@ -173,15 +176,6 @@ impl EmailRepository for SqliteEmailRepository {
             .map_err(|e| format!("Failed to commit transaction: {e}"))?;
 
         Ok((saved, skipped))
-    }
-
-    async fn get_existing_message_ids(&self) -> Result<Vec<String>, String> {
-        let rows: Vec<(String,)> = sqlx::query_as("SELECT message_id FROM emails")
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| format!("Failed to get existing message IDs: {e}"))?;
-
-        Ok(rows.into_iter().map(|(id,)| id).collect())
     }
 
     async fn filter_new_message_ids(&self, message_ids: &[String]) -> Result<Vec<String>, String> {
@@ -307,7 +301,7 @@ mod tests {
         let pool = setup_test_db().await;
         let repo = SqliteEmailRepository::new(pool);
 
-        let messages = vec![
+        let messages = [
             GmailMessage {
                 message_id: "test123".to_string(),
                 snippet: "Test snippet".to_string(),
@@ -329,24 +323,24 @@ mod tests {
         ];
 
         // 保存
-        let (saved, skipped) = repo.save_messages(&messages).await.unwrap();
+        let (saved, skipped) = repo
+            .save_messages(&messages.iter().collect::<Vec<_>>())
+            .await
+            .unwrap();
         assert_eq!(saved, 2);
         assert_eq!(skipped, 0);
 
         // 重複保存: ON CONFLICT DO UPDATE により UPDATE が実行され、saved としてカウントされる
-        let (saved, skipped) = repo.save_messages(&messages).await.unwrap();
+        let (saved, skipped) = repo
+            .save_messages(&messages.iter().collect::<Vec<_>>())
+            .await
+            .unwrap();
         assert_eq!(saved, 2);
         assert_eq!(skipped, 0);
 
         // カウント確認
         let count = repo.get_message_count().await.unwrap();
         assert_eq!(count, 2);
-
-        // 既存ID取得
-        let ids = repo.get_existing_message_ids().await.unwrap();
-        assert_eq!(ids.len(), 2);
-        assert!(ids.contains(&"test123".to_string()));
-        assert!(ids.contains(&"test456".to_string()));
 
         // filter_new_message_ids: 既存IDは除外され、新規IDのみ返る
         let input_ids = vec![
@@ -374,7 +368,7 @@ mod tests {
         let repo = SqliteEmailRepository::new(pool);
 
         // 既存メッセージを3件保存
-        let existing = vec![
+        let existing = [
             GmailMessage {
                 message_id: "existing_1".to_string(),
                 snippet: "".to_string(),
@@ -403,7 +397,9 @@ mod tests {
                 from_address: None,
             },
         ];
-        repo.save_messages(&existing).await.unwrap();
+        repo.save_messages(&existing.iter().collect::<Vec<_>>())
+            .await
+            .unwrap();
 
         // 全既存ID → 空を返す
         let all_existing = vec![
@@ -465,7 +461,7 @@ mod tests {
         let pool = setup_test_db().await;
         let repo = SqliteEmailRepository::new(pool);
 
-        let messages = vec![
+        let messages = [
             GmailMessage {
                 message_id: "old".to_string(),
                 snippet: "".to_string(),
@@ -485,7 +481,9 @@ mod tests {
                 from_address: None,
             },
         ];
-        repo.save_messages(&messages).await.unwrap();
+        repo.save_messages(&messages.iter().collect::<Vec<_>>())
+            .await
+            .unwrap();
 
         let result = repo.get_latest_internal_date().await.unwrap();
         assert_eq!(result, Some(1704153600000));
@@ -496,7 +494,7 @@ mod tests {
         let pool = setup_test_db().await;
         let repo = SqliteEmailRepository::new(pool);
 
-        let messages = vec![GmailMessage {
+        let messages = [GmailMessage {
             message_id: "zero_date".to_string(),
             snippet: "".to_string(),
             subject: None,
@@ -505,7 +503,9 @@ mod tests {
             internal_date: 0,
             from_address: None,
         }];
-        repo.save_messages(&messages).await.unwrap();
+        repo.save_messages(&messages.iter().collect::<Vec<_>>())
+            .await
+            .unwrap();
 
         // internal_date = 0 のみの場合は None を返す（フル同期へフォールバック）
         let result = repo.get_latest_internal_date().await.unwrap();

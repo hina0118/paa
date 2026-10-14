@@ -59,9 +59,7 @@ pub struct AmazonConfirmParser;
 const ORDER_NUMBER_RE: &str = r"(\d{3}-\d{7}-\d{7})";
 
 /// カンマ区切りの数字文字列を i64 に変換
-fn parse_amount(s: &str) -> Option<i64> {
-    s.replace(',', "").trim().parse::<i64>().ok()
-}
+use crate::plugins::text::parse_yen as parse_amount;
 
 impl EmailParser for AmazonConfirmParser {
     /// 単一注文をパース（新フォーマット または 旧フォーマット単一注文）

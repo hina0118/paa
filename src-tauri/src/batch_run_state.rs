@@ -105,6 +105,50 @@ impl BatchRunState {
     }
 }
 
+/// `BatchRunState` を内包するバッチ状態型（newtype）を定義する
+///
+/// Tauri の `State` は型で区別されるため、バッチごとに別の型が必要になる。
+/// 多重起動時のエラーメッセージだけが異なる共通メソッドを生成する。
+macro_rules! define_batch_state {
+    ($(#[$meta:meta])* $name:ident, $busy_message:expr) => {
+        $(#[$meta])*
+        #[derive(Clone, Default)]
+        pub struct $name($crate::BatchRunState);
+
+        impl $name {
+            pub fn new() -> Self {
+                Self::default()
+            }
+
+            /// バッチを開始する（既に実行中なら Err）
+            pub fn try_start(&self) -> Result<(), String> {
+                self.0.try_start().map_err(|_| $busy_message.to_string())
+            }
+
+            /// バッチ完了時に呼ぶ
+            pub fn finish(&self) {
+                self.0.finish();
+            }
+
+            /// キャンセルを要求する
+            pub fn request_cancel(&self) {
+                self.0.request_cancel();
+            }
+
+            /// `BatchRunner` の `should_cancel` クロージャ用
+            pub fn should_cancel(&self) -> bool {
+                self.0.should_cancel()
+            }
+
+            /// 実行中かどうかを返す
+            pub fn is_running(&self) -> bool {
+                self.0.is_running()
+            }
+        }
+    };
+}
+pub(crate) use define_batch_state;
+
 #[cfg(test)]
 mod tests {
     use super::*;
