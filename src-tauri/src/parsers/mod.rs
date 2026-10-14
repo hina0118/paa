@@ -75,12 +75,6 @@ impl ParseState {
         self.0.try_start()
     }
 
-    /// 後方互換のエイリアス（`try_start` を推奨）
-    #[deprecated(note = "Use try_start() instead")]
-    pub fn start(&self) -> Result<(), String> {
-        self.try_start()
-    }
-
     pub fn finish(&self) {
         self.0.finish();
     }

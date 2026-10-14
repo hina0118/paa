@@ -313,58 +313,6 @@ impl GmailClient {
         Ok(auth)
     }
 
-    #[allow(dead_code)]
-    pub async fn fetch_messages(&self, query: &str) -> Result<Vec<GmailMessage>, String> {
-        let mut all_messages = Vec::new();
-        let mut page_token: Option<String> = None;
-
-        loop {
-            let mut req = self
-                .hub
-                .users()
-                .messages_list("me")
-                .q(query)
-                .include_spam_trash(true);
-
-            if let Some(token) = page_token {
-                req = req.page_token(&token);
-            }
-
-            let (_, result) = req
-                .doit()
-                .await
-                .map_err(|e| format!("Failed to list messages: {e}"))?;
-
-            if let Some(messages) = result.messages {
-                // メッセージIDを収集
-                let message_ids: Vec<String> =
-                    messages.iter().filter_map(|msg| msg.id.clone()).collect();
-
-                log::info!(
-                    "Fetching {} messages in parallel batches",
-                    message_ids.len()
-                );
-
-                // 順次処理でメッセージを取得
-                // 注: 並列処理はライフタイムの問題とGmail API制限により複雑
-                // 将来的な改善: tokio::spawn + Arc<Mutex<Hub>>の使用を検討
-                for message_id in message_ids {
-                    match self.get_message(&message_id).await {
-                        Ok(msg) => all_messages.push(msg),
-                        Err(e) => log::warn!("Failed to fetch message {message_id}: {e}"),
-                    }
-                }
-            }
-
-            page_token = result.next_page_token;
-            if page_token.is_none() {
-                break;
-            }
-        }
-
-        Ok(all_messages)
-    }
-
     async fn get_message(&self, message_id: &str) -> Result<GmailMessage, String> {
         log::debug!("Fetching message: {message_id}");
 

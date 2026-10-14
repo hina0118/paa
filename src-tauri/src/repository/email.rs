@@ -35,9 +35,6 @@ pub trait EmailRepository: Send + Sync {
         messages: &[&'a GmailMessage],
     ) -> Result<(usize, usize), String>;
 
-    /// 既存のメッセージIDを取得
-    async fn get_existing_message_ids(&self) -> Result<Vec<String>, String>;
-
     /// 指定されたメッセージIDのうち、emails テーブルに存在しないもののみを返す。
     /// メモリ効率のため、SQL の NOT IN を使用して DB 側でフィルタリングする。
     async fn filter_new_message_ids(&self, message_ids: &[String]) -> Result<Vec<String>, String>;
@@ -179,15 +176,6 @@ impl EmailRepository for SqliteEmailRepository {
             .map_err(|e| format!("Failed to commit transaction: {e}"))?;
 
         Ok((saved, skipped))
-    }
-
-    async fn get_existing_message_ids(&self) -> Result<Vec<String>, String> {
-        let rows: Vec<(String,)> = sqlx::query_as("SELECT message_id FROM emails")
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| format!("Failed to get existing message IDs: {e}"))?;
-
-        Ok(rows.into_iter().map(|(id,)| id).collect())
     }
 
     async fn filter_new_message_ids(&self, message_ids: &[String]) -> Result<Vec<String>, String> {
@@ -353,12 +341,6 @@ mod tests {
         // カウント確認
         let count = repo.get_message_count().await.unwrap();
         assert_eq!(count, 2);
-
-        // 既存ID取得
-        let ids = repo.get_existing_message_ids().await.unwrap();
-        assert_eq!(ids.len(), 2);
-        assert!(ids.contains(&"test123".to_string()));
-        assert!(ids.contains(&"test456".to_string()));
 
         // filter_new_message_ids: 既存IDは除外され、新規IDのみ返る
         let input_ids = vec![
