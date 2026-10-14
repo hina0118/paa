@@ -9,7 +9,6 @@
 //! |------|------|--------|
 //! | `run_sync_step` | Gmail 差分同期 | スケジューラのみ |
 //! | `run_parse_step` | メールパース | スケジューラ・UI |
-//! | `run_surugaya_step` | 駿河屋 HTML パース | UI のみ |
 //! | `run_product_parse_step` | 商品名パース | スケジューラ・UI |
 //! | `run_delivery_check_step` | 配送状況確認 | スケジューラ・UI |
 
@@ -127,57 +126,6 @@ pub(crate) async fn run_parse_step(app: &tauri::AppHandle, pool: &SqlitePool) ->
     StepOutcome::Ran {
         new_count: after.saturating_sub(before),
     }
-}
-
-/// 駿河屋マイページ HTML フェッチステップ（差分取得）。
-/// `surugaya-session` ウィンドウが開いていない場合は Skipped を返す。
-/// パース処理は `run_parse_step` 内の `run_surugaya_html_parse_step` で行う。
-#[allow(dead_code)]
-pub(crate) async fn run_surugaya_step(app: &tauri::AppHandle, pool: &SqlitePool) -> StepOutcome {
-    use crate::commands::{surugaya_session, SurugayaSessionState};
-    use tauri::Emitter;
-
-    // surugaya-session ウィンドウが開いていない（ログイン未済み）場合はスキップ
-    let win = match app.get_webview_window("surugaya-session") {
-        Some(w) => w,
-        None => {
-            log::info!("[Pipeline] Surugaya session window not open, skipping");
-            return StepOutcome::Skipped;
-        }
-    };
-
-    let session_state = match app.try_state::<SurugayaSessionState>() {
-        Some(s) => s.inner().clone(),
-        None => {
-            log::warn!("[Pipeline] SurugayaSessionState not available, skipping");
-            return StepOutcome::Skipped;
-        }
-    };
-
-    if let Err(e) = session_state.try_start() {
-        log::info!("[Pipeline] Surugaya fetch already running, skipping: {e}");
-        return StepOutcome::Skipped;
-    }
-
-    log::info!("[Pipeline] Surugaya mypage fetch step (diff only)");
-    // force_refetch = false: 差分取得のみ（パイプラインは効率優先）
-    let result = surugaya_session::run_mypage_batch(app, pool, &win, &session_state, false).await;
-    session_state.finish();
-
-    let (cancelled, error) = match result {
-        Ok(cancelled) => (cancelled, None),
-        Err(e) => {
-            log::warn!("[Pipeline] Surugaya fetch failed: {e}");
-            (false, Some(e))
-        }
-    };
-    let _ = app.emit(
-        "surugaya:fetch_complete",
-        serde_json::json!({ "cancelled": cancelled, "error": error }),
-    );
-
-    log::info!("[Pipeline] Surugaya mypage fetch step completed");
-    StepOutcome::Unknown
 }
 
 /// 商品名パースを実行する。
